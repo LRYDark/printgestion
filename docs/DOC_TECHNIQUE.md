@@ -112,8 +112,17 @@ Alert : vitesse = (level_t-30 − level_t) / 30 ; jours_restants = level_t / vit
         └─> Alertview::rebuild() : matérialisation pour le dashboard Search natif
 ```
 
-Résolution de la cartouche à commander pour une propriété SNMP (`Snmpmapping::resolveCartridgeItemForSnmp`) :
-binding direct (`cartridge_snmp`) **ou** mapping constructeur (`snmp_mapping`) → `CartridgeItem` GLPI.
+Résolution de la cartouche à commander pour une propriété SNMP (`Snmpmapping::resolveCartridge`), **stricte** :
+
+1. modèle d'imprimante obligatoire (sinon : référence non résolue) ;
+2. liaison directe (`cartridge_snmp`), restreinte aux cartouches déclarées compatibles avec le modèle ;
+3. à défaut, type du mapping SNMP (`snmp_mapping`), restreint aux cartouches de ce type compatibles avec le modèle ;
+4. plusieurs candidates à la même étape : celle de l'entité de l'imprimante si elle est seule, sinon ambiguïté
+   (référence non résolue — jamais de choix arbitraire).
+
+Aucun repli sans modèle (liaison toutes imprimantes confondues, type seul toutes marques). Référence non
+résolue = cartouche non commandable : badge « Réf. non résolue » avec le motif, exclue de la fenêtre de
+commande, refus côté serveur. Les synchronisations de l'onglet Cartouches natif ignorent aussi ces emplacements.
 Le stock = cartouches du modèle ni installées (`date_use IS NULL`) ni sorties (`date_out IS NULL`).
 
 ---

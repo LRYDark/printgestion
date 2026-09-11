@@ -788,6 +788,9 @@ class PluginPrintgestionAlert extends CommonDBTM {
                     'has_expedition' => false,
                 ];
             }
+            // Référence de cartouche, résolution stricte : si elle n'est pas résolue, la
+            // cartouche n'est pas commandable et le motif est affiché.
+            $ref = PluginPrintgestionSnmpmapping::resolveCartridge($pid, (string)$r['property']);
             $groups[$pid]['cartridges'][] = [
                 'property'       => (string)$r['property'],
                 'level'          => (int)$r['level'],
@@ -800,10 +803,9 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 'snoozed'        => (bool)($r['snoozed'] ?? false),
                 'snooze_until'   => $r['snooze_until'] ?? null,
                 'lock'           => $r['lock'] ?? null,
+                'ref_error'      => $ref['cartridgeitems_id'] > 0 ? '' : (string)$ref['message'],
                 // Stock GLPI de la cartouche (sert à pré-cocher « Planif » dans la commande).
-                'stock'          => PluginPrintgestionExpedition::getCartridgeStock(
-                    PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($pid, (string)$r['property'])
-                ),
+                'stock'          => PluginPrintgestionExpedition::getCartridgeStock((int)$ref['cartridgeitems_id']),
             ];
 
             // Agrégats par imprimante

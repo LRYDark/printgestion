@@ -109,149 +109,165 @@ class PluginPrintgestionSnmpmapping extends CommonDBTM {
         }
     }
 
+    /** Référence non résolue : imprimante ou propriété introuvable. */
+    const REF_NO_PRINTER = 'no_printer';
+    /** Référence non résolue : modèle d'imprimante non renseigné. */
+    const REF_NO_MODEL   = 'no_model';
+    /** Référence non résolue : aucune cartouche liée et compatible avec le modèle. */
+    const REF_NOT_FOUND  = 'not_found';
+    /** Référence non résolue : plusieurs cartouches possibles, aucune n'est choisie. */
+    const REF_AMBIGUOUS  = 'ambiguous';
+
+    /** Résolutions calculées pendant la requête courante : "printers_id|property" => résultat. */
+    private static array $resolved = [];
+
     /**
-     * Résout le cartridgeitems_id à utiliser pour une imprimante + propriété SNMP.
+     * Résout la cartouche (CartridgeItem) à commander pour une imprimante et une
+     * propriété SNMP. Résolution STRICTE : le modèle d'imprimante est obligatoire et
+     * seule une cartouche déclarée compatible avec ce modèle peut être retenue.
      *
-     * Cascade de priorités (du plus précis au plus large) :
-     *   1. Type GLPI défini dans le mapping + compatible avec le modèle d'imprimante
-     *      (via glpi_cartridgeitems_printermodels) + même entité
-     *   2. Type GLPI défini dans le mapping + compatible avec le modèle d'imprimante
-     *   3. Type GLPI défini dans le mapping uniquement (n'importe quelle imprimante)
-     *   4. Compatible avec le modèle d'imprimante + nom matchant cartridge_type (LIKE)
-     *   5. Nom matchant cartridge_type (LIKE) — fallback historique
+     *   1. Liaison directe cartouche ↔ propriété (onglet Print Gestion de la cartouche),
+     *      restreinte aux cartouches compatibles avec le modèle de l'imprimante.
+     *   2. À défaut, type de cartouche du mapping SNMP, restreint aux cartouches de ce
+     *      type compatibles avec le modèle.
      *
-     * Retourne l'ID cartridgeitems ou 0 si rien trouvé.
+     * Plusieurs candidates à la même étape : celle de l'entité de l'imprimante si elle
+     * est seule dans ce cas, sinon aucune — l'ambiguïté est signalée, jamais tranchée
+     * au hasard (cartouche standard et XL liées à la même propriété, par exemple).
+     * Aucun repli sans modèle : ni liaison directe toutes imprimantes confondues, ni type
+     * seul toutes marques. Une référence non résolue rend la cartouche non commandable.
+     *
+     * @return array ['cartridgeitems_id' => int (0 si non résolue),
+     *                'error'             => ?string (REF_*, null si résolue),
+     *                'message'           => string (motif lisible, vide si résolue)]
      */
-    public static function resolveCartridgeItemForSnmp(int $printers_id, string $property): int {
+    public static function resolveCartridge(int $printers_id, string $property): array {
         global $DB;
 
-        // Récupère modèle imprimante + entité (utilisé par toutes les stratégies)
-        $printerRow = $DB->request([
-            'SELECT' => ['printermodels_id', 'entities_id'],
-            'FROM'   => 'glpi_printers',
-            'WHERE'  => ['id' => $printers_id],
-            'LIMIT'  => 1,
-        ])->current();
-
-        $printermodels_id = is_array($printerRow) ? (int)($printerRow['printermodels_id'] ?? 0) : 0;
-        $entities_id      = is_array($printerRow) ? (int)($printerRow['entities_id'] ?? 0)      : 0;
-
-        // ══════════════════════════════════════════════════════════════
-        //  PRIORITÉ 0 : binding direct cartouche ↔ propriété SNMP
-        //  (défini depuis l'onglet Print Gestion de la fiche CartridgeItem).
-        //  On restreint aux cartouches compatibles avec le modèle imprimante.
-        // ══════════════════════════════════════════════════════════════
-        if ($printermodels_id > 0) {
-            $row = $DB->request([
-                'SELECT'     => ['ci.id'],
-                'FROM'       => 'glpi_cartridgeitems AS ci',
-                'INNER JOIN' => [
-                    'glpi_plugin_printgestion_cartridge_snmp AS pcs' => [
-                        'ON' => ['ci' => 'id', 'pcs' => 'cartridgeitems_id'],
-                    ],
-                    'glpi_cartridgeitems_printermodels AS cpm' => [
-                        'ON' => ['ci' => 'id', 'cpm' => 'cartridgeitems_id'],
-                    ],
-                ],
-                'WHERE' => [
-                    'ci.is_deleted'         => 0,
-                    'pcs.snmp_property'     => $property,
-                    'cpm.printermodels_id'  => $printermodels_id,
-                ],
-                'LIMIT' => 1,
-            ])->current();
-            if (is_array($row)) return (int)$row['id'];
+        $key = $printers_id . '|' . $property;
+        if (isset(self::$resolved[$key])) {
+            return self::$resolved[$key];
         }
 
-        // Fallback : binding direct sans filtre modèle imprimante (edge case : cartouche
-        // non déclarée compatible mais quand même bindée à cette propriété)
-        $row = $DB->request([
-            'SELECT'     => ['ci.id'],
+        $printer = $DB->request([
+            'SELECT'    => ['p.printermodels_id', 'p.entities_id', 'pm.name AS model_name'],
+            'FROM'      => 'glpi_printers AS p',
+            'LEFT JOIN' => [
+                'glpi_printermodels AS pm' => ['ON' => ['p' => 'printermodels_id', 'pm' => 'id']],
+            ],
+            'WHERE'     => ['p.id' => $printers_id],
+            'LIMIT'     => 1,
+        ])->current();
+
+        if (!is_array($printer) || $property === '') {
+            return self::$resolved[$key] = self::refResult(
+                0,
+                self::REF_NO_PRINTER,
+                __('Imprimante ou propriété SNMP introuvable.', 'printgestion')
+            );
+        }
+
+        $model_id    = (int) $printer['printermodels_id'];
+        $entities_id = (int) $printer['entities_id'];
+        if ($model_id <= 0) {
+            return self::$resolved[$key] = self::refResult(
+                0,
+                self::REF_NO_MODEL,
+                __('Modèle d\'imprimante non renseigné sur la fiche : la cartouche ne peut pas être déterminée.', 'printgestion')
+            );
+        }
+
+        // 1. Liaison directe, restreinte au modèle.
+        $candidates = self::compatibleCartridges(
+            $model_id,
+            ['glpi_plugin_printgestion_cartridge_snmp AS pcs' => ['ON' => ['ci' => 'id', 'pcs' => 'cartridgeitems_id']]],
+            ['pcs.snmp_property' => $property]
+        );
+
+        // 2. Type de cartouche du mapping SNMP, restreint au modèle.
+        if (empty($candidates)) {
+            $map     = self::resolveForPrinter($printers_id, $property);
+            $type_id = is_array($map) ? (int) ($map['cartridgeitemtypes_id'] ?? 0) : 0;
+            if ($type_id > 0) {
+                $candidates = self::compatibleCartridges($model_id, [], ['ci.cartridgeitemtypes_id' => $type_id]);
+            }
+        }
+
+        $model_name = (string) ($printer['model_name'] ?? '');
+        if (empty($candidates)) {
+            return self::$resolved[$key] = self::refResult(
+                0,
+                self::REF_NOT_FOUND,
+                sprintf(
+                    __('Aucune cartouche liée à la propriété « %1$s » et déclarée compatible avec le modèle « %2$s » (onglet Print Gestion de la cartouche, ou type du mapping SNMP).', 'printgestion'),
+                    $property,
+                    $model_name
+                )
+            );
+        }
+
+        if (count($candidates) > 1) {
+            $same_entity = array_filter(
+                $candidates,
+                static fn(array $c) => (int) $c['entities_id'] === $entities_id
+            );
+            if (count($same_entity) !== 1) {
+                return self::$resolved[$key] = self::refResult(
+                    0,
+                    self::REF_AMBIGUOUS,
+                    sprintf(
+                        __('Plusieurs cartouches possibles pour la propriété « %1$s » et le modèle « %2$s » (%3$s) : ne liez qu\'une seule cartouche à cette propriété pour ce modèle.', 'printgestion'),
+                        $property,
+                        $model_name,
+                        implode(', ', array_column($candidates, 'name'))
+                    )
+                );
+            }
+            $candidates = $same_entity;
+        }
+
+        return self::$resolved[$key] = self::refResult((int) array_key_first($candidates), null, '');
+    }
+
+    /**
+     * ID de la cartouche résolue (résolution stricte, voir resolveCartridge()),
+     * 0 si aucune référence n'est déterminée.
+     */
+    public static function resolveCartridgeItemForSnmp(int $printers_id, string $property): int {
+        return (int) self::resolveCartridge($printers_id, $property)['cartridgeitems_id'];
+    }
+
+    /**
+     * Cartouches non supprimées déclarées compatibles avec un modèle d'imprimante,
+     * filtrées par les jointures et conditions données. Clé = id.
+     */
+    private static function compatibleCartridges(int $printermodels_id, array $join, array $where): array {
+        global $DB;
+
+        $out = [];
+        foreach ($DB->request([
+            'SELECT'     => ['ci.id', 'ci.name', 'ci.entities_id'],
             'FROM'       => 'glpi_cartridgeitems AS ci',
-            'INNER JOIN' => [
-                'glpi_plugin_printgestion_cartridge_snmp AS pcs' => [
-                    'ON' => ['ci' => 'id', 'pcs' => 'cartridgeitems_id'],
-                ],
+            'INNER JOIN' => $join + [
+                'glpi_cartridgeitems_printermodels AS cpm' => ['ON' => ['ci' => 'id', 'cpm' => 'cartridgeitems_id']],
             ],
-            'WHERE' => [
-                'ci.is_deleted'     => 0,
-                'pcs.snmp_property' => $property,
+            'WHERE'      => $where + [
+                'ci.is_deleted'        => 0,
+                'cpm.printermodels_id' => $printermodels_id,
             ],
-            'LIMIT' => 1,
-        ])->current();
-        if (is_array($row)) return (int)$row['id'];
-
-        // ══════════════════════════════════════════════════════════════
-        //  FALLBACK : ancien système par type de cartouche (via table mapping)
-        //  Conservé pour les utilisateurs qui n'ont pas encore migré leurs
-        //  bindings vers le nouveau mode direct.
-        // ══════════════════════════════════════════════════════════════
-        $map = self::resolveForPrinter($printers_id, $property);
-        if ($map === null) {
-            return 0;
+            'ORDER'      => ['ci.name'],
+        ]) as $row) {
+            $out[(int) $row['id']] = $row;
         }
+        return $out;
+    }
 
-        $type_id = (int)($map['cartridgeitemtypes_id'] ?? 0);
-        if ($type_id <= 0) {
-            return 0;
-        }
-
-        // ── Priorité 1 : type + modèle imprimante + entité ──
-        if ($type_id > 0 && $printermodels_id > 0) {
-            $row = $DB->request([
-                'SELECT' => ['ci.id'],
-                'FROM'   => 'glpi_cartridgeitems AS ci',
-                'INNER JOIN' => [
-                    'glpi_cartridgeitems_printermodels AS cpm' => [
-                        'ON' => ['ci' => 'id', 'cpm' => 'cartridgeitems_id'],
-                    ],
-                ],
-                'WHERE' => [
-                    'ci.is_deleted'           => 0,
-                    'ci.cartridgeitemtypes_id'=> $type_id,
-                    'ci.entities_id'          => $entities_id,
-                    'cpm.printermodels_id'    => $printermodels_id,
-                ],
-                'LIMIT' => 1,
-            ])->current();
-            if (is_array($row)) return (int)$row['id'];
-        }
-
-        // ── Priorité 2 : type + modèle imprimante (toute entité) ──
-        if ($type_id > 0 && $printermodels_id > 0) {
-            $row = $DB->request([
-                'SELECT' => ['ci.id'],
-                'FROM'   => 'glpi_cartridgeitems AS ci',
-                'INNER JOIN' => [
-                    'glpi_cartridgeitems_printermodels AS cpm' => [
-                        'ON' => ['ci' => 'id', 'cpm' => 'cartridgeitems_id'],
-                    ],
-                ],
-                'WHERE' => [
-                    'ci.is_deleted'           => 0,
-                    'ci.cartridgeitemtypes_id'=> $type_id,
-                    'cpm.printermodels_id'    => $printermodels_id,
-                ],
-                'LIMIT' => 1,
-            ])->current();
-            if (is_array($row)) return (int)$row['id'];
-        }
-
-        // ── Priorité 3 : type seul ──
-        if ($type_id > 0) {
-            $row = $DB->request([
-                'SELECT' => ['id'],
-                'FROM'   => 'glpi_cartridgeitems',
-                'WHERE'  => [
-                    'is_deleted'            => 0,
-                    'cartridgeitemtypes_id' => $type_id,
-                ],
-                'LIMIT' => 1,
-            ])->current();
-            if (is_array($row)) return (int)$row['id'];
-        }
-
-        return 0;
+    private static function refResult(int $cartridgeitems_id, ?string $error, string $message): array {
+        return [
+            'cartridgeitems_id' => $cartridgeitems_id,
+            'error'             => $error,
+            'message'           => $message,
+        ];
     }
 
     /**

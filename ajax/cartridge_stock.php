@@ -34,7 +34,8 @@ if (!PluginPrintgestionSecurity::canAccessPrinter($printers_id)) {
 
 global $DB;
 
-$cartridgeitems_id = PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($printers_id, $property);
+$ref               = PluginPrintgestionSnmpmapping::resolveCartridge($printers_id, $property);
+$cartridgeitems_id = (int)$ref['cartridgeitems_id'];
 $cartridge_name = '';
 $location = '';
 
@@ -64,4 +65,6 @@ echo json_encode([
     'cartridgeitems_id' => $cartridgeitems_id,
     'stock'             => $stock,
     'location'          => $location,
+    // Motif si la référence n'est pas résolue (résolution stricte), vide sinon.
+    'ref_error'         => $cartridgeitems_id > 0 ? '' : (string)$ref['message'],
 ]);

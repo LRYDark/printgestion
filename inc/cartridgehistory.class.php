@@ -400,7 +400,7 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
             $printers_id = (int)$r['printers_id'];
             $property    = (string)$r['property'];
 
-            // Résolution via le résolveur intelligent (cascade : type+model → type → nom)
+            // Résolution stricte (modèle obligatoire) : pas de cartouche native sans référence sûre.
             $cartridgeitems_id = PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($printers_id, $property);
             if ($cartridgeitems_id <= 0) {
                 continue;
@@ -514,7 +514,7 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
         }
         $entities_id = (int)$printerRow['entities_id'];
 
-        // Résolveur intelligent (cascade : type+model → type → nom LIKE)
+        // Résolution stricte (modèle obligatoire) : pas de synchronisation native sans référence sûre.
         $cartridgeitems_id = PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($printers_id, $property);
         if ($cartridgeitems_id <= 0) {
             return;

@@ -158,7 +158,18 @@ nouvelle interception passe par `PluginPrintgestionLogger`.
 
 Stock = cartouches du `CartridgeItem` résolu avec `date_use IS NULL AND date_out IS NULL`.
 Vérifier le binding (onglet Print Gestion de la cartouche, ou mapping SNMP constructeur) :
-`Snmpmapping::resolveCartridgeItemForSnmp()` doit retrouver le bon modèle.
+`Snmpmapping::resolveCartridge()` doit retrouver le bon modèle.
+
+### Cartouche « Réf. non résolue » (non commandable)
+
+Le motif s'affiche au survol du badge (écran Alertes) et dans « Voir stock » :
+
+- **modèle non renseigné** : compléter le modèle sur la fiche imprimante ;
+- **aucune cartouche** : sur la fiche de la cartouche, déclarer le modèle dans « Modèles d'imprimantes
+  compatibles », puis lier la propriété SNMP dans l'onglet Print Gestion (ou renseigner le type de cartouche
+  dans le mapping SNMP de la configuration) ;
+- **plusieurs cartouches possibles** (standard et XL, par exemple) : ne lier qu'une cartouche à la propriété
+  pour ce modèle, ou n'en garder qu'une dans l'entité de l'imprimante.
 
 ### Excel de commande vide/incomplet
 

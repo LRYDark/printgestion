@@ -620,6 +620,9 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      * bloquant fait refuser la commande entière (écran périmé, à recharger). Une ligne
      * en double dans la commande est écartée, une commande sous contournement passe
      * avec un avertissement.
+     * Référence : la cartouche est résolue strictement (Snmpmapping::resolveCartridge) ;
+     * une seule ligne sans référence résolue fait aussi refuser la commande entière —
+     * jamais de ligne sans référence dans le fichier des Achats.
      *
      * @return array ['ok'=>bool,'created'=>int,'skipped'=>int (toujours 0, conservé pour
      *                compatibilité),'mail'=>bool,'rows'=>int,'error'=>string (si ok = false),
@@ -688,20 +691,28 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         $locks   = PluginPrintgestionGuard::evaluateLive(array_values($clean));
         $refused = [];
         foreach ($clean as $key => $c) {
+            $label = sprintf(
+                '%s — %s',
+                $printer_names[$c['printers_id']] ?? ('#' . $c['printers_id']),
+                $c['property']
+            );
+
+            // Référence de cartouche : résolution stricte, pas de ligne sans référence.
+            $ref = PluginPrintgestionSnmpmapping::resolveCartridge($c['printers_id'], $c['property']);
+            if ($ref['cartridgeitems_id'] <= 0) {
+                $refused[] = $label . ' : ' . $ref['message'];
+                continue;
+            }
+            $clean[$key]['cartridgeitems_id'] = (int)$ref['cartridgeitems_id'];
+
             $lock = $locks[$key] ?? null;
             if ($lock === null) {
                 continue;
             }
-            $line = sprintf(
-                '%s — %s : %s',
-                $printer_names[$c['printers_id']] ?? ('#' . $c['printers_id']),
-                $c['property'],
-                $lock['message']
-            );
             if ($lock['blocking']) {
-                $refused[] = $line;
+                $refused[] = $label . ' : ' . $lock['message'];
             } else {
-                $result['warnings'][] = __('Commandé sous contournement', 'printgestion') . ' — ' . $line;
+                $result['warnings'][] = __('Commandé sous contournement', 'printgestion') . ' — ' . $label . ' : ' . $lock['message'];
             }
         }
         if (!empty($refused)) {
@@ -711,7 +722,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             }
             $result['warnings'] = [];
             $result['error']    = sprintf(
-                __('Commande non passée : %d cartouche(s) sous verrou anti-double-envoi. Rechargez l\'écran. Aucune expédition n\'a été enregistrée.', 'printgestion'),
+                __('Commande non passée : %d cartouche(s) non commandable(s) (verrou anti-double-envoi ou référence de cartouche non résolue). Rechargez l\'écran. Aucune expédition n\'a été enregistrée.', 'printgestion'),
                 count($refused)
             ) . "\n- " . implode("\n- ", $shown);
             return $result;
@@ -721,7 +732,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         $rows      = [];
         $to_create = [];
         foreach ($clean as $c) {
-            $cartridgeitems_id = PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($c['printers_id'], $c['property']);
+            $cartridgeitems_id = $c['cartridgeitems_id'];
             $to_create[] = [
                 'printers_id' => $c['printers_id'],
                 'property'    => $c['property'],

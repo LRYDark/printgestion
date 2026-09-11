@@ -159,7 +159,8 @@ $labels = [
     'lock_guard'        => __('Garde après pose', 'printgestion'),
     'lock_ticket'       => __('Ticket récent', 'printgestion'),
     'lock_bypassed'     => __('Contournement', 'printgestion'),
-    'excluded_title'    => __('Non commandables (verrou anti-double-envoi) :', 'printgestion'),
+    'excluded_title'    => __('Non commandables (verrou anti-double-envoi ou référence non résolue) :', 'printgestion'),
+    'ref_unresolved'    => __('Réf. non résolue', 'printgestion'),
     'nothing_orderable' => __('Aucune cartouche commandable dans la sélection.', 'printgestion'),
 ];
 $labels_json = json_encode($labels, JSON_UNESCAPED_UNICODE);
@@ -268,8 +269,20 @@ echo <<<HTML
     const lbl = lock.bypassed ? L.lock_bypassed : (labels[lock.reason] || lock.reason);
     return '<span class="badge ' + cls + '" title="' + esc(lock.message) + '">' + esc(lbl) + '</span>';
   }
+  // Référence de cartouche non résolue (modèle absent, aucune ou plusieurs cartouches
+  // possibles) : cartouche non commandable, motif au survol.
+  function refBadge(c) {
+    return '<span class="badge bg-danger" title="' + esc(c.ref_error) + '">' + esc(L.ref_unresolved) + '</span>';
+  }
   function stackItemExpedition(c) {
-    return '<div class="pc-stack-item">' + (c.expedition ? expeditionBadge(c.expedition) : lockBadge(c.lock)) + '</div>';
+    const cell = c.expedition ? expeditionBadge(c.expedition)
+      : (c.lock ? lockBadge(c.lock) : (c.ref_error ? refBadge(c) : '—'));
+    return '<div class="pc-stack-item">' + cell + '</div>';
+  }
+  // Motif rendant une cartouche non commandable, chaîne vide si elle l'est.
+  function blockReason(it) {
+    if (it.lock && it.lock.blocking) return it.lock.message;
+    return it.ref_error || '';
   }
 
   function worstStatusBadge(row) {
@@ -449,6 +462,7 @@ echo <<<HTML
           cartridge:    (c.cartridge_type || c.property),
           stock:        (c.stock != null ? c.stock : 0),
           lock:         (c.lock || null),
+          ref_error:    (c.ref_error || ''),
         });
       });
     });
@@ -465,11 +479,11 @@ echo <<<HTML
       if (tr) rows = [tr];
     }
     const all = collectItems(rows);
-    // Anti-double-envoi : les cartouches sous verrou bloquant (envoi en cours, garde,
-    // ticket) sont retirées de la commande et listées à part avec leur motif. Le
-    // serveur refuse de toute façon ces lignes.
-    const items    = all.filter(function(it) { return !(it.lock && it.lock.blocking); });
-    const excluded = all.filter(function(it) { return it.lock && it.lock.blocking; });
+    // Les cartouches sous verrou bloquant (envoi en cours, garde, ticket) ou sans
+    // référence résolue sont retirées de la commande et listées à part avec leur
+    // motif. Le serveur refuse de toute façon ces lignes.
+    const items    = all.filter(function(it) { return blockReason(it) === ''; });
+    const excluded = all.filter(function(it) { return blockReason(it) !== ''; });
 
     // Pré-coche « Planif » si au moins une cartouche est en stock ; courtoisie
     // décochée par défaut : un mail à un client externe est un choix explicite.
@@ -508,7 +522,7 @@ echo <<<HTML
       html += '<div class="alert alert-secondary mb-0 small"><strong>' + esc(L.excluded_title) + '</strong>'
             + '<ul class="mb-0 ps-3">';
       excluded.forEach(function(it) {
-        html += '<li>' + esc(it.printer_name) + ' — ' + esc(it.property) + ' : ' + esc(it.lock.message) + '</li>';
+        html += '<li>' + esc(it.printer_name) + ' — ' + esc(it.property) + ' : ' + esc(blockReason(it)) + '</li>';
       });
       html += '</ul></div>';
     }

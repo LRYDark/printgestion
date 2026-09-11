@@ -1001,6 +1001,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (d.entity_name) html += '<tr><th>' + escapeHtml(MSG.client_label) + '</th><td>' + escapeHtml(d.entity_name) + '</td></tr>';
         html += '<tr><th>' + escapeHtml(MSG.property_label) + '</th><td>' + escapeHtml(d.property) + '</td></tr>';
         html += '<tr><th>' + escapeHtml(MSG.cartridge_label) + '</th><td>' + escapeHtml(data.cartridge_name || '—') + '</td></tr>';
+        if (data.ref_error) html += '<tr><td colspan="2" class="text-danger small">' + escapeHtml(data.ref_error) + '</td></tr>';
         html += '<tr><th>' + escapeHtml(MSG.stock_label) + '</th><td><strong class="'
              + (data.stock > 0 ? 'text-success' : 'text-danger') + '">' + data.stock + '</strong></td></tr>';
         if (data.location) html += '<tr><th>' + escapeHtml(MSG.location_label) + '</th><td>' + escapeHtml(data.location) + '</td></tr>';
@@ -1218,7 +1219,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const nameCell  = row.querySelector('.pc-cart-name');
         const stockCell = row.querySelector('.pc-cart-stock');
         if (data && data.ok) {
-          if (nameCell)  nameCell.textContent  = data.cartridge_name || c.cartridge_type || '—';
+          if (nameCell)  nameCell.textContent  = data.cartridge_name || data.ref_error || c.cartridge_type || '—';
+          if (nameCell && data.ref_error) nameCell.classList.add('text-danger');
           if (stockCell) {
             const n = data.stock || 0;
             stockCell.innerHTML = '<strong class="' + (n > 0 ? 'text-success' : 'text-danger') + '">'
