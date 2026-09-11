@@ -615,8 +615,15 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      * cartouche que les Achats n'avaient jamais reçue.
      *
      * @param array $items [['printers_id'=>int,'property'=>string,'level'=>int,'days'=>?int], ...]
-     * @return array ['ok'=>bool,'created'=>int,'skipped'=>int,'mail'=>bool,'rows'=>int,
-     *                'error'=>string (si ok = false),'warnings'=>string[] (mails complémentaires)]
+     * Anti-double-envoi : les verrous (envoi en cours, garde après pose, ticket récent)
+     * sont réévalués côté serveur avant toute écriture ; une seule ligne sous verrou
+     * bloquant fait refuser la commande entière (écran périmé, à recharger). Une ligne
+     * en double dans la commande est écartée, une commande sous contournement passe
+     * avec un avertissement.
+     *
+     * @return array ['ok'=>bool,'created'=>int,'skipped'=>int (toujours 0, conservé pour
+     *                compatibilité),'mail'=>bool,'rows'=>int,'error'=>string (si ok = false),
+     *                'warnings'=>string[] (contournements, lignes en double, mails complémentaires)]
      */
     public static function createPurchaseOrder(array $items, bool $send_planif = false, bool $send_courtesy = false): array {
         global $DB;
@@ -635,47 +642,99 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             return $result;
         }
 
-        // ── 1. Préparation, sans écriture : lignes de l'Excel et expéditions à créer ──
-        $rows      = [];
-        $to_create = [];
-
+        // ── 1. Lignes valides, une seule fois chacune ──
+        $clean = [];
         foreach ($items as $item) {
             $printers_id = (int)($item['printers_id'] ?? 0);
             $property    = trim((string)($item['property'] ?? ''));
             if ($printers_id <= 0 || $property === '') {
                 continue;
             }
-            $level = (int)($item['level'] ?? 0);
-            $days  = (isset($item['days']) && $item['days'] !== null) ? (int)$item['days'] : null;
-            if ($days !== null && $days <= 0) {
-                $days = null;
+            $key = $printers_id . '|' . $property;
+            if (isset($clean[$key])) {
+                // La même cartouche deux fois dans une commande serait déjà un double envoi.
+                $result['warnings'][] = sprintf(
+                    __('Ligne en double ignorée : toner %1$s de l\'imprimante #%2$d.', 'printgestion'),
+                    $property,
+                    $printers_id
+                );
+                continue;
             }
-
-            // Anti-doublon : si une expédition active existe déjà, on ne recrée pas
-            // d'expédition mais on liste quand même la cartouche dans la commande.
-            if (self::getActiveForPrinterProperty($printers_id, $property) !== null) {
-                $result['skipped']++;
-            } else {
-                $cartridgeitems_id = PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($printers_id, $property);
-                $to_create[] = [
-                    'printers_id' => $printers_id,
-                    'property'    => $property,
-                    'level'       => $level,
-                    'days'        => $days,
-                    'reason'      => self::getCartridgeStock($cartridgeitems_id) > 0 ? 'normal' : 'stock_empty',
-                ];
-            }
-
-            $row = self::buildPurchaseRowData($printers_id, $property);
-            // Niveau / jours restants : utilisés par le mail planif (envoi simple)
-            $row['level'] = $level;
-            $row['days']  = $days;
-            $rows[] = $row;
+            $days = (isset($item['days']) && $item['days'] !== null) ? (int)$item['days'] : null;
+            $clean[$key] = [
+                'printers_id' => $printers_id,
+                'property'    => $property,
+                'level'       => (int)($item['level'] ?? 0),
+                'days'        => ($days !== null && $days > 0) ? $days : null,
+            ];
         }
-
-        if (empty($rows)) {
+        if (empty($clean)) {
             $result['error'] = __('Aucune cartouche valide à commander.', 'printgestion');
             return $result;
+        }
+
+        // ── 2. Verrous anti-double-envoi, évalués côté serveur (niveau relu dans l'inventaire) ──
+        // Une seule ligne verrouillée fait refuser la commande entière : l'écran était
+        // périmé (autre commande, pose, ticket…) et doit être rechargé avant de recommander.
+        $printer_names = [];
+        foreach ($DB->request([
+            'SELECT' => ['id', 'name'],
+            'FROM'   => 'glpi_printers',
+            'WHERE'  => ['id' => array_values(array_unique(array_column($clean, 'printers_id')))],
+        ]) as $printer_row) {
+            $printer_names[(int)$printer_row['id']] = (string)$printer_row['name'];
+        }
+
+        $locks   = PluginPrintgestionGuard::evaluateLive(array_values($clean));
+        $refused = [];
+        foreach ($clean as $key => $c) {
+            $lock = $locks[$key] ?? null;
+            if ($lock === null) {
+                continue;
+            }
+            $line = sprintf(
+                '%s — %s : %s',
+                $printer_names[$c['printers_id']] ?? ('#' . $c['printers_id']),
+                $c['property'],
+                $lock['message']
+            );
+            if ($lock['blocking']) {
+                $refused[] = $line;
+            } else {
+                $result['warnings'][] = __('Commandé sous contournement', 'printgestion') . ' — ' . $line;
+            }
+        }
+        if (!empty($refused)) {
+            $shown = array_slice($refused, 0, self::MAIL_LIST_MAX);
+            if (count($refused) > self::MAIL_LIST_MAX) {
+                $shown[] = sprintf(__('… et %d autre(s)', 'printgestion'), count($refused) - self::MAIL_LIST_MAX);
+            }
+            $result['warnings'] = [];
+            $result['error']    = sprintf(
+                __('Commande non passée : %d cartouche(s) sous verrou anti-double-envoi. Rechargez l\'écran. Aucune expédition n\'a été enregistrée.', 'printgestion'),
+                count($refused)
+            ) . "\n- " . implode("\n- ", $shown);
+            return $result;
+        }
+
+        // ── 3. Préparation, sans écriture : lignes de l'Excel et expéditions à créer ──
+        $rows      = [];
+        $to_create = [];
+        foreach ($clean as $c) {
+            $cartridgeitems_id = PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($c['printers_id'], $c['property']);
+            $to_create[] = [
+                'printers_id' => $c['printers_id'],
+                'property'    => $c['property'],
+                'level'       => $c['level'],
+                'days'        => $c['days'],
+                'reason'      => self::getCartridgeStock($cartridgeitems_id) > 0 ? 'normal' : 'stock_empty',
+            ];
+
+            $row = self::buildPurchaseRowData($c['printers_id'], $c['property']);
+            // Niveau / jours restants : utilisés par le mail planif (envoi simple)
+            $row['level'] = $c['level'];
+            $row['days']  = $c['days'];
+            $rows[] = $row;
         }
         $result['rows'] = count($rows);
 

@@ -154,6 +154,13 @@ $labels = [
     'stock_empty'=> __('Stock vide', 'printgestion'),
     'empty'      => __('Aucune alerte', 'printgestion'),
     'snoozed_tip'=> __('Alertes désactivées (snooze actif)', 'printgestion'),
+    // Verrous anti-double-envoi
+    'lock_in_progress'  => __('Envoi en cours', 'printgestion'),
+    'lock_guard'        => __('Garde après pose', 'printgestion'),
+    'lock_ticket'       => __('Ticket récent', 'printgestion'),
+    'lock_bypassed'     => __('Contournement', 'printgestion'),
+    'excluded_title'    => __('Non commandables (verrou anti-double-envoi) :', 'printgestion'),
+    'nothing_orderable' => __('Aucune cartouche commandable dans la sélection.', 'printgestion'),
 ];
 $labels_json = json_encode($labels, JSON_UNESCAPED_UNICODE);
 
@@ -252,8 +259,17 @@ echo <<<HTML
   function stackItemDays(c) {
     return '<div class="pc-stack-item">' + daysTxt(c) + '</div>';
   }
+  // Verrou anti-double-envoi sans envoi affiché sur la ligne : garde après pose,
+  // ticket récent, ou envoi en cours sur une fiche portant le même n° de série.
+  function lockBadge(lock) {
+    if (!lock) return '—';
+    const labels = { in_progress: L.lock_in_progress, guard: L.lock_guard, ticket: L.lock_ticket };
+    const cls = lock.bypassed ? 'bg-warning text-dark' : 'bg-secondary';
+    const lbl = lock.bypassed ? L.lock_bypassed : (labels[lock.reason] || lock.reason);
+    return '<span class="badge ' + cls + '" title="' + esc(lock.message) + '">' + esc(lbl) + '</span>';
+  }
   function stackItemExpedition(c) {
-    return '<div class="pc-stack-item">' + expeditionBadge(c.expedition) + '</div>';
+    return '<div class="pc-stack-item">' + (c.expedition ? expeditionBadge(c.expedition) : lockBadge(c.lock)) + '</div>';
   }
 
   function worstStatusBadge(row) {
@@ -432,6 +448,7 @@ echo <<<HTML
           days:         (c.days_remaining != null ? c.days_remaining : null),
           cartridge:    (c.cartridge_type || c.property),
           stock:        (c.stock != null ? c.stock : 0),
+          lock:         (c.lock || null),
         });
       });
     });
@@ -447,7 +464,12 @@ echo <<<HTML
       const tr = tableEl.querySelector('tbody tr[data-pc-printers-id="' + d.printers_id + '"]');
       if (tr) rows = [tr];
     }
-    const items = collectItems(rows);
+    const all = collectItems(rows);
+    // Anti-double-envoi : les cartouches sous verrou bloquant (envoi en cours, garde,
+    // ticket) sont retirées de la commande et listées à part avec leur motif. Le
+    // serveur refuse de toute façon ces lignes.
+    const items    = all.filter(function(it) { return !(it.lock && it.lock.blocking); });
+    const excluded = all.filter(function(it) { return it.lock && it.lock.blocking; });
 
     // Pré-coche « Planif » si au moins une cartouche est en stock ; courtoisie
     // décochée par défaut : un mail à un client externe est un choix explicite.
@@ -459,26 +481,38 @@ echo <<<HTML
     const body = document.getElementById('pg-cmd-modal-body');
     if (!body) return;
 
+    let html = '';
     if (items.length === 0) {
-      body.innerHTML = '<div class="alert alert-warning mb-0">' + esc(L.empty || 'Aucune cartouche') + '</div>';
+      html += '<div class="alert alert-warning mb-2">'
+            + esc(all.length === 0 ? (L.empty || 'Aucune cartouche') : L.nothing_orderable) + '</div>';
     } else {
       const byPrinter = {};
       items.forEach(function(it) { (byPrinter[it.printer_name] = byPrinter[it.printer_name] || []).push(it); });
-      let html = '';
       Object.keys(byPrinter).forEach(function(pname) {
         html += '<div class="mb-2"><strong>' + esc(pname) + '</strong><ul class="list-unstyled ms-3 mb-1">';
         byPrinter[pname].forEach(function(it) {
+          const bypass = (it.lock && it.lock.bypassed)
+            ? ' <span class="badge bg-warning text-dark" title="' + esc(it.lock.message) + '">' + esc(L.lock_bypassed) + '</span>'
+            : '';
           html += '<li><label class="d-flex align-items-center gap-2 mb-1">'
                 + '<input type="checkbox" class="form-check-input pg-cmd-item m-0" checked '
                 + 'data-pid="' + esc(it.printers_id) + '" data-prop="' + esc(it.property) + '" '
                 + 'data-level="' + esc(it.level) + '" data-days="' + (it.days != null ? esc(it.days) : '') + '">'
-                + '<span>' + esc(it.cartridge) + ' — ' + esc(it.property) + ' (' + esc(it.level) + '%)</span>'
+                + '<span>' + esc(it.cartridge) + ' — ' + esc(it.property) + ' (' + esc(it.level) + '%)' + bypass + '</span>'
                 + '</label></li>';
         });
         html += '</ul></div>';
       });
-      body.innerHTML = html;
     }
+    if (excluded.length > 0) {
+      html += '<div class="alert alert-secondary mb-0 small"><strong>' + esc(L.excluded_title) + '</strong>'
+            + '<ul class="mb-0 ps-3">';
+      excluded.forEach(function(it) {
+        html += '<li>' + esc(it.printer_name) + ' — ' + esc(it.property) + ' : ' + esc(it.lock.message) + '</li>';
+      });
+      html += '</ul></div>';
+    }
+    body.innerHTML = html;
     if (typeof bootstrap !== 'undefined') {
       new bootstrap.Modal(document.getElementById('pg-cmd-modal')).show();
     }

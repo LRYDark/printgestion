@@ -158,6 +158,11 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   si l'imprimante détectée n'attendait elle-même aucun envoi pour ce toner.
 - Chaque ligne d'alerte porte son verrou (`lock`) ; le mail « toner bas » ignore les emplacements
   verrouillés (sauf contournement).
+- **Fenêtre de commande** : les cartouches sous verrou bloquant sont retirées de la sélection et listées
+  à part avec leur motif ; une cartouche commandable sous contournement est signalée par un badge.
+- **Côté serveur** (`Expedition::createPurchaseOrder()`) : verrous réévalués avant toute écriture ; une
+  seule ligne verrouillée fait refuser la commande entière avec la liste des lignes et leur motif ;
+  lignes en double écartées ; commande sous contournement acceptée avec avertissement.
 
 ### Points d'entrée (ajax/)
 
