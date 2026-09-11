@@ -364,6 +364,11 @@ class PluginPrintgestionPrint extends CommonGLPI {
             $DB->commit();
         } catch (Throwable $e) {
             $DB->rollBack();
+            PluginPrintgestionLogger::error(
+                'Print::processForm',
+                sprintf('Création / liaison contrat ↔ imprimante annulée (modes : contrat %s, imprimante %s).', $contract_mode, $printer_mode),
+                $e
+            );
             $msg = __("Échec de l'enregistrement.", 'printgestion');
             if ($e->getMessage() === 'link_failed') {
                 $msg = __("Échec de la liaison contrat ↔ imprimante (entités incompatibles ?).", 'printgestion');

@@ -104,7 +104,12 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
                 $bl_enabled = (int)($config->fields['plugin_gestion_enabled'] ?? 0) === 1;
             }
         } catch (Throwable $e) {
-            // silent
+            // Liaison BL désactivée pour cet affichage, mais la cause est tracée.
+            PluginPrintgestionLogger::error(
+                'Dashboardactions::renderSharedAssets',
+                "Lecture de l'état du plugin Gestion impossible : liaison BL désactivée pour cet affichage.",
+                $e
+            );
         }
 
         self::renderContextMenu($can_expedition_update, $bl_enabled, $context);
@@ -792,7 +797,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     var idx = vals.indexOf(data.id);
                     if (idx > -1) { vals.splice(idx, 1); \$sel.val(vals).trigger('change'); }
                     \$sel.find('option[value=\"' + data.id + '\"]').remove();
-                    showModalMsg(l.not_found.replace('%s', data.id), 'warning');
+                    // API Sage en panne : l'absence de résultat ne prouve PAS que le BL n'existe pas.
+                    if (resp && resp.sage_error) {
+                        showModalMsg(l.verify_err.replace('%s', data.id), 'danger');
+                    } else {
+                        showModalMsg(l.not_found.replace('%s', data.id), 'warning');
+                    }
                     return;
                 }
                 // Trouvé : on remplace la valeur du tag par l'id réel retourné par search_bls

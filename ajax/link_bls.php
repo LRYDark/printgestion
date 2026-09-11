@@ -175,7 +175,13 @@ foreach (array_keys($to_add) as $aid) {
             'date_creation'  => date('Y-m-d H:i:s'),
         ]);
     } catch (Throwable $e) {
-        // silent : doublon (unique key) — peut arriver en course
+        // Doublon possible en cas d'appels concurrents (clé unique) : liaison déjà
+        // présente, on poursuit — mais toute autre cause d'échec reste tracée.
+        PluginPrintgestionLogger::warning(
+            'link_bls',
+            sprintf('Liaison expédition %d ↔ BL %d non insérée (doublon concurrent ou erreur SQL).', $expedition_id, $aid),
+            $e
+        );
     }
 }
 
@@ -210,6 +216,7 @@ function prepareSageBl(string $bl_num, int $entities_id, ?string &$error = null)
     $sage_api_file = realpath(__DIR__ . '/../../gestion/front/SageApi.php');
     if (!$sage_api_file || !file_exists($sage_api_file)) {
         $error = 'SageApi.php introuvable';
+        PluginPrintgestionLogger::error('link_bls', "SageApi.php (plugin Gestion) introuvable : BL {$bl_num} non préparé.");
         return 0;
     }
     require_once $sage_api_file;
@@ -229,16 +236,25 @@ function prepareSageBl(string $bl_num, int $entities_id, ?string &$error = null)
     // Vérifie que le BL existe côté SAGE
     if (!function_exists('documentExiste')) {
         $error = 'Fonction documentExiste indisponible';
+        PluginPrintgestionLogger::error('link_bls', "Fonction documentExiste() absente de SageApi.php : BL {$bl_num} non préparé.");
         return 0;
     }
     $httpStatus = null;
     try {
         if (documentExiste($bl_num, $httpStatus) !== true) {
-            $error = 'BL inexistant dans SAGE';
+            if ($httpStatus === 404) {
+                $error = 'BL inexistant dans SAGE';
+            } else {
+                // Tout code autre que 404 est une panne de l'API, pas une absence du BL.
+                $status_txt = $httpStatus === null ? 'aucune réponse' : (string)$httpStatus;
+                $error = "API SAGE en échec (HTTP {$status_txt}) : existence du BL non vérifiable";
+                PluginPrintgestionLogger::error('link_bls', "API Sage : vérification du BL {$bl_num} en échec (HTTP {$status_txt}).");
+            }
             return 0;
         }
     } catch (Throwable $e) {
         $error = 'Erreur API SAGE : ' . $e->getMessage();
+        PluginPrintgestionLogger::error('link_bls', "API Sage indisponible pendant la vérification du BL {$bl_num}.", $e);
         return 0;
     }
 
@@ -255,7 +271,12 @@ function prepareSageBl(string $bl_num, int $entities_id, ?string &$error = null)
         $tracker = $fields['tracker'] ?? null;
         $relatedInvoiceToBL = $fields['relatedInvoiceToBL'] ?? null;
     } catch (Throwable $e) {
-        // silent : on garde juste le bl_num
+        // Analyse du PDF non bloquante : BL préparé avec son seul numéro, cause tracée.
+        PluginPrintgestionLogger::warning(
+            'link_bls',
+            "Analyse du document Sage {$bl_num} impossible : BL préparé sans client ni suivi transporteur.",
+            $e
+        );
     }
 
     $doc_url = function_exists('plugin_gestion_build_view_pdf_url')

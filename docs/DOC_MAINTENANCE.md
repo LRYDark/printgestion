@@ -122,6 +122,16 @@ Décisions projet (à ne pas régresser) :
 
 ## 6. Dépannage
 
+### Journal applicatif (à consulter en premier)
+
+Toute erreur interceptée par le plugin est écrite dans **`files/_log/printgestion.log`**, avec le
+niveau `[ERREUR]` ou `[AVERTISSEMENT]` et le contexte (`Classe::méthode` ou nom d'endpoint) :
+échecs d'envoi de mail (y compris depuis les tâches automatiques), API Sage des BL indisponible
+(tout code HTTP autre que 404), lots de relevés toner non insérés, suivi transporteur en échec.
+Les erreurs techniques d'une commande (transaction annulée) figurent en plus dans le journal
+d'erreurs GLPI (`files/_log/php-errors.log`). **Aucun `catch` ne doit rester muet** : toute
+nouvelle interception passe par `PluginPrintgestionLogger`.
+
 ### Les mails ne partent pas
 
 1. Config GLPI → Notifications : mode mail activé + serveur SMTP fonctionnel (tester avec une

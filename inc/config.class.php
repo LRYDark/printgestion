@@ -1110,7 +1110,12 @@ HTML;
             $plugin = new Plugin();
             $gestion_active = $plugin->isInstalled('gestion') && $plugin->isActivated('gestion');
         } catch (Throwable $e) {
-            // silent
+            // Section « Intégrations » masquée pour cet affichage, cause tracée.
+            PluginPrintgestionLogger::error(
+                'Config::showConfigForm',
+                "Lecture de l'état du plugin Gestion impossible : section Intégrations masquée.",
+                $e
+            );
         }
 
         if ($gestion_active) {
@@ -1360,6 +1365,7 @@ HTML;
 
         if ($gabarit_id <= 0) {
             self::$last_mail_error = __('aucun modèle de notification configuré', 'printgestion');
+            PluginPrintgestionLogger::warning('Config::sendMail', 'Mail non envoyé : ' . self::$last_mail_error . '.');
             return false;
         }
 
@@ -1376,6 +1382,10 @@ HTML;
         }
         if (empty($valid)) {
             self::$last_mail_error = __('aucune adresse email valide parmi les destinataires', 'printgestion');
+            PluginPrintgestionLogger::warning(
+                'Config::sendMail',
+                sprintf('Mail non envoyé (modèle %d) : %s.', $gabarit_id, self::$last_mail_error)
+            );
             return false;
         }
         $valid = array_values($valid);
@@ -1412,6 +1422,7 @@ HTML;
         }
         if (!is_array($tpl)) {
             self::$last_mail_error = sprintf(__('modèle de notification %d introuvable ou sans traduction', 'printgestion'), $gabarit_id);
+            PluginPrintgestionLogger::warning('Config::sendMail', 'Mail non envoyé : ' . self::$last_mail_error . '.');
             return false;
         }
 
@@ -1496,6 +1507,16 @@ HTML;
         $ok = (bool)$mmail->send();
         if (!$ok) {
             self::$last_mail_error = (string)$mmail->getError();
+            // Seule trace pour les envois des tâches automatiques (pas de session à l'écran).
+            PluginPrintgestionLogger::error(
+                'Config::sendMail',
+                sprintf(
+                    'Échec d\'envoi (modèle %d, destinataire principal %s) : %s',
+                    $gabarit_id,
+                    $to,
+                    self::$last_mail_error
+                )
+            );
             Session::addMessageAfterRedirect(
                 __('Erreur envoi mail Print Gestion : ', 'printgestion') . self::$last_mail_error,
                 true, ERROR

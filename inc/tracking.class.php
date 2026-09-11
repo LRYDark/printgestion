@@ -137,6 +137,16 @@ class PluginPrintgestionTracking extends CommonDBTM {
                         break;
                 }
             } catch (Throwable $e) {
+                // Une expédition en échec ne bloque pas les suivantes, mais l'échec est tracé.
+                PluginPrintgestionLogger::error(
+                    'Tracking::refreshFromCarriers',
+                    sprintf(
+                        'Suivi transporteur de l\'expédition %d (%s) en échec.',
+                        (int)$exp['id'],
+                        (string)$exp['transport_carrier']
+                    ),
+                    $e
+                );
                 continue;
             }
 

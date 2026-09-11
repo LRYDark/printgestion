@@ -104,12 +104,19 @@ foreach ($DB->request([
 // 2. Recherche BL SAGE (via SageApi) — uniquement si terme ressemble à un BL complet
 //    (ex: "BL203846" = 2+ lettres + 4+ chiffres). On ne retourne le BL SAGE que
 //    s'il n'est PAS déjà trouvé localement.
+$sage_error = false;
 if (preg_match('/^[A-Za-z]{2,}[0-9]{4,}$/', $q) && !isset($seen_bls[strtoupper($q)])) {
     $sage_api_file = realpath(__DIR__ . '/../../gestion/front/SageApi.php');
-    if ($sage_api_file && file_exists($sage_api_file)) {
+    if (!$sage_api_file || !file_exists($sage_api_file)) {
+        PluginPrintgestionLogger::error('search_bls', "SageApi.php (plugin Gestion) introuvable : vérification du BL {$q} dans Sage impossible.");
+        $sage_error = true;
+    } else {
         try {
             require_once $sage_api_file;
-            if (function_exists('documentExiste')) {
+            if (!function_exists('documentExiste')) {
+                PluginPrintgestionLogger::error('search_bls', "Fonction documentExiste() absente de SageApi.php : vérification du BL {$q} dans Sage impossible.");
+                $sage_error = true;
+            } else {
                 $httpStatus = null;
                 if (documentExiste($q, $httpStatus) === true) {
                     // BL existe en SAGE mais pas encore dans la DB locale gestion.
@@ -120,12 +127,24 @@ if (preg_match('/^[A-Za-z]{2,}[0-9]{4,}$/', $q) && !isset($seen_bls[strtoupper($
                         'label'      => $q . ' [SAGE]',
                         'sage_only'  => true,
                     ];
+                } elseif ($httpStatus !== 404) {
+                    // 404 = BL absent de Sage (cas métier normal) ; tout autre code est une
+                    // panne de l'API, pas une absence du BL.
+                    PluginPrintgestionLogger::error('search_bls', sprintf(
+                        'API Sage : vérification du BL %s en échec (HTTP %s).',
+                        $q,
+                        $httpStatus === null ? 'aucune réponse' : (string)$httpStatus
+                    ));
+                    $sage_error = true;
                 }
             }
         } catch (Throwable $e) {
-            // API Sage indisponible : silent, on retourne juste les locaux
+            PluginPrintgestionLogger::error('search_bls', "API Sage indisponible pendant la vérification du BL {$q}.", $e);
+            $sage_error = true;
         }
     }
 }
 
-echo json_encode(['ok' => true, 'bls' => $bls]);
+// sage_error : la vérification Sage n'a pas abouti — l'absence de résultat Sage ne
+// signifie alors PAS que le BL n'existe pas (l'écran l'indique à l'utilisateur).
+echo json_encode(['ok' => true, 'bls' => $bls, 'sage_error' => $sage_error]);

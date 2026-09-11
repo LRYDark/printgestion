@@ -229,7 +229,12 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
                 $DB->doQuery($sql);
                 $inserted += count($chunk);
             } catch (Throwable $e) {
-                // silent
+                // Un lot en échec ne bloque pas les suivants, mais les relevés perdus sont tracés.
+                PluginPrintgestionLogger::error(
+                    'Tonerreading::snapshotAllPrinters',
+                    sprintf('Insertion d\'un lot de %d relevé(s) toner en échec : relevés non enregistrés.', count($chunk)),
+                    $e
+                );
             }
         }
         return $inserted;
