@@ -68,6 +68,10 @@ if (isset($_POST['update'])) {
         'billing_require_counter'  => ((int)($_POST['billing_require_counter']  ?? 0) === 1) ? 1 : 0,
         'billing_require_activity' => ((int)($_POST['billing_require_activity'] ?? 0) === 1) ? 1 : 0,
         'default_pages_per_cartridge' => max(100, (int)($_POST['default_pages_per_cartridge'] ?? 5000)),
+        // Anti-double-envoi
+        'guard_days'             => max(0, min(365, (int)($_POST['guard_days'] ?? 5))),
+        'guard_bypass_level'     => max(0, min(100, (int)($_POST['guard_bypass_level'] ?? 10))),
+        'guard_ticket_days'      => max(0, min(365, (int)($_POST['guard_ticket_days'] ?? 10))),
         // Interrupteurs de modules
         'enable_contrats'        => ((int)($_POST['enable_contrats'] ?? 0) === 1) ? 1 : 0,
         'enable_toner'           => ((int)($_POST['enable_toner']    ?? 0) === 1) ? 1 : 0,

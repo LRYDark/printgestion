@@ -32,6 +32,7 @@ class PluginPrintgestionSchema {
         '1.1.0' => 'migrateTo110',
         '1.2.0' => 'migrateTo120',
         '1.2.1' => 'migrateTo121',
+        '1.2.2' => 'migrateTo122',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -236,5 +237,28 @@ class PluginPrintgestionSchema {
         $migration->addKey($table, ['printers_id', 'toner_property', 'active_lock'], 'uniq_active_slot', 'UNIQUE');
         $migration->addKey($table, ['printers_id', 'toner_property', 'statut'], 'idx_slot_statut');
         $migration->migrationOneTable($table);
+    }
+
+    /**
+     * 1.2.2 — verrous anti-double-envoi.
+     * Paramètres : garde après pose (jours), seuil de contournement (%), délai d'un
+     * ticket récent (jours). Historique des cartouches : is_detected distingue une pose
+     * réellement détectée (hausse de niveau) des lignes d'amorçage, datées du premier
+     * inventaire, qui ne doivent pas ouvrir de garde ; index de recherche associé.
+     * Les poses antérieures à cette étape restent à 0 : au pire, pas de garde pendant
+     * les guard_days jours qui suivent la mise à jour.
+     */
+    private static function migrateTo122(Migration $migration): void {
+        $config = 'glpi_plugin_printgestion_configs';
+        $migration->addField($config, 'guard_days', "int NOT NULL DEFAULT '5'");
+        $migration->addField($config, 'guard_bypass_level', "int NOT NULL DEFAULT '10'");
+        $migration->addField($config, 'guard_ticket_days', "int NOT NULL DEFAULT '10'");
+        $migration->migrationOneTable($config);
+
+        $history = 'glpi_plugin_printgestion_cartridge_history';
+        $migration->addField($history, 'is_detected', "tinyint NOT NULL DEFAULT '0'");
+        $migration->migrationOneTable($history);
+        $migration->addKey($history, ['printers_id', 'toner_property', 'is_detected', 'date_install'], 'idx_slot_install');
+        $migration->migrationOneTable($history);
     }
 }

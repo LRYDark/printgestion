@@ -768,6 +768,40 @@ class PluginPrintgestionConfig extends CommonDBTM {
 
         echo "</div></div></div>";
 
+        // ── Anti-double-envoi ─────────────────────────────────────
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
+            . __('Anti-double-envoi', 'printgestion') . "</h3></div><div class='card-body'>";
+        echo "<p class='text-muted small mb-3'>"
+            . __("Un envoi en cours (commandé, expédié, livré mais non posé) bloque toujours une nouvelle commande pour la même machine et le même toner, sans limite de durée. Les réglages ci-dessous ajoutent deux verrous temporaires, contournables en cas de consommation anormale.", 'printgestion')
+            . "</p>";
+        echo "<div class='row g-3'>";
+
+        echo "<div class='col-md-4'>"
+            . $label_with_tip(
+                __('Garde après pose (jours)', 'printgestion'),
+                __("Après une pose détectée ou confirmée sur une machine et un toner, aucune nouvelle commande n'est proposée pendant ce nombre de jours — y compris quand la cartouche a été posée sur une autre machine que prévu. Protège contre une fausse détection ou un niveau qui oscille. 0 = garde désactivée.", 'printgestion')
+            );
+        echo "<input type='number' min='0' max='365' class='form-control' name='guard_days' value='"
+            . (int)($config->fields['guard_days'] ?? 5) . "'></div>";
+
+        echo "<div class='col-md-4'>"
+            . $label_with_tip(
+                __('Seuil de contournement (%)', 'printgestion'),
+                __("Pendant la garde ou malgré un ticket récent, une commande reste possible si le niveau mesuré du toner est inférieur ou égal à ce seuil (consommation anormale). Ne s'applique jamais à un envoi en cours non posé.", 'printgestion')
+            );
+        echo "<input type='number' min='0' max='100' class='form-control' name='guard_bypass_level' value='"
+            . (int)($config->fields['guard_bypass_level'] ?? 10) . "'></div>";
+
+        echo "<div class='col-md-4'>"
+            . $label_with_tip(
+                __('Ticket récent (jours)', 'printgestion'),
+                __("Aucune nouvelle commande si un ticket non résolu lié à la machine a été ouvert il y a moins de ce nombre de jours. 0 = verrou désactivé.", 'printgestion')
+            );
+        echo "<input type='number' min='0' max='365' class='form-control' name='guard_ticket_days' value='"
+            . (int)($config->fields['guard_ticket_days'] ?? 10) . "'></div>";
+
+        echo "</div></div></div>";
+
         // Active les tooltips Bootstrap sur les icônes d'info
         echo "<script>
 (function() {

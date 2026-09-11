@@ -138,6 +138,27 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   l'erreur 1062, restituée à l'utilisateur comme un refus explicite (`Expedition::isDuplicateActiveError()`).
 - `group_id` (UUID) relie les expéditions d'une même commande.
 
+### Anti-double-envoi : les trois verrous (`inc/guard.class.php`)
+
+Évalués pour une **machine** (l'imprimante et toute imprimante portant le même n° de série) et un
+**emplacement toner** (propriété SNMP), en requêtes groupées (`Guard::evaluate()`), par ordre de priorité :
+
+| Verrou | Condition | Durée | Contournable |
+|---|---|---|---|
+| Envoi en cours | Un envoi ni posé ni annulé existe | Sans limite, jusqu'à la pose ou l'annulation | **Jamais** |
+| Garde après pose | Pose détectée (`cartridge_history.is_detected = 1`) ou confirmée (`installed`) | `guard_days` (5 par défaut) après la pose | Oui |
+| Ticket récent | Ticket non résolu lié à la machine, ouvert récemment | `guard_ticket_days` (10 par défaut, 0 = désactivé) | Oui |
+
+- **Contournement** (consommation anormale) : niveau mesuré ≤ `guard_bypass_level` % (10 par défaut).
+  Côté commande, le niveau est relu côté serveur (`Guard::evaluateLive()`), jamais pris du navigateur.
+- **Cartouche posée sur la mauvaise imprimante** : la pose est enregistrée dans l'historique de
+  l'imprimante qui l'a reçue (garde immédiate) ; l'imprimante prévue reste « envoi en cours » avec un
+  message qui renvoie vers la réattribution, laquelle clôt l'envoi et la libère. La détection
+  « mauvaise imprimante » ne retient que les envois **en cours** d'une autre imprimante, et seulement
+  si l'imprimante détectée n'attendait elle-même aucun envoi pour ce toner.
+- Chaque ligne d'alerte porte son verrou (`lock`) ; le mail « toner bas » ignore les emplacements
+  verrouillés (sauf contournement).
+
 ### Points d'entrée (ajax/)
 
 | Endpoint | Action |

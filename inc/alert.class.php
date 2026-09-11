@@ -564,6 +564,18 @@ class PluginPrintgestionAlert extends CommonDBTM {
             ];
         }
 
+        // Verrous anti-double-envoi (envoi en cours, garde après pose, ticket récent),
+        // évalués en requêtes groupées pour toutes les lignes.
+        $locks = PluginPrintgestionGuard::evaluate(array_map(static fn($r) => [
+            'printers_id' => $r['printers_id'],
+            'property'    => $r['property'],
+            'level'       => $r['level'],
+        ], $rows));
+        foreach ($rows as &$row_ref) {
+            $row_ref['lock'] = $locks[$row_ref['printers_id'] . '|' . $row_ref['property']] ?? null;
+        }
+        unset($row_ref);
+
         // Tri : critical en premier, puis watch, puis ok ; dans chaque groupe par jours restants
         $priority = [self::STATUS_CRITICAL => 0, self::STATUS_WATCH => 1, self::STATUS_OK => 2];
         usort($rows, function ($a, $b) use ($priority) {
@@ -588,8 +600,8 @@ class PluginPrintgestionAlert extends CommonDBTM {
         // Clé incluant la version pour que invalidateCache() invalide réellement
         // toutes les variantes en cache (par entité) d'un coup, et le périmètre
         // d'entités de l'utilisateur (données restreintes par listAll()).
-        // v5 = daily dedup normalisé minuit + guard div 0
-        $key = 'plugin_printgestion_alerts_v5_' . self::getCacheVersion() . '_' . ($entities_id ?? 'all')
+        // v5 = daily dedup normalisé minuit + guard div 0 ; v6 = verrous anti-double-envoi (lock)
+        $key = 'plugin_printgestion_alerts_v6_' . self::getCacheVersion() . '_' . ($entities_id ?? 'all')
             . '_' . PluginPrintgestionSecurity::sessionEntityScopeKey();
         if (isset($GLPI_CACHE) && $GLPI_CACHE->has($key)) {
             $cached = $GLPI_CACHE->get($key);
@@ -787,6 +799,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 'expedition'     => $r['expedition'],
                 'snoozed'        => (bool)($r['snoozed'] ?? false),
                 'snooze_until'   => $r['snooze_until'] ?? null,
+                'lock'           => $r['lock'] ?? null,
                 // Stock GLPI de la cartouche (sert à pré-cocher « Planif » dans la commande).
                 'stock'          => PluginPrintgestionExpedition::getCartridgeStock(
                     PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($pid, (string)$r['property'])
@@ -865,9 +878,10 @@ class PluginPrintgestionAlert extends CommonDBTM {
             if ($row['status'] === self::STATUS_OK) {
                 continue;
             }
-            // Ignorer si un envoi est en cours pour cette propriété, quel que soit son
-            // statut (commandé, stock vide, expédié, en transit, livré non posé).
-            if ($row['expedition'] !== null) {
+            // Ignorer tout emplacement verrouillé : envoi en cours quel que soit son
+            // statut (commandé, stock vide, expédié, en transit, livré non posé), garde
+            // après pose ou ticket récent — sauf contournement (consommation anormale).
+            if (!empty($row['lock']) && $row['lock']['blocking']) {
                 continue;
             }
 

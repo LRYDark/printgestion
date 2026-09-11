@@ -98,21 +98,20 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
 
             // ══════════════════════════════════════════════════════════════
             //  Check "mauvaise imprimante" :
-            //  Si une expédition RÉCENTE existe pour cette même propriété SNMP
-            //  mais sur une AUTRE imprimante de la MÊME entité, on considère que
-            //  la cartouche a été installée au mauvais endroit → création d'une
-            //  alerte wrong_printer, skip du flux normal.
+            //  uniquement si CETTE imprimante n'attendait aucun envoi pour ce toner
+            //  (sinon la cartouche posée est la sienne) et qu'un envoi EN COURS
+            //  existe sur une AUTRE imprimante de la MÊME entité → alerte
+            //  wrong_printer. La pose est tout de même enregistrée dans l'historique
+            //  ci-dessous : elle ouvre la garde anti-double-envoi de cette imprimante.
             // ══════════════════════════════════════════════════════════════
-            $wrong_printer_alert_id = self::detectAndLogWrongPrinter(
-                $printers_id,
-                $property,
-                (int)$current['level_percent'],
-                (string)$current['reading_date']
-            );
-            if ($wrong_printer_alert_id > 0) {
-                // Alerte créée : skip pour ce couple (imprimante, propriété).
-                continue;
-            }
+            $wrong_printer_alert_id = PluginPrintgestionExpedition::getActiveForPrinterProperty($printers_id, $property) === null
+                ? self::detectAndLogWrongPrinter(
+                    $printers_id,
+                    $property,
+                    (int)$current['level_percent'],
+                    (string)$current['reading_date']
+                )
+                : 0;
 
             // Clôture la cartouche précédente (si existe)
             $openEntry = $DB->request([
@@ -165,7 +164,8 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
                 }
             }
 
-            // Nouvelle entrée d'installation (table interne — debug SNMP)
+            // Nouvelle entrée d'installation : pose réellement détectée (is_detected = 1,
+            // contrairement aux lignes d'amorçage) — point de départ de la garde.
             $DB->insert(self::getTable(), [
                 'printers_id'                => $printers_id,
                 'toner_property'             => $property,
@@ -173,7 +173,15 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
                 'level_at_install'           => (int)$current['level_percent'],
                 'date_install'               => $current['reading_date'],
                 'printer_counter_at_install' => $currentCounter,
+                'is_detected'                => 1,
             ]);
+
+            if ($wrong_printer_alert_id > 0) {
+                // Cartouche d'un envoi destiné à une autre imprimante : cartouches natives
+                // et clôture de l'envoi sont faites à la réattribution.
+                $detected++;
+                continue;
+            }
 
             // Sync avec les tables natives GLPI (glpi_cartridges) :
             // → GLPI affiche nativement "Cartouches en cours" / "Cartouches usagées"
@@ -202,8 +210,9 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
 
     /**
      * Détecte le cas "mauvaise imprimante" et crée une alerte wrong_printer
-     * si une expédition récente existe pour la même propriété SNMP mais sur
-     * une autre imprimante de la même entité.
+     * si un envoi EN COURS (ni posé ni annulé) récent existe pour la même propriété
+     * SNMP sur une autre imprimante de la même entité. Un envoi déjà posé ou annulé
+     * ne peut pas être la cartouche détectée : il n'est jamais retenu.
      *
      * Retourne l'ID de l'alerte créée, ou 0 si pas de cas wrong_printer.
      *
@@ -249,6 +258,7 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
                 'e.printers_id'    => ['<>', $detected_printers_id],
                 'p.entities_id'    => $detected_entity,
                 'e.date_alert'     => ['>=', $cutoff],
+                'e.statut'         => PluginPrintgestionExpedition::ACTIVE_STATUSES,
             ],
             'ORDER' => ['e.date_alert DESC'],
             'LIMIT' => 1,
