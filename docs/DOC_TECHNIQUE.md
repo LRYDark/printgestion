@@ -220,6 +220,16 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
 - **Contrôles** (`Demande::checkLines()`, recalculés à l'instant pour les lignes ouvertes) : imprimante
   présente et dans l'entité de la demande, référence résolue, sous contrat / hors contrat, prix 0 interdit
   hors contrat, quantité, verrous (hors lignes de la demande elle-même).
+- **Écran de validation** (onglet « Demandes d'envoi » : liste native, proposées par défaut ; fiche
+  `front/demande.form.php`) : sur une demande proposée, mode / contact / commentaire de livraison, quantité
+  (1 à 99), prix unitaire hors contrat (vide = Achats, **0 refusé**, champ inactif sous contrat) et annulation
+  de ligne ; « Enregistrer » (`Demande::saveProposal()`, tout ou rien) et « Valider » (enregistre puis
+  `Demande::validateDemande()`). Action de masse « Valider » sur la liste. Annulation d'une demande proposée
+  ou validée avec motif obligatoire (`Demande::cancelDemande()`) ; une demande dont toutes les lignes sont
+  annulées passe annulée.
+- **Validation, tout ou rien** : contrôles recalculés ; une seule ligne bloquante refuse la validation avec
+  les motifs. Sinon, en transaction : cartouche résolue, contrat et prix mis à jour (0 sous contrat, prix 0
+  hérité retiré d'une ligne passée hors contrat), lignes et demande « validée », valideur et date.
 - **Droits** : `plugin_printgestion_validation` (READ voir, UPDATE modifier / valider / annuler). La file
   est aussi visible avec la lecture des alertes toner, sans pouvoir agir. Pas de création manuelle.
 

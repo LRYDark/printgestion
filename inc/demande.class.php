@@ -45,6 +45,9 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
     const DELIVERY_DIRECT     = 'direct';
     const DELIVERY_TECHNICIAN = 'technician';
 
+    /** Quantité maximale d'une ligne (saisie de validation). */
+    const MAX_QUANTITY = 99;
+
     /** Parents des lieux déjà lus : id => locations_id du parent, null si lieu introuvable. */
     private static array $location_parents = [];
 
@@ -100,6 +103,50 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         return array_merge(parent::getForbiddenStandardMassiveAction(), [
             'update', 'clone', 'delete', 'purge', 'restore', 'add_transfer_list', 'amend_comment', 'add_note',
         ]);
+    }
+
+    /** Action de masse « Valider » : mêmes contrôles que la fiche, demande par demande. */
+    function getSpecificMassiveActions($checkitem = null) {
+        $actions = parent::getSpecificMassiveActions($checkitem);
+        if (self::canUpdate()) {
+            $actions[self::class . MassiveAction::CLASS_ACTION_SEPARATOR . 'pg_validate']
+                = "<i class='ti ti-check me-1'></i>" . __('Valider', 'printgestion');
+        }
+        return $actions;
+    }
+
+    static function showMassiveActionsSubForm(MassiveAction $ma) {
+        if ($ma->getAction() === 'pg_validate') {
+            echo "<p class='text-muted small'>"
+                . htmlspecialchars(__('Chaque demande proposée est contrôlée à l\'instant (référence, contrat, prix, verrous) : une demande avec une ligne bloquante n\'est pas validée et le motif est affiché.', 'printgestion'), ENT_QUOTES, 'UTF-8')
+                . "</p>";
+            echo Html::submit(__('Valider', 'printgestion'), ['name' => 'massiveaction', 'class' => 'btn btn-success']);
+            return true;
+        }
+        return parent::showMassiveActionsSubForm($ma);
+    }
+
+    static function processMassiveActionsForOneItemtype(MassiveAction $ma, CommonDBTM $item, array $ids) {
+        foreach ($ids as $id) {
+            if ($ma->getAction() !== 'pg_validate' || !$item->getFromDB($id)) {
+                $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_KO);
+                continue;
+            }
+            // Droit de validation et entité de la demande, à chaque ligne.
+            if (!$item->can($id, UPDATE)) {
+                $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_NORIGHT);
+                continue;
+            }
+            $result = $item->validateDemande();
+            if ($result['ok']) {
+                $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_OK);
+            } else {
+                $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_KO);
+            }
+            foreach (array_merge($result['errors'], $result['warnings']) as $message) {
+                $ma->addMessage(htmlspecialchars(sprintf(__('Demande #%1$d — %2$s', 'printgestion'), $id, $message), ENT_QUOTES, 'UTF-8'));
+            }
+        }
     }
 
     // ── URLs, onglets ─────────────────────────────────────────────────────────
@@ -500,6 +547,297 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         return $out;
     }
 
+    // ── Modification, validation, annulation ──────────────────────────────────
+
+    /** « Imprimante — Toner » d'une ligne de getLines(), pour les messages. */
+    private static function lineLabel(array $line): string {
+        return sprintf(
+            '%s — %s',
+            $line['printer_name'] ?? ('#' . (int) $line['printers_id']),
+            (string) $line['toner_property']
+        );
+    }
+
+    /**
+     * Enregistre les modifications d'une demande PROPOSÉE : mode, contact et commentaire
+     * de livraison ; quantité, prix unitaire (hors contrat uniquement) et annulation de
+     * chaque ligne proposée. Tout ou rien : à la moindre saisie invalide, rien n'est
+     * enregistré et chaque erreur est renvoyée.
+     *
+     * @param array $input Saisie du formulaire (delivery_mode, contact, delivery_comment,
+     *                     quantity[id], unit_price[id], cancel_line[id]).
+     * @return array ['errors' => string[]]
+     */
+    public function saveProposal(array $input): array {
+        $id = (int) $this->getID();
+        if ((string) $this->fields['statut'] !== self::STATUS_PROPOSED) {
+            return ['errors' => [sprintf(__('La demande #%d n\'est plus proposée : modification impossible.', 'printgestion'), $id)]];
+        }
+
+        $errors = [];
+        $header = ['id' => $id];
+
+        $mode = (string) ($input['delivery_mode'] ?? $this->fields['delivery_mode']);
+        if (isset(self::getDeliveryModeLabels()[$mode])) {
+            $header['delivery_mode'] = $mode;
+        } else {
+            $errors[] = __('Mode de livraison invalide.', 'printgestion');
+        }
+        $header['contact']          = mb_substr(trim((string) ($input['contact'] ?? '')), 0, 255);
+        $header['delivery_comment'] = trim((string) ($input['delivery_comment'] ?? ''));
+
+        $quantities = (array) ($input['quantity'] ?? []);
+        $prices     = (array) ($input['unit_price'] ?? []);
+        $cancels    = (array) ($input['cancel_line'] ?? []);
+
+        $line_updates = [];
+        $has_cancel   = false;
+        foreach ($this->getLines() as $line_id => $line) {
+            if ((string) $line['statut'] !== self::STATUS_PROPOSED) {
+                continue;
+            }
+            $label = self::lineLabel($line);
+
+            if (!empty($cancels[$line_id])) {
+                $line_updates[$line_id] = ['statut' => self::STATUS_CANCELLED];
+                $has_cancel             = true;
+                continue;
+            }
+
+            $update = [];
+            if (array_key_exists($line_id, $quantities)) {
+                $raw = trim((string) $quantities[$line_id]);
+                if (!ctype_digit($raw) || (int) $raw < 1 || (int) $raw > self::MAX_QUANTITY) {
+                    $errors[] = sprintf(
+                        __('%1$s : quantité invalide (nombre entier de 1 à %2$d).', 'printgestion'),
+                        $label,
+                        self::MAX_QUANTITY
+                    );
+                } else {
+                    $update['quantity'] = (int) $raw;
+                }
+            }
+
+            // Prix : saisissable hors contrat seulement. Sous contrat, le champ n'est pas
+            // envoyé et une valeur forcée est ignorée (prix 0 fixé à la validation).
+            if (array_key_exists($line_id, $prices)
+                && !PluginPrintgestionContractrate::getConsumablesCoverage((int) $line['printers_id'])['under_contract']) {
+                $raw = str_replace([' ', "\u{00A0}", "\u{202F}", '€'], '', trim((string) $prices[$line_id]));
+                $raw = str_replace(',', '.', $raw);
+                if ($raw === '') {
+                    $update['unit_price'] = null;
+                } elseif (!preg_match('/^\d{1,16}(\.\d{1,4})?$/', $raw)) {
+                    $errors[] = sprintf(__('%s : prix unitaire invalide (nombre positif, 4 décimales au plus).', 'printgestion'), $label);
+                } elseif ((float) $raw == 0.0) {
+                    $errors[] = sprintf(__('%s : prix 0 interdit hors contrat — laissez le prix vide pour que les Achats le renseignent.', 'printgestion'), $label);
+                } else {
+                    $update['unit_price'] = $raw;
+                }
+            }
+
+            if (!empty($update)) {
+                $line_updates[$line_id] = $update;
+            }
+        }
+
+        if (!empty($errors)) {
+            return ['errors' => $errors];
+        }
+
+        try {
+            self::transactional(function () use ($header, $line_updates) {
+                if (!$this->update($header)) {
+                    throw new RuntimeException('Mise à jour de la demande refusée par GLPI.');
+                }
+                $line = new PluginPrintgestionDemandeline();
+                foreach ($line_updates as $line_id => $update) {
+                    if (!$line->update(['id' => (int) $line_id] + $update)) {
+                        throw new RuntimeException(sprintf('Mise à jour de la ligne #%d refusée par GLPI.', $line_id));
+                    }
+                }
+                $this->cancelIfNoLineLeft();
+            });
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::error('demandes', sprintf('Enregistrement de la demande #%d annulé.', $id), $e);
+            return ['errors' => [__('Enregistrement impossible (erreur technique, détail dans le journal printgestion) : aucune modification n\'a été enregistrée.', 'printgestion')]];
+        }
+
+        if ($has_cancel) {
+            PluginPrintgestionAlert::invalidateCache(); // cartouches libérées
+        }
+        return ['errors' => []];
+    }
+
+    /**
+     * Valide une demande PROPOSÉE, tout ou rien. Contrôles recalculés (checkLines()) sur
+     * chaque ligne proposée : au moindre contrôle bloquant, rien n'est validé et les
+     * motifs sont renvoyés. Sinon, en transaction : cartouche résolue, contrat et prix de
+     * chaque ligne mis à jour (0 sous contrat ; un prix 0 hérité d'une ligne passée hors
+     * contrat est retiré), lignes et demande « validée », valideur et date.
+     *
+     * @return array ['ok' => bool, 'errors' => string[], 'warnings' => string[]]
+     */
+    public function validateDemande(): array {
+        $out = ['ok' => false, 'errors' => [], 'warnings' => []];
+        $id  = (int) $this->getID();
+
+        // Relue : l'état affiché à l'écran n'est jamais pris pour acquis.
+        if (!$this->getFromDB($id)) {
+            $out['errors'][] = __('Demande introuvable.', 'printgestion');
+            return $out;
+        }
+        $statut = (string) $this->fields['statut'];
+        if ($statut !== self::STATUS_PROPOSED) {
+            $out['errors'][] = sprintf(
+                __('La demande #%1$d n\'est plus proposée (statut : %2$s) : validation impossible.', 'printgestion'),
+                $id,
+                self::getStatusLabels()[$statut] ?? $statut
+            );
+            return $out;
+        }
+
+        $lines    = $this->getLines();
+        $proposed = array_filter(
+            $lines,
+            static fn(array $line) => (string) $line['statut'] === self::STATUS_PROPOSED
+        );
+        if (empty($proposed)) {
+            $out['errors'][] = __('Aucune ligne à valider.', 'printgestion');
+            return $out;
+        }
+
+        $checks = $this->checkLines($lines);
+        foreach ($proposed as $line_id => $line) {
+            $label = self::lineLabel($line);
+            foreach ($checks[$line_id]['errors'] ?? [] as $message) {
+                $out['errors'][] = $label . ' : ' . $message;
+            }
+            foreach ($checks[$line_id]['warnings'] ?? [] as $message) {
+                $out['warnings'][] = $label . ' : ' . $message;
+            }
+        }
+        if (!empty($out['errors'])) {
+            return $out;
+        }
+
+        try {
+            self::transactional(function () use ($proposed, $checks) {
+                $line = new PluginPrintgestionDemandeline();
+                foreach ($proposed as $line_id => $data) {
+                    $coverage = $checks[$line_id]['coverage'];
+                    if ($coverage['under_contract']) {
+                        // Chaîne : update() compare sans typage, null == 0 ne serait pas écrit.
+                        $price = '0';
+                    } elseif ($data['unit_price'] !== null && (float) $data['unit_price'] == 0.0) {
+                        $price = null; // passée hors contrat : le prix 0 d'origine est retiré
+                    } else {
+                        $price = $data['unit_price'];
+                    }
+                    if (!$line->update([
+                        'id'                => (int) $line_id,
+                        'cartridgeitems_id' => (int) $checks[$line_id]['cartridgeitems_id'],
+                        'is_under_contract' => $coverage['under_contract'] ? 1 : 0,
+                        'contracts_id'      => (int) $coverage['contracts_id'],
+                        'unit_price'        => $price,
+                        'statut'            => self::STATUS_VALIDATED,
+                    ])) {
+                        throw new RuntimeException(sprintf('Validation de la ligne #%d refusée par GLPI.', $line_id));
+                    }
+                }
+                if (!$this->update([
+                    'id'                => (int) $this->getID(),
+                    'statut'            => self::STATUS_VALIDATED,
+                    'users_id_validate' => (int) Session::getLoginUserID(),
+                    'date_validate'     => $_SESSION['glpi_currenttime'],
+                ])) {
+                    throw new RuntimeException('Validation de la demande refusée par GLPI.');
+                }
+            });
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::error('demandes', sprintf('Validation de la demande #%d annulée.', $id), $e);
+            $out['errors'][] = __('Validation impossible (erreur technique, détail dans le journal printgestion) : la demande reste proposée.', 'printgestion');
+            return $out;
+        }
+
+        $out['ok'] = true;
+        return $out;
+    }
+
+    /**
+     * Annule une demande proposée ou validée (pas encore exportée) et ses lignes
+     * ouvertes, qui libèrent leurs cartouches. Motif obligatoire ; rien n'est supprimé.
+     *
+     * @return array ['ok' => bool, 'errors' => string[]]
+     */
+    public function cancelDemande(string $reason): array {
+        $id = (int) $this->getID();
+        if (!$this->getFromDB($id)) {
+            return ['ok' => false, 'errors' => [__('Demande introuvable.', 'printgestion')]];
+        }
+        $statut = (string) $this->fields['statut'];
+        if (!in_array($statut, self::OPEN_STATUSES, true)) {
+            return ['ok' => false, 'errors' => [sprintf(
+                __('La demande #%1$d est au statut « %2$s » : seule une demande proposée ou validée s\'annule ici.', 'printgestion'),
+                $id,
+                self::getStatusLabels()[$statut] ?? $statut
+            )]];
+        }
+        $reason = trim($reason);
+        if ($reason === '') {
+            return ['ok' => false, 'errors' => [__('Motif d\'annulation obligatoire.', 'printgestion')]];
+        }
+
+        try {
+            self::transactional(function () use ($reason) {
+                $line = new PluginPrintgestionDemandeline();
+                foreach ($this->getLines() as $line_id => $data) {
+                    if (in_array((string) $data['statut'], self::OPEN_STATUSES, true)
+                        && !$line->update(['id' => (int) $line_id, 'statut' => self::STATUS_CANCELLED])) {
+                        throw new RuntimeException(sprintf('Annulation de la ligne #%d refusée par GLPI.', $line_id));
+                    }
+                }
+                if (!$this->update([
+                    'id'              => (int) $this->getID(),
+                    'statut'          => self::STATUS_CANCELLED,
+                    'cancel_reason'   => $reason,
+                    'users_id_cancel' => (int) Session::getLoginUserID(),
+                    'date_cancel'     => $_SESSION['glpi_currenttime'],
+                ])) {
+                    throw new RuntimeException('Annulation de la demande refusée par GLPI.');
+                }
+            });
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::error('demandes', sprintf('Annulation de la demande #%d abandonnée.', $id), $e);
+            return ['ok' => false, 'errors' => [__('Annulation impossible (erreur technique, détail dans le journal printgestion) : la demande est inchangée.', 'printgestion')]];
+        }
+
+        PluginPrintgestionAlert::invalidateCache(); // cartouches libérées
+        return ['ok' => true, 'errors' => []];
+    }
+
+    /**
+     * Après annulation de lignes : une demande dont toutes les lignes sont annulées
+     * passe « annulée », avec un motif automatique. À exécuter en transaction.
+     */
+    private function cancelIfNoLineLeft(): void {
+        $remaining = countElementsInTable(PluginPrintgestionDemandeline::getTable(), [
+            PluginPrintgestionDemandeline::$items_id => (int) $this->getID(),
+            'NOT'                                    => ['statut' => self::STATUS_CANCELLED],
+        ]);
+        if ($remaining > 0) {
+            return;
+        }
+        if (!$this->update([
+            'id'              => (int) $this->getID(),
+            'statut'          => self::STATUS_CANCELLED,
+            'cancel_reason'   => __('Toutes les lignes ont été annulées.', 'printgestion'),
+            'users_id_cancel' => (int) Session::getLoginUserID(),
+            'date_cancel'     => $_SESSION['glpi_currenttime'],
+        ])) {
+            throw new RuntimeException('Annulation de la demande sans ligne refusée par GLPI.');
+        }
+    }
+
     // ── Proposition automatique ───────────────────────────────────────────────
 
     /**
@@ -722,16 +1060,95 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
 
     // ── Fiche ─────────────────────────────────────────────────────────────────
 
+    /**
+     * Fiche : en-tête, lignes et contrôles. Avec le droit de validation (et l'entité) :
+     * demande proposée modifiable (mode, contact, commentaire ; quantité, prix hors
+     * contrat, annulation de ligne), « Enregistrer » et « Valider » ; demande proposée ou
+     * validée annulable avec motif.
+     */
     function showForm($ID, array $options = []) {
-        $lines  = $this->getLines();
-        $checks = $this->checkLines($lines);
+        $lines    = $this->getLines();
+        $checks   = $this->checkLines($lines);
+        $statut   = (string) $this->fields['statut'];
+        $can_act  = self::canUpdate() && $this->canUpdateItem();
+        $editable = $can_act && $statut === self::STATUS_PROPOSED;
 
-        $this->showHeaderCard();
-        $this->showLinesCard($lines, $checks);
+        if ($editable) {
+            echo "<form method='post' action='" . htmlspecialchars(self::getFormURL(), ENT_QUOTES, 'UTF-8') . "'>";
+            echo Html::hidden('id', ['value' => (int) $this->getID()]);
+        }
+
+        $this->showHeaderCard($editable);
+        $this->showLinesCard($lines, $checks, $editable);
+
+        if ($editable) {
+            $this->showValidationButtons($lines, $checks);
+            Html::closeForm();
+        }
+        if ($can_act && in_array($statut, self::OPEN_STATUSES, true)) {
+            $this->showCancelCard();
+        }
         return true;
     }
 
-    private function showHeaderCard(): void {
+    /** « Enregistrer » et « Valider » (enregistre puis valide, en un clic). */
+    private function showValidationButtons(array $lines, array $checks): void {
+        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+
+        $blocking = 0;
+        foreach ($checks as $line_id => $check) {
+            if ((string) $lines[$line_id]['statut'] === self::STATUS_PROPOSED && !empty($check['errors'])) {
+                $blocking++;
+            }
+        }
+
+        echo "<div class='card mt-3'><div class='card-body d-flex flex-wrap align-items-center gap-2'>";
+        if ($blocking > 0) {
+            echo "<div class='text-danger me-auto'><i class='ti ti-ban me-1'></i>" . $esc(sprintf(
+                _n(
+                    '%d ligne bloquante : corrigez-la ou annulez-la avant de valider.',
+                    '%d lignes bloquantes : corrigez-les ou annulez-les avant de valider.',
+                    $blocking,
+                    'printgestion'
+                ),
+                $blocking
+            )) . "</div>";
+        } else {
+            echo "<div class='text-muted small me-auto'>"
+                . $esc(__('« Valider » enregistre les modifications puis valide la demande ; les contrôles sont refaits au moment de la validation.', 'printgestion'))
+                . "</div>";
+        }
+        echo "<button type='submit' name='update' value='1' class='btn btn-outline-primary'>"
+            . "<i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button>";
+        echo "<button type='submit' name='validate' value='1' class='btn btn-success'>"
+            . "<i class='ti ti-check me-1'></i>" . $esc(__('Valider la demande', 'printgestion')) . "</button>";
+        echo "</div></div>";
+    }
+
+    /** Annulation d'une demande proposée ou validée : motif obligatoire, rien n'est supprimé. */
+    private function showCancelCard(): void {
+        $esc     = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $confirm = json_encode(
+            __('Annuler cette demande ? Ses lignes ouvertes seront annulées et leurs cartouches libérées.', 'printgestion'),
+            JSON_UNESCAPED_UNICODE
+        );
+
+        echo "<form method='post' action='" . $esc(self::getFormURL()) . "' onsubmit=\"return window.confirm(" . $esc($confirm) . ");\">";
+        echo Html::hidden('id', ['value' => (int) $this->getID()]);
+        echo "<div class='card mt-3'><div class='card-body'>";
+        echo "<h4 class='mb-2'>" . $esc(__('Annuler la demande', 'printgestion')) . "</h4>";
+        echo "<p class='text-muted small mb-2'>"
+            . $esc(__('Les lignes proposées ou validées sont annulées et libèrent leurs cartouches. Rien n\'est supprimé : la demande reste consultable avec son motif et son historique.', 'printgestion'))
+            . "</p>";
+        echo "<textarea class='form-control mb-2' name='cancel_reason' rows='2' required maxlength='1000' placeholder='"
+            . $esc(__('Motif d\'annulation (obligatoire)', 'printgestion')) . "'></textarea>";
+        echo "<button type='submit' name='cancel' value='1' class='btn btn-outline-danger'>"
+            . "<i class='ti ti-x me-1'></i>" . $esc(__('Annuler la demande', 'printgestion')) . "</button>";
+        echo "</div></div>";
+        Html::closeForm();
+    }
+
+    private function showHeaderCard(bool $editable): void {
         $esc  = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $dash = "<span class='text-muted'>—</span>";
         $f    = $this->fields;
@@ -757,8 +1174,20 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             __('Site de livraison', 'printgestion'),
             $site !== '' ? $esc($site) : "<span class='text-warning'>" . $esc(__('Imprimantes sans lieu', 'printgestion')) . '</span>'
         );
-        $field(__('Mode de livraison', 'printgestion'), $esc($mode));
-        $field(__('Contact de livraison', 'printgestion'), trim((string) $f['contact']) !== '' ? $esc($f['contact']) : $dash);
+        if ($editable) {
+            $field(__('Mode de livraison', 'printgestion'), Dropdown::showFromArray(
+                'delivery_mode',
+                self::getDeliveryModeLabels(),
+                ['value' => (string) $f['delivery_mode'], 'display' => false]
+            ));
+            $field(
+                __('Contact de livraison', 'printgestion'),
+                "<input type='text' class='form-control' name='contact' maxlength='255' value='" . $esc($f['contact']) . "'>"
+            );
+        } else {
+            $field(__('Mode de livraison', 'printgestion'), $esc($mode));
+            $field(__('Contact de livraison', 'printgestion'), trim((string) $f['contact']) !== '' ? $esc($f['contact']) : $dash);
+        }
         $field(__('Proposée le', 'printgestion'), $esc(Html::convDateTime((string) $f['date_creation'])));
         if (!empty($f['date_validate'])) {
             $field(__('Validée', 'printgestion'), $esc(sprintf(
@@ -776,7 +1205,9 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         }
         $field(
             __('Commentaire de livraison', 'printgestion'),
-            trim((string) $f['delivery_comment']) !== '' ? nl2br($esc($f['delivery_comment'])) : $dash,
+            $editable
+                ? "<textarea class='form-control' name='delivery_comment' rows='2'>" . $esc($f['delivery_comment']) . "</textarea>"
+                : (trim((string) $f['delivery_comment']) !== '' ? nl2br($esc($f['delivery_comment'])) : $dash),
             'col-12'
         );
         if (trim((string) $f['cancel_reason']) !== '') {
@@ -786,7 +1217,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         echo "</div></div></div>";
     }
 
-    private function showLinesCard(array $lines, array $checks): void {
+    private function showLinesCard(array $lines, array $checks, bool $editable): void {
         $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 
         echo "<div class='card'>";
@@ -810,6 +1241,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             . "<th class='text-end'>" . $esc(__('Prix unitaire', 'printgestion')) . "</th>"
             . "<th>" . $esc(__('Statut', 'printgestion')) . "</th>"
             . "<th>" . $esc(__('Contrôles', 'printgestion')) . "</th>"
+            . ($editable ? "<th class='text-center'>" . $esc(__('Annuler', 'printgestion')) . "</th>" : '')
             . "</tr></thead><tbody>";
 
         foreach ($lines as $line_id => $line) {
@@ -841,6 +1273,34 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             $price = $line['unit_price'] === null
                 ? "<span class='text-muted'>" . $esc(__('vide (Achats)', 'printgestion')) . '</span>'
                 : $esc(PluginPrintgestionDemandeline::formatPrice((float) $line['unit_price']));
+            $quantity = (string) (int) $line['quantity'];
+            $cancel   = '';
+
+            // Ligne proposée modifiable : quantité, prix hors contrat (d'après le contrat en
+            // cours maintenant, celui qui s'appliquera à la validation), annulation.
+            if ($editable && (string) $line['statut'] === self::STATUS_PROPOSED) {
+                $quantity = "<input type='number' class='form-control form-control-sm text-end' style='width:5rem'"
+                    . " name='quantity[{$line_id}]' min='1' max='" . self::MAX_QUANTITY . "' step='1' required"
+                    . " value='" . (int) $line['quantity'] . "'>";
+
+                $under_now = $check !== null
+                    ? (bool) $check['coverage']['under_contract']
+                    : (int) $line['is_under_contract'] === 1;
+                if ($under_now) {
+                    $price = "<input type='text' class='form-control form-control-sm text-end' style='width:7rem' value='0' disabled"
+                        . " title='" . $esc(__('Sous contrat : prix 0 imposé', 'printgestion')) . "'>";
+                } else {
+                    $value = ($line['unit_price'] === null || (float) $line['unit_price'] == 0.0)
+                        ? ''
+                        : rtrim(rtrim(number_format((float) $line['unit_price'], 4, ',', ''), '0'), ',');
+                    $price = "<input type='text' inputmode='decimal' class='form-control form-control-sm text-end' style='width:7rem'"
+                        . " name='unit_price[{$line_id}]' value='" . $esc($value) . "'"
+                        . " placeholder='" . $esc(__('vide = Achats', 'printgestion')) . "'>";
+                }
+
+                $cancel = "<input type='checkbox' class='form-check-input' name='cancel_line[{$line_id}]' value='1'"
+                    . " title='" . $esc(__('Annuler cette ligne', 'printgestion')) . "'>";
+            }
 
             if ($check === null) {
                 $controls = "<span class='text-muted'>—</span>";
@@ -862,10 +1322,11 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 . "<td>{$cartridge}</td>"
                 . "<td>{$proposal}</td>"
                 . "<td>{$contract}</td>"
-                . "<td class='text-end'>" . (int) $line['quantity'] . "</td>"
+                . "<td class='text-end'>{$quantity}</td>"
                 . "<td class='text-end'>{$price}</td>"
                 . "<td>" . self::getStatusBadge((string) $line['statut']) . "</td>"
                 . "<td style='min-width:16rem'>{$controls}</td>"
+                . ($editable ? "<td class='text-center'>{$cancel}</td>" : '')
                 . "</tr>";
         }
 
