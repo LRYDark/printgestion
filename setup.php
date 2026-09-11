@@ -6,7 +6,7 @@
 
 // À incrémenter à chaque nouvelle étape de schéma (inc/schema.class.php) : GLPI
 // ne rejoue l'installation, donc les migrations, que si cette version change.
-define('PLUGIN_PRINTGESTION_VERSION', '1.3.0');
+define('PLUGIN_PRINTGESTION_VERSION', '1.3.1');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');

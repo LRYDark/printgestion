@@ -34,6 +34,7 @@ class PluginPrintgestionSchema {
         '1.2.1' => 'migrateTo121',
         '1.2.2' => 'migrateTo122',
         '1.3.0' => 'migrateTo130',
+        '1.3.1' => 'migrateTo131',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -272,5 +273,88 @@ class PluginPrintgestionSchema {
         $config = 'glpi_plugin_printgestion_configs';
         $migration->addField($config, 'consumables_contracttypes', 'text DEFAULT NULL');
         $migration->migrationOneTable($config);
+    }
+
+    /**
+     * 1.3.1 — objet « Demande d'envoi » : en-tête (client = entité, site de livraison =
+     * lieu racine, mode de livraison, contact, commentaire, validation, annulation) et
+     * lignes (imprimante, toner, cartouche, quantité, prix unitaire, contrat).
+     * Statuts : proposed → validated → exported → shipped → delivered → installed, plus
+     * cancelled — aucune suppression.
+     * Unicité garantie par la base, même principe que les expéditions (étape 1.2.1) :
+     *  - au plus UNE ligne ouverte (proposée ou validée) par (imprimante, toner) :
+     *    colonne générée active_lock, clé unique uniq_active_slot ;
+     *  - au plus UNE demande proposée par (entité, site) : colonne générée
+     *    proposal_lock, clé unique uniq_open_proposal (regroupement automatique).
+     * Liste des statuts volontairement figée ici (étape livrée = SQL immuable).
+     */
+    private static function migrateTo131(Migration $migration): void {
+        global $DB;
+
+        $charset   = DBConnection::getDefaultCharset();
+        $collation = DBConnection::getDefaultCollation();
+        $sign      = DBConnection::getDefaultPrimaryKeySignOption();
+        $statuses  = "'proposed','validated','exported','shipped','delivered','installed','cancelled'";
+
+        if (!$DB->tableExists('glpi_plugin_printgestion_demandes')) {
+            $migration->displayMessage('Print Gestion — création de la table des demandes d\'envoi');
+            $DB->doQuery("CREATE TABLE `glpi_plugin_printgestion_demandes` (
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `name` varchar(255) DEFAULT NULL,
+                `entities_id` int {$sign} NOT NULL DEFAULT '0',
+                `locations_id` int {$sign} NOT NULL DEFAULT '0',
+                `statut` enum({$statuses}) NOT NULL DEFAULT 'proposed',
+                `delivery_mode` enum('direct','technician') NOT NULL DEFAULT 'direct',
+                `contact` varchar(255) DEFAULT NULL,
+                `delivery_comment` text,
+                `users_id_validate` int {$sign} NOT NULL DEFAULT '0',
+                `date_validate` timestamp NULL DEFAULT NULL,
+                `users_id_cancel` int {$sign} NOT NULL DEFAULT '0',
+                `date_cancel` timestamp NULL DEFAULT NULL,
+                `cancel_reason` text,
+                `date_creation` timestamp NULL DEFAULT NULL,
+                `date_mod` timestamp NULL DEFAULT NULL,
+                `proposal_lock` tinyint GENERATED ALWAYS AS (IF(`statut` = 'proposed', 1, NULL)) STORED,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uniq_open_proposal` (`entities_id`, `locations_id`, `proposal_lock`),
+                KEY `locations_id` (`locations_id`),
+                KEY `statut` (`statut`),
+                KEY `users_id_validate` (`users_id_validate`),
+                KEY `users_id_cancel` (`users_id_cancel`),
+                KEY `date_creation` (`date_creation`),
+                KEY `date_mod` (`date_mod`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
+        }
+
+        if (!$DB->tableExists('glpi_plugin_printgestion_demandelines')) {
+            $migration->displayMessage('Print Gestion — création de la table des lignes de demande d\'envoi');
+            $DB->doQuery("CREATE TABLE `glpi_plugin_printgestion_demandelines` (
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `plugin_printgestion_demandes_id` int {$sign} NOT NULL DEFAULT '0',
+                `printers_id` int {$sign} NOT NULL DEFAULT '0',
+                `toner_property` varchar(255) NOT NULL DEFAULT '',
+                `cartridgeitems_id` int {$sign} NOT NULL DEFAULT '0',
+                `quantity` int NOT NULL DEFAULT '1',
+                `unit_price` decimal(20,4) DEFAULT NULL,
+                `is_under_contract` tinyint NOT NULL DEFAULT '0',
+                `contracts_id` int {$sign} NOT NULL DEFAULT '0',
+                `level_at_proposal` int DEFAULT NULL,
+                `estimated_days` int DEFAULT NULL,
+                `statut` enum({$statuses}) NOT NULL DEFAULT 'proposed',
+                `expeditions_id` int {$sign} NOT NULL DEFAULT '0',
+                `date_creation` timestamp NULL DEFAULT NULL,
+                `date_mod` timestamp NULL DEFAULT NULL,
+                `active_lock` tinyint GENERATED ALWAYS AS (IF(`statut` IN ('proposed','validated'), 1, NULL)) STORED,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uniq_active_slot` (`printers_id`, `toner_property`, `active_lock`),
+                KEY `plugin_printgestion_demandes_id` (`plugin_printgestion_demandes_id`),
+                KEY `idx_slot_statut` (`printers_id`, `toner_property`, `statut`),
+                KEY `cartridgeitems_id` (`cartridgeitems_id`),
+                KEY `contracts_id` (`contracts_id`),
+                KEY `expeditions_id` (`expeditions_id`),
+                KEY `date_creation` (`date_creation`),
+                KEY `date_mod` (`date_mod`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
+        }
     }
 }

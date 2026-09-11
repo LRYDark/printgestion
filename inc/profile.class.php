@@ -41,6 +41,14 @@ class PluginPrintgestionProfile extends Profile {
                 'rights'   => [READ => __('Voir', 'printgestion'), UPDATE => __('Éditer', 'printgestion'), CREATE => __('Créer', 'printgestion')],
             ],
             [
+                // Distinct des alertes et des expéditions : la lecture des alertes suffit à
+                // voir la file des demandes, seul ce droit permet de modifier ou valider.
+                'itemtype' => 'PluginPrintgestionDemande',
+                'label'    => __('Demandes d\'envoi — validation', 'printgestion'),
+                'field'    => 'plugin_printgestion_validation',
+                'rights'   => [READ => __('Voir', 'printgestion'), UPDATE => __('Modifier, valider, annuler', 'printgestion')],
+            ],
+            [
                 'itemtype' => 'PluginPrintgestionBilling',
                 'label'    => __('Coût à la page', 'printgestion'),
                 'field'    => 'plugin_printgestion_billing',
@@ -72,6 +80,7 @@ class PluginPrintgestionProfile extends Profile {
                 'plugin_printgestion_dashboard'  => 0,
                 'plugin_printgestion_billing'    => 0,
                 'plugin_printgestion_expedition' => 0,
+                'plugin_printgestion_validation' => 0,
             ]);
             $prof->showForm($ID);
         }
@@ -172,6 +181,7 @@ class PluginPrintgestionProfile extends Profile {
             'plugin_printgestion_dashboard'  => ALLSTANDARDRIGHT,
             'plugin_printgestion_billing'    => ALLSTANDARDRIGHT,
             'plugin_printgestion_expedition' => ALLSTANDARDRIGHT,
+            'plugin_printgestion_validation' => ALLSTANDARDRIGHT,
         ], true);
     }
 

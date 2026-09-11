@@ -30,6 +30,9 @@ Trois modules indépendants, activables par interrupteur dans la configuration :
   (plugin Gestion).
 - Commandes fournisseur : génération d'un fichier **Excel** (format Gesconso + stock GLPI),
   envoyé aux achats — mono ou multi-imprimantes/clients.
+- Demandes d'envoi : regroupement par client et site de livraison, lignes sous contrat / hors contrat,
+  contrôles avant validation (référence, contrat, prix, verrous anti-double-envoi), aucune suppression,
+  historique GLPI natif. Droit dédié `plugin_printgestion_validation`.
 
 ### Coût à la page
 - Calcul par imprimante ou par client sur une période choisie (compteurs `printerlogs`

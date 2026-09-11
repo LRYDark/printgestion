@@ -54,6 +54,8 @@ class PluginPrintgestionMenu extends CommonGLPI {
                 'feature' => 'toner',
                 'tabs'    => [
                     ['key' => 'tn_alerts', 'label' => __('Alertes toner', 'printgestion'), 'icon' => 'ti ti-alert-triangle', 'path' => '/front/dashboard_alerts.php',      'right' => ['plugin_printgestion_dashboard', READ]],
+                    // File des demandes : droit de validation OU lecture des alertes (voir sans valider).
+                    ['key' => 'tn_dem',    'label' => __('Demandes d\'envoi', 'printgestion'), 'icon' => 'ti ti-clipboard-check', 'path' => '/front/demande.php', 'right' => [['plugin_printgestion_validation', READ], ['plugin_printgestion_dashboard', READ]]],
                     ['key' => 'tn_exp',    'label' => __('Expéditions', 'printgestion'),   'icon' => 'ti ti-truck',                'path' => '/front/dashboard_expeditions.php', 'right' => ['plugin_printgestion_expedition', READ]],
                 ],
             ],
@@ -68,10 +70,21 @@ class PluginPrintgestionMenu extends CommonGLPI {
         ];
     }
 
-    /** Un onglet est accessible si sa feature est activée ET le droit READ présent. */
+    /**
+     * Un onglet est accessible si sa feature est activée ET le droit présent.
+     * $right : [nom, bit], ou liste de [nom, bit] dont un seul suffit.
+     */
     static function tabAllowed(string $feature, array $right): bool {
-        return PluginPrintgestionConfig::isFeatureEnabled($feature)
-            && Session::haveRight($right[0], $right[1]);
+        if (!PluginPrintgestionConfig::isFeatureEnabled($feature)) {
+            return false;
+        }
+        $alternatives = is_array($right[0] ?? null) ? $right : [$right];
+        foreach ($alternatives as $alternative) {
+            if (Session::haveRight($alternative[0], $alternative[1])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Le menu est visible s'il existe au moins un onglet accessible. */
@@ -200,6 +213,7 @@ class PluginPrintgestionMenu extends CommonGLPI {
             'plugin_printgestion_dashboard',
             'plugin_printgestion_billing',
             'plugin_printgestion_expedition',
+            'plugin_printgestion_validation',
         ] as $right) {
             if (isset($_SESSION['glpiactiveprofile'][$right])) {
                 unset($_SESSION['glpiactiveprofile'][$right]);

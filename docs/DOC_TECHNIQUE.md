@@ -46,7 +46,7 @@ printgestion/
 |---|---|
 | `Config` | Singleton de configuration (ligne id=1), **crée toutes les tables à l'install**, envoi mail générique `sendMail()` |
 | `Menu` | Entrée de menu + hub à catégories + barre d'onglets unifiée |
-| `Profile` | Droits du plugin (5 droits, voir §8) |
+| `Profile` | Droits du plugin (6 droits, voir §8) |
 | `Dashboard` | Dashboard contrats (tuiles, camemberts ECharts, liste Search native) |
 | `Contract` | Itemtype « virtuel » sur `glpi_contracts` pour borner la recherche aux contrats liés à ≥1 imprimante |
 | `Contractrate` | Tarifs N&B / Couleur par contrat (onglet sur fiche Contract) |
@@ -56,6 +56,8 @@ printgestion/
 | `Alert` | Calcul intelligent des alertes toner (vitesse de conso sur fenêtre 30 j) + **digest mail commercial** |
 | `Alertview` | Table **matérialisée** des alertes pour le moteur Search natif (rebuild par cron + bouton) |
 | `Expedition` | Cycle d'expédition des cartouches, **tous les circuits mail** (planif/achats/courtoisie/rappels) |
+| `Demande` / `Demandeline` | Demande d'envoi (en-tête client + site, lignes) : statuts, contrôles avant validation, historique natif |
+| `Guard` | Verrous anti-double-envoi (envoi en cours, demande ouverte, garde après pose, ticket récent) |
 | `Snmpmapping` | Mapping constructeur + propriété SNMP → modèle de cartouche + couleur |
 | `Cartridgesnmp` | Onglet sur fiche CartridgeItem : binding direct cartouche ↔ propriétés SNMP |
 | `Billing` / `Billingview` | Coût à la page + table matérialisée **par utilisateur** (le calcul dépend de la période choisie) |
@@ -81,6 +83,8 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_alert_snoozes` | Mises en sommeil d'alertes (par toner ou par imprimante) |
 | `glpi_plugin_printgestion_alertview` | **Matérialisée** : 1 ligne par couple imprimante/toner pour le Search natif |
 | `glpi_plugin_printgestion_expeditions` | Expéditions de cartouches (statuts, transporteur, group_id, users) |
+| `glpi_plugin_printgestion_demandes` | Demandes d'envoi : client (entité), site de livraison, statut, mode et contact de livraison, validation, annulation |
+| `glpi_plugin_printgestion_demandelines` | Lignes de demande : imprimante, toner, cartouche, quantité, prix unitaire, contrat, statut |
 | `glpi_plugin_printgestion_expedition_bls` | Liaison expéditions ↔ BL du plugin Gestion |
 | `glpi_plugin_printgestion_snmp_mapping` | Mapping constructeur/propriété SNMP → cartouche |
 | `glpi_plugin_printgestion_cartridge_snmp` | Bindings directs cartouche ↔ propriété SNMP |
@@ -155,6 +159,7 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
 | Verrou | Condition | Durée | Contournable |
 |---|---|---|---|
 | Envoi en cours | Un envoi ni posé ni annulé existe | Sans limite, jusqu'à la pose ou l'annulation | **Jamais** |
+| Demande en cours | Une ligne de demande proposée ou validée, pas encore exportée | Jusqu'à l'export ou l'annulation | **Jamais** |
 | Garde après pose | Pose détectée (`cartridge_history.is_detected = 1`) ou confirmée (`installed`) | `guard_days` (5 par défaut) après la pose | Oui |
 | Ticket récent | Ticket non résolu lié à la machine, ouvert récemment | `guard_ticket_days` (10 par défaut, 0 = désactivé) | Oui |
 
@@ -186,6 +191,31 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   commencé. **Hors contrat** sinon, y compris quand aucun type n'est paramétré. Le motif est restitué
   (contrat terminé, type non couvert, aucun contrat lié…).
 - **Prix** : 0 uniquement sous contrat ; hors contrat la cellule Prix reste **vide**, jamais 0.
+
+### Demandes d'envoi (`inc/demande.class.php`, `inc/demandeline.class.php`)
+
+- **En-tête** (`glpi_plugin_printgestion_demandes`) : client = entité de l'imprimante, site de livraison =
+  lieu racine (`Demande::getSiteLocationId()`), mode de livraison (envoi direct / technicien, information
+  seule), contact et commentaire de livraison, validation et annulation (qui, quand, motif).
+- **Lignes** (`glpi_plugin_printgestion_demandelines`) : imprimante, toner, cartouche résolue, quantité,
+  prix unitaire (0 sous contrat ; vide ou saisi hors contrat), contrat retenu, niveau et jours estimés à la
+  proposition, statut propre, expédition liée (renseignée à l'export).
+- **Statuts** : `proposed` → `validated` → `exported` → `shipped` → `delivered` → `installed`, plus
+  `cancelled`. Aucune suppression : `pre_deleteItem()` refuse, suppression et modification en masse
+  interdites ; l'annulation est un statut.
+- **Historique natif** : `dohistory` sur la demande ; ajouts et modifications de lignes journalisés sur la
+  demande (ligne, champ, ancienne → nouvelle valeur). Toutes les écritures passent par `add()` / `update()`.
+- **Anti-double-envoi** : une ligne ouverte (`proposed` / `validated`) est un verrou « demande » jamais
+  contournable (`Guard`), au même titre qu'un envoi en cours. Unicité en base : colonne générée
+  `active_lock` + clé `uniq_active_slot` (une ligne ouverte par imprimante et toner) ; `proposal_lock` +
+  `uniq_open_proposal` (une demande proposée par entité et site). À l'export, l'expédition créée prend le
+  relais du verrou. **Limite** : l'exclusion entre une ligne ouverte et un envoi en cours n'est pas garantie
+  par la base (deux tables) ; elle repose sur `Guard`, réévalué côté serveur avant chaque écriture.
+- **Contrôles** (`Demande::checkLines()`, recalculés à l'instant pour les lignes ouvertes) : imprimante
+  présente et dans l'entité de la demande, référence résolue, sous contrat / hors contrat, prix 0 interdit
+  hors contrat, quantité, verrous (hors lignes de la demande elle-même).
+- **Droits** : `plugin_printgestion_validation` (READ voir, UPDATE modifier / valider / annuler). La file
+  est aussi visible avec la lecture des alertes toner, sans pouvoir agir. Pas de création manuelle.
 
 ### Points d'entrée (ajax/)
 
@@ -279,13 +309,14 @@ Les 3 tâches sortent immédiatement (`return 0`) si la feature `toner` est dés
 
 ## 8. Droits et profils
 
-5 droits (`Profile::initProfile()`, ALLSTANDARDRIGHT au profil ayant `config` UPDATE à l'install) :
+6 droits (`Profile::initProfile()`, ALLSTANDARDRIGHT au profil ayant `config` UPDATE à l'install) :
 
 | Droit | Protège |
 |---|---|
 | `plugin_printgestion_contrats` | Dashboard contrats / Liste / Créer Print (CREATE pour créer) |
 | `plugin_printgestion_dashboard` | Alertes toner (dashboard + actions) |
 | `plugin_printgestion_expedition` | Expéditions (UPDATE pour agir) |
+| `plugin_printgestion_validation` | Demandes d'envoi : READ voir, UPDATE modifier / valider / annuler (file aussi visible avec `dashboard` READ, sans agir) |
 | `plugin_printgestion_billing` | Coût à la page |
 | `plugin_printgestion_config` | Configuration du plugin + mappings SNMP |
 

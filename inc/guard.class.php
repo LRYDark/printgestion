@@ -11,6 +11,9 @@
  *     contournable : la cartouche existe déjà. Si elle a été détectée posée sur une
  *     autre machine (alerte « mauvaise imprimante » non résolue), le message renvoie
  *     vers la réattribution, qui clôt l'envoi et libère cette machine.
+ *     Une ligne de demande d'envoi proposée ou validée, pas encore exportée, bloque de
+ *     la même façon (motif « demande ») : une demande validée mais pas encore partie
+ *     bloque autant qu'une expédition.
  *  2. GARDE — une pose a été détectée ou confirmée sur cette machine et cet
  *     emplacement il y a moins de guard_days jours. La garde part de la POSE, où
  *     qu'elle ait eu lieu : une machine qui reçoit la cartouche destinée à une autre
@@ -31,17 +34,20 @@ class PluginPrintgestionGuard {
     const REASON_IN_PROGRESS = 'in_progress';
     const REASON_GUARD       = 'guard';
     const REASON_TICKET      = 'ticket';
+    const REASON_DEMANDE     = 'demande';
 
     /**
      * Évalue les verrous d'une liste d'emplacements, en requêtes groupées.
      *
-     * @param array $slots [['printers_id' => int, 'property' => string, 'level' => ?int], ...]
-     *                     level : niveau mesuré (%) ou null s'il n'est pas mesurable.
+     * @param array $slots   [['printers_id' => int, 'property' => string, 'level' => ?int], ...]
+     *                       level : niveau mesuré (%) ou null s'il n'est pas mesurable.
+     * @param array $options ['exclude_demandes_id' => int] : lignes de cette demande ignorées
+     *                       (contrôle d'une demande par rapport à tout le reste).
      * @return array Clé "printers_id|property" => verrou, ou null si l'emplacement est libre.
      *               Verrou : ['reason', 'blocking', 'bypassed', 'message', 'until',
-     *                         'expeditions_id', 'tickets_id'].
+     *                         'expeditions_id', 'tickets_id', 'demandes_id'].
      */
-    public static function evaluate(array $slots): array {
+    public static function evaluate(array $slots, array $options = []): array {
         global $DB;
 
         $out         = [];
@@ -106,6 +112,29 @@ class PluginPrintgestionGuard {
                 if (!isset($elsewhere[$eid])) {
                     $elsewhere[$eid] = (string) ($alert['detected_name'] ?? '?');
                 }
+            }
+        }
+
+        // Lignes de demande d'envoi ouvertes : proposées ou validées, pas encore exportées
+        // (la plus récente par imprimante et emplacement).
+        $open_lines    = [];
+        $line_criteria = [
+            'SELECT' => ['plugin_printgestion_demandes_id', 'printers_id', 'toner_property', 'statut'],
+            'FROM'   => PluginPrintgestionDemandeline::getTable(),
+            'WHERE'  => [
+                'printers_id' => $all_ids,
+                'statut'      => PluginPrintgestionDemande::OPEN_STATUSES,
+            ],
+            'ORDER'  => ['id DESC'],
+        ];
+        $exclude_demandes_id = (int) ($options['exclude_demandes_id'] ?? 0);
+        if ($exclude_demandes_id > 0) {
+            $line_criteria['WHERE'][] = ['NOT' => ['plugin_printgestion_demandes_id' => $exclude_demandes_id]];
+        }
+        foreach ($DB->request($line_criteria) as $line) {
+            $k = $line['printers_id'] . '|' . $line['toner_property'];
+            if (!isset($open_lines[$k])) {
+                $open_lines[$k] = $line;
             }
         }
 
@@ -205,6 +234,27 @@ class PluginPrintgestionGuard {
                 continue;
             }
 
+            // 1 bis. Ligne de demande d'envoi ouverte : jamais contournable non plus.
+            $line = null;
+            foreach ($ids as $id) {
+                if (isset($open_lines[$id . '|' . $prop])) {
+                    $line = $open_lines[$id . '|' . $prop];
+                    break;
+                }
+            }
+            if ($line !== null) {
+                $did     = (int) $line['plugin_printgestion_demandes_id'];
+                $message = sprintf(
+                    __('Demande d\'envoi #%1$d %2$s : pas de nouvelle commande tant qu\'elle n\'est ni exportée ni annulée.', 'printgestion'),
+                    $did,
+                    (string) $line['statut'] === PluginPrintgestionDemande::STATUS_VALIDATED
+                        ? __('validée, pas encore exportée', 'printgestion')
+                        : __('proposée, en attente de validation', 'printgestion')
+                );
+                $out[$key] = self::lock(self::REASON_DEMANDE, false, $message, null, null, null, $did);
+                continue;
+            }
+
             // 2. Garde après la dernière pose.
             $last = null;
             foreach ($ids as $id) {
@@ -268,7 +318,7 @@ class PluginPrintgestionGuard {
      * Comme evaluate(), avec le niveau mesuré lu côté serveur dans l'inventaire GLPI —
      * jamais une valeur transmise par le navigateur. Pour valider une commande.
      */
-    public static function evaluateLive(array $slots): array {
+    public static function evaluateLive(array $slots, array $options = []): array {
         global $DB;
 
         $printer_ids = array_values(array_unique(array_filter(array_map(
@@ -292,7 +342,7 @@ class PluginPrintgestionGuard {
         }
         unset($slot);
 
-        return self::evaluate($slots);
+        return self::evaluate($slots, $options);
     }
 
     /**
@@ -351,7 +401,8 @@ class PluginPrintgestionGuard {
         string $message,
         ?string $until,
         ?int $expeditions_id,
-        ?int $tickets_id
+        ?int $tickets_id,
+        ?int $demandes_id = null
     ): array {
         return [
             'reason'         => $reason,
@@ -361,6 +412,7 @@ class PluginPrintgestionGuard {
             'until'          => $until,
             'expeditions_id' => $expeditions_id,
             'tickets_id'     => $tickets_id,
+            'demandes_id'    => $demandes_id,
         ];
     }
 

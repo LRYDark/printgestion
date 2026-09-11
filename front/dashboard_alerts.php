@@ -156,6 +156,7 @@ $labels = [
     'snoozed_tip'=> __('Alertes désactivées (snooze actif)', 'printgestion'),
     // Verrous anti-double-envoi
     'lock_in_progress'  => __('Envoi en cours', 'printgestion'),
+    'lock_demande'      => __('Demande en cours', 'printgestion'),
     'lock_guard'        => __('Garde après pose', 'printgestion'),
     'lock_ticket'       => __('Ticket récent', 'printgestion'),
     'lock_bypassed'     => __('Contournement', 'printgestion'),
@@ -264,7 +265,7 @@ echo <<<HTML
   // ticket récent, ou envoi en cours sur une fiche portant le même n° de série.
   function lockBadge(lock) {
     if (!lock) return '—';
-    const labels = { in_progress: L.lock_in_progress, guard: L.lock_guard, ticket: L.lock_ticket };
+    const labels = { in_progress: L.lock_in_progress, demande: L.lock_demande, guard: L.lock_guard, ticket: L.lock_ticket };
     const cls = lock.bypassed ? 'bg-warning text-dark' : 'bg-secondary';
     const lbl = lock.bypassed ? L.lock_bypassed : (labels[lock.reason] || lock.reason);
     return '<span class="badge ' + cls + '" title="' + esc(lock.message) + '">' + esc(lbl) + '</span>';
