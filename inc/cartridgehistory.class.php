@@ -188,8 +188,8 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
 
             $detected++;
 
-            // Lève l'alerte d'expédition en attente (installation confirmée)
-            PluginPrintgestionExpedition::markDeliveredOnInstall($printers_id, $property);
+            // Pose détectée : clôt l'envoi en cours de cette imprimante et de ce toner.
+            PluginPrintgestionExpedition::markInstalledOnDetection($printers_id, $property, (string)$current['reading_date']);
 
             // Auto-résolution des alertes wrong_printer qui pointaient vers cette
             // imprimante : elle vient enfin de recevoir sa cartouche, donc les alertes

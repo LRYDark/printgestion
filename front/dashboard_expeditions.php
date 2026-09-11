@@ -159,7 +159,7 @@ document.addEventListener('submit', function (e) {
 
 // ── Compteurs par statut (calculés, restreints par l'entité de l'imprimante) ──
 $exp_t         = 'glpi_plugin_printgestion_expeditions';
-$status_counts = ['pending' => 0, 'shipped' => 0, 'transit' => 0, 'delivered' => 0, 'stock_empty' => 0];
+$status_counts = ['pending' => 0, 'shipped' => 0, 'transit' => 0, 'delivered' => 0, 'stock_empty' => 0, 'installed' => 0, 'cancelled' => 0];
 $sel = [];
 foreach (array_keys($status_counts) as $st) {
     $sel[] = new QueryExpression("SUM(`{$exp_t}`.`statut` = '{$st}') AS `{$st}`");
@@ -181,8 +181,11 @@ PluginPrintgestionUi::statsBar([
      'icon' => 'ti ti-send', 'color' => 'primary'],
     ['count' => (int) $status_counts['transit'],   'label' => __('En transit', 'printgestion'),
      'icon' => 'ti ti-truck', 'color' => 'azure'],
-    ['count' => (int) $status_counts['delivered'], 'label' => __('Livrées', 'printgestion'),
-     'icon' => 'ti ti-checks', 'color' => 'green'],
+    ['count' => (int) $status_counts['delivered'], 'label' => __('Livrées non posées', 'printgestion'),
+     'tooltip' => __('Livrées mais pose non encore détectée ni confirmée : toujours bloquantes', 'printgestion'),
+     'icon' => 'ti ti-package', 'color' => 'green'],
+    ['count' => (int) $status_counts['installed'], 'label' => __('Posées', 'printgestion'),
+     'icon' => 'ti ti-checks', 'color' => 'teal'],
 ], 'printgestionExpeditionStatsBar');
 
 // ── Tableau NATIF (moteur de recherche GLPI) ──

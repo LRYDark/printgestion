@@ -102,7 +102,7 @@ GLPI inventaire SNMP ──> glpi_printers_cartridgeinfos
 Tonerreading::snapshotAllPrinters() ──> toner_readings (horodaté)
         │
         ├─> Cartridgehistory::detectChanges()   hausse ≥ detection_delta % = cartouche changée
-        │                                        → Expedition::markDeliveredOnInstall()
+        │                                        → Expedition::markInstalledOnDetection()
         │  (cron 2, horaire)
         ▼
 Alert : vitesse = (level_t-30 − level_t) / 30 ; jours_restants = level_t / vitesse
@@ -121,15 +121,18 @@ Le stock = cartouches du modèle ni installées (`date_use IS NULL`) ni sorties 
 ## 5. Cycle d'expédition
 
 ```
-pending ──(planif saisit transporteur+tracking)──> shipped ──> transit ──> delivered
-   └── stock_empty si aucun stock au déclenchement
+pending ──(planif saisit transporteur+tracking)──> shipped ──> transit ──> delivered ──> installed
+   └── stock_empty si aucun stock au déclenchement              (+ cancelled : annulée, jamais supprimée)
 ```
 
-- **Anti-doublon** : tant qu'une expédition est active (pending/shipped/transit/stock_empty),
-  aucune nouvelle expédition n'est créée pour le même couple imprimante/toner.
+- **Envoi en cours** (`Expedition::ACTIVE_STATUSES`, sans borne de temps) : pending, stock_empty,
+  shipped, transit **et delivered**. « Livrée » ne clôt pas l'envoi : seule la **pose** le fait.
+- **Clôture** : `installed` quand la pose est détectée (hausse de niveau, §4), confirmée manuellement
+  (fenêtre « Modifier expédition ») ou constatée sur une autre imprimante (réattribution) ;
+  `cancelled` pour une annulation (aucune suppression de ligne).
+- `delivered` : BL signé du plugin Gestion, API transporteur (cron 3) ou saisie manuelle — n'a plus
+  d'effet sur le blocage. Rappels de pose et « expéditions en retard » couvrent aussi les livrées non posées.
 - `group_id` (UUID) relie les expéditions d'une même commande.
-- Passage `delivered` : automatique via détection de changement de cartouche (§4),
-  via BL signé du plugin Gestion, ou via API transporteur (cron 3).
 
 ### Points d'entrée (ajax/)
 

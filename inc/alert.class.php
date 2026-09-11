@@ -440,12 +440,12 @@ class PluginPrintgestionAlert extends CommonDBTM {
             $snmp_mappings_by_property[strtolower((string)$r['snmp_property'])] = $r;
         }
 
-        // 5. Expéditions actives indexées par (printers_id, property)
+        // 5. Expéditions en cours (ni posées ni annulées) indexées par (printers_id, property)
         $active_expeditions = [];
         foreach ($DB->request([
             'FROM'  => 'glpi_plugin_printgestion_expeditions',
             'WHERE' => [
-                'statut' => ['pending', 'shipped', 'transit', 'stock_empty'],
+                'statut' => PluginPrintgestionExpedition::ACTIVE_STATUSES,
             ],
             'ORDER' => ['id DESC'],
         ]) as $e) {
@@ -865,9 +865,9 @@ class PluginPrintgestionAlert extends CommonDBTM {
             if ($row['status'] === self::STATUS_OK) {
                 continue;
             }
-            // Ignorer si expédition déjà en cours pour cette propriété
-            if ($row['expedition'] !== null
-                && in_array($row['expedition']['statut'], ['pending', 'shipped', 'transit'], true)) {
+            // Ignorer si un envoi est en cours pour cette propriété, quel que soit son
+            // statut (commandé, stock vide, expédié, en transit, livré non posé).
+            if ($row['expedition'] !== null) {
                 continue;
             }
 
@@ -1142,7 +1142,8 @@ class PluginPrintgestionAlert extends CommonDBTM {
             ];
         }
 
-        // ── 2. Expéditions en retard (shipped/transit depuis > reminder_days) ──
+        // ── 2. Expéditions en retard : expédiées, en transit ou livrées, mais non
+        //       posées plus de reminder_days après l'expédition ──
         $reminder_days = max(1, (int)($config->fields['reminder_days'] ?? 7));
         $cutoff = date('Y-m-d H:i:s', strtotime("-{$reminder_days} days"));
 
@@ -1169,7 +1170,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 ],
             ],
             'WHERE' => [
-                'e.statut'       => ['shipped', 'transit'],
+                'e.statut'       => ['shipped', 'transit', 'delivered'],
                 'e.date_shipped' => ['<=', $cutoff],
             ],
             'ORDER' => ['e.date_shipped ASC'],

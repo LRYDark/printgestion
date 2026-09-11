@@ -28,7 +28,7 @@ if (PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id) === null
     PluginPrintgestionSecurity::denyJson();
 }
 
-$allowed_statuts  = ['pending', 'shipped', 'transit', 'delivered', 'stock_empty'];
+$allowed_statuts  = ['pending', 'shipped', 'transit', 'delivered', 'stock_empty', 'installed', 'cancelled'];
 $allowed_carriers = ['', 'ups', 'gls', 'chronopost', 'other'];
 
 $statut   = in_array($_POST['statut']  ?? '', $allowed_statuts, true)  ? $_POST['statut']  : null;
@@ -57,6 +57,10 @@ if ($statut === 'shipped' && empty($DB->request([
 }
 if ($statut === 'delivered') {
     $data['date_delivered'] = date('Y-m-d H:i:s');
+}
+if ($statut === 'installed') {
+    // Confirmation manuelle de la pose (ex. pose non détectée en SNMP) : clôt l'envoi.
+    $data['date_installed'] = date('Y-m-d H:i:s');
 }
 
 $ok = $DB->update('glpi_plugin_printgestion_expeditions', $data, ['id' => $expedition_id]);

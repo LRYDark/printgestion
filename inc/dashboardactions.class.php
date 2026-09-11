@@ -320,8 +320,10 @@ HTML;
             'pending'     => __('En attente', 'printgestion'),
             'shipped'     => __('Expédiée', 'printgestion'),
             'transit'     => __('En transit', 'printgestion'),
-            'delivered'   => __('Livrée', 'printgestion'),
+            'delivered'   => __('Livrée (non posée)', 'printgestion'),
             'stock_empty' => __('Stock vide', 'printgestion'),
+            'installed'   => __('Posée — confirmer la pose (clôt l\'envoi)', 'printgestion'),
+            'cancelled'   => __('Annulée (clôt l\'envoi, sans suppression)', 'printgestion'),
         ];
         $statut_html = '';
         foreach ($statut_opts as $val => $lab) {

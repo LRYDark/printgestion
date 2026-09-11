@@ -30,6 +30,7 @@ class PluginPrintgestionSchema {
     const STEPS = [
         '1.0.0' => 'migrateTo100',
         '1.1.0' => 'migrateTo110',
+        '1.2.0' => 'migrateTo120',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -134,5 +135,35 @@ class PluginPrintgestionSchema {
         if (!empty($update)) {
             $DB->update($table, $update, ['id' => 1]);
         }
+    }
+
+    /**
+     * 1.2.0 — cycle d'expédition : « livrée » ne clôt plus un envoi, seule la pose.
+     * Nouveaux statuts « installed » (posée : pose détectée ou confirmée) et
+     * « cancelled » (annulée, sans suppression) ; colonne date_installed.
+     * Données existantes : les expéditions « delivered » passent « installed » (date de
+     * pose = date de livraison, à défaut d'expédition ou de commande) — décision
+     * projet : ne bloquer aucune machine sur un historique dont la pose est inconnue.
+     */
+    private static function migrateTo120(Migration $migration): void {
+        global $DB;
+
+        $table = 'glpi_plugin_printgestion_expeditions';
+
+        $migration->changeField(
+            $table,
+            'statut',
+            'statut',
+            "enum('pending','shipped','transit','delivered','stock_empty','installed','cancelled') NOT NULL DEFAULT 'pending'"
+        );
+        $migration->addField($table, 'date_installed', 'timestamp NULL DEFAULT NULL', ['after' => 'date_delivered']);
+        $migration->migrationOneTable($table);
+
+        $DB->doQuery(
+            "UPDATE `{$table}`
+                SET `statut` = 'installed',
+                    `date_installed` = COALESCE(`date_delivered`, `date_shipped`, `date_alert`, NOW())
+              WHERE `statut` = 'delivered'"
+        );
     }
 }

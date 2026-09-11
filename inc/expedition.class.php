@@ -2,11 +2,11 @@
 /**
  * PluginPrintgestionExpedition — gestion du cycle d'expédition des cartouches (Point 4).
  *
- * Statuts : pending → shipped → transit → delivered
- *           (ou stock_empty si aucun stock au déclenchement)
+ * Statuts : pending (ou stock_empty) → shipped → transit → delivered → installed
+ *           ou cancelled (annulée, jamais supprimée).
  *
- * Empêche le double envoi : tant qu'une expédition est active
- * (pending/shipped/transit), aucune nouvelle alerte d'expédition n'est créée.
+ * Un envoi reste EN COURS (ACTIVE_STATUSES) tant que la pose n'est pas détectée ou
+ * confirmée : « livrée » ne le clôt pas. Seuls installed et cancelled le clôturent.
  */
 
 if (!defined('GLPI_ROOT')) {
@@ -22,6 +22,16 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     const STATUS_TRANSIT     = 'transit';
     const STATUS_DELIVERED   = 'delivered';
     const STATUS_STOCK_EMPTY = 'stock_empty';
+    /** Pose détectée (hausse de niveau) ou confirmée manuellement : clôt l'envoi. */
+    const STATUS_INSTALLED   = 'installed';
+    /** Annulée (jamais supprimée) : clôt l'envoi sans pose. */
+    const STATUS_CANCELLED   = 'cancelled';
+
+    /**
+     * Statuts d'un envoi EN COURS, sans borne de temps : commandé (pending,
+     * stock_empty), expédié, en transit ET livré tant que la pose n'est pas constatée.
+     */
+    const ACTIVE_STATUSES = ['pending', 'stock_empty', 'shipped', 'transit', 'delivered'];
 
     /** Nombre max de lignes listées dans le corps d'un mail groupé/digest ;
      *  au-delà : « … et N autres » (le détail complet reste dans l'Excel joint). */
@@ -176,6 +186,13 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             'datatype' => 'datetime',
         ];
         $tab[] = [
+            'id'       => '14',
+            'table'    => self::getTable(),
+            'field'    => 'date_installed',
+            'name'     => __('Date de pose', 'printgestion'),
+            'datatype' => 'datetime',
+        ];
+        $tab[] = [
             'id'       => '13',
             'table'    => self::getTable(),
             'field'    => 'notes',
@@ -202,8 +219,10 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                     'pending'     => ['bg-secondary', __('En attente', 'printgestion')],
                     'shipped'     => ['bg-primary',   __('Expédiée', 'printgestion')],
                     'transit'     => ['bg-info',      __('En transit', 'printgestion')],
-                    'delivered'   => ['bg-success',   __('Livrée', 'printgestion')],
+                    'delivered'   => ['bg-success',   __('Livrée (non posée)', 'printgestion')],
                     'stock_empty' => ['text-bg-dark', __('Stock vide', 'printgestion')],
+                    'installed'   => ['bg-teal',      __('Posée', 'printgestion')],
+                    'cancelled'   => ['bg-light text-muted border', __('Annulée', 'printgestion')],
                 ];
                 [$cls, $label] = $map[$v] ?? ['bg-light text-dark border', ($v !== '' ? $v : '—')];
                 $out = "<span class='badge {$cls}'>" . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . "</span>";
@@ -392,7 +411,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     }
 
     /**
-     * Retourne l'expédition active (non livrée) pour une imprimante + propriété.
+     * Retourne l'expédition en cours (ni posée ni annulée) pour une imprimante + propriété.
      */
     public static function getActiveForPrinterProperty(int $printers_id, string $property): ?array {
         global $DB;
@@ -402,7 +421,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             'WHERE' => [
                 'printers_id'    => $printers_id,
                 'toner_property' => $property,
-                'statut'         => ['pending', 'shipped', 'transit', 'stock_empty'],
+                'statut'         => self::ACTIVE_STATUSES,
             ],
             'ORDER' => ['id DESC'],
             'LIMIT' => 1,
@@ -1235,10 +1254,11 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     }
 
     /**
-     * Appelée depuis cartridgehistory quand un changement de cartouche est détecté.
-     * Passe l'expédition active (si existe) au statut delivered.
+     * Appelée depuis cartridgehistory quand une pose est détectée (hausse de niveau) :
+     * clôt l'envoi en cours de cette imprimante et de ce toner. Avec la confirmation
+     * manuelle, c'est le seul événement qui clôt un envoi (« livrée » ne le fait pas).
      */
-    public static function markDeliveredOnInstall(int $printers_id, string $property): void {
+    public static function markInstalledOnDetection(int $printers_id, string $property, string $detected_at): void {
         global $DB;
 
         $active = self::getActiveForPrinterProperty($printers_id, $property);
@@ -1247,13 +1267,15 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         }
 
         $DB->update(self::getTable(), [
-            'statut'         => self::STATUS_DELIVERED,
-            'date_delivered' => date('Y-m-d H:i:s'),
+            'statut'         => self::STATUS_INSTALLED,
+            'date_installed' => $detected_at,
+            'date_delivered' => !empty($active['date_delivered']) ? $active['date_delivered'] : $detected_at,
         ], ['id' => (int)$active['id']]);
     }
 
     /**
-     * Cron : envoi du rappel si expédition "shipped" depuis plus de reminder_days.
+     * Cron : rappel si une cartouche expédiée (expédiée, en transit ou livrée) n'est
+     * toujours pas posée plus de reminder_days après l'expédition.
      */
     public static function sendInstallReminders(): int {
         global $DB;
@@ -1270,7 +1292,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         $expeditions = $DB->request([
             'FROM'  => self::getTable(),
             'WHERE' => [
-                'statut'       => ['shipped', 'transit'],
+                // « Livrée » n'est pas « posée » : le rappel continue jusqu'à la pose.
+                'statut'       => ['shipped', 'transit', 'delivered'],
                 'date_shipped' => ['<=', $cutoff],
             ],
         ]);
@@ -1389,7 +1412,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      *   - Crée rétroactivement une entrée glpi_cartridges sur la nouvelle imprimante
      *     (puisque le flux normal avait été skippé lors de la détection wrong_printer)
      *   - Clôture l'alerte wrong_printer associée
-     *   - Passe l'expédition en delivered si elle ne l'est pas déjà
+     *   - Passe l'expédition en « posée » (la cartouche a été constatée posée sur la
+     *     nouvelle imprimante) : l'envoi est clos
      */
     public static function reassignToPrinter(int $expedition_id, int $new_printers_id): bool {
         global $DB;
@@ -1415,11 +1439,13 @@ class PluginPrintgestionExpedition extends CommonDBTM {
 
         $property = (string)$exp['toner_property'];
 
-        // 1. Met à jour l'expédition
+        // 1. Met à jour l'expédition : constatée posée sur la nouvelle imprimante.
+        $now_date = date('Y-m-d H:i:s');
         $DB->update(self::getTable(), [
             'printers_id'    => $new_printers_id,
-            'statut'         => self::STATUS_DELIVERED,
-            'date_delivered' => date('Y-m-d H:i:s'),
+            'statut'         => self::STATUS_INSTALLED,
+            'date_installed' => $now_date,
+            'date_delivered' => !empty($exp['date_delivered']) ? $exp['date_delivered'] : $now_date,
             'notes'          => trim(((string)($exp['notes'] ?? ''))
                 . "\n[" . date('Y-m-d H:i') . "] Réassignée depuis l'imprimante #"
                 . (int)$exp['printers_id'] . " vers #{$new_printers_id}"),

@@ -45,7 +45,7 @@ foreach ($all_rows as $r) {
     if ($r['status'] === PluginPrintgestionAlert::STATUS_CRITICAL) $nb_critical++;
     if ($r['status'] === PluginPrintgestionAlert::STATUS_WATCH)    $nb_watch++;
     if ($r['expedition'] !== null) {
-        if (in_array($r['expedition']['statut'], ['pending','shipped','transit'], true)) $nb_active_exp++;
+        if (in_array($r['expedition']['statut'], ['pending','shipped','transit','delivered'], true)) $nb_active_exp++;
         if ($r['expedition']['statut'] === 'stock_empty') $nb_stock_empty++;
     }
 }
