@@ -446,11 +446,10 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     ): int {
         global $DB;
 
-        // Empêcher les doublons
-        $existing = self::getActiveForPrinterProperty($printers_id, $property);
-        if ($existing !== null) {
-            return (int)$existing['id'];
-        }
+        // Pas de vérification applicative ici (elle renvoyait silencieusement l'envoi
+        // existant et perdait la course sur un double clic) : l'unicité d'un envoi en
+        // cours par (imprimante, toner) est garantie par la clé unique uniq_active_slot.
+        // Un doublon lève une exception (voir isDuplicateActiveError()).
 
         $mapping = PluginPrintgestionSnmpmapping::resolveForPrinter($printers_id, $property);
         $color   = is_array($mapping) ? (string)($mapping['toner_color'] ?? 'other') : 'other';
@@ -715,7 +714,9 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 }
             }
             $result['created'] = 0;
-            $result['error']   = __('Commande non passée : erreur technique pendant l\'enregistrement ou l\'envoi (détail dans le journal d\'erreurs GLPI). Aucune expédition n\'a été enregistrée.', 'printgestion');
+            $result['error']   = self::isDuplicateActiveError($e)
+                ? __('Commande non passée : un autre envoi vient d\'être enregistré pour une de ces cartouches (commande simultanée). Rechargez l\'écran. Aucune expédition n\'a été enregistrée.', 'printgestion')
+                : __('Commande non passée : erreur technique pendant l\'enregistrement ou l\'envoi (détail dans le journal d\'erreurs GLPI). Aucune expédition n\'a été enregistrée.', 'printgestion');
             return $result;
         }
         $result['ok']   = true;
@@ -1120,6 +1121,16 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     }
 
     /**
+     * Vrai si l'exception est la violation de la clé unique « un seul envoi en cours
+     * par imprimante et toner » (erreur MySQL/MariaDB 1062 sur uniq_active_slot).
+     */
+    public static function isDuplicateActiveError(Throwable $e): bool {
+        $message = $e->getMessage();
+        return str_contains($message, 'uniq_active_slot')
+            || (str_contains($message, '(1062)') && str_contains($message, 'glpi_plugin_printgestion_expeditions'));
+    }
+
+    /**
      * Génère un UUID v4 (RFC 4122) sans dépendance externe.
      */
     protected static function generateUuid(): string {
@@ -1184,6 +1195,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
 
     /**
      * Passe une expédition au statut "shipped" après saisie par la planif.
+     * Seul un envoi commandé (en attente ou stock vide) peut être marqué expédié : un
+     * envoi déjà expédié, livré, posé ou annulé n'est ni modifié ni rouvert ici.
      */
     public static function markShipped(int $expedition_id, string $carrier, string $tracking, ?int $bl_surveys_id = null): bool {
         global $DB;
@@ -1202,11 +1215,14 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             $data['bl_surveys_id'] = $bl_surveys_id;
         }
 
-        $ok = $DB->update(self::getTable(), $data, ['id' => $expedition_id]);
+        $ok = $DB->update(self::getTable(), $data, [
+            'id'     => $expedition_id,
+            'statut' => [self::STATUS_PENDING, self::STATUS_STOCK_EMPTY],
+        ]) && $DB->affectedRows() > 0;
         if ($ok) {
             self::notifyShippedToCommercial($expedition_id);
         }
-        return (bool)$ok;
+        return $ok;
     }
 
     protected static function notifyShippedToCommercial(int $expedition_id): void {

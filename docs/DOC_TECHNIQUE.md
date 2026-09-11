@@ -132,6 +132,10 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   `cancelled` pour une annulation (aucune suppression de ligne).
 - `delivered` : BL signé du plugin Gestion, API transporteur (cron 3) ou saisie manuelle — n'a plus
   d'effet sur le blocage. Rappels de pose et « expéditions en retard » couvrent aussi les livrées non posées.
+- **Unicité garantie par la base** : au plus un envoi en cours par (imprimante, toner). Colonne générée
+  `active_lock` (1 si en cours, NULL si posé/annulé) et clé unique `uniq_active_slot`
+  (printers_id, toner_property, active_lock). Un doublon (double clic, commandes simultanées) lève
+  l'erreur 1062, restituée à l'utilisateur comme un refus explicite (`Expedition::isDuplicateActiveError()`).
 - `group_id` (UUID) relie les expéditions d'une même commande.
 
 ### Points d'entrée (ajax/)

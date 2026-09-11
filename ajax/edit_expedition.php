@@ -63,7 +63,24 @@ if ($statut === 'installed') {
     $data['date_installed'] = date('Y-m-d H:i:s');
 }
 
-$ok = $DB->update('glpi_plugin_printgestion_expeditions', $data, ['id' => $expedition_id]);
+try {
+    $ok = $DB->update('glpi_plugin_printgestion_expeditions', $data, ['id' => $expedition_id]);
+} catch (Throwable $e) {
+    // Rouvrir un envoi clos alors qu'un autre est déjà en cours pour la même imprimante
+    // et le même toner : refusé par la clé unique, restitué comme un refus explicite.
+    if (!PluginPrintgestionExpedition::isDuplicateActiveError($e)) {
+        throw $e;
+    }
+    PluginPrintgestionLogger::warning(
+        'edit_expedition',
+        sprintf('Changement de statut de l\'expédition %d refusé : un autre envoi est déjà en cours pour cette imprimante et ce toner.', $expedition_id)
+    );
+    echo json_encode([
+        'ok'    => false,
+        'error' => __('Modification refusée : un autre envoi est déjà en cours pour cette imprimante et ce toner.', 'printgestion'),
+    ]);
+    exit;
+}
 
 echo json_encode([
     'ok'      => (bool)$ok,

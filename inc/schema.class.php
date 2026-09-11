@@ -31,6 +31,7 @@ class PluginPrintgestionSchema {
         '1.0.0' => 'migrateTo100',
         '1.1.0' => 'migrateTo110',
         '1.2.0' => 'migrateTo120',
+        '1.2.1' => 'migrateTo121',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -165,5 +166,75 @@ class PluginPrintgestionSchema {
                     `date_installed` = COALESCE(`date_delivered`, `date_shipped`, `date_alert`, NOW())
               WHERE `statut` = 'delivered'"
         );
+    }
+
+    /**
+     * 1.2.1 — unicité garantie par la base : au plus UN envoi en cours par
+     * (imprimante, toner). MariaDB et MySQL n'ont pas d'index unique partiel : la
+     * colonne générée active_lock vaut 1 pour un envoi en cours, NULL pour un envoi
+     * posé ou annulé ; la clé unique (printers_id, toner_property, active_lock) ignore
+     * les NULL. Tout statut futur est considéré « en cours » par défaut (sûr).
+     * Doublons existants : l'envoi le plus récent reste en cours, les plus anciens
+     * passent « annulée » avec une note explicative — aucune ligne supprimée.
+     */
+    private static function migrateTo121(Migration $migration): void {
+        global $DB;
+
+        $table  = 'glpi_plugin_printgestion_expeditions';
+        $active = ['pending', 'stock_empty', 'shipped', 'transit', 'delivered'];
+
+        // 1. Doublons d'envois en cours déjà présents (sinon la clé unique échouerait).
+        $closed = 0;
+        foreach ($DB->request([
+            'SELECT'  => [
+                'printers_id',
+                'toner_property',
+                new \QueryExpression('MAX(`id`) AS `keep_id`'),
+                new \QueryExpression('COUNT(*) AS `cnt`'),
+            ],
+            'FROM'    => $table,
+            'WHERE'   => [
+                'statut' => $active,
+                'NOT'    => ['toner_property' => null],
+            ],
+            'GROUPBY' => ['printers_id', 'toner_property'],
+            'HAVING'  => ['cnt' => ['>', 1]],
+        ]) as $dup) {
+            foreach ($DB->request([
+                'SELECT' => ['id', 'notes'],
+                'FROM'   => $table,
+                'WHERE'  => [
+                    'printers_id'    => (int) $dup['printers_id'],
+                    'toner_property' => (string) $dup['toner_property'],
+                    'statut'         => $active,
+                    'id'             => ['<', (int) $dup['keep_id']],
+                ],
+            ]) as $old) {
+                $DB->update($table, [
+                    'statut' => 'cancelled',
+                    'notes'  => trim((string) ($old['notes'] ?? '') . "\n[" . date('Y-m-d H:i') . '] '
+                        . 'Migration 1.2.1 : doublon d\'un envoi en cours pour la même imprimante et le même toner, '
+                        . 'clôturé « annulée ». Envoi conservé en cours : #' . (int) $dup['keep_id']),
+                ], ['id' => (int) $old['id']]);
+                $closed++;
+            }
+        }
+        if ($closed > 0) {
+            $migration->displayMessage(sprintf(
+                'Print Gestion — %d envoi(s) en double clôturé(s) « annulée » (motif dans la note de chaque expédition).',
+                $closed
+            ));
+        }
+
+        // 2. Colonne générée, clé unique, index de recherche (imprimante, toner, statut).
+        $migration->addField(
+            $table,
+            'active_lock',
+            "tinyint GENERATED ALWAYS AS (IF(`statut` IN ('installed','cancelled'), NULL, 1)) STORED"
+        );
+        $migration->migrationOneTable($table);
+        $migration->addKey($table, ['printers_id', 'toner_property', 'active_lock'], 'uniq_active_slot', 'UNIQUE');
+        $migration->addKey($table, ['printers_id', 'toner_property', 'statut'], 'idx_slot_statut');
+        $migration->migrationOneTable($table);
     }
 }

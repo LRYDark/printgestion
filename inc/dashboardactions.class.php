@@ -1032,7 +1032,7 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data && data.ok) { window.location.reload(); }
-          else { alert(MSG.error); }
+          else { alert((data && data.error) ? data.error : MSG.error); }
         })
         .catch(function() { alert(MSG.error); });
     });

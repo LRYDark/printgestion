@@ -37,7 +37,11 @@ if ($action === 'ship') {
     if (PluginPrintgestionExpedition::markShipped($expedition_id, $carrier, $tracking, $bl_id)) {
         Session::addMessageAfterRedirect(__('Expédition marquée comme expédiée', 'printgestion'), true, INFO);
     } else {
-        Session::addMessageAfterRedirect(__('Erreur mise à jour', 'printgestion'), true, ERROR);
+        Session::addMessageAfterRedirect(
+            __('Expédition non modifiée : seul un envoi en attente (ou en stock vide) peut être marqué expédié.', 'printgestion'),
+            true,
+            ERROR
+        );
     }
 } elseif ($action === 'cancel') {
     // Suppression définitive désactivée : aucune expédition ne doit disparaître sans
