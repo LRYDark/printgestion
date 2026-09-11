@@ -40,9 +40,17 @@ if ($action === 'ship') {
         Session::addMessageAfterRedirect(__('Erreur mise à jour', 'printgestion'), true, ERROR);
     }
 } elseif ($action === 'cancel') {
-    global $DB;
-    $DB->delete('glpi_plugin_printgestion_expeditions', ['id' => $expedition_id]);
-    Session::addMessageAfterRedirect(__('Expédition annulée', 'printgestion'), true, INFO);
+    // Suppression définitive désactivée : aucune expédition ne doit disparaître sans
+    // trace. L'annulation deviendra un statut avec l'objet « Demande d'envoi » (lot 3).
+    PluginPrintgestionLogger::warning(
+        'update_expedition',
+        sprintf('Annulation par suppression refusée pour l\'expédition %d.', $expedition_id)
+    );
+    Session::addMessageAfterRedirect(
+        __('Annulation indisponible : une expédition ne peut pas être supprimée.', 'printgestion'),
+        true,
+        ERROR
+    );
 } else {
     Session::addMessageAfterRedirect(__('Action inconnue', 'printgestion'), true, ERROR);
 }
