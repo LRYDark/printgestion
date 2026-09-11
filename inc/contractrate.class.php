@@ -1,0 +1,205 @@
+<?php
+/**
+ * PluginPrintgestionContractrate — Point 1 : tarifs N&B / Couleur par contrat.
+ * Onglet ajouté sur la fiche Contract GLPI.
+ */
+
+if (!defined('GLPI_ROOT')) {
+    die("Sorry. You can't access this file directly");
+}
+
+class PluginPrintgestionContractrate extends CommonDBTM {
+
+    static $rightname = 'contract';
+
+    static function getTypeName($nb = 0) {
+        return _n('Tarif Print Gestion', 'Tarifs Print Gestion', $nb, 'printgestion');
+    }
+
+    public static function getTable($classname = null) {
+        if ($classname === null || $classname === static::class) {
+            return 'glpi_plugin_printgestion_contractrates';
+        }
+        return parent::getTable($classname);
+    }
+
+    function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
+        if ($item->getType() == 'Contract' && Session::haveRight('contract', READ)) {
+            $nb = countElementsInTable(self::getTable(), ['contracts_id' => $item->getID()]);
+            return self::createTabEntry(__('Tarifs Print Gestion', 'printgestion'), $nb);
+        }
+        return '';
+    }
+
+    static function displayTabContentForItem(CommonGLPI $item, $tabnum = 1, $withtemplate = 0) {
+        if ($item->getType() == 'Contract') {
+            self::showForContract($item);
+        }
+        return true;
+    }
+
+    static function showForContract(Contract $contract) {
+        global $DB;
+
+        $contracts_id = (int)$contract->getID();
+        $canedit      = $contract->can($contracts_id, UPDATE);
+
+        $rates = [];
+        foreach ($DB->request([
+            'FROM'  => self::getTable(),
+            'WHERE' => ['contracts_id' => $contracts_id],
+            'ORDER' => 'id ASC',
+        ]) as $r) {
+            $rates[] = $r;
+        }
+
+        echo "<div class='card mt-3'>";
+        echo "<div class='card-header'><h3 class='card-title mb-0'>"
+            . __('Tarifs par page N&B / Couleur', 'printgestion') . "</h3></div>";
+        echo "<div class='card-body'>";
+
+        if ($canedit) {
+            echo "<form method='post' action='" . PLUGIN_PRINTGESTION_WEBDIR . "/front/contractrate.form.php'>";
+            // CSRF auto-injecté par Html::closeForm() en fin de form.
+            echo Html::hidden('contracts_id', ['value' => $contracts_id]);
+        }
+
+        echo "<table class='tab_cadre_fixehov' style='width:100%'>";
+        echo "<thead><tr class='noHover'>";
+        echo "<th style='width:25%'>" . __('Type', 'printgestion') . "</th>";
+        echo "<th style='width:35%'>" . __('Tarif (€/page)', 'printgestion') . "</th>";
+        echo "<th style='width:20%'>" . __('Actif', 'printgestion') . "</th>";
+        if ($canedit) echo "<th style='width:20%'>" . __('Action', 'printgestion') . "</th>";
+        echo "</tr></thead><tbody>";
+
+        $type_labels = [
+            'nb'    => __('N&B', 'printgestion'),
+            'color' => __('Couleur', 'printgestion'),
+            'both'  => __('Les deux', 'printgestion'),
+        ];
+
+        if (empty($rates)) {
+            $col = $canedit ? 4 : 3;
+            echo "<tr><td colspan='{$col}' class='text-muted text-center'>"
+                . __('Aucun tarif défini', 'printgestion') . "</td></tr>";
+        }
+
+        foreach ($rates as $rate) {
+            $id = (int)$rate['id'];
+            echo "<tr>";
+            echo "<td>" . htmlspecialchars($type_labels[$rate['type_cout']] ?? $rate['type_cout'], ENT_QUOTES, 'UTF-8') . "</td>";
+            echo "<td>" . number_format((float)$rate['rate'], 6, ',', ' ') . " €</td>";
+            echo "<td>" . ((int)$rate['actif'] === 1
+                ? '<span class="badge bg-success">' . __('Oui', 'printgestion') . '</span>'
+                : '<span class="badge bg-secondary">' . __('Non', 'printgestion') . '</span>') . "</td>";
+            if ($canedit) {
+                echo "<td><button type='submit' class='btn btn-sm btn-outline-danger' name='delete_rate' value='{$id}' "
+                    . "onclick='return confirm(\"" . __('Confirmer la suppression ?', 'printgestion') . "\")'>"
+                    . _x('button', 'Delete') . "</button></td>";
+            }
+            echo "</tr>";
+        }
+
+        if ($canedit) {
+            echo "<tr class='tab_bg_2'><td>";
+            Dropdown::showFromArray('type_cout', $type_labels, ['value' => 'both']);
+            echo "</td><td><input type='number' step='0.000001' min='0' name='rate' value='0' class='form-control'></td>";
+            echo "<td>";
+            Dropdown::showYesNo('actif', 1);
+            echo "</td>";
+            echo "<td><button type='submit' class='btn btn-sm btn-primary' name='add_rate' value='1'>"
+                . _x('button', 'Add') . "</button></td>";
+            echo "</tr>";
+        }
+
+        echo "</tbody></table>";
+        if ($canedit) {
+            Html::closeForm();
+        }
+        echo "</div></div>";
+    }
+
+    /**
+     * Récupère les tarifs actifs d'un contrat sous forme ['nb' => float, 'color' => float].
+     * Si type = 'both' et aucun tarif spécifique défini, applique ce tarif aux deux.
+     */
+    public static function getRatesForContract(int $contracts_id): array {
+        global $DB;
+
+        $out = ['nb' => 0.0, 'color' => 0.0];
+        if ($contracts_id <= 0) {
+            return $out;
+        }
+
+        $both = null;
+        foreach ($DB->request([
+            'FROM'  => self::getTable(),
+            'WHERE' => [
+                'contracts_id' => $contracts_id,
+                'actif'        => 1,
+            ],
+        ]) as $row) {
+            $rate = (float)$row['rate'];
+            switch ($row['type_cout']) {
+                case 'nb':
+                    $out['nb'] = $rate;
+                    break;
+                case 'color':
+                    $out['color'] = $rate;
+                    break;
+                case 'both':
+                    $both = $rate;
+                    break;
+            }
+        }
+
+        if ($both !== null) {
+            if ($out['nb'] == 0.0)    $out['nb']    = $both;
+            if ($out['color'] == 0.0) $out['color'] = $both;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Retourne l'ID du contrat actif lié à une imprimante (via glpi_contracts_items).
+     * Retourne 0 si aucun contrat.
+     */
+    public static function getContractIdForPrinter(int $printers_id): int {
+        global $DB;
+
+        if ($printers_id <= 0) {
+            return 0;
+        }
+
+        $row = $DB->request([
+            'SELECT' => ['ci.contracts_id'],
+            'FROM'   => 'glpi_contracts_items AS ci',
+            'INNER JOIN' => [
+                'glpi_contracts AS c' => [
+                    'ON' => ['ci' => 'contracts_id', 'c' => 'id'],
+                ],
+            ],
+            'WHERE'  => [
+                'ci.items_id'   => $printers_id,
+                'ci.itemtype'   => 'Printer',
+                'c.is_deleted'  => 0,
+                'c.is_template' => 0,
+            ],
+            'ORDER'  => ['c.begin_date DESC'],
+            'LIMIT'  => 1,
+        ])->current();
+
+        return is_array($row) ? (int)$row['contracts_id'] : 0;
+    }
+
+    static function install(Migration $migration) {
+        // Table créée dans PluginPrintgestionConfig::install()
+        return true;
+    }
+
+    static function uninstall(Migration $migration) {
+        // Table supprimée dans PluginPrintgestionConfig::uninstall()
+        return true;
+    }
+}

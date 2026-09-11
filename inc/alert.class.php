@@ -1,0 +1,1274 @@
+<?php
+/**
+ * PluginPrintgestionAlert — calcul intelligent des alertes toner (Point 4).
+ *
+ * Vitesse de consommation basée sur fenêtre de 30 jours :
+ *   vitesse = (level_t-30 - level_t) / 30
+ *   jours_restants = level_t / vitesse
+ *
+ * Retourne le statut et déclenche les alertes quand seuils franchis.
+ */
+
+if (!defined('GLPI_ROOT')) {
+    die("Sorry. You can't access this file directly");
+}
+
+class PluginPrintgestionAlert extends CommonDBTM {
+
+    static $rightname = 'plugin_printgestion_dashboard';
+
+    const STATUS_OK       = 'ok';
+    const STATUS_WATCH    = 'watch';
+    const STATUS_CRITICAL = 'critical';
+
+    static function getTypeName($nb = 0) {
+        return _n('Alerte Print Gestion', 'Alertes Print Gestion', $nb, 'printgestion');
+    }
+
+    public static function getTable($classname = null) {
+        if ($classname === null || $classname === static::class) {
+            return 'glpi_plugin_printgestion_alerts';
+        }
+        return parent::getTable($classname);
+    }
+
+    /**
+     * Calcule le temps restant estimé pour une propriété toner.
+     * Retourne ['level' => int, 'speed_per_day' => float, 'days_remaining' => int|null].
+     * days_remaining = null si vitesse non calculable (pas assez d'historique ou vitesse nulle).
+     */
+    public static function computeRemaining(int $printers_id, string $property): array {
+        $latest = PluginPrintgestionTonerreading::getLatestLevel($printers_id, $property);
+        if ($latest === null) {
+            return ['level' => 0, 'speed_per_day' => 0.0, 'days_remaining' => null, 'is_estimate' => false];
+        }
+
+        $level_now = (int)$latest['level_percent'];
+        $past      = PluginPrintgestionTonerreading::getLevelNDaysAgo($printers_id, $property, 30);
+
+        if ($past !== null) {
+            $level_past = (int)$past['level_percent'];
+            $date_past  = strtotime((string)$past['reading_date']);
+            $date_now   = strtotime((string)$latest['reading_date']);
+
+            if ($level_past > $level_now && $date_now > $date_past) {
+                $days_elapsed = max(1, ($date_now - $date_past) / 86400);
+                $speed        = ($level_past - $level_now) / $days_elapsed;
+                if ($speed > 0) {
+                    return [
+                        'level'          => $level_now,
+                        'speed_per_day'  => $speed,
+                        'days_remaining' => (int)floor($level_now / $speed),
+                        'is_estimate'    => false,
+                    ];
+                }
+            }
+        }
+
+        // Niveau stable → pas d'estimation (plus de fallback date_creation qui trompait)
+        return ['level' => $level_now, 'speed_per_day' => 0.0, 'days_remaining' => null, 'is_estimate' => false];
+    }
+
+    /**
+     * Fallback de calcul quand l'historique est insuffisant.
+     * Utilise glpi_printers_cartridgeinfos.date_creation comme pseudo-point de départ
+     * en supposant que le toner était à 100% à l'inventaire initial.
+     */
+    protected static function computeFallbackFromSnmp(int $printers_id, string $property, ?int $level_now_hint = null): array {
+        global $DB;
+
+        $row = $DB->request([
+            'SELECT' => ['value', 'date_creation', 'date_mod'],
+            'FROM'   => 'glpi_printers_cartridgeinfos',
+            'WHERE'  => [
+                'printers_id' => $printers_id,
+                'property'    => $property,
+            ],
+            'LIMIT'  => 1,
+        ])->current();
+
+        if (!is_array($row)) {
+            return ['level' => $level_now_hint ?? 0, 'speed_per_day' => 0.0, 'days_remaining' => null, 'is_estimate' => false];
+        }
+
+        // Parse la valeur live si pas fournie en paramètre
+        if ($level_now_hint === null) {
+            $parsed = PluginPrintgestionTonerreading::parseTonerValue((string)$row['value']);
+            if (!$parsed['usable']) {
+                return ['level' => 0, 'speed_per_day' => 0.0, 'days_remaining' => null, 'is_estimate' => false];
+            }
+            $level_now = (int)$parsed['value'];
+        } else {
+            $level_now = $level_now_hint;
+        }
+
+        $date_creation = !empty($row['date_creation']) ? strtotime((string)$row['date_creation']) : null;
+        if ($date_creation === null || $date_creation <= 0) {
+            return ['level' => $level_now, 'speed_per_day' => 0.0, 'days_remaining' => null, 'is_estimate' => false];
+        }
+
+        $days_since_inventory = max(1, (time() - $date_creation) / 86400);
+        $consumed             = max(0, 100 - $level_now);
+
+        if ($consumed <= 0) {
+            return ['level' => $level_now, 'speed_per_day' => 0.0, 'days_remaining' => null, 'is_estimate' => true];
+        }
+
+        $speed          = $consumed / $days_since_inventory;
+        $days_remaining = (int)floor($level_now / $speed);
+
+        return [
+            'level'          => $level_now,
+            'speed_per_day'  => $speed,
+            'days_remaining' => $days_remaining,
+            'is_estimate'    => true,
+        ];
+    }
+
+    /**
+     * Calcul d'estimation jours restants — approche FM Audit-like précise.
+     *
+     * Améliorations vs version simple :
+     *   - Détecte l'install point (hausse ≥ 20% niveau) → baseline = cycle courant seulement
+     *   - Per-toner counter : black → bw_pages delta, CMY → color_pages delta
+     *   - Fallback yield historique (cycle précédent de ce même toner) avant yield global
+     *
+     * @param int    $level_live_snmp   Valeur SNMP live parsée
+     * @param array  $readings          Tous les relevés stockés de ce toner (ASC par date)
+     * @param string $toner_color       black / cyan / magenta / yellow / other
+     * @param int    $default_yield     Yield par défaut (pages/cartouche entière)
+     * @param float|null $historical_yield Yield du cycle précédent (pages/1%) ou null
+     */
+    public static function computeRemainingPagesBased(
+        int $level_live_snmp,
+        array $readings,
+        string $toner_color,
+        int $default_yield,
+        ?float $historical_yield = null
+    ): array {
+        if (empty($readings)) {
+            return [
+                'level'          => $level_live_snmp,
+                'speed_per_day'  => 0.0,
+                'days_remaining' => null,
+                'is_estimate'    => false,
+            ];
+        }
+
+        // ── 1. Détection du cycle courant (install point) ────────────────
+        // Un install point = une hausse de niveau >= 20% entre 2 relevés consécutifs.
+        // On part du dernier relevé et on remonte jusqu'au dernier install point.
+        $cycle_start_idx = 0;
+        for ($i = count($readings) - 1; $i > 0; $i--) {
+            $cur  = (int)$readings[$i]['level_percent'];
+            $prev = (int)$readings[$i - 1]['level_percent'];
+            if ($cur - $prev >= 20) {
+                $cycle_start_idx = $i;
+                break;
+            }
+        }
+        $cycle = array_slice($readings, $cycle_start_idx);
+
+        $latest = end($cycle);
+        reset($cycle);
+        $level_now = (int)$latest['level_percent'];
+
+        // ── 2. Sélection du bon compteur selon la couleur du toner ───────
+        // black/other → bw_pages ; cyan/magenta/yellow → color_pages
+        $is_color_toner = in_array($toner_color, ['cyan', 'magenta', 'yellow'], true);
+        $counter_key    = $is_color_toner ? 'color_pages' : 'bw_pages';
+
+        $pages_now_cnt   = (int)($latest[$counter_key] ?? 0);
+        $pages_now_total = (int)($latest['total_pages'] ?? 0);
+        // Fallback : si le counter spécifique est 0 mais total > 0, on retombe sur total
+        // (certaines imprimantes ne remontent pas split bw/color correctement)
+        if ($pages_now_cnt === 0 && $pages_now_total > 0) {
+            $pages_now_cnt = $pages_now_total;
+        }
+
+        // ── 3. Calcul du yield mesuré sur le cycle courant ───────────────
+        // Baseline = premier relevé du cycle (juste après install), niveau le plus haut
+        $baseline = reset($cycle);
+        $yield_per_percent = 0.0;
+        $yield_source      = 'default';
+
+        if ($baseline) {
+            $level_base    = (int)$baseline['level_percent'];
+            $pages_base    = (int)($baseline[$counter_key] ?? 0);
+            $pages_base_tt = (int)($baseline['total_pages'] ?? 0);
+            if ($pages_base === 0 && $pages_base_tt > 0) {
+                $pages_base = $pages_base_tt;
+            }
+            $delta_pct = $level_base - $level_now;
+            $delta_pgs = $pages_now_cnt - $pages_base;
+            if ($delta_pct >= 3 && $delta_pgs > 0) {
+                $yield_per_percent = $delta_pgs / $delta_pct;
+                $yield_source      = 'measured';
+            }
+        }
+
+        // Fallback 1 : yield historique (cycle précédent de ce même toner)
+        if ($yield_per_percent <= 0 && $historical_yield !== null && $historical_yield > 0) {
+            $yield_per_percent = $historical_yield;
+            $yield_source      = 'historical';
+        }
+
+        // Fallback 2 : yield configuré (défaut global, divisé par 3 pour CMY car chaque
+        // couleur contribue à ~1/3 des pages couleur imprimées — approximation raisonnable)
+        if ($yield_per_percent <= 0) {
+            $base_yield = max(1.0, $default_yield / 100.0);
+            $yield_per_percent = $is_color_toner ? ($base_yield * 3) : $base_yield;
+            $yield_source      = 'default';
+        }
+
+        // ── 4. Pages restantes ───────────────────────────────────────────
+        $pages_remaining = $level_now * $yield_per_percent;
+
+        // ── 5. Pages par jour sur 7j glissants (utilise le compteur spécifique) ──
+        $pages_per_day = 0.0;
+        $cutoff_7d_ts  = time() - (7 * 86400);
+        $past_reading  = null;
+        foreach ($cycle as $r) {
+            $ts = strtotime((string)$r['reading_date']);
+            if ($ts !== false && $ts <= $cutoff_7d_ts) {
+                $past_reading = $r;
+            }
+        }
+        // Si rien à 7j, prendre le plus ancien du cycle
+        if ($past_reading === null && count($cycle) >= 2) {
+            $past_reading = reset($cycle);
+        }
+
+        if ($past_reading && $past_reading !== $latest) {
+            $pages_past    = (int)($past_reading[$counter_key] ?? 0);
+            $pages_past_tt = (int)($past_reading['total_pages'] ?? 0);
+            if ($pages_past === 0 && $pages_past_tt > 0) {
+                $pages_past = $pages_past_tt;
+            }
+            $date_past = strtotime((string)$past_reading['reading_date']);
+            $date_now  = strtotime((string)$latest['reading_date']);
+            if ($pages_now_cnt > $pages_past && $date_now > $date_past) {
+                $days_elapsed  = max(1, ($date_now - $date_past) / 86400);
+                $pages_per_day = ($pages_now_cnt - $pages_past) / $days_elapsed;
+            }
+        }
+
+        // ── 6. Jours restants ────────────────────────────────────────────
+        // Guards : div 0 impossible ici (yield_per_percent >= 1 via max, pages_per_day > 0)
+        // mais on vérifie explicitement par sécurité (configs invalides, edge cases).
+        if ($pages_per_day <= 0 || $yield_per_percent <= 0) {
+            return [
+                'level'          => $level_now,
+                'speed_per_day'  => 0.0,
+                'days_remaining' => null,
+                'is_estimate'    => false,
+            ];
+        }
+
+        $days_remaining = (int)floor($pages_remaining / $pages_per_day);
+
+        return [
+            'level'          => $level_now,
+            'speed_per_day'  => $pages_per_day / $yield_per_percent,
+            'days_remaining' => $days_remaining,
+            'is_estimate'    => $yield_source !== 'measured',
+            'yield_source'   => $yield_source,
+            'pages_per_day'  => $pages_per_day,
+            'yield_per_pct'  => $yield_per_percent,
+        ];
+    }
+
+    /**
+     * Variante de computeRemaining() qui utilise des données pré-chargées en batch
+     * (évite N+1 queries lors du listing de toutes les imprimantes).
+     *
+     * @param int      $printers_id
+     * @param string   $property
+     * @param int      $level_live_snmp  Valeur live SNMP parsée (niveau actuel réel)
+     * @param array|null $latest_reading  Dernier relevé stocké (ou null)
+     * @param array|null $past_reading    Relevé ~30 jours en arrière (ou null)
+     * @param string|null $inventory_date date_creation de cartridgeinfos (fallback)
+     */
+    public static function computeRemainingFromCache(
+        int $printers_id,
+        string $property,
+        int $level_live_snmp,
+        ?array $latest_reading,
+        ?array $past_reading,
+        ?string $inventory_date
+    ): array {
+        $level_now = is_array($latest_reading)
+            ? (int)$latest_reading['level_percent']
+            : $level_live_snmp;
+
+        // Si relevé passé disponible et niveau a diminué → calcul de vitesse réelle
+        if (is_array($past_reading) && is_array($latest_reading)) {
+            $level_past = (int)$past_reading['level_percent'];
+            $date_past  = strtotime((string)$past_reading['reading_date']);
+            $date_now   = strtotime((string)$latest_reading['reading_date']);
+
+            if ($level_past > $level_now && $date_now > $date_past) {
+                $days_elapsed = max(1, ($date_now - $date_past) / 86400);
+                $speed        = ($level_past - $level_now) / $days_elapsed;
+                if ($speed > 0) {
+                    return [
+                        'level'          => $level_now,
+                        'speed_per_day'  => $speed,
+                        'days_remaining' => (int)floor($level_now / $speed),
+                        'is_estimate'    => false,
+                    ];
+                }
+            }
+        }
+
+        // Pas de baisse détectée entre les relevés → niveau stable, pas d'estimation
+        // fiable. On retourne null pour days_remaining (affiché "Stable" côté UI)
+        // au lieu du fallback "date d'inventaire" qui donnait des valeurs arbitraires.
+        return [
+            'level'          => $level_now,
+            'speed_per_day'  => 0.0,
+            'days_remaining' => null,
+            'is_estimate'    => false,
+        ];
+    }
+
+    /**
+     * Classe un calcul en ok / watch / critical.
+     */
+    public static function classify(array $computed, int $threshold_level, int $threshold_days): string {
+        $level = (int)($computed['level'] ?? 0);
+        $days  = $computed['days_remaining'];
+
+        // Critique : niveau < seuil brut OU jours < 7
+        if ($level <= $threshold_level) {
+            return self::STATUS_CRITICAL;
+        }
+        if ($days !== null && $days <= 7) {
+            return self::STATUS_CRITICAL;
+        }
+
+        // À surveiller : jours restants <= threshold_days
+        if ($days !== null && $days <= $threshold_days) {
+            return self::STATUS_WATCH;
+        }
+
+        return self::STATUS_OK;
+    }
+
+    /**
+     * Génère la liste complète des alertes pour affichage dashboard.
+     * Retourne un tableau de lignes enrichies.
+     */
+    public static function listAll(?int $entities_id = null): array {
+        global $DB;
+
+        $config               = PluginPrintgestionConfig::getInstance();
+        $threshold_level_def  = (int)($config->fields['threshold_level'] ?? 15);
+        $threshold_days_def   = (int)($config->fields['threshold_days']  ?? 30);
+        $default_yield_config = (int)($config->fields['default_pages_per_cartridge'] ?? 5000);
+
+        // Récupère les couples snoozés pour filtrage
+        $snoozed = self::getSnoozedPairs();
+
+        $rows = [];
+
+        // ── Préchargement batch (optimisation N+1) ────────────────────────
+
+        // 1. TOUS les relevés récents (160j max selon purge) groupés par toner
+        //    → permet de détecter les install points + baseline cycle courant + delta 7j.
+        //    SELECT dynamique : bw_pages/color_pages sont post-migration, fallback si absents.
+        $tr_table   = 'glpi_plugin_printgestion_toner_readings';
+        $all_readings_by_toner = [];
+        if ($DB->tableExists($tr_table)) {
+            $tr_select = ['printers_id', 'property_name', 'level_percent', 'reading_date'];
+            if ($DB->fieldExists($tr_table, 'total_pages')) $tr_select[] = 'total_pages';
+            if ($DB->fieldExists($tr_table, 'bw_pages'))    $tr_select[] = 'bw_pages';
+            if ($DB->fieldExists($tr_table, 'color_pages')) $tr_select[] = 'color_pages';
+
+            foreach ($DB->request([
+                'SELECT' => $tr_select,
+                'FROM'   => $tr_table,
+                'ORDER'  => ['printers_id', 'property_name', 'reading_date ASC'],
+            ]) as $r) {
+                $k = $r['printers_id'] . '|' . $r['property_name'];
+                if (!isset($all_readings_by_toner[$k])) {
+                    $all_readings_by_toner[$k] = [];
+                }
+                $all_readings_by_toner[$k][] = $r;
+            }
+        }
+
+        // 2. Seuils personnalisés par imprimante (table post-migration)
+        $printer_thresholds = [];
+        if ($DB->tableExists('glpi_plugin_printgestion_printer_thresholds')) {
+            foreach ($DB->request([
+                'SELECT' => ['printers_id', 'threshold_level', 'threshold_days', 'pages_per_cartridge'],
+                'FROM'   => 'glpi_plugin_printgestion_printer_thresholds',
+            ]) as $r) {
+                $printer_thresholds[(int)$r['printers_id']] = $r;
+            }
+        }
+
+        // 3. Yields mesurés historiques (table post-migration)
+        $historical_yields = [];
+        if ($DB->tableExists('glpi_plugin_printgestion_historical_yields')) {
+            foreach ($DB->request([
+                'SELECT' => ['printers_id', 'property_name', 'yield_per_percent'],
+                'FROM'   => 'glpi_plugin_printgestion_historical_yields',
+                'ORDER'  => ['date_creation DESC'],
+            ]) as $r) {
+                $k = $r['printers_id'] . '|' . $r['property_name'];
+                if (!isset($historical_yields[$k])) {
+                    $historical_yields[$k] = (float)$r['yield_per_percent'];
+                }
+            }
+        }
+
+        // 4. SNMP mappings préchargés (fix N+1 résiduel)
+        $snmp_mappings_by_property = [];
+        foreach ($DB->request([
+            'SELECT' => ['snmp_property', 'toner_color', 'cartridgeitemtypes_id'],
+            'FROM'   => 'glpi_plugin_printgestion_snmp_mapping',
+        ]) as $r) {
+            $snmp_mappings_by_property[strtolower((string)$r['snmp_property'])] = $r;
+        }
+
+        // 5. Expéditions actives indexées par (printers_id, property)
+        $active_expeditions = [];
+        foreach ($DB->request([
+            'FROM'  => 'glpi_plugin_printgestion_expeditions',
+            'WHERE' => [
+                'statut' => ['pending', 'shipped', 'transit', 'stock_empty'],
+            ],
+            'ORDER' => ['id DESC'],
+        ]) as $e) {
+            $k = $e['printers_id'] . '|' . $e['toner_property'];
+            if (!isset($active_expeditions[$k])) {
+                $active_expeditions[$k] = $e;
+            }
+        }
+
+        // ── Requête principale cartridgeinfos ─────────────────────────────
+        $criteria = [
+            'SELECT' => [
+                'ci.printers_id',
+                'ci.property',
+                'ci.value',
+                'p.name AS printer_name',
+                'p.entities_id',
+                'e.completename AS entity_name',
+            ],
+            'FROM'        => 'glpi_printers_cartridgeinfos AS ci',
+            'INNER JOIN'  => [
+                'glpi_printers AS p' => [
+                    'ON' => ['ci' => 'printers_id', 'p' => 'id'],
+                ],
+            ],
+            'LEFT JOIN' => [
+                'glpi_entities AS e' => [
+                    'ON' => ['p' => 'entities_id', 'e' => 'id'],
+                ],
+            ],
+            'WHERE' => [
+                'p.is_deleted'  => 0,
+                'p.is_template' => 0,
+            ],
+            'ORDER' => ['e.completename', 'p.name', 'ci.property'],
+        ];
+
+        if ($entities_id !== null && $entities_id >= 0) {
+            $criteria['WHERE']['p.entities_id'] = $entities_id;
+        }
+
+        foreach ($DB->request($criteria) as $r) {
+            $parsed = PluginPrintgestionTonerreading::parseTonerValue((string)$r['value']);
+            if (!$parsed['usable']) {
+                continue;
+            }
+
+            $printers_id = (int)$r['printers_id'];
+            $property    = (string)$r['property'];
+            $k           = $printers_id . '|' . $property;
+
+            // Snooze : on NE skip PAS la ligne. À la place, on force le status
+            // à 'ok' plus bas → la cartouche reste visible dans le dashboard
+            // mais n'apparaît plus comme critique / à surveiller (pas d'alerte
+            // mail, pas de pulse, pas de badge orange).
+            $is_snoozed = isset($snoozed[$k]);
+
+            // Seuils : override par imprimante si défini, sinon config globale
+            $pt = $printer_thresholds[$printers_id] ?? null;
+            $eff_threshold_level = ($pt && !empty($pt['threshold_level'])) ? (int)$pt['threshold_level'] : $threshold_level_def;
+            $eff_threshold_days  = ($pt && !empty($pt['threshold_days']))  ? (int)$pt['threshold_days']  : $threshold_days_def;
+            $eff_yield           = ($pt && !empty($pt['pages_per_cartridge'])) ? (int)$pt['pages_per_cartridge'] : $default_yield_config;
+
+            // Mapping SNMP : batch preload (fix N+1)
+            $mapping      = $snmp_mappings_by_property[strtolower($property)] ?? null;
+            $toner_color  = is_array($mapping) ? (string)($mapping['toner_color'] ?? 'other') : 'other';
+            // Détection couleur via property name si pas de mapping explicit
+            if ($toner_color === 'other') {
+                $toner_color = PluginPrintgestionSnmpmapping::detectColor($property);
+            }
+
+            $computed = self::computeRemainingPagesBased(
+                $parsed['value'],
+                $all_readings_by_toner[$k] ?? [],
+                $toner_color,
+                $eff_yield,
+                $historical_yields[$k] ?? null
+            );
+            $status = self::classify($computed, $eff_threshold_level, $eff_threshold_days);
+
+            // Snooze actif : la cartouche n'est plus considérée comme en alerte.
+            if ($is_snoozed) {
+                $status = self::STATUS_OK;
+            }
+
+            $expedition = $active_expeditions[$k] ?? null;
+
+            // Label cartouche : utilise le mapping préchargé + fallback property name
+            $cartridge_label = $property;
+            if (is_array($mapping) && !empty($mapping['cartridgeitemtypes_id'])) {
+                // Note : getCartridgeLabelForProperty reste en fallback seulement pour cas complexes
+                $cartridge_label = PluginPrintgestionSnmpmapping::getCartridgeLabelForProperty($printers_id, $property);
+            }
+
+            $rows[] = [
+                'printers_id'    => $printers_id,
+                'printer_name'   => (string)$r['printer_name'],
+                'entities_id'    => (int)$r['entities_id'],
+                'entity_name'    => (string)($r['entity_name'] ?? ''),
+                'property'       => $property,
+                'level'          => $computed['level'],
+                'speed_per_day'  => $computed['speed_per_day'],
+                'days_remaining' => $computed['days_remaining'],
+                'is_estimate'    => (bool)($computed['is_estimate'] ?? false),
+                'status'         => $status,
+                'cartridge_type' => $cartridge_label,
+                'toner_color'    => $toner_color,
+                'expedition'     => $expedition,
+                'snoozed'        => $is_snoozed,
+                'snooze_until'   => $is_snoozed ? $snoozed[$k] : null,
+            ];
+        }
+
+        // Tri : critical en premier, puis watch, puis ok ; dans chaque groupe par jours restants
+        $priority = [self::STATUS_CRITICAL => 0, self::STATUS_WATCH => 1, self::STATUS_OK => 2];
+        usort($rows, function ($a, $b) use ($priority) {
+            $pa = $priority[$a['status']] ?? 3;
+            $pb = $priority[$b['status']] ?? 3;
+            if ($pa !== $pb) return $pa <=> $pb;
+            $da = $a['days_remaining'] ?? PHP_INT_MAX;
+            $db = $b['days_remaining'] ?? PHP_INT_MAX;
+            return $da <=> $db;
+        });
+
+        return $rows;
+    }
+
+    /**
+     * Liste complète avec cache GLPI (PSR-16, fichiers dans files/_cache/).
+     * TTL 15min — rafraîchi par le cron PrintgestionCheckAlerts.
+     */
+    public static function listAllCached(?int $entities_id = null): array {
+        global $GLPI_CACHE;
+
+        // Clé incluant la version pour que invalidateCache() invalide réellement
+        // toutes les variantes en cache (par entité) d'un coup.
+        // v5 = daily dedup normalisé minuit + guard div 0
+        $key = 'plugin_printgestion_alerts_v5_' . self::getCacheVersion() . '_' . ($entities_id ?? 'all');
+        if (isset($GLPI_CACHE) && $GLPI_CACHE->has($key)) {
+            $cached = $GLPI_CACHE->get($key);
+            if (is_array($cached)) {
+                return $cached;
+            }
+        }
+
+        $rows = self::listAll($entities_id);
+        if (isset($GLPI_CACHE)) {
+            $GLPI_CACHE->set($key, $rows, 900); // 15 minutes
+        }
+        return $rows;
+    }
+
+    /**
+     * Invalide le cache alerts (appelé par cron après refresh + par les actions
+     * qui modifient l'état : snooze, resolve, create expedition…).
+     */
+    public static function invalidateCache(): void {
+        global $GLPI_CACHE;
+        if (!isset($GLPI_CACHE)) {
+            return;
+        }
+        // On ne connaît pas toutes les entités filtrées → on utilise un tag "version"
+        // incrémenté à chaque invalidation. Simple : delete par pattern impossible en PSR-16,
+        // donc on stocke un compteur et on l'inclut dans la clé.
+        $ver = (int)($GLPI_CACHE->get('plugin_printgestion_alerts_ver') ?? 0);
+        $GLPI_CACHE->set('plugin_printgestion_alerts_ver', $ver + 1, 86400);
+    }
+
+    /**
+     * Version effective du cache (utilisée dans listAllCached pour bypass rapide).
+     */
+    protected static function getCacheVersion(): int {
+        global $GLPI_CACHE;
+        if (!isset($GLPI_CACHE)) {
+            return 0;
+        }
+        return (int)($GLPI_CACHE->get('plugin_printgestion_alerts_ver') ?? 0);
+    }
+
+    /**
+     * Liste paginée + filtrée + triée pour le dashboard (source = cache GLPI).
+     *
+     * Mode groupé (`$params['grouped']` truthy, défaut=1) :
+     *   - filtre par statut AVANT le groupage : une ligne imprimante ne liste que
+     *     les cartouches qui passent le filtre (ex: filter=critical → seulement
+     *     les cartouches critiques, même si d'autres sont watch/ok sur la même
+     *     imprimante)
+     *   - chaque row = {printers_id, printer_name, entity_name, worst_status,
+     *     min_days, has_expedition, cartridges:[{property, level, …}, …]}
+     *   - pagination sur les imprimantes, pas sur les cartouches
+     *
+     * Mode unitaire (`grouped=0`) : comportement legacy, 1 row = 1 cartouche.
+     */
+    public static function listPagedCached(array $params): array {
+        $entities_id = (isset($params['entities_id']) && $params['entities_id'] !== '' && (int)$params['entities_id'] >= 0)
+            ? (int)$params['entities_id'] : null;
+        $grouped = !isset($params['grouped']) || (int)$params['grouped'] === 1;
+
+        $all = self::listAllCached($entities_id);
+
+        // Filtre statut — appliqué avant le groupage : la ligne imprimante ne liste
+        // que les cartouches qui passent le filtre.
+        $filter_status = (string)($params['status'] ?? 'critical_watch');
+        if ($filter_status === 'critical') {
+            $all = array_values(array_filter($all, fn($r) => $r['status'] === self::STATUS_CRITICAL));
+        } elseif ($filter_status === 'watch') {
+            $all = array_values(array_filter($all, fn($r) => $r['status'] === self::STATUS_WATCH));
+        } elseif ($filter_status === 'critical_watch') {
+            $all = array_values(array_filter($all, fn($r) => in_array($r['status'], [self::STATUS_CRITICAL, self::STATUS_WATCH], true)));
+        } elseif ($filter_status === 'expeditions') {
+            $all = array_values(array_filter($all, fn($r) => $r['expedition'] !== null));
+        }
+
+        // Recherche globale — sur les champs row-level (avant groupage)
+        $search = trim((string)($params['search'] ?? ''));
+        if ($search !== '') {
+            $q = mb_strtolower($search);
+            $all = array_values(array_filter($all, function ($r) use ($q) {
+                $hay = mb_strtolower(
+                    ($r['printer_name'] ?? '') . ' '
+                    . ($r['entity_name'] ?? '') . ' '
+                    . ($r['property'] ?? '') . ' '
+                    . ($r['cartridge_type'] ?? '') . ' '
+                    . ($r['status'] ?? '')
+                );
+                return mb_strpos($hay, $q) !== false;
+            }));
+        }
+
+        $sort_col = (string)($params['sort_col'] ?? '');
+        $sort_dir = strtolower((string)($params['sort_dir'] ?? 'asc')) === 'desc' ? -1 : 1;
+
+        if (!$grouped) {
+            // Mode unitaire (legacy)
+            if ($sort_col !== '') {
+                usort($all, function ($a, $b) use ($sort_col, $sort_dir) {
+                    $av = $a[$sort_col] ?? '';
+                    $bv = $b[$sort_col] ?? '';
+                    if (is_numeric($av) && is_numeric($bv)) {
+                        return (($av <=> $bv)) * $sort_dir;
+                    }
+                    return strcasecmp((string)$av, (string)$bv) * $sort_dir;
+                });
+            }
+
+            $total    = count($all);
+            $page     = max(1, (int)($params['page'] ?? 1));
+            $per_page = max(1, min(500, (int)($params['per_page'] ?? 25)));
+            $offset   = ($page - 1) * $per_page;
+
+            return [
+                'rows'  => array_slice($all, $offset, $per_page),
+                'total' => $total,
+            ];
+        }
+
+        // Mode groupé : agrégat par imprimante
+        $grouped_rows = self::groupByPrinter($all);
+
+        // Tri sur les lignes groupées
+        $status_priority = [self::STATUS_CRITICAL => 0, self::STATUS_WATCH => 1, self::STATUS_OK => 2];
+        if ($sort_col === '') {
+            $sort_col = 'worst_status';
+            $sort_dir = 1;
+        }
+        usort($grouped_rows, function ($a, $b) use ($sort_col, $sort_dir, $status_priority) {
+            switch ($sort_col) {
+                case 'worst_status':
+                    $pa = $status_priority[$a['worst_status']] ?? 3;
+                    $pb = $status_priority[$b['worst_status']] ?? 3;
+                    if ($pa === $pb) {
+                        $da = $a['min_days'] ?? PHP_INT_MAX;
+                        $db = $b['min_days'] ?? PHP_INT_MAX;
+                        return ($da <=> $db) * $sort_dir;
+                    }
+                    return ($pa <=> $pb) * $sort_dir;
+                case 'min_days':
+                    $av = $a['min_days'] ?? PHP_INT_MAX;
+                    $bv = $b['min_days'] ?? PHP_INT_MAX;
+                    return ($av <=> $bv) * $sort_dir;
+                case 'printer_name':
+                case 'entity_name':
+                    return strcasecmp((string)($a[$sort_col] ?? ''), (string)($b[$sort_col] ?? '')) * $sort_dir;
+                default:
+                    return 0;
+            }
+        });
+
+        $total    = count($grouped_rows);
+        $page     = max(1, (int)($params['page'] ?? 1));
+        $per_page = max(1, min(500, (int)($params['per_page'] ?? 25)));
+        $offset   = ($page - 1) * $per_page;
+
+        return [
+            'rows'  => array_slice($grouped_rows, $offset, $per_page),
+            'total' => $total,
+        ];
+    }
+
+    /**
+     * Regroupe les rows unitaires par imprimante.
+     * Les cartouches au sein d'une ligne sont triées par priorité de statut
+     * puis par couleur (black, cyan, magenta, yellow, other) pour un rendu stable.
+     */
+    protected static function groupByPrinter(array $rows): array {
+        $color_order = ['black' => 0, 'cyan' => 1, 'magenta' => 2, 'yellow' => 3, 'other' => 4];
+        $status_priority = [self::STATUS_CRITICAL => 0, self::STATUS_WATCH => 1, self::STATUS_OK => 2];
+
+        $groups = [];
+        foreach ($rows as $r) {
+            $pid = (int)$r['printers_id'];
+            if (!isset($groups[$pid])) {
+                $groups[$pid] = [
+                    'printers_id'    => $pid,
+                    'printer_name'   => (string)($r['printer_name'] ?? ''),
+                    'entity_name'    => (string)($r['entity_name'] ?? ''),
+                    'entities_id'    => (int)($r['entities_id'] ?? 0),
+                    'cartridges'     => [],
+                    'worst_status'   => self::STATUS_OK,
+                    'min_days'       => null,
+                    'has_expedition' => false,
+                ];
+            }
+            $groups[$pid]['cartridges'][] = [
+                'property'       => (string)$r['property'],
+                'level'          => (int)$r['level'],
+                'days_remaining' => $r['days_remaining'],
+                'is_estimate'    => (bool)($r['is_estimate'] ?? false),
+                'status'         => (string)$r['status'],
+                'cartridge_type' => (string)($r['cartridge_type'] ?? ''),
+                'toner_color'    => (string)($r['toner_color'] ?? 'other'),
+                'expedition'     => $r['expedition'],
+                'snoozed'        => (bool)($r['snoozed'] ?? false),
+                'snooze_until'   => $r['snooze_until'] ?? null,
+                // Stock GLPI de la cartouche (sert à pré-cocher « Planif » dans la commande).
+                'stock'          => PluginPrintgestionExpedition::getCartridgeStock(
+                    PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($pid, (string)$r['property'])
+                ),
+            ];
+
+            // Agrégats par imprimante
+            $cur_prio   = $status_priority[$groups[$pid]['worst_status']] ?? 3;
+            $this_prio  = $status_priority[(string)$r['status']] ?? 3;
+            if ($this_prio < $cur_prio) {
+                $groups[$pid]['worst_status'] = (string)$r['status'];
+            }
+            if ($r['days_remaining'] !== null) {
+                $d = (int)$r['days_remaining'];
+                if ($groups[$pid]['min_days'] === null || $d < $groups[$pid]['min_days']) {
+                    $groups[$pid]['min_days'] = $d;
+                }
+            }
+            if ($r['expedition'] !== null) {
+                $groups[$pid]['has_expedition'] = true;
+            }
+        }
+
+        foreach ($groups as &$g) {
+            usort($g['cartridges'], function ($a, $b) use ($color_order, $status_priority) {
+                $pa = $status_priority[$a['status']] ?? 3;
+                $pb = $status_priority[$b['status']] ?? 3;
+                if ($pa !== $pb) return $pa <=> $pb;
+                $ca = $color_order[$a['toner_color']] ?? 99;
+                $cb = $color_order[$b['toner_color']] ?? 99;
+                return $ca <=> $cb;
+            });
+        }
+        unset($g);
+
+        return array_values($groups);
+    }
+
+    /**
+     * Enregistre une alerte en BDD (pour traçabilité + éviter les doublons de mail).
+     */
+    public static function logAlert(int $printers_id, string $property, int $level, ?int $days, string $type): int {
+        global $DB;
+
+        $DB->insert(self::getTable(), [
+            'printers_id'    => $printers_id,
+            'toner_property' => $property,
+            'level_percent'  => $level,
+            'estimated_days' => $days,
+            'alert_type'     => $type,
+            'date_alert'     => date('Y-m-d H:i:s'),
+            'mail_sent'      => 0,
+        ]);
+
+        return (int)$DB->insertId();
+    }
+
+    /**
+     * Parcourt les alertes critical/watch et déclenche les notifications mail.
+     * Anti-doublon : n'envoie pas si alerte du même type créée depuis < 24h.
+     *
+     * DIGEST : toutes les alertes du run partent dans UN seul mail commercial
+     * (liste des toners bas) au lieu d'un mail par imprimante/toner.
+     */
+    public static function sendPendingAlerts(): int {
+        global $DB;
+
+        $config = PluginPrintgestionConfig::getInstance();
+        $gabarit_commercial = (int)($config->fields['gabarit_commercial'] ?? 0);
+
+        $rows    = self::listAll();
+        $pending = [];
+
+        foreach ($rows as $row) {
+            if ($row['status'] === self::STATUS_OK) {
+                continue;
+            }
+            // Ignorer si expédition déjà en cours pour cette propriété
+            if ($row['expedition'] !== null
+                && in_array($row['expedition']['statut'], ['pending', 'shipped', 'transit'], true)) {
+                continue;
+            }
+
+            // Anti-doublon 24h
+            $recent = $DB->request([
+                'FROM'  => self::getTable(),
+                'WHERE' => [
+                    'printers_id'    => $row['printers_id'],
+                    'toner_property' => $row['property'],
+                    'alert_type'     => 'low_toner',
+                    'date_alert'     => ['>=', date('Y-m-d H:i:s', strtotime('-24 hours'))],
+                ],
+                'LIMIT' => 1,
+            ])->current();
+
+            if (is_array($recent)) {
+                continue;
+            }
+
+            $id = self::logAlert(
+                $row['printers_id'],
+                $row['property'],
+                $row['level'],
+                $row['days_remaining'],
+                'low_toner'
+            );
+
+            $pending[] = ['alert_id' => $id, 'row' => $row];
+        }
+
+        if (empty($pending) || $gabarit_commercial <= 0) {
+            return 0;
+        }
+
+        $recipients = self::resolveRecipientsForRole('commercial');
+        if (empty($recipients)) {
+            return 0;
+        }
+
+        if (count($pending) === 1) {
+            // Envoi SIMPLE : balises unitaires détaillées
+            $row = $pending[0]['row'];
+            $balises = [
+                '##printgestion.printer##'  => $row['printer_name'],
+                '##printgestion.client##'   => $row['entity_name'],
+                '##printgestion.toner##'    => $row['property'],
+                '##printgestion.level##'    => (string)$row['level'],
+                '##printgestion.days##'     => $row['days_remaining'] !== null ? (string)$row['days_remaining'] : 'N/A',
+                '##printgestion.cartridge##'=> $row['cartridge_type'] ?? $row['property'],
+            ];
+        } else {
+            // Envoi MULTI : agrégats + liste détaillée (plafonnée)
+            $max  = PluginPrintgestionExpedition::MAIL_LIST_MAX;
+            $list = '<ul>';
+            foreach (array_slice($pending, 0, $max) as $p) {
+                $row = $p['row'];
+                $days_txt = $row['days_remaining'] !== null ? ($row['days_remaining'] . ' j') : 'N/A';
+                $list .= '<li>'
+                    . '<strong>' . htmlspecialchars((string)$row['printer_name'], ENT_QUOTES, 'UTF-8') . '</strong>'
+                    . ' — ' . htmlspecialchars((string)$row['entity_name'], ENT_QUOTES, 'UTF-8')
+                    . ' — ' . htmlspecialchars((string)$row['property'], ENT_QUOTES, 'UTF-8')
+                    . ' — ' . (int)$row['level'] . '% — ' . htmlspecialchars($days_txt, ENT_QUOTES, 'UTF-8')
+                    . '</li>';
+            }
+            if (count($pending) > $max) {
+                $list .= '<li>… et ' . (count($pending) - $max) . ' autres</li>';
+            }
+            $list .= '</ul>';
+
+            $clients  = array_values(array_unique(array_map(fn($p) => (string)$p['row']['entity_name'], $pending)));
+            $printers = array_values(array_unique(array_map(fn($p) => (string)$p['row']['printer_name'], $pending)));
+            $level_min = min(array_map(fn($p) => (int)$p['row']['level'], $pending));
+            $days_vals = array_filter(
+                array_map(fn($p) => $p['row']['days_remaining'], $pending),
+                fn($d) => $d !== null
+            );
+
+            $balises = [
+                '##printgestion.printer##'         => count($printers) > 1
+                    ? sprintf(__('%d imprimantes', 'printgestion'), count($printers))
+                    : (string)($printers[0] ?? ''),
+                '##printgestion.client##'          => count($clients) > 1
+                    ? sprintf(__('%d clients', 'printgestion'), count($clients))
+                    : (string)($clients[0] ?? ''),
+                '##printgestion.toner##'           => sprintf(__('%d toners bas', 'printgestion'), count($pending)),
+                '##printgestion.level##'           => (string)$level_min,
+                '##printgestion.days##'            => !empty($days_vals) ? (string)min($days_vals) : 'N/A',
+                '##printgestion.cartridges_list##' => $list,
+                '##printgestion.count##'           => (string)count($pending),
+            ];
+        }
+
+        if (!PluginPrintgestionConfig::sendMail($recipients, $gabarit_commercial, $balises)) {
+            return 0;
+        }
+
+        foreach ($pending as $p) {
+            $DB->update(self::getTable(), ['mail_sent' => 1], ['id' => $p['alert_id']]);
+        }
+
+        return count($pending);
+    }
+
+    /**
+     * Résout les destinataires mail pour un rôle donné (planif / achat / commercial).
+     *
+     * Selon la config :
+     * - mode 'group'  → récupère les emails par défaut des membres du groupe GLPI
+     * - mode 'emails' → récupère les emails par défaut des users GLPI sélectionnés
+     *                   (NB: la colonne `emails_X` stocke une liste CSV d'IDs users)
+     */
+    public static function resolveRecipientsForRole(string $role): array {
+        $config = PluginPrintgestionConfig::getInstance();
+        $mode   = (string)($config->fields['mode_' . $role] ?? 'group');
+
+        if ($mode === 'emails') {
+            $raw = (string)($config->fields['emails_' . $role] ?? '');
+            if ($raw === '') {
+                return [];
+            }
+            $user_ids = array_values(array_filter(
+                array_map('intval', preg_split('/[,;\s]+/u', $raw) ?: []),
+                fn($id) => $id > 0
+            ));
+            return self::resolveEmailsForUsers($user_ids);
+        }
+
+        // Mode 'group' : emails par défaut des membres du groupe GLPI
+        return self::resolveRecipientsForGroup((int)($config->fields['group_' . $role] ?? 0));
+    }
+
+    /**
+     * Retourne les emails par défaut d'une liste d'IDs users GLPI.
+     */
+    public static function resolveEmailsForUsers(array $user_ids): array {
+        global $DB;
+
+        $user_ids = array_values(array_filter(array_map('intval', $user_ids), fn($id) => $id > 0));
+        if (empty($user_ids)) {
+            return [];
+        }
+
+        $emails = [];
+        foreach ($DB->request([
+            'SELECT' => ['email'],
+            'FROM'   => 'glpi_useremails',
+            'WHERE'  => [
+                'users_id'   => $user_ids,
+                'is_default' => 1,
+            ],
+        ]) as $row) {
+            $e = trim((string)($row['email'] ?? ''));
+            if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) {
+                $emails[strtolower($e)] = $e;
+            }
+        }
+
+        return array_values($emails);
+    }
+
+    /**
+     * Récupère les emails des membres d'un groupe GLPI.
+     * Conservé pour compatibilité : utilisé en interne par resolveRecipientsForRole.
+     */
+    public static function resolveRecipientsForGroup(int $groups_id): array {
+        global $DB;
+
+        if ($groups_id <= 0) {
+            return [];
+        }
+
+        $emails = [];
+        $rows = $DB->request([
+            'SELECT'    => ['u.id', 'u.name'],
+            'FROM'      => 'glpi_groups_users AS gu',
+            'INNER JOIN'=> [
+                'glpi_users AS u' => [
+                    'ON' => ['gu' => 'users_id', 'u' => 'id'],
+                ],
+            ],
+            'WHERE'     => ['gu.groups_id' => $groups_id],
+        ]);
+
+        foreach ($rows as $u) {
+            $ue = $DB->request([
+                'SELECT' => ['email'],
+                'FROM'   => 'glpi_useremails',
+                'WHERE'  => [
+                    'users_id'    => (int)$u['id'],
+                    'is_default'  => 1,
+                ],
+                'LIMIT'  => 1,
+            ])->current();
+            if (is_array($ue) && !empty($ue['email'])) {
+                $emails[] = (string)$ue['email'];
+            }
+        }
+
+        return $emails;
+    }
+
+    /**
+     * Liste des alertes prioritaires pour le dashboard.
+     * Agrège :
+     *   - Alertes wrong_printer non résolues (avec jointures pour avoir les noms)
+     *   - Expéditions en retard (shipped/transit depuis > reminder_days)
+     *
+     * Retourne un tableau de lignes typées : ['kind' => 'wrong_printer'|'late_shipment', ...]
+     */
+    public static function listPriorityAlerts(?int $entities_id = null): array {
+        global $DB;
+
+        $out = [];
+        $config = PluginPrintgestionConfig::getInstance();
+
+        // ── 1. Alertes wrong_printer non résolues ──
+        $criteria = [
+            'SELECT' => [
+                'a.id',
+                'a.detected_printers_id',
+                'a.intended_printers_id',
+                'a.expeditions_id',
+                'a.toner_property',
+                'a.level_percent',
+                'a.date_alert',
+                'pd.name AS detected_name',
+                'pi.name AS intended_name',
+                'pd.entities_id',
+                'ei.completename AS entity_name',
+            ],
+            'FROM'      => 'glpi_plugin_printgestion_alerts AS a',
+            'LEFT JOIN' => [
+                'glpi_printers AS pd' => [
+                    'ON' => ['a' => 'detected_printers_id', 'pd' => 'id'],
+                ],
+                'glpi_printers AS pi' => [
+                    'ON' => ['a' => 'intended_printers_id', 'pi' => 'id'],
+                ],
+                'glpi_entities AS ei' => [
+                    'ON' => ['pd' => 'entities_id', 'ei' => 'id'],
+                ],
+            ],
+            'WHERE' => [
+                'a.alert_type'  => 'wrong_printer',
+                'a.is_resolved' => 0,
+            ],
+            'ORDER' => ['a.date_alert DESC'],
+        ];
+        if ($entities_id !== null && $entities_id >= 0) {
+            $criteria['WHERE']['pd.entities_id'] = $entities_id;
+        }
+
+        foreach ($DB->request($criteria) as $a) {
+            $days_since = !empty($a['date_alert'])
+                ? max(0, (int)((time() - strtotime((string)$a['date_alert'])) / 86400))
+                : 0;
+
+            $out[] = [
+                'kind'                 => 'wrong_printer',
+                'alert_id'             => (int)$a['id'],
+                'detected_printers_id' => (int)$a['detected_printers_id'],
+                'intended_printers_id' => (int)$a['intended_printers_id'],
+                'expeditions_id'       => (int)$a['expeditions_id'],
+                'detected_name'        => (string)($a['detected_name'] ?? '?'),
+                'intended_name'        => (string)($a['intended_name'] ?? '?'),
+                'entity_name'          => (string)($a['entity_name'] ?? ''),
+                'toner_property'       => (string)$a['toner_property'],
+                'level_percent'        => (int)($a['level_percent'] ?? 0),
+                'days_since'           => $days_since,
+            ];
+        }
+
+        // ── 2. Expéditions en retard (shipped/transit depuis > reminder_days) ──
+        $reminder_days = max(1, (int)($config->fields['reminder_days'] ?? 7));
+        $cutoff = date('Y-m-d H:i:s', strtotime("-{$reminder_days} days"));
+
+        $criteria = [
+            'SELECT' => [
+                'e.id',
+                'e.printers_id',
+                'e.toner_property',
+                'e.statut',
+                'e.transport_carrier',
+                'e.transport_number',
+                'e.date_shipped',
+                'p.name AS printer_name',
+                'p.entities_id',
+                'ei.completename AS entity_name',
+            ],
+            'FROM'      => 'glpi_plugin_printgestion_expeditions AS e',
+            'LEFT JOIN' => [
+                'glpi_printers AS p' => [
+                    'ON' => ['e' => 'printers_id', 'p' => 'id'],
+                ],
+                'glpi_entities AS ei' => [
+                    'ON' => ['p' => 'entities_id', 'ei' => 'id'],
+                ],
+            ],
+            'WHERE' => [
+                'e.statut'       => ['shipped', 'transit'],
+                'e.date_shipped' => ['<=', $cutoff],
+            ],
+            'ORDER' => ['e.date_shipped ASC'],
+        ];
+        if ($entities_id !== null && $entities_id >= 0) {
+            $criteria['WHERE']['p.entities_id'] = $entities_id;
+        }
+
+        foreach ($DB->request($criteria) as $e) {
+            $days_since = !empty($e['date_shipped'])
+                ? max(0, (int)((time() - strtotime((string)$e['date_shipped'])) / 86400))
+                : 0;
+
+            $out[] = [
+                'kind'             => 'late_shipment',
+                'expedition_id'    => (int)$e['id'],
+                'printers_id'      => (int)$e['printers_id'],
+                'printer_name'     => (string)($e['printer_name'] ?? '?'),
+                'entity_name'      => (string)($e['entity_name'] ?? ''),
+                'toner_property'   => (string)$e['toner_property'],
+                'statut'           => (string)$e['statut'],
+                'carrier'          => (string)($e['transport_carrier'] ?? ''),
+                'tracking'         => (string)($e['transport_number'] ?? ''),
+                'days_since'       => $days_since,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Crée ou met à jour un snooze pour (imprimante, propriété) jusqu'à une date.
+     * Les lignes snoozées sont filtrées de listAll() et du dashboard.
+     */
+    public static function snooze(int $printers_id, string $property, int $days): bool {
+        global $DB;
+
+        if ($printers_id <= 0 || $property === '' || $days <= 0) {
+            return false;
+        }
+
+        $until = date('Y-m-d H:i:s', strtotime("+{$days} days"));
+
+        // Si un snooze actif existe déjà → on prolonge (on remplace la date)
+        $existing = $DB->request([
+            'SELECT' => ['id'],
+            'FROM'   => 'glpi_plugin_printgestion_alert_snoozes',
+            'WHERE'  => [
+                'printers_id'    => $printers_id,
+                'toner_property' => $property,
+            ],
+            'LIMIT'  => 1,
+        ])->current();
+
+        if (is_array($existing)) {
+            return (bool)$DB->update('glpi_plugin_printgestion_alert_snoozes', [
+                'snooze_until' => $until,
+                'users_id'     => (int)(Session::getLoginUserID() ?: 0),
+            ], ['id' => (int)$existing['id']]);
+        }
+
+        return (bool)$DB->insert('glpi_plugin_printgestion_alert_snoozes', [
+            'printers_id'    => $printers_id,
+            'toner_property' => $property,
+            'snooze_until'   => $until,
+            'users_id'       => (int)(Session::getLoginUserID() ?: 0),
+            'date_creation'  => date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    /**
+     * Retourne les couples (printer, property) actuellement snoozés.
+     * Clé = "{printers_id}|{property}".
+     */
+    public static function getSnoozedPairs(): array {
+        global $DB;
+
+        $out = [];
+        $now = date('Y-m-d H:i:s');
+
+        foreach ($DB->request([
+            'SELECT' => ['printers_id', 'toner_property', 'snooze_until'],
+            'FROM'   => 'glpi_plugin_printgestion_alert_snoozes',
+            'WHERE'  => ['snooze_until' => ['>', $now]],
+        ]) as $r) {
+            $key = $r['printers_id'] . '|' . $r['toner_property'];
+            $out[$key] = (string)$r['snooze_until'];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Supprime un snooze expiré ou manuel.
+     */
+    public static function clearSnooze(int $printers_id, string $property): bool {
+        global $DB;
+        return (bool)$DB->delete('glpi_plugin_printgestion_alert_snoozes', [
+            'printers_id'    => $printers_id,
+            'toner_property' => $property,
+        ]);
+    }
+
+    /**
+     * Marque une alerte comme résolue (action manuelle "Ignorer").
+     */
+    public static function resolveAlert(int $alert_id): bool {
+        global $DB;
+        if ($alert_id <= 0) {
+            return false;
+        }
+        return (bool)$DB->update('glpi_plugin_printgestion_alerts', [
+            'is_resolved' => 1,
+        ], ['id' => $alert_id]);
+    }
+
+    static function install(Migration $migration) { return true; }
+    static function uninstall(Migration $migration) { return true; }
+}

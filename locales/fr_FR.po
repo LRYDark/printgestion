@@ -1,0 +1,10 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Print Gestion 1.0.0\n"
+"Language: fr_FR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+# Les chaînes sont déjà en français dans le code (via __() avec domaine 'printgestion').
+# Ce fichier est un placeholder — à compléter pour traduction i18n réelle.
