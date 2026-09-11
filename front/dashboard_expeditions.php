@@ -89,17 +89,17 @@ if (!empty($priority_alerts)) {
 
             if ($can_update) {
                 echo "<div class='ms-3 d-flex gap-1'>";
-                echo "<form method='post' action='" . PLUGIN_PRINTGESTION_WEBDIR . "/ajax/reassign_expedition.php' class='d-inline'>";
+                // Confirmation portée par un attribut data-* entièrement échappé et
+                // lue par un gestionnaire délégué (script en fin de bloc) : aucun
+                // texte dynamique (nom d'imprimante issu du SNMP) dans un attribut on*.
+                $confirm_msg = sprintf(__('Réattribuer l\'expédition à %s ?', 'printgestion'), $pa['detected_name']);
+                echo "<form method='post' action='" . PLUGIN_PRINTGESTION_WEBDIR . "/ajax/reassign_expedition.php' class='d-inline'"
+                    . " data-pg-confirm=\"" . htmlspecialchars($confirm_msg, ENT_QUOTES, 'UTF-8') . "\">";
                 echo Html::hidden('expedition_id', ['value' => $pa['expeditions_id']]);
                 echo Html::hidden('new_printers_id', ['value' => $pa['detected_printers_id']]);
-                echo "<button type='submit' class='btn btn-sm btn-primary' "
-                    . "onclick='return confirm(\""
-                    . sprintf(__('Réattribuer l\'expédition à %s ?', 'printgestion'),
-                        htmlspecialchars($pa['detected_name'], ENT_QUOTES, 'UTF-8'))
-                    . "\")'>"
+                echo "<button type='submit' class='btn btn-sm btn-primary'>"
                     . "<i class='fa-solid fa-exchange-alt me-1'></i>"
-                    . sprintf(__('Réattribuer à %s', 'printgestion'),
-                        htmlspecialchars($pa['detected_name'], ENT_QUOTES, 'UTF-8'))
+                    . htmlspecialchars(sprintf(__('Réattribuer à %s', 'printgestion'), $pa['detected_name']), ENT_QUOTES, 'UTF-8')
                     . "</button>";
                 Html::closeForm();
 
@@ -142,6 +142,18 @@ if (!empty($priority_alerts)) {
     }
 
     echo "</div></div>";
+
+    // Confirmation des formulaires portant data-pg-confirm : le message est lu via
+    // getAttribute(), jamais interprété comme du code ou du HTML.
+    echo "<script>
+document.addEventListener('submit', function (e) {
+    var form = e.target;
+    if (form instanceof HTMLFormElement && form.hasAttribute('data-pg-confirm')
+        && !window.confirm(form.getAttribute('data-pg-confirm'))) {
+        e.preventDefault();
+    }
+}, true);
+</script>";
 }
 
 // ── Compteurs par statut (calculés, restreints par l'entité de l'imprimante) ──
