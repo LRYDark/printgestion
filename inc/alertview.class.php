@@ -103,8 +103,9 @@ class PluginPrintgestionAlertview extends CommonDBTM {
         if (Session::haveRight('plugin_printgestion_dashboard', UPDATE)) {
             $self = __CLASS__;
             $sep  = MassiveAction::CLASS_ACTION_SEPARATOR;
+            // Pas d'action d'envoi : la commande passe uniquement par la fenêtre de
+            // commande de l'écran des alertes (createPurchaseOrder, transactionnelle).
             $actions[$self . $sep . 'pg_snooze'] = "<i class='fa-solid fa-bell-slash me-1'></i>" . __('Snoozer', 'printgestion');
-            $actions[$self . $sep . 'pg_send']   = "<i class='fa-solid fa-paper-plane me-1'></i>" . __('Envoyer cartouche', 'printgestion');
         }
         return $actions;
     }
@@ -115,10 +116,6 @@ class PluginPrintgestionAlertview extends CommonDBTM {
                 echo "<input type='number' name='days' value='7' min='1' class='form-control d-inline-block' style='width:90px'> ";
                 echo "<span class='me-2'>" . __('jours', 'printgestion') . "</span>";
                 echo Html::submit(__('Snoozer', 'printgestion'), ['name' => 'massiveaction', 'class' => 'btn btn-primary']);
-                return true;
-            case 'pg_send':
-                echo "<p class='mb-2'>" . __('Créer une expédition de cartouche pour les lignes sélectionnées ?', 'printgestion') . "</p>";
-                echo Html::submit(__('Envoyer', 'printgestion'), ['name' => 'massiveaction', 'class' => 'btn btn-primary']);
                 return true;
         }
         return parent::showMassiveActionsSubForm($ma);
@@ -142,22 +139,12 @@ class PluginPrintgestionAlertview extends CommonDBTM {
             }
             $printers_id = (int) $item->fields['printers_id'];
             $property    = (string) $item->fields['toner_property'];
-            $level       = (int) $item->fields['level_percent'];
-            $days        = $item->fields['days_remaining'] !== null ? (int) $item->fields['days_remaining'] : null;
 
             if ($action === 'pg_snooze') {
                 $d = max(1, (int) ($input['days'] ?? 7));
                 if (PluginPrintgestionAlert::snooze($printers_id, $property, $d)) {
                     // Reflète tout de suite dans la vue (recalcul complet au prochain cron).
                     $DB->update(self::getTable(), ['is_snoozed' => 1, 'status' => 'ok'], ['id' => $id]);
-                    $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_OK);
-                } else {
-                    $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_KO);
-                }
-            } elseif ($action === 'pg_send') {
-                $exp = PluginPrintgestionExpedition::createFromAlert($printers_id, $property, $level, $days);
-                if ($exp > 0) {
-                    $DB->update(self::getTable(), ['has_expedition' => 1], ['id' => $id]);
                     $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_OK);
                 } else {
                     $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_KO);

@@ -127,7 +127,7 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
 
 - **Anti-doublon** : tant qu'une expédition est active (pending/shipped/transit/stock_empty),
   aucune nouvelle expédition n'est créée pour le même couple imprimante/toner.
-- `group_id` (UUID) relie les expéditions d'un envoi groupé ou d'une commande.
+- `group_id` (UUID) relie les expéditions d'une même commande.
 - Passage `delivered` : automatique via détection de changement de cartouche (§4),
   via BL signé du plugin Gestion, ou via API transporteur (cron 3).
 
@@ -135,9 +135,7 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
 
 | Endpoint | Action |
 |---|---|
-| `send_cartridge.php` | « Envoyer cartouche » unitaire → `createFromAlert()` |
-| `send_group.php` | Envoi groupé multi-toners d'UNE imprimante → `createGroup()` |
-| `send_purchase.php` | Commande mono/multi-imprimantes (et multi-clients) → `createPurchaseOrder()` |
+| `send_purchase.php` | **Seul parcours d'envoi** : commande mono/multi-imprimantes (et multi-clients) → `createPurchaseOrder()` (expéditions + mail Achats en transaction) |
 | `update_expedition.php` | Marquer expédié (transporteur + tracking) → `markShipped()` |
 | `edit_expedition.php`, `reassign_expedition.php` | Édition / réassignation vers une autre imprimante |
 | `snooze_alert.php`, `snooze_group.php`, `unsnooze_group.php`, `resolve_alert.php` | Gestion des alertes |
@@ -165,9 +163,6 @@ Le bouton « Qui est notifié ? » de la config affiche le récapitulatif selon 
 
 | Déclencheur | Planif | Achats | Commercial | Client (courtoisie) |
 |---|---|---|---|---|
-| « Envoyer cartouche » (1 cartouche, stock OK) | gabarit unitaire | — | gabarit unitaire | — |
-| « Envoyer cartouche » (1 cartouche, stock VIDE) | — | **Excel joint** | gabarit unitaire | — |
-| Envoi groupé (N toners, 1 imprimante) | 1 → unitaire ; N → groupé + **Excel joint** | si stock vide : **Excel joint** | même contenu que planif | — |
 | Commande (N cartouches, N imprimantes/clients) | case « Planif » : 1 → unitaire ; N → groupé **client par ligne** + **Excel joint** | **Excel joint** (toujours) | — | case « Courtoisie » : regroupé par contact |
 | Cron toner bas (horaire) | — | — | **DIGEST** : 1 mail/run | — |
 | Cron rappel installation | mode `planif`/`both` : **DIGEST** 1 mail/run | — | mode `commercial`/`both` : même digest | — |

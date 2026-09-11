@@ -128,10 +128,8 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
                 self::renderLinkBlModal();
             }
         }
-        if ($context === 'alerts') {
-            self::renderSendRecapModal();
-            self::renderSendGroupModal();
-        }
+        // Envoi / commande : fenêtre de commande de l'écran des alertes uniquement
+        // (dashboard_alerts.php → send_purchase.php), pas de modale ici.
 
         self::renderJs($ajax_base, $can_expedition_update, $bl_enabled);
     }
@@ -425,45 +423,6 @@ HTML;
 HTML;
     }
 
-    protected static function renderSendRecapModal(): void {
-        $title   = __('Envoyer une cartouche', 'printgestion');
-        $close   = _sx('button', 'Cancel');
-        // NB: pas d'apostrophe dans le texte pour éviter les casses HTML
-        $confirm = __('Confirmer envoi', 'printgestion');
-        $loading = __('Chargement...', 'printgestion');
-
-        $title_h   = htmlspecialchars($title,   ENT_QUOTES, 'UTF-8');
-        $close_h   = htmlspecialchars($close,   ENT_QUOTES, 'UTF-8');
-        $confirm_h = htmlspecialchars($confirm, ENT_QUOTES, 'UTF-8');
-        $loading_h = htmlspecialchars($loading, ENT_QUOTES, 'UTF-8');
-
-        echo <<<HTML
-<div class="modal fade" id="pc-modal-send" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <form id="pc-form-send" method="post" action="">
-        <div class="modal-header">
-          <h5 class="modal-title"><i class="fa-solid fa-paper-plane me-2"></i>{$title_h}</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <div id="pc-modal-send-body">
-            <div class="text-center text-muted">{$loading_h}</div>
-          </div>
-          <!-- Conteneur des hidden inputs (rempli en JS, pas d'innerHTML sur le form) -->
-          <div id="pc-send-hidden-fields"></div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{$close_h}</button>
-          <button type="submit" class="btn btn-primary"><i class="fa-solid fa-paper-plane me-1"></i>{$confirm_h}</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-HTML;
-    }
-
     protected static function renderSnoozeGroupModal(): void {
         $title   = __('Ne plus alerter pendant…', 'printgestion');
         $close   = _sx('button', 'Cancel');
@@ -561,60 +520,6 @@ HTML;
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{$close_h}</button>
           <button type="submit" class="btn btn-primary">
             <i class="fa-solid fa-bell me-1"></i>{$confirm_h}
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-HTML;
-    }
-
-    protected static function renderSendGroupModal(): void {
-        $title   = __('Envoyer des cartouches', 'printgestion');
-        $close   = _sx('button', 'Cancel');
-        $confirm = __('Confirmer envoi', 'printgestion');
-        $intro   = __('Sélectionne les cartouches à inclure dans l\'envoi groupé. Les cartouches avec une expédition déjà en cours sont désactivées.', 'printgestion');
-        $send_btn= __('Envoyer la sélection', 'printgestion');
-
-        $title_h   = htmlspecialchars($title,    ENT_QUOTES, 'UTF-8');
-        $close_h   = htmlspecialchars($close,    ENT_QUOTES, 'UTF-8');
-        $confirm_h = htmlspecialchars($confirm,  ENT_QUOTES, 'UTF-8');
-        $intro_h   = htmlspecialchars($intro,    ENT_QUOTES, 'UTF-8');
-        $send_btn_h= htmlspecialchars($send_btn, ENT_QUOTES, 'UTF-8');
-
-        echo <<<HTML
-<div class="modal fade" id="pc-modal-sendgroup" tabindex="-1">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <form id="pc-form-sendgroup">
-        <div class="modal-header">
-          <h5 class="modal-title"><i class="fa-solid fa-paper-plane me-2"></i>{$title_h}</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <p class="text-muted small mb-2">{$intro_h}</p>
-          <div class="text-muted small mb-3" id="pc-sendgroup-header"></div>
-          <input type="hidden" name="printers_id" id="pc-sendgroup-printers-id">
-          <div class="table-responsive">
-            <table class="table table-sm table-bordered align-middle mb-0">
-              <thead class="table-light">
-                <tr>
-                  <th style="width:40px">&nbsp;</th>
-                  <th>Toner</th>
-                  <th>Niveau</th>
-                  <th>Jours</th>
-                  <th>Stock</th>
-                </tr>
-              </thead>
-              <tbody id="pc-sendgroup-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{$close_h}</button>
-          <button type="submit" class="btn btn-primary" id="pc-sendgroup-submit">
-            <i class="fa-solid fa-paper-plane me-1"></i>{$send_btn_h}
           </button>
         </div>
       </form>
@@ -861,7 +766,6 @@ document.addEventListener('DOMContentLoaded', function() {
             'tablePrefs' => $table_prefs,
             'csrf'       => Session::getNewCSRFToken(),
             'msg'       => [
-                'send_confirm'      => __("Vérifie les infos puis confirme l'envoi", 'printgestion'),
                 'error'             => __("Erreur lors de l'action", 'printgestion'),
                 'no_stock_info'     => __('Aucune information de stock', 'printgestion'),
                 'no_bl_available'   => __('Aucun BL disponible pour ce client', 'printgestion'),
@@ -1058,12 +962,9 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
     if (act === 'send-cartridge') {
-      // Commande de cartouches (mail achats + Excel joint), mono OU multi-sélection.
-      // Déléguée au dashboard Alertes s'il expose PG_openPurchaseModal ; sinon
-      // on retombe sur l'ancien comportement (modale d'envoi simple/groupée).
-      if (typeof window.PG_openPurchaseModal === 'function') { window.PG_openPurchaseModal(d); return; }
-      if (d.grouped && d.cartridges.length > 0) openSendGroupModal(d);
-      else openSendModal(d);
+      // Commande de cartouches (mail Achats + Excel joint), mono OU multi-sélection :
+      // seul parcours d'envoi, porté par l'écran des alertes (PG_openPurchaseModal).
+      if (typeof window.PG_openPurchaseModal === 'function') { window.PG_openPurchaseModal(d); }
       return;
     }
     if (act === 'edit-expedition') { openEditExpModal(d); return; }
@@ -1105,57 +1006,6 @@ document.addEventListener('DOMContentLoaded', function() {
         body.innerHTML = html;
       })
       .catch(function() { body.innerHTML = '<div class="alert alert-danger mb-0">' + escapeHtml(MSG.error) + '</div>'; });
-  }
-
-  // ── Send modal (recap) ──
-  function openSendModal(d) {
-    const body   = document.getElementById('pc-modal-send-body');
-    const hidden = document.getElementById('pc-send-hidden-fields');
-    const form   = document.getElementById('pc-form-send');
-    if (!body || !hidden || !form) return;
-
-    // Affiche le modal IMMÉDIATEMENT, on remplit le contenu ensuite
-    const modal = new bootstrap.Modal(document.getElementById('pc-modal-send'));
-    modal.show();
-
-    body.innerHTML   = '<div class="text-center text-muted">...</div>';
-    hidden.innerHTML = '';
-    form.action      = AJAX_BASE + '/send_cartridge.php';
-
-    fetch(AJAX_BASE + '/cartridge_stock.php?printers_id=' + encodeURIComponent(d.printers_id)
-          + '&property=' + encodeURIComponent(d.property), {
-      credentials: 'same-origin',
-      headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        const cartridge_name = (data && data.cartridge_name) ? data.cartridge_name : (d.cartridge || d.property);
-        const stock = (data && typeof data.stock === 'number') ? data.stock : 0;
-
-        let html = '<p class="text-muted small mb-3">' + escapeHtml(MSG.send_confirm) + '</p>';
-        html += '<table class="table table-sm mb-0">';
-        html += '<tr><th>' + escapeHtml(MSG.printer_label) + '</th><td>' + escapeHtml(d.printer_name) + '</td></tr>';
-        if (d.entity_name) html += '<tr><th>' + escapeHtml(MSG.client_label) + '</th><td>' + escapeHtml(d.entity_name) + '</td></tr>';
-        html += '<tr><th>' + escapeHtml(MSG.toner_label) + '</th><td>' + escapeHtml(d.property) + '</td></tr>';
-        html += '<tr><th>' + escapeHtml(MSG.level_label) + '</th><td>' + escapeHtml(d.level) + ' %</td></tr>';
-        html += '<tr><th>' + escapeHtml(MSG.days_label) + '</th><td>' + escapeHtml(d.days) + ' j</td></tr>';
-        html += '<tr><th>' + escapeHtml(MSG.cartridge_label) + '</th><td>' + escapeHtml(cartridge_name) + '</td></tr>';
-        html += '<tr><th>' + escapeHtml(MSG.stock_label) + '</th><td><strong class="'
-             + (stock > 0 ? 'text-success' : 'text-danger') + '">' + stock + '</strong></td></tr>';
-        html += '</table>';
-        body.innerHTML = html;
-
-        // Hidden inputs dans le conteneur dédié (le form les englobe automatiquement)
-        hidden.innerHTML = ''
-          + '<input type="hidden" name="_glpi_csrf_token" value="' + escapeAttr(CSRF_TOKEN) + '">'
-          + '<input type="hidden" name="printers_id" value="' + escapeAttr(d.printers_id) + '">'
-          + '<input type="hidden" name="property"    value="' + escapeAttr(d.property) + '">'
-          + '<input type="hidden" name="level"       value="' + escapeAttr(d.level) + '">'
-          + '<input type="hidden" name="days"        value="' + escapeAttr(d.days) + '">';
-      })
-      .catch(function() {
-        body.innerHTML = '<div class="alert alert-danger mb-0">' + escapeHtml(MSG.error) + '</div>';
-      });
   }
 
   // ── Edit expedition modal ──
@@ -1377,117 +1227,6 @@ document.addEventListener('DOMContentLoaded', function() {
           if (stockCell) stockCell.textContent = '?';
         }
       });
-    });
-  }
-
-  // ── Envoi groupé : modal avec checkboxes par cartouche ──
-  function openSendGroupModal(d) {
-    const tbody  = document.getElementById('pc-sendgroup-tbody');
-    const hdr    = document.getElementById('pc-sendgroup-header');
-    const hidden = document.getElementById('pc-sendgroup-printers-id');
-    if (!tbody || !hdr || !hidden) return;
-
-    hdr.innerHTML      = renderGroupHeader(d);
-    hidden.value       = d.printers_id;
-    tbody.innerHTML    = '';
-
-    const expLabels = {
-      pending: MSG.exp_pending,
-      shipped: MSG.exp_shipped,
-      transit: MSG.exp_transit,
-      delivered: MSG.exp_delivered,
-      stock_empty: MSG.exp_stock_empty,
-    };
-
-    d.cartridges.forEach(function(c, i) {
-      const hasExp   = !!c.expedition;
-      const checked  = hasExp ? '' : 'checked';
-      const disabled = hasExp ? 'disabled' : '';
-      // Badge discret à côté du nom si déjà en cours d'expédition
-      const expBadge = hasExp
-        ? ' <span class="badge bg-secondary ms-1"><i class="fa-solid fa-truck me-1"></i>'
-          + escapeHtml(expLabels[c.expedition.statut] || c.expedition.statut) + '</span>'
-        : '';
-      const daysTxt = c.days_remaining != null
-        ? (c.days_remaining + ' ' + ((c.days_remaining > 1) ? MSG.jours : MSG.jour))
-        : '<span class="text-muted">' + escapeHtml(MSG.stable) + '</span>';
-      const levelBar = '<div class="printgestion-bar color-' + escapeAttr(c.toner_color || 'other')
-        + '"><span style="width:' + (parseInt(c.level, 10) || 0) + '%"></span></div>'
-        + '<small>' + (parseInt(c.level, 10) || 0) + '%</small>';
-
-      tbody.insertAdjacentHTML('beforeend',
-          '<tr data-pc-sg-row="' + i + '" data-pc-sg-property="' + escapeAttr(c.property) + '"'
-        + ' data-pc-sg-level="' + escapeAttr(c.level) + '"'
-        + ' data-pc-sg-days="'  + escapeAttr(c.days_remaining != null ? c.days_remaining : '') + '">'
-        + '<td class="text-center"><input type="checkbox" class="form-check-input pc-sg-chk" '
-        + checked + ' ' + disabled + '></td>'
-        + '<td><span class="pc-color-dot color-' + escapeAttr(c.toner_color || 'other') + '"></span>'
-        + escapeHtml(c.property) + expBadge + '</td>'
-        + '<td>' + levelBar + '</td>'
-        + '<td>' + daysTxt + '</td>'
-        + '<td class="pc-sg-stock text-muted">...</td>'
-        + '</tr>'
-      );
-    });
-
-    const modal = new bootstrap.Modal(document.getElementById('pc-modal-sendgroup'));
-    modal.show();
-
-    // Fetch stock par cartouche en parallèle
-    d.cartridges.forEach(function(c, i) {
-      fetchStock(d.printers_id, c.property).then(function(data) {
-        const row = tbody.querySelector('[data-pc-sg-row="' + i + '"]');
-        if (!row) return;
-        const nameCell  = row.querySelector('.pc-sg-cartname');
-        const stockCell = row.querySelector('.pc-sg-stock');
-        if (data && data.ok) {
-          if (nameCell)  nameCell.textContent = data.cartridge_name || c.cartridge_type || '—';
-          if (stockCell) {
-            const n = data.stock || 0;
-            stockCell.innerHTML = '<strong class="' + (n > 0 ? 'text-success' : 'text-danger') + '">'
-              + n + '</strong>';
-          }
-        } else {
-          if (nameCell)  nameCell.textContent = c.cartridge_type || '—';
-          if (stockCell) stockCell.textContent = '?';
-        }
-      });
-    });
-  }
-
-  const sgForm = document.getElementById('pc-form-sendgroup');
-  if (sgForm) {
-    sgForm.addEventListener('submit', function(e) {
-      e.preventDefault();
-      const printers_id = document.getElementById('pc-sendgroup-printers-id').value;
-      const rows = document.querySelectorAll('#pc-sendgroup-tbody tr[data-pc-sg-row]');
-      const items = [];
-      rows.forEach(function(row) {
-        const chk = row.querySelector('.pc-sg-chk');
-        if (!chk || !chk.checked || chk.disabled) return;
-        const days = row.getAttribute('data-pc-sg-days');
-        items.push({
-          property: row.getAttribute('data-pc-sg-property'),
-          level:    parseInt(row.getAttribute('data-pc-sg-level'), 10) || 0,
-          days:     days !== '' ? parseInt(days, 10) : null,
-        });
-      });
-      if (items.length === 0) {
-        alert(MSG.nothing_selected);
-        return;
-      }
-      const fd = new FormData();
-      fd.append('printers_id', printers_id);
-      fd.append('items_json',  JSON.stringify(items));
-      const btn = document.getElementById('pc-sendgroup-submit');
-      if (btn) btn.disabled = true;
-      pcPost(AJAX_BASE + '/send_group.php', fd)
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          if (data && data.ok) { window.location.reload(); }
-          else { alert(MSG.error); if (btn) btn.disabled = false; }
-        })
-        .catch(function() { alert(MSG.error); if (btn) btn.disabled = false; });
     });
   }
 

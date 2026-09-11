@@ -26,8 +26,8 @@ Trois modules indépendants, activables par interrupteur dans la configuration :
   restants, seuils globaux et par imprimante, snooze par toner ou par imprimante.
 - Détection automatique des changements de cartouche (hausse de niveau) → clôture des expéditions.
 - Cycle d'expédition complet : `pending → shipped → transit → delivered`, anti-doublon,
-  envois groupés, réassignation, suivi transporteurs (UPS / GLS / Chronopost) et liaison
-  BL signés (plugin Gestion).
+  réassignation, suivi transporteurs (UPS / GLS / Chronopost) et liaison BL signés
+  (plugin Gestion).
 - Commandes fournisseur : génération d'un fichier **Excel** (format Gesconso + stock GLPI),
   envoyé aux achats — mono ou multi-imprimantes/clients.
 

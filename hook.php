@@ -182,7 +182,7 @@ function plugin_printgestion_template_definitions(): array {
                     ['Temps estimé',      '##printgestion.days## jours'],
                     ['Statut expédition', '##printgestion.carrier## ##printgestion.tracking##'],
                 ])
-                // Liste détaillée — renseignée uniquement par les envois groupés / digests
+                // Liste détaillée — renseignée uniquement par les digests
                 // (balise vide sur un envoi unitaire → bloc invisible)
                 . '<div style="margin:0;color:#374151;">##printgestion.cartridges_list##</div>'
             ),
