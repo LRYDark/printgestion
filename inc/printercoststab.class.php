@@ -199,6 +199,8 @@ class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
             'printers_id'    => $printers_id,
             'ajaxUrl'        => $ajax_url,
             'thresholdsUrl'  => PLUGIN_PRINTGESTION_WEBDIR . '/ajax/printer_thresholds.php',
+            // Jeton CSRF envoyé en en-tête X-Glpi-Csrf-Token (requête AJAX POST).
+            'csrf'           => Session::getNewCSRFToken(),
             'initPeriod'     => $period,
             'initStart'      => $start,
             'initEnd'        => $end,
@@ -334,13 +336,15 @@ class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
       e.preventDefault();
       const fd = new FormData(thForm);
       fd.append('printers_id', cfg.printers_id);
-      const qs = new URLSearchParams(fd);
       const btn = document.getElementById(cfg.uid + '-th-submit');
       if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>'; }
 
-      fetch(cfg.thresholdsUrl + '?' + qs.toString(), {
+      // POST + jeton CSRF en en-tête : écriture protégée par le contrôle du cœur GLPI 11.
+      fetch(cfg.thresholdsUrl, {
+        method: 'POST',
+        body: fd,
         credentials: 'same-origin',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-Glpi-Csrf-Token': cfg.csrf },
       })
         .then(r => r.json())
         .then(d => {

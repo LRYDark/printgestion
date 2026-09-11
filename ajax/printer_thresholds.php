@@ -12,8 +12,16 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
 
 header('Content-Type: application/json; charset=utf-8');
 
-// GET : pas de CSRF — sauvegarde par utilisateur admin avec droit sur l'imprimante
-$src = $_POST ?: $_GET;
+// Écriture : POST uniquement. Le contrôle CSRF du cœur GLPI 11 ne porte que sur
+// les requêtes à corps (POST…) ; en GET, un simple lien piégé suffisait à
+// modifier les seuils d'une imprimante (ex. seuil 0 = alertes supprimées).
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    http_response_code(405);
+    header('Allow: POST');
+    echo json_encode(['ok' => false, 'error' => 'Method not allowed']);
+    exit;
+}
+$src = $_POST;
 
 $printers_id         = (int)($src['printers_id'] ?? 0);
 $threshold_level     = $src['threshold_level']     ?? '';

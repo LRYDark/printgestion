@@ -12,10 +12,18 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
 
 header('Content-Type: application/json; charset=utf-8');
 
+// Écriture : POST uniquement (contrôle CSRF du cœur GLPI 11).
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    http_response_code(405);
+    header('Allow: POST');
+    echo json_encode(['ok' => false, 'error' => 'Method not allowed']);
+    exit;
+}
+
 global $GLPI_CACHE;
 
 $users_id = (int)(Session::getLoginUserID() ?: 0);
-$src = $_POST ?: $_GET;
+$src = $_POST;
 $table_id = trim((string)($src['table_id'] ?? ''));
 $prefs    = (string)($src['prefs'] ?? '');
 

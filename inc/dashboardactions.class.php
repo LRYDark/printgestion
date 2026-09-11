@@ -917,18 +917,16 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // ── Bouton "Rafraîchir" (invalide les caches dashboards) ──
-  // GET : pas de CSRF, évite les conflits avec les tokens consommés par
-  // d'autres actions (menu contextuel, stock fetch, etc.).
+  // POST + jeton CSRF en en-tête (pcPost) : l'action recalcule toute la table des
+  // alertes, elle ne doit pas être déclenchable par un simple lien.
   const btnRefresh = document.getElementById('pc-refresh-cache');
   if (btnRefresh) {
     btnRefresh.addEventListener('click', function() {
       const orig = btnRefresh.innerHTML;
       btnRefresh.disabled = true;
       btnRefresh.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>';
-      fetch(AJAX_BASE + '/refresh_cache.php', {
-        method: 'GET', credentials: 'same-origin',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-      }).then(function(r) { return r.json(); })
+      pcPost(AJAX_BASE + '/refresh_cache.php', new FormData())
+        .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data && data.ok) { window.location.reload(); }
           else {
@@ -1945,15 +1943,14 @@ document.addEventListener('DOMContentLoaded', function() {
     table.querySelectorAll('thead th').forEach(function(th, idx) {
       widths[idx] = parseInt(th.offsetWidth, 10) || 0;
     });
-    // GET : évite le CheckCsrfListener (token potentiellement consommé
-    // après premier POST). Payload = user pref, pas sensible.
-    const qs = new URLSearchParams();
-    qs.set('table_id', tableId);
-    qs.set('prefs', JSON.stringify({ widths: widths }));
-    fetch(AJAX_BASE + '/save_table_prefs.php?' + qs.toString(), {
-      credentials: 'same-origin',
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-    }).catch(function() {});
+    // POST + jeton CSRF en en-tête (pcPost). Pour les requêtes AJAX, GLPI 11 garde
+    // le jeton valide (preserve_token) : il n'est pas consommé par cet appel.
+    const fd = new FormData();
+    fd.append('table_id', tableId);
+    fd.append('prefs', JSON.stringify({ widths: widths }));
+    pcPost(AJAX_BASE + '/save_table_prefs.php', fd).catch(function(err) {
+      console.warn('Print Gestion : préférences de colonnes non enregistrées', err);
+    });
   }
 
   // Debounce helper pour la recherche

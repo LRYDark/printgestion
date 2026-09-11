@@ -24,9 +24,17 @@ if (!Session::haveRight('plugin_printgestion_dashboard', READ)
     exit;
 }
 
-// GET : pas de CSRF nécessaire (invalidation cache = opération idempotente et
-// non destructive, un attaquant CSRF ne peut rien en faire de malveillant).
 header('Content-Type: application/json; charset=utf-8');
+
+// POST uniquement (contrôle CSRF du cœur GLPI 11) : l'action vide et recalcule
+// intégralement la table des alertes. En GET, un lien piégé répété suffisait à
+// saturer le serveur.
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    http_response_code(405);
+    header('Allow: POST');
+    echo json_encode(['ok' => false, 'error' => 'Method not allowed']);
+    exit;
+}
 
 if (class_exists('PluginPrintgestionAlert')) {
     PluginPrintgestionAlert::invalidateCache();
