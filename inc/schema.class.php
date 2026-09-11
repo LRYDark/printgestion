@@ -33,6 +33,7 @@ class PluginPrintgestionSchema {
         '1.2.0' => 'migrateTo120',
         '1.2.1' => 'migrateTo121',
         '1.2.2' => 'migrateTo122',
+        '1.3.0' => 'migrateTo130',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -260,5 +261,16 @@ class PluginPrintgestionSchema {
         $migration->migrationOneTable($history);
         $migration->addKey($history, ['printers_id', 'toner_property', 'is_detected', 'date_install'], 'idx_slot_install');
         $migration->migrationOneTable($history);
+    }
+
+    /**
+     * 1.3.0 — sous contrat / hors contrat : types de contrat natifs (ContractType)
+     * « consommables inclus », liste d'IDs séparés par des virgules. Vide par défaut :
+     * tant que rien n'est paramétré, toute ligne est hors contrat (jamais de prix 0).
+     */
+    private static function migrateTo130(Migration $migration): void {
+        $config = 'glpi_plugin_printgestion_configs';
+        $migration->addField($config, 'consumables_contracttypes', 'text DEFAULT NULL');
+        $migration->migrationOneTable($config);
     }
 }

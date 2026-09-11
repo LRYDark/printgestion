@@ -63,7 +63,8 @@ Trois modules indépendants, activables par interrupteur dans la configuration :
 3. Configuration → Plugins → Print Gestion (ou Configuration → onglet Print Gestion) :
    - activer les modules souhaités (contrats / toner / coût) ;
    - configurer les rôles de notification (groupe GLPI ou utilisateurs) ;
-   - vérifier seuils d'alerte et délai de rappel.
+   - vérifier seuils d'alerte et délai de rappel ;
+   - cocher les types de contrat « consommables inclus » (sans eux, toute ligne est hors contrat).
 4. Attribuer les droits par profil : Administration → Profils → onglet Print Gestion.
 5. Vérifier les 3 actions automatiques (`PrintgestionSnapshotReadings`, `PrintgestionCheckAlerts`,
    `PrintgestionTrackingUpdate`).

@@ -178,6 +178,11 @@ Le motif s'affiche au survol du badge (écran Alertes) et dans « Voir stock » 
 (Designation), commentaire du lieu (Complément). Champs vides dans l'Excel = données manquantes
 sur la fiche imprimante/lieu/cartouche GLPI.
 
+**Prix vide** : normal hors contrat (les Achats le renseignent). Prix 0 uniquement si l'imprimante a un
+contrat **en cours** dont le type est coché dans « Contrats — consommables inclus ». Une ligne attendue
+sous contrat mais au prix vide : vérifier le type du contrat, sa date de début, sa durée ou sa
+reconduction tacite (un contrat terminé ne couvre plus rien).
+
 ---
 
 ## 7. Compatibilité et montée de version GLPI

@@ -66,6 +66,20 @@ class PluginPrintgestionConfig extends CommonDBTM {
     }
 
     /**
+     * Types de contrat natifs (ContractType) paramétrés « consommables inclus » :
+     * une ligne de commande est sous contrat si l'imprimante a un contrat en cours
+     * de l'un de ces types. Liste vide = rien n'est sous contrat.
+     */
+    public static function getConsumablesContractTypes(): array {
+        $raw = (string)(self::getInstance()->fields['consumables_contracttypes'] ?? '');
+        $ids = array_filter(
+            array_map('intval', preg_split('/[,;\s]+/', $raw, -1, PREG_SPLIT_NO_EMPTY) ?: []),
+            static fn(int $id) => $id > 0
+        );
+        return array_values(array_unique($ids));
+    }
+
+    /**
      * Interrupteur de feature. Permet de n'activer que ce qu'on utilise
      * (menu + onglets + crons du domaine désactivés sinon → pas de ressources
      * gaspillées). Features : 'contrats' | 'toner' | 'cout'.
@@ -801,6 +815,26 @@ class PluginPrintgestionConfig extends CommonDBTM {
             . (int)($config->fields['guard_ticket_days'] ?? 10) . "'></div>";
 
         echo "</div></div></div>";
+
+        // ── Contrats : consommables inclus (sous contrat / hors contrat) ──
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
+            . __('Contrats — consommables inclus', 'printgestion') . "</h3></div><div class='card-body'>";
+        echo "<p class='text-muted small mb-3'>"
+            . __("Une ligne de commande est « sous contrat » (prix 0) si l'imprimante est liée à un contrat en cours dont le type figure ci-dessous. Sinon elle est « hors contrat » : le prix reste vide, jamais 0. Contrat en cours : date de début atteinte, puis reconduction tacite ou date de fin (début + durée) postérieure à aujourd'hui ; si plusieurs contrats sont en cours, le plus récemment commencé est retenu.", 'printgestion')
+            . "</p>";
+        echo "<div class='row g-3'><div class='col-md-8'>"
+            . $label_with_tip(
+                __('Types de contrat « consommables inclus »', 'printgestion'),
+                __("Types de contrat GLPI (Configuration → Intitulés → Types de contrat) pour lesquels les consommables sont fournis sans facturation. Aucun type sélectionné : toutes les lignes sont hors contrat.", 'printgestion')
+            );
+        Dropdown::show('ContractType', [
+            'name'     => 'consumables_contracttypes',
+            'multiple' => true,
+            'value'    => self::getConsumablesContractTypes(),
+            'width'    => '100%',
+        ]);
+        echo "</div></div>";
+        echo "</div></div>";
 
         // Active les tooltips Bootstrap sur les icônes d'info
         echo "<script>

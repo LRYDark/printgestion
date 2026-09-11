@@ -162,35 +162,154 @@ class PluginPrintgestionContractrate extends CommonDBTM {
     }
 
     /**
-     * Retourne l'ID du contrat actif lié à une imprimante (via glpi_contracts_items).
-     * Retourne 0 si aucun contrat.
+     * ID du contrat EN COURS aujourd'hui lié à une imprimante ; si plusieurs le sont,
+     * le plus récemment commencé. 0 si aucun contrat n'est en cours — un contrat
+     * terminé n'est plus retenu (voir notInForceReason()).
      */
     public static function getContractIdForPrinter(int $printers_id): int {
+        $today = date('Y-m-d');
+        foreach (self::getLinkedContracts($printers_id) as $contract) {
+            if (self::notInForceReason($contract, $today) === '') {
+                return (int)$contract['id'];
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Couverture des consommables d'une imprimante, pour une ligne de commande.
+     *
+     * SOUS CONTRAT : un contrat en cours lié à l'imprimante a un type natif paramétré
+     * « consommables inclus » (configuration) ; si plusieurs, le plus récemment
+     * commencé est retenu. HORS CONTRAT dans tous les autres cas, y compris quand aucun
+     * type n'est paramétré : le doute ne produit jamais un prix à 0.
+     *
+     * @return array ['under_contract' => bool,
+     *                'contracts_id'   => int (contrat retenu, 0 hors contrat),
+     *                'contract_name'  => string,
+     *                'message'        => string (motif lisible, texte brut)]
+     */
+    public static function getConsumablesCoverage(int $printers_id): array {
+        $out = ['under_contract' => false, 'contracts_id' => 0, 'contract_name' => '', 'message' => ''];
+
+        $types = PluginPrintgestionConfig::getConsumablesContractTypes();
+        if (empty($types)) {
+            $out['message'] = __('Hors contrat : aucun type de contrat « consommables inclus » n\'est paramétré (Configuration → Print Gestion).', 'printgestion');
+            return $out;
+        }
+
+        $today          = date('Y-m-d');
+        $linked         = self::getLinkedContracts($printers_id);
+        $covering_ended = null;
+        $other_in_force = null;
+        foreach ($linked as $contract) {
+            $reason = self::notInForceReason($contract, $today);
+            $covers = in_array((int)$contract['contracttypes_id'], $types, true);
+            if ($covers && $reason === '') {
+                return [
+                    'under_contract' => true,
+                    'contracts_id'   => (int)$contract['id'],
+                    'contract_name'  => (string)$contract['name'],
+                    'message'        => sprintf(__('Sous contrat : « %s ».', 'printgestion'), (string)$contract['name']),
+                ];
+            }
+            if ($covers && $covering_ended === null) {
+                $covering_ended = [$contract, $reason];
+            } elseif (!$covers && $reason === '' && $other_in_force === null) {
+                $other_in_force = $contract;
+            }
+        }
+
+        if ($covering_ended !== null) {
+            $out['message'] = sprintf(
+                __('Hors contrat : le contrat « %1$s » n\'est pas en cours (%2$s).', 'printgestion'),
+                (string)$covering_ended[0]['name'],
+                $covering_ended[1]
+            );
+        } elseif ($other_in_force !== null) {
+            $out['message'] = sprintf(
+                __('Hors contrat : le contrat en cours « %s » n\'a pas un type « consommables inclus ».', 'printgestion'),
+                (string)$other_in_force['name']
+            );
+        } elseif (empty($linked)) {
+            $out['message'] = __('Hors contrat : aucun contrat lié à l\'imprimante.', 'printgestion');
+        } else {
+            $out['message'] = __('Hors contrat : aucun contrat en cours lié à l\'imprimante.', 'printgestion');
+        }
+        return $out;
+    }
+
+    /**
+     * Contrats (ni supprimés ni modèles) liés à une imprimante, du plus récemment
+     * commencé au plus ancien ; date de début absente en dernier.
+     */
+    private static function getLinkedContracts(int $printers_id): array {
         global $DB;
 
         if ($printers_id <= 0) {
-            return 0;
+            return [];
         }
 
-        $row = $DB->request([
-            'SELECT' => ['ci.contracts_id'],
-            'FROM'   => 'glpi_contracts_items AS ci',
+        $out = [];
+        foreach ($DB->request([
+            'SELECT'     => ['c.id', 'c.name', 'c.contracttypes_id', 'c.begin_date', 'c.duration', 'c.renewal'],
+            'FROM'       => 'glpi_contracts_items AS ci',
             'INNER JOIN' => [
                 'glpi_contracts AS c' => [
                     'ON' => ['ci' => 'contracts_id', 'c' => 'id'],
                 ],
             ],
-            'WHERE'  => [
+            'WHERE'      => [
                 'ci.items_id'   => $printers_id,
                 'ci.itemtype'   => 'Printer',
                 'c.is_deleted'  => 0,
                 'c.is_template' => 0,
             ],
-            'ORDER'  => ['c.begin_date DESC'],
-            'LIMIT'  => 1,
-        ])->current();
+            'ORDER'      => ['c.begin_date DESC', 'c.id DESC'],
+        ]) as $row) {
+            $out[] = $row;
+        }
+        return $out;
+    }
 
-        return is_array($row) ? (int)$row['contracts_id'] : 0;
+    /**
+     * Motif pour lequel un contrat n'est pas en cours à la date donnée, chaîne vide
+     * s'il l'est. Règle alignée sur Contract::getNotExpiredCriteria() du cœur GLPI, avec
+     * en plus la date de début : début renseigné et atteint, puis reconduction tacite ou
+     * fin (début + durée en mois) strictement postérieure à la date. Sans durée et sans
+     * reconduction tacite, GLPI considère le contrat expiré : il n'est pas en cours.
+     */
+    private static function notInForceReason(array $contract, string $today): string {
+        $begin = substr((string)($contract['begin_date'] ?? ''), 0, 10);
+        if ($begin === '') {
+            return __('date de début non renseignée', 'printgestion');
+        }
+        if ($begin > $today) {
+            return sprintf(__('commence le %s', 'printgestion'), Html::convDate($begin));
+        }
+        if ((int)$contract['renewal'] === Contract::RENEWAL_TACIT) {
+            return '';
+        }
+        $duration = (int)$contract['duration'];
+        if ($duration <= 0) {
+            return __('sans durée ni reconduction tacite', 'printgestion');
+        }
+        $end = self::contractEndDate($begin, $duration);
+        if ($end <= $today) {
+            return sprintf(__('terminé le %s', 'printgestion'), Html::convDate($end));
+        }
+        return '';
+    }
+
+    /**
+     * Fin d'un contrat : début + durée en mois, jour ramené au dernier jour du mois si
+     * besoin — même calcul que DATE_ADD(… INTERVAL n MONTH) utilisé par GLPI.
+     */
+    private static function contractEndDate(string $begin_date, int $months): string {
+        $begin  = new DateTimeImmutable($begin_date);
+        $target = $begin->modify('first day of this month')->modify('+' . $months . ' months');
+        $day    = min((int)$begin->format('j'), (int)$target->format('t'));
+        return $target->setDate((int)$target->format('Y'), (int)$target->format('n'), $day)->format('Y-m-d');
     }
 
     static function install(Migration $migration) {

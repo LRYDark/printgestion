@@ -484,6 +484,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      *   - Intitulé Livraison  = site (racine du lieu hiérarchique de l'imprimante)
      *   - Consommable         = référence (ref) du modèle de cartouche GLPI
      *   - Designation         = "n° série imprimante # lieu (pièce) # nom du modèle"
+     *   - Prix                = 0 si l'imprimante est sous contrat (consommables inclus),
+     *                           vide sinon — jamais 0 hors contrat
      *   - Complément livraison= commentaire du lieu de l'imprimante
      *   - Stock GLPI          = nb de cartouches non utilisées en stock
      */
@@ -535,6 +537,10 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         }
         $stock = self::getCartridgeStock($cartridgeitems_id);
 
+        // Sous contrat (type de contrat « consommables inclus », contrat en cours) : prix 0.
+        // Hors contrat : prix vide, renseigné par les Achats.
+        $coverage = PluginPrintgestionContractrate::getConsumablesCoverage($printers_id);
+
         return [
             'devis'        => date('d/m/Y'),
             'client'       => $entity_name,
@@ -542,7 +548,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             'consommable'  => $cart_ref,
             'designation'  => trim($serial) . ' # ' . trim($loc_leaf) . ' # ' . trim($cart_name),
             'quantite'     => 1,
-            'prix'         => 0,
+            'prix'         => $coverage['under_contract'] ? 0 : null,
             'fournisseur'  => '',
             'complement'   => $loc_comment,
             'stock'        => $stock,
@@ -582,7 +588,10 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             $sheet->setCellValueExplicit('E' . $rownum, (string)$row['designation'],
                 \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
             $sheet->setCellValue('F' . $rownum, (int)$row['quantite']);
-            $sheet->setCellValue('G' . $rownum, (int)$row['prix']);
+            // Prix : 0 uniquement sous contrat ; hors contrat la cellule reste vide.
+            if ($row['prix'] !== null) {
+                $sheet->setCellValue('G' . $rownum, (float)$row['prix']);
+            }
             $sheet->setCellValue('H' . $rownum, (string)$row['fournisseur']);
             $sheet->setCellValue('I' . $rownum, (string)$row['complement']);
             $sheet->setCellValue('J' . $rownum, (int)$row['stock']);

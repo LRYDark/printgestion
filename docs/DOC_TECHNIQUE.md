@@ -173,6 +173,20 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   seule ligne verrouillée fait refuser la commande entière avec la liste des lignes et leur motif ;
   lignes en double écartées ; commande sous contournement acceptée avec avertissement.
 
+### Sous contrat / hors contrat (`Contractrate::getConsumablesCoverage()`)
+
+- **Contrat en cours** (`Contractrate::notInForceReason()`, aligné sur `Contract::getNotExpiredCriteria()`
+  du cœur) : ni supprimé ni modèle, date de début renseignée et atteinte, puis reconduction tacite, ou fin
+  (début + durée en mois, calcul `DATE_ADD` MySQL) strictement postérieure à aujourd'hui. Sans durée et sans
+  reconduction tacite : pas en cours (GLPI le considère expiré).
+- **Choix du contrat** (`getContractIdForPrinter()`, utilisé aussi par le coût à la page) : le contrat en
+  cours le plus récemment commencé ; un contrat terminé n'est plus retenu.
+- **Sous contrat** : un contrat en cours dont le type natif figure dans la configuration
+  (`consumables_contracttypes`, « Contrats — consommables inclus ») ; si plusieurs, le plus récemment
+  commencé. **Hors contrat** sinon, y compris quand aucun type n'est paramétré. Le motif est restitué
+  (contrat terminé, type non couvert, aucun contrat lié…).
+- **Prix** : 0 uniquement sous contrat ; hors contrat la cellule Prix reste **vide**, jamais 0.
+
 ### Points d'entrée (ajax/)
 
 | Endpoint | Action |
