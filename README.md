@@ -69,8 +69,9 @@ Trois modules indépendants, activables par interrupteur dans la configuration :
    - vérifier seuils d'alerte et délai de rappel ;
    - cocher les types de contrat « consommables inclus » (sans eux, toute ligne est hors contrat).
 4. Attribuer les droits par profil : Administration → Profils → onglet Print Gestion.
-5. Vérifier les 3 actions automatiques (`PrintgestionSnapshotReadings`, `PrintgestionCheckAlerts`,
-   `PrintgestionTrackingUpdate`).
+5. Vérifier les actions automatiques (`PrintgestionSnapshotReadings`, `PrintgestionCheckAlerts`,
+   `PrintgestionTrackingUpdate`). `PrintgestionProposeDemandes` (demandes d'envoi proposées) est installée
+   désactivée : ne l'activer qu'avec l'export des demandes validées vers les Achats.
 
 La mise à jour se fait en remplaçant les fichiers puis « Mettre à jour » dans la liste des
 plugins (installation idempotente — les données sont conservées).

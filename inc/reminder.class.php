@@ -2,10 +2,12 @@
 /**
  * PluginPrintgestionReminder — tâches cron GLPI (pattern plugin Gestion).
  *
- * 3 tâches :
+ * 4 tâches :
  *   - PrintgestionSnapshotReadings : snapshot + détection changements cartouches
  *   - PrintgestionCheckAlerts      : calcul alertes intelligent + envoi mails + rappels installation
  *   - PrintgestionTrackingUpdate   : (Phase 3) maj suivi transporteurs + BL plugin Gestion
+ *   - PrintgestionProposeDemandes  : demandes d'envoi proposées à partir des alertes
+ *                                    (enregistrée désactivée)
  */
 
 if (!defined('GLPI_ROOT')) {
@@ -28,6 +30,8 @@ class PluginPrintgestionReminder extends CommonDBTM {
                 return ['description' => __('Print Gestion - Calcul et envoi des alertes toner', 'printgestion')];
             case 'PrintgestionTrackingUpdate':
                 return ['description' => __('Print Gestion - Mise à jour suivi transporteurs + BL', 'printgestion')];
+            case 'PrintgestionProposeDemandes':
+                return ['description' => __('Print Gestion - Proposition des demandes d\'envoi à partir des alertes toner', 'printgestion')];
         }
         return [];
     }
@@ -104,6 +108,33 @@ class PluginPrintgestionReminder extends CommonDBTM {
     }
 
     /**
+     * Cron 4 : demandes d'envoi PROPOSÉES à partir des alertes toner, regroupées par
+     * client et site de livraison (PluginPrintgestionDemande::proposeFromAlerts()).
+     * Enregistrée désactivée : une ligne proposée bloque la commande de sa cartouche
+     * depuis l'écran des alertes jusqu'à son export ou son annulation — à activer une
+     * fois l'export des demandes validées en service.
+     */
+    static function cronPrintgestionProposeDemandes(?CronTask $task = null) {
+        if (!PluginPrintgestionConfig::isFeatureEnabled('toner')) {
+            return 0; // module désactivé
+        }
+        $stats = PluginPrintgestionDemande::proposeFromAlerts();
+
+        if ($task !== null) {
+            $task->addVolume($stats['lines_added']);
+            $task->log(sprintf(
+                'Demandes créées : %d — Lignes proposées : %d (dont référence non résolue : %d) — Groupes en échec : %d',
+                $stats['demandes_created'],
+                $stats['lines_added'],
+                $stats['unresolved'],
+                $stats['failed_groups']
+            ));
+        }
+
+        return $stats['lines_added'] > 0 ? 1 : 0;
+    }
+
+    /**
      * Enregistre les crons à l'installation du plugin.
      */
     static function install(Migration $migration) {
@@ -125,11 +156,20 @@ class PluginPrintgestionReminder extends CommonDBTM {
             4 * HOUR_TIMESTAMP,
             ['state' => CronTask::STATE_WAITING]
         );
+        // Horaire, enregistrée DÉSACTIVÉE (voir cronPrintgestionProposeDemandes).
+        // Register() ne modifie pas une tâche existante : l'état choisi par
+        // l'administrateur est conservé aux mises à jour.
+        CronTask::Register(
+            self::class,
+            'PrintgestionProposeDemandes',
+            HOUR_TIMESTAMP,
+            ['state' => CronTask::STATE_DISABLE]
+        );
         return true;
     }
 
     static function uninstall(Migration $migration) {
-        foreach (['PrintgestionSnapshotReadings', 'PrintgestionCheckAlerts', 'PrintgestionTrackingUpdate'] as $cron) {
+        foreach (['PrintgestionSnapshotReadings', 'PrintgestionCheckAlerts', 'PrintgestionTrackingUpdate', 'PrintgestionProposeDemandes'] as $cron) {
             $task = new CronTask();
             if ($task->getFromDBbyName(self::class, $cron)) {
                 $task->delete(['id' => $task->getID()]);

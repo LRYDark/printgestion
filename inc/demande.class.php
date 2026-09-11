@@ -500,6 +500,226 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         return $out;
     }
 
+    // ── Proposition automatique ───────────────────────────────────────────────
+
+    /**
+     * Crée ou complète les demandes PROPOSÉES à partir des alertes toner (tâche
+     * automatique), regroupées par client (entité de l'imprimante) et site de livraison
+     * (lieu racine).
+     *
+     * Retenus : toners critiques ou à surveiller (alertes snoozées exclues) sans verrou
+     * bloquant — pas d'envoi en cours ni de ligne de demande ouverte, pas de garde après
+     * pose ni de ticket récent, sauf contournement (consommation anormale).
+     * Pour un client et un site, la demande proposée existante est complétée, sinon une
+     * demande est créée. Chaque ligne porte la cartouche résolue (0 si non résolue : la
+     * ligne est créée mais bloquée à la validation, jamais exportée sans référence), la
+     * couverture contrat et le prix (0 sous contrat, vide hors contrat).
+     * Chaque groupe est une transaction : un groupe en échec est annulé en entier,
+     * journalisé, et n'empêche pas les autres.
+     *
+     * @return array ['demandes_created' => int, 'lines_added' => int,
+     *                'unresolved' => int, 'failed_groups' => int]
+     */
+    public static function proposeFromAlerts(): array {
+        global $DB;
+
+        $stats = ['demandes_created' => 0, 'lines_added' => 0, 'unresolved' => 0, 'failed_groups' => 0];
+
+        // Tâche automatique : toutes les entités.
+        $candidates = [];
+        foreach (PluginPrintgestionAlert::listAll(null, false) as $row) {
+            if ($row['status'] === PluginPrintgestionAlert::STATUS_OK) {
+                continue; // niveau correct, ou alerte snoozée
+            }
+            if (!empty($row['lock']) && $row['lock']['blocking']) {
+                continue; // envoi ou demande en cours, garde après pose, ticket récent
+            }
+            $candidates[] = $row;
+        }
+        if (empty($candidates)) {
+            return $stats;
+        }
+
+        $printers = [];
+        foreach ($DB->request([
+            'SELECT' => ['id', 'entities_id', 'locations_id', 'contact', 'contact_num'],
+            'FROM'   => 'glpi_printers',
+            'WHERE'  => ['id' => array_values(array_unique(array_column($candidates, 'printers_id')))],
+        ]) as $printer) {
+            $printers[(int) $printer['id']] = $printer;
+        }
+
+        $groups = [];
+        foreach ($candidates as $row) {
+            $printer = $printers[(int) $row['printers_id']] ?? null;
+            if ($printer === null) {
+                continue;
+            }
+            $entities_id  = (int) $printer['entities_id'];
+            $locations_id = self::getSiteLocationId((int) $printer['locations_id']);
+            $key          = $entities_id . '|' . $locations_id;
+
+            $groups[$key]['entities_id']  = $entities_id;
+            $groups[$key]['locations_id'] = $locations_id;
+            $groups[$key]['rows'][]       = $row + ['_printer' => $printer];
+        }
+
+        foreach ($groups as $group) {
+            try {
+                $result = self::transactional(static fn() => self::proposeGroup($group));
+                $stats['demandes_created'] += $result['created'];
+                $stats['lines_added']      += $result['lines'];
+                $stats['unresolved']       += $result['unresolved'];
+            } catch (Throwable $e) {
+                $stats['failed_groups']++;
+                PluginPrintgestionLogger::error(
+                    'demandes',
+                    sprintf(
+                        'Proposition automatique annulée pour l\'entité #%d, site #%d : aucune ligne créée pour ce groupe.',
+                        $group['entities_id'],
+                        $group['locations_id']
+                    ),
+                    $e
+                );
+            }
+        }
+
+        if ($stats['lines_added'] > 0) {
+            PluginPrintgestionAlert::invalidateCache();
+        }
+        return $stats;
+    }
+
+    /**
+     * Un groupe (client, site) : complète la demande proposée existante ou en crée une,
+     * puis ajoute une ligne par emplacement encore libre. À exécuter en transaction.
+     *
+     * Les verrous sont réévalués juste avant l'écriture : le calcul des alertes peut être
+     * long et une commande a pu être passée entre-temps depuis l'écran des alertes.
+     */
+    private static function proposeGroup(array $group): array {
+        global $DB;
+
+        $result = ['created' => 0, 'lines' => 0, 'unresolved' => 0];
+
+        $locks = PluginPrintgestionGuard::evaluate(array_map(static fn(array $row) => [
+            'printers_id' => (int) $row['printers_id'],
+            'property'    => (string) $row['property'],
+            'level'       => $row['level'] !== null ? (int) $row['level'] : null,
+        ], $group['rows']));
+        $rows = array_values(array_filter($group['rows'], static function (array $row) use ($locks) {
+            $lock = $locks[(int) $row['printers_id'] . '|' . (string) $row['property']] ?? null;
+            return $lock === null || !$lock['blocking'];
+        }));
+        if (empty($rows)) {
+            return $result;
+        }
+
+        $existing = $DB->request([
+            'SELECT' => ['id'],
+            'FROM'   => self::getTable(),
+            'WHERE'  => [
+                'entities_id'  => $group['entities_id'],
+                'locations_id' => $group['locations_id'],
+                'statut'       => self::STATUS_PROPOSED,
+            ],
+            'LIMIT'  => 1,
+        ])->current();
+
+        if (is_array($existing)) {
+            $demandes_id = (int) $existing['id'];
+        } else {
+            // Contact prérempli depuis la fiche de la première imprimante (champs Contact
+            // et Numéro de contact), modifiable avant validation.
+            $printer = $rows[0]['_printer'];
+            $contact = implode(' — ', array_filter([
+                trim((string) $printer['contact']),
+                trim((string) $printer['contact_num']),
+            ], static fn(string $part) => $part !== ''));
+
+            $demande     = new self();
+            $demandes_id = (int) $demande->add([
+                'name'          => self::buildName($group['entities_id'], $group['locations_id']),
+                'entities_id'   => $group['entities_id'],
+                'locations_id'  => $group['locations_id'],
+                'statut'        => self::STATUS_PROPOSED,
+                'delivery_mode' => self::DELIVERY_DIRECT,
+                'contact'       => $contact !== '' ? mb_substr($contact, 0, 255) : null,
+            ]);
+            if ($demandes_id <= 0) {
+                throw new RuntimeException('Création de la demande d\'envoi refusée par GLPI.');
+            }
+            $result['created'] = 1;
+        }
+
+        foreach ($rows as $row) {
+            $printers_id = (int) $row['printers_id'];
+            $property    = (string) $row['property'];
+            $ref         = PluginPrintgestionSnmpmapping::resolveCartridge($printers_id, $property);
+            $coverage    = PluginPrintgestionContractrate::getConsumablesCoverage($printers_id);
+
+            $line    = new PluginPrintgestionDemandeline();
+            $line_id = $line->add([
+                PluginPrintgestionDemandeline::$items_id => $demandes_id,
+                'printers_id'       => $printers_id,
+                'toner_property'    => $property,
+                'cartridgeitems_id' => (int) $ref['cartridgeitems_id'],
+                'quantity'          => 1,
+                'unit_price'        => $coverage['under_contract'] ? 0 : null,
+                'is_under_contract' => $coverage['under_contract'] ? 1 : 0,
+                'contracts_id'      => (int) $coverage['contracts_id'],
+                'level_at_proposal' => $row['level'] !== null ? (int) $row['level'] : null,
+                'estimated_days'    => $row['days_remaining'] !== null ? (int) $row['days_remaining'] : null,
+                'statut'            => self::STATUS_PROPOSED,
+            ]);
+            if (!$line_id) {
+                throw new RuntimeException(sprintf(
+                    'Ligne de demande refusée par GLPI : imprimante #%d, toner %s.',
+                    $printers_id,
+                    $property
+                ));
+            }
+            $result['lines']++;
+            if ($ref['cartridgeitems_id'] <= 0) {
+                $result['unresolved']++;
+            }
+        }
+
+        return $result;
+    }
+
+    /** Nom d'une demande : « Entité — Site ». */
+    private static function buildName(int $entities_id, int $locations_id): string {
+        $entity = Dropdown::getDropdownName('glpi_entities', $entities_id);
+        $site   = $locations_id > 0
+            ? Dropdown::getDropdownName('glpi_locations', $locations_id)
+            : __('sans lieu', 'printgestion');
+        return mb_substr($entity . ' — ' . $site, 0, 255);
+    }
+
+    /**
+     * Exécute $work dans une transaction : validée si $work se termine, annulée si une
+     * exception est levée. L'exception est relancée à l'appelant, qui la traite.
+     */
+    public static function transactional(callable $work) {
+        global $DB;
+
+        $DB->beginTransaction();
+        try {
+            $result = $work();
+            $DB->commit();
+            return $result;
+        } catch (Throwable $e) {
+            try {
+                $DB->rollBack();
+            } catch (Throwable $rollback_error) {
+                // Annulation impossible : tracée ; l'erreur d'origine est relancée.
+                \Glpi\Error\ErrorHandler::logCaughtException($rollback_error);
+            }
+            throw $e;
+        }
+    }
+
     // ── Fiche ─────────────────────────────────────────────────────────────────
 
     function showForm($ID, array $options = []) {

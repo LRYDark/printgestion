@@ -31,6 +31,16 @@ echo "<div class='container-fluid mt-3'>";
 
 PluginPrintgestionMenu::showTabBar('tn_dem');
 
+// Proposition automatique désactivée : la file ne se remplit pas — le dire.
+$propose_task = new CronTask();
+if ($propose_task->getFromDBbyName(PluginPrintgestionReminder::class, 'PrintgestionProposeDemandes')
+    && (int) $propose_task->fields['state'] === CronTask::STATE_DISABLE) {
+    echo "<div class='alert alert-info d-flex align-items-start'>"
+        . "<i class='ti ti-info-circle me-2 mt-1'></i><div>"
+        . htmlspecialchars(__('La tâche automatique « PrintgestionProposeDemandes » est désactivée : aucune demande n\'est proposée. Elle s\'active dans Configuration → Actions automatiques. Une ligne proposée ou validée bloque la commande de sa cartouche depuis l\'écran des alertes jusqu\'à son export ou son annulation.', 'printgestion'), ENT_QUOTES, 'UTF-8')
+        . "</div></div>";
+}
+
 // ── Compteurs, restreints aux entités de l'utilisateur ──
 $table = PluginPrintgestionDemande::getTable();
 $crow  = $DB->request([

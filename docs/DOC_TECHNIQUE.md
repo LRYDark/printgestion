@@ -211,6 +211,12 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   `uniq_open_proposal` (une demande proposée par entité et site). À l'export, l'expédition créée prend le
   relais du verrou. **Limite** : l'exclusion entre une ligne ouverte et un envoi en cours n'est pas garantie
   par la base (deux tables) ; elle repose sur `Guard`, réévalué côté serveur avant chaque écriture.
+- **Proposition automatique** (`Demande::proposeFromAlerts()`, tâche `PrintgestionProposeDemandes`) :
+  toners critiques ou à surveiller, non snoozés, sans verrou bloquant ; regroupement par client (entité) et
+  site (lieu racine) — la demande proposée existante du groupe est complétée, sinon créée (contact prérempli
+  depuis la fiche de la première imprimante). Chaque ligne : cartouche résolue (0 si non résolue, ligne
+  bloquée à la validation), couverture contrat, prix 0 sous contrat ou vide. Verrous réévalués juste avant
+  l'écriture ; une transaction par groupe, groupe en échec annulé en entier et journalisé.
 - **Contrôles** (`Demande::checkLines()`, recalculés à l'instant pour les lignes ouvertes) : imprimante
   présente et dans l'entité de la demande, référence résolue, sous contrat / hors contrat, prix 0 interdit
   hors contrat, quantité, verrous (hors lignes de la demande elle-même).
@@ -302,8 +308,12 @@ courtoisie), `count`, `glpi_url`. Toute balise non fournie est remplacée par un
 | `PrintgestionSnapshotReadings` | quotidienne | Snapshot toner + bootstrap cartouches natives + détection changements + purge relevés > 160 j |
 | `PrintgestionCheckAlerts` | horaire | Calcul alertes + **digest mail commercial** + **digest rappels installation** + réassignation auto wrong_printer + rebuild `alertview` |
 | `PrintgestionTrackingUpdate` | 4 h | BL signés plugin Gestion → delivered + APIs transporteurs (UPS/GLS/Chronopost) |
+| `PrintgestionProposeDemandes` | horaire, **enregistrée désactivée** | Demandes d'envoi proposées à partir des alertes, regroupées par client et site (`Demande::proposeFromAlerts()`) |
 
-Les 3 tâches sortent immédiatement (`return 0`) si la feature `toner` est désactivée.
+Les 4 tâches sortent immédiatement (`return 0`) si la feature `toner` est désactivée.
+`PrintgestionProposeDemandes` est enregistrée désactivée : une ligne proposée bloque la commande de sa
+cartouche depuis l'écran des alertes jusqu'à son export ou son annulation. L'activer quand l'export des
+demandes validées est en service. Une mise à jour du plugin ne change pas l'état choisi.
 
 ---
 

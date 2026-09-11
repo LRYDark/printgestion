@@ -154,6 +154,14 @@ nouvelle interception passe par `PluginPrintgestionLogger`.
 - Dashboard alertes : bouton « Rafraîchir » force `Alertview::rebuild()` + invalidation cache.
 - Seuils : config globale + seuils par imprimante (`printer_thresholds`).
 
+### Aucune demande d'envoi proposée
+
+- Tâche `PrintgestionProposeDemandes` : installée **désactivée** (bandeau sur l'écran Demandes d'envoi).
+- Seuls les toners critiques ou à surveiller, non snoozés et sans verrou bloquant sont proposés : un envoi
+  en cours, une ligne déjà ouverte, une garde après pose ou un ticket récent excluent l'emplacement.
+- « Groupes en échec » dans le journal de la tâche : détail dans `files/_log/printgestion.log`
+  (contexte `demandes`) ; le groupe est annulé en entier et retenté au passage suivant.
+
 ### Le stock affiché est faux
 
 Stock = cartouches du `CartridgeItem` résolu avec `date_use IS NULL AND date_out IS NULL`.
