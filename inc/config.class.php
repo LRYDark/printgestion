@@ -12,6 +12,9 @@ class PluginPrintgestionConfig extends CommonDBTM {
 
     static $rightname = 'plugin_printgestion_config';
 
+    /** Colonnes chiffrées avec GLPIKey (déclarées au hook secured_fields dans setup.php). */
+    const SECRET_FIELDS = ['api_ups', 'api_gls', 'api_chronopost'];
+
     static private $_instance = null;
 
     /** Cause du dernier échec de sendMail() ; chaîne vide après un envoi réussi. */
@@ -20,6 +23,21 @@ class PluginPrintgestionConfig extends CommonDBTM {
     /** Cause du dernier échec de sendMail(), à afficher ou journaliser par l'appelant. */
     public static function getLastMailError(): string {
         return self::$last_mail_error;
+    }
+
+    /**
+     * Valeur déchiffrée d'une clé API enregistrée. Chaîne vide si aucune clé, ou si
+     * elle est indéchiffrable (GLPIKey signale alors lui-même l'échec).
+     */
+    public static function getSecret(string $field): string {
+        if (!in_array($field, self::SECRET_FIELDS, true)) {
+            throw new InvalidArgumentException(sprintf('Champ secret inconnu : %s', $field));
+        }
+        $stored = (string)(self::getInstance()->fields[$field] ?? '');
+        if ($stored === '') {
+            return '';
+        }
+        return (string)(new GLPIKey())->decrypt($stored);
     }
 
     function __construct() {
@@ -1047,17 +1065,36 @@ function printgestionToggleMode(role, useUsers) {
 HTML;
 
         // ── Transporteurs / API ───────────────────────────────────
+        // Clés chiffrées (GLPIKey) et jamais réaffichées, même partiellement.
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
             . __('Transporteurs (clés API)', 'printgestion') . "</h3></div><div class='card-body'>";
+        echo "<p class='text-muted small mb-3'>"
+            . __('Les clés sont enregistrées chiffrées et ne sont jamais réaffichées. Un champ laissé vide conserve la clé déjà enregistrée.', 'printgestion')
+            . "</p>";
         foreach ([
             'api_ups'        => 'UPS',
             'api_gls'        => 'GLS',
             'api_chronopost' => 'Chronopost',
         ] as $field => $label) {
+            $is_set = (string)($config->fields[$field] ?? '') !== '';
             echo "<div class='row mb-2 align-items-center'><div class='col-md-4'>"
-                . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . "</div><div class='col-md-6'>";
-            echo "<input type='text' class='form-control' name='{$field}' value='"
-                . htmlspecialchars((string)($config->fields[$field] ?? ''), ENT_QUOTES, 'UTF-8') . "'>";
+                . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . "</div><div class='col-md-5'>";
+            echo "<input type='password' class='form-control' name='{$field}' value='' autocomplete='new-password' placeholder='"
+                . htmlspecialchars(
+                    $is_set
+                        ? __('Clé enregistrée — saisir pour la remplacer', 'printgestion')
+                        : __('Aucune clé enregistrée', 'printgestion'),
+                    ENT_QUOTES,
+                    'UTF-8'
+                )
+                . "'>";
+            echo "</div><div class='col-md-3'>";
+            if ($is_set) {
+                echo "<div class='form-check'>"
+                    . "<input type='checkbox' class='form-check-input' name='clear_{$field}' value='1' id='clear_{$field}'>"
+                    . "<label class='form-check-label' for='clear_{$field}'>"
+                    . __('Effacer la clé', 'printgestion') . "</label></div>";
+            }
             echo "</div></div>";
         }
         echo "<div class='row mb-2 align-items-center'><div class='col-md-4'>"

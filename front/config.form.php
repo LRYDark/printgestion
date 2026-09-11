@@ -62,9 +62,6 @@ if (isset($_POST['update'])) {
         'gabarit_rappel'         => (int)($_POST['gabarit_rappel']     ?? 0) ?: null,
         'gabarit_courtoisie'     => (int)($_POST['gabarit_courtoisie'] ?? 0) ?: null,
         'reminder_recipients'    => in_array($_POST['reminder_recipients'] ?? 'both', ['planif', 'commercial', 'both'], true) ? $_POST['reminder_recipients'] : 'both',
-        'api_ups'                => trim((string)($_POST['api_ups']        ?? '')),
-        'api_gls'                => trim((string)($_POST['api_gls']        ?? '')),
-        'api_chronopost'         => trim((string)($_POST['api_chronopost'] ?? '')),
         'tracking_frequency'     => max(1, (int)($_POST['tracking_frequency'] ?? 4)),
         'plugin_gestion_enabled' => ((int)($_POST['plugin_gestion_enabled'] ?? 0) === 1) ? 1 : 0,
         'billing_require_contract' => ((int)($_POST['billing_require_contract'] ?? 0) === 1) ? 1 : 0,
@@ -76,6 +73,29 @@ if (isset($_POST['update'])) {
         'enable_toner'           => ((int)($_POST['enable_toner']    ?? 0) === 1) ? 1 : 0,
         'enable_cout'            => ((int)($_POST['enable_cout']     ?? 0) === 1) ? 1 : 0,
     ];
+
+    // Clés API transporteurs : chiffrées (GLPIKey) et jamais réaffichées.
+    // Champ vide = clé inchangée ; case « Effacer » = suppression de la clé.
+    foreach (PluginPrintgestionConfig::SECRET_FIELDS as $secret_field) {
+        if (!empty($_POST['clear_' . $secret_field])) {
+            $values[$secret_field] = '';
+            continue;
+        }
+        $submitted = trim((string)($_POST[$secret_field] ?? ''));
+        if ($submitted === '') {
+            continue;
+        }
+        $encrypted = (new GLPIKey())->encrypt($submitted);
+        if ($encrypted === '') {
+            Session::addMessageAfterRedirect(
+                sprintf(__('Clé %s non enregistrée : chiffrement impossible (clé de chiffrement GLPI illisible).', 'printgestion'), $secret_field),
+                true,
+                ERROR
+            );
+            continue;
+        }
+        $values[$secret_field] = $encrypted;
+    }
 
     if ($config->update($values)) {
         Session::addMessageAfterRedirect(__('Configuration mise à jour', 'printgestion'), true, INFO);

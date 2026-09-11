@@ -6,7 +6,7 @@
 
 // À incrémenter à chaque nouvelle étape de schéma (inc/schema.class.php) : GLPI
 // ne rejoue l'installation, donc les migrations, que si cette version change.
-define('PLUGIN_PRINTGESTION_VERSION', '1.0.1');
+define('PLUGIN_PRINTGESTION_VERSION', '1.1.0');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');
@@ -21,6 +21,14 @@ function plugin_init_printgestion() {
     global $PLUGIN_HOOKS, $CFG_GLPI, $DB;
 
     $PLUGIN_HOOKS['csrf_compliant']['printgestion'] = true;
+
+    // Colonnes chiffrées avec GLPIKey (clés API transporteurs) : déclarées pour
+    // que la commande glpi:security:change_key les rechiffre avec la nouvelle clé.
+    $PLUGIN_HOOKS['secured_fields']['printgestion'] = [
+        'glpi_plugin_printgestion_configs.api_ups',
+        'glpi_plugin_printgestion_configs.api_gls',
+        'glpi_plugin_printgestion_configs.api_chronopost',
+    ];
     $PLUGIN_HOOKS['change_profile']['printgestion'] = [PluginPrintgestionProfile::class, 'initProfile'];
 
     $plugin = new Plugin();

@@ -112,8 +112,6 @@ class PluginPrintgestionTracking extends CommonDBTM {
     public static function refreshFromCarriers(): int {
         global $DB;
 
-        $config = PluginPrintgestionConfig::getInstance();
-
         $rows = $DB->request([
             'FROM'  => 'glpi_plugin_printgestion_expeditions',
             'WHERE' => [
@@ -129,13 +127,13 @@ class PluginPrintgestionTracking extends CommonDBTM {
             try {
                 switch ((string)$exp['transport_carrier']) {
                     case 'ups':
-                        $status = self::fetchUpsStatus((string)$exp['transport_number'], (string)($config->fields['api_ups'] ?? ''));
+                        $status = self::fetchUpsStatus((string)$exp['transport_number'], PluginPrintgestionConfig::getSecret('api_ups'));
                         break;
                     case 'gls':
-                        $status = self::fetchGlsStatus((string)$exp['transport_number'], (string)($config->fields['api_gls'] ?? ''));
+                        $status = self::fetchGlsStatus((string)$exp['transport_number'], PluginPrintgestionConfig::getSecret('api_gls'));
                         break;
                     case 'chronopost':
-                        $status = self::fetchChronopostStatus((string)$exp['transport_number'], (string)($config->fields['api_chronopost'] ?? ''));
+                        $status = self::fetchChronopostStatus((string)$exp['transport_number'], PluginPrintgestionConfig::getSecret('api_chronopost'));
                         break;
                 }
             } catch (Throwable $e) {

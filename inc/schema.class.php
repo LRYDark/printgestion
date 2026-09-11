@@ -29,6 +29,7 @@ class PluginPrintgestionSchema {
     /** Étapes de migration, dans l'ordre : version cible => méthode. */
     const STEPS = [
         '1.0.0' => 'migrateTo100',
+        '1.1.0' => 'migrateTo110',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -82,5 +83,56 @@ class PluginPrintgestionSchema {
     private static function migrateTo100(Migration $migration): void {
         PluginPrintgestionConfig::installSchemaBaseline($migration);
         PluginPrintgestionSnmpmapping::seedDefaults();
+    }
+
+    /**
+     * 1.1.0 — clés API transporteurs chiffrées avec GLPIKey.
+     * Colonnes passées en TEXT (une valeur chiffrée est plus longue que la valeur
+     * en clair), puis chiffrement des valeurs déjà enregistrées.
+     * Liste des colonnes volontairement figée ici : une étape livrée ne dépend pas
+     * de constantes applicatives susceptibles d'évoluer.
+     */
+    private static function migrateTo110(Migration $migration): void {
+        global $DB;
+
+        $table  = 'glpi_plugin_printgestion_configs';
+        $fields = ['api_ups', 'api_gls', 'api_chronopost'];
+
+        foreach ($fields as $field) {
+            $migration->changeField($table, $field, $field, 'text');
+        }
+        $migration->migrationOneTable($table);
+
+        $row = $DB->request([
+            'SELECT' => $fields,
+            'FROM'   => $table,
+            'WHERE'  => ['id' => 1],
+            'LIMIT'  => 1,
+        ])->current();
+        if (!is_array($row)) {
+            return;
+        }
+
+        $glpikey = new GLPIKey();
+        $update  = [];
+        foreach ($fields as $field) {
+            $plain = (string) ($row[$field] ?? '');
+            if ($plain === '') {
+                continue;
+            }
+            $encrypted = $glpikey->encrypt($plain);
+            if ($encrypted === '') {
+                // Clé de chiffrement GLPI illisible : ni valeur vide (clé API perdue),
+                // ni valeur en clair conservée sans le dire — la migration échoue.
+                throw new RuntimeException(sprintf(
+                    'Print Gestion : impossible de chiffrer la colonne %s (clé de chiffrement GLPI illisible). Migration interrompue.',
+                    $field
+                ));
+            }
+            $update[$field] = $encrypted;
+        }
+        if (!empty($update)) {
+            $DB->update($table, $update, ['id' => 1]);
+        }
     }
 }
