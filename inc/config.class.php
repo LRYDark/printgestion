@@ -1387,10 +1387,34 @@ HTML;
             '##printgestion.glpi_url##'        => (string)($CFG_GLPI['url_base'] ?? ''),
         ];
         $all = array_merge($defaults, $balises);
+
+        // Balises dont la valeur est du HTML construit par le plugin (listes <ul>
+        // dont chaque valeur dynamique est échappée à la construction). Toutes les
+        // autres valeurs — noms d'imprimante, de client, de cartouche… issus de
+        // l'inventaire SNMP ou de la saisie — sont du TEXTE, échappé dans le corps HTML.
+        $html_tags = ['##printgestion.cartridges_list##', '##printgestion.printers_list##'];
+
         foreach ($all as $tag => $val) {
-            $subject  = str_replace($tag, (string)$val, $subject);
-            $bodyText = str_replace($tag, (string)$val, $bodyText);
-            $bodyHtml = str_replace($tag, (string)$val, $bodyHtml);
+            $val     = (string)$val;
+            $is_html = in_array($tag, $html_tags, true);
+
+            // Version texte : pour une liste HTML, un élément par ligne, sans balises.
+            $plain = $is_html
+                ? trim(html_entity_decode(
+                    strip_tags((string)preg_replace('#</li>\s*#i', "\n", $val)),
+                    ENT_QUOTES,
+                    'UTF-8'
+                ))
+                : $val;
+
+            // Sujet : une seule ligne (aucun retour à la ligne injecté dans l'en-tête).
+            $subject  = str_replace($tag, str_replace(["\r", "\n"], ' ', $plain), $subject);
+            $bodyText = str_replace($tag, $plain, $bodyText);
+            $bodyHtml = str_replace(
+                $tag,
+                $is_html ? $val : htmlspecialchars($val, ENT_QUOTES, 'UTF-8'),
+                $bodyHtml
+            );
         }
 
         // Mailer GLPI 11 (Symfony)
