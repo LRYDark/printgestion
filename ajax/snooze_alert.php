@@ -31,6 +31,11 @@ if ($printers_id <= 0 || $property === '' || $days <= 0 || $days > 365) {
     exit;
 }
 
+// Cloisonnement client : imprimante dans le périmètre de l'utilisateur.
+if (!PluginPrintgestionSecurity::canAccessPrinter($printers_id)) {
+    PluginPrintgestionSecurity::denyJson();
+}
+
 $ok = PluginPrintgestionAlert::snooze($printers_id, $property, $days);
 
 echo json_encode([

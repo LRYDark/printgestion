@@ -72,6 +72,10 @@ if (!$printer->getFromDB((int)$exp['printers_id'])) {
     echo json_encode(['ok' => false, 'error' => 'Printer not found']);
     exit;
 }
+// Cloisonnement client : l'expédition doit viser une imprimante du périmètre.
+if (!$printer->canViewItem()) {
+    PluginPrintgestionSecurity::denyJson();
+}
 $printer_entities_id = (int)$printer->fields['entities_id'];
 
 // Résolution des IDs cibles (local + création SAGE si besoin)

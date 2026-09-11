@@ -37,6 +37,11 @@ if ($printers_id <= 0 || $properties_raw === '') {
     exit;
 }
 
+// Cloisonnement client : imprimante dans le périmètre de l'utilisateur.
+if (!PluginPrintgestionSecurity::canAccessPrinter($printers_id)) {
+    PluginPrintgestionSecurity::denyJson();
+}
+
 $properties = json_decode($properties_raw, true);
 if (!is_array($properties) || empty($properties)) {
     echo json_encode(['ok' => false, 'error' => 'Invalid properties']);

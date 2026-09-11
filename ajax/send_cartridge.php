@@ -29,6 +29,11 @@ if ($printers_id <= 0 || $property === '') {
     Html::back();
 }
 
+// Cloisonnement client : imprimante dans le périmètre de l'utilisateur.
+if (!PluginPrintgestionSecurity::canAccessPrinter($printers_id)) {
+    throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException();
+}
+
 // Vérifier le stock via le résolveur intelligent (binding direct OU type GLPI)
 $cartridgeitems_id = PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($printers_id, $property);
 $stock = PluginPrintgestionExpedition::getCartridgeStock($cartridgeitems_id);

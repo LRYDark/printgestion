@@ -21,6 +21,11 @@ if ($alert_id <= 0) {
     Html::back();
 }
 
+// Cloisonnement client : l'alerte doit concerner une imprimante du périmètre.
+if (PluginPrintgestionSecurity::getAccessibleAlert($alert_id) === null) {
+    throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException();
+}
+
 if (PluginPrintgestionAlert::resolveAlert($alert_id)) {
     Session::addMessageAfterRedirect(__('Alerte marquée comme résolue', 'printgestion'), true, INFO);
 } else {

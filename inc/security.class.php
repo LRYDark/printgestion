@@ -34,4 +34,73 @@ class PluginPrintgestionSecurity {
             'show_all' => !empty($_SESSION['glpishowallentities']),
         ]));
     }
+
+    /**
+     * Imprimante existante et située dans une entité accessible à l'utilisateur
+     * (récursivité comprise, via le contrôle d'entité natif de GLPI).
+     */
+    public static function canAccessPrinter(int $printers_id): bool {
+        if ($printers_id <= 0) {
+            return false;
+        }
+        $printer = new Printer();
+        return $printer->getFromDB($printers_id) && $printer->canViewItem();
+    }
+
+    /**
+     * Expédition dont l'imprimante est accessible à l'utilisateur.
+     * Retourne null si elle n'existe pas OU si elle est hors périmètre : les deux
+     * cas sont volontairement indiscernables pour l'appelant.
+     */
+    public static function getAccessibleExpedition(int $expedition_id): ?array {
+        global $DB;
+
+        if ($expedition_id <= 0) {
+            return null;
+        }
+        $exp = $DB->request([
+            'FROM'  => 'glpi_plugin_printgestion_expeditions',
+            'WHERE' => ['id' => $expedition_id],
+            'LIMIT' => 1,
+        ])->current();
+
+        if (!is_array($exp) || !self::canAccessPrinter((int) $exp['printers_id'])) {
+            return null;
+        }
+        return $exp;
+    }
+
+    /**
+     * Alerte dont l'imprimante concernée est accessible à l'utilisateur.
+     * Pour une alerte « mauvaise imprimante », printers_id est l'imprimante sur
+     * laquelle la cartouche a été détectée. Null si inexistante OU hors périmètre.
+     */
+    public static function getAccessibleAlert(int $alert_id): ?array {
+        global $DB;
+
+        if ($alert_id <= 0) {
+            return null;
+        }
+        $alert = $DB->request([
+            'FROM'  => 'glpi_plugin_printgestion_alerts',
+            'WHERE' => ['id' => $alert_id],
+            'LIMIT' => 1,
+        ])->current();
+        if (!is_array($alert)) {
+            return null;
+        }
+
+        $printers_id = (int) ($alert['printers_id'] ?: ($alert['detected_printers_id'] ?? 0));
+        return self::canAccessPrinter($printers_id) ? $alert : null;
+    }
+
+    /**
+     * Refus d'accès pour un endpoint AJAX JSON : répond 403 et termine la requête.
+     */
+    public static function denyJson(string $error = 'Forbidden'): never {
+        http_response_code(403);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => false, 'error' => $error]);
+        exit;
+    }
 }

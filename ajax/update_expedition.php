@@ -19,6 +19,11 @@ if ($expedition_id <= 0) {
     Html::back();
 }
 
+// Cloisonnement client : l'expédition doit viser une imprimante du périmètre.
+if (PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id) === null) {
+    throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException();
+}
+
 if ($action === 'ship') {
     $carrier  = (string)($_POST['carrier']  ?? 'other');
     $tracking = trim((string)($_POST['tracking'] ?? ''));

@@ -19,6 +19,12 @@ if ($expedition_id <= 0 || $new_printers_id <= 0) {
     Html::back();
 }
 
+// Cloisonnement client : l'expédition ET l'imprimante cible dans le périmètre.
+if (PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id) === null
+    || !PluginPrintgestionSecurity::canAccessPrinter($new_printers_id)) {
+    throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException();
+}
+
 if (PluginPrintgestionExpedition::reassignToPrinter($expedition_id, $new_printers_id)) {
     Session::addMessageAfterRedirect(
         __('Expédition réassignée et alerte résolue', 'printgestion'),

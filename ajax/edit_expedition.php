@@ -23,6 +23,11 @@ if ($expedition_id <= 0) {
     exit;
 }
 
+// Cloisonnement client : l'expédition doit viser une imprimante du périmètre.
+if (PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id) === null) {
+    PluginPrintgestionSecurity::denyJson();
+}
+
 $allowed_statuts  = ['pending', 'shipped', 'transit', 'delivered', 'stock_empty'];
 $allowed_carriers = ['', 'ups', 'gls', 'chronopost', 'other'];
 

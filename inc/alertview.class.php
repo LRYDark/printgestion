@@ -134,6 +134,12 @@ class PluginPrintgestionAlertview extends CommonDBTM {
                 $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_KO);
                 continue;
             }
+            // Droit d'agir et cloisonnement client, vérifiés à chaque ligne.
+            if (!Session::haveRight('plugin_printgestion_dashboard', UPDATE)
+                || !PluginPrintgestionSecurity::canAccessPrinter((int) $item->fields['printers_id'])) {
+                $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_NORIGHT);
+                continue;
+            }
             $printers_id = (int) $item->fields['printers_id'];
             $property    = (string) $item->fields['toner_property'];
             $level       = (int) $item->fields['level_percent'];

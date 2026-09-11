@@ -36,6 +36,11 @@ if ($expedition_id <= 0) {
     exit;
 }
 
+// Cloisonnement client : l'expédition doit viser une imprimante du périmètre.
+if (PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id) === null) {
+    PluginPrintgestionSecurity::denyJson();
+}
+
 if (!$DB->tableExists('glpi_plugin_gestion_surveys')) {
     echo json_encode(['ok' => true, 'bls' => []]);
     exit;

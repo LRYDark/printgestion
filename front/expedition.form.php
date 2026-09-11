@@ -16,13 +16,10 @@ if ($id <= 0) {
     Html::back();
 }
 
-$exp = $DB->request([
-    'FROM'  => 'glpi_plugin_printgestion_expeditions',
-    'WHERE' => ['id' => $id],
-    'LIMIT' => 1,
-])->current();
-
-if (!is_array($exp)) {
+// Expédition inexistante OU hors du périmètre d'entités : même réponse (pas de
+// divulgation de l'existence d'une expédition d'un autre client).
+$exp = PluginPrintgestionSecurity::getAccessibleExpedition($id);
+if ($exp === null) {
     Html::displayNotFoundError();
 }
 

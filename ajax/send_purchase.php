@@ -68,6 +68,14 @@ if (empty($clean)) {
     exit;
 }
 
+// Cloisonnement client : une seule imprimante hors du périmètre de l'utilisateur
+// fait rejeter la commande entière (jamais de retrait silencieux d'une ligne).
+foreach (array_unique(array_column($clean, 'printers_id')) as $pid) {
+    if (!PluginPrintgestionSecurity::canAccessPrinter((int)$pid)) {
+        PluginPrintgestionSecurity::denyJson();
+    }
+}
+
 // Cases cochées côté UI : Planif (logistique) et Courtoisie client.
 $send_planif   = (string)($_POST['send_planif'] ?? '0') === '1';
 $send_courtesy = (string)($_POST['send_courtesy'] ?? '0') === '1';
