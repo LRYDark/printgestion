@@ -59,6 +59,9 @@ class PluginPrintgestionBilling extends CommonDBTM {
         if ($entities_id !== null && $entities_id >= 0) {
             $criteria['WHERE']['p.entities_id'] = $entities_id;
         }
+        // Calcul destiné à l'affichage et à l'export : toujours limité aux entités
+        // de l'utilisateur connecté, même si le filtre d'entité est vide ou manipulé.
+        $criteria['WHERE'][] = getEntitiesRestrictCriteria('p', '', '', true);
 
         foreach ($DB->request($criteria) as $p) {
             $printers_id  = (int)$p['printers_id'];
@@ -184,8 +187,11 @@ class PluginPrintgestionBilling extends CommonDBTM {
         // v3 = formule universelle total = max(sources), color = max, bw = total - color
         // Version counter pour invalidation manuelle (refresh dashboard)
         $ver = (int)($GLPI_CACHE->get('plugin_printgestion_billing_ver') ?? 0);
+        // Le périmètre d'entités de l'utilisateur fait partie de la clé : les lignes
+        // calculées sont restreintes à ce périmètre.
         $key = 'plugin_printgestion_billing_v3_' . $ver . '_'
-             . md5($start . '|' . $end . '|' . ($entities_id ?? 'all') . '|' . $filters_sig);
+             . md5($start . '|' . $end . '|' . ($entities_id ?? 'all') . '|' . $filters_sig
+                 . '|' . PluginPrintgestionSecurity::sessionEntityScopeKey());
         if (isset($GLPI_CACHE) && $GLPI_CACHE->has($key)) {
             $cached = $GLPI_CACHE->get($key);
             if (is_array($cached)) {

@@ -61,7 +61,9 @@ class PluginPrintgestionAlertview extends CommonDBTM {
     public static function rebuild(): int {
         global $DB;
 
-        $rows  = PluginPrintgestionAlert::listAll(); // calcul lourd (toutes entités)
+        // Calcul lourd, TOUTES entités : la table est lue ensuite avec la restriction
+        // d'entité native (colonne entities_id) — ne jamais l'exposer sans elle.
+        $rows  = PluginPrintgestionAlert::listAll(null, false);
         $table = self::getTable();
         $now   = $_SESSION['glpi_currenttime'] ?? date('Y-m-d H:i:s');
 

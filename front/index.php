@@ -57,7 +57,9 @@ if (PluginPrintgestionConfig::isFeatureEnabled('toner')
     $toner_crit = $DB->tableExists($av_table)
         ? countElementsInTable($av_table, array_merge(
             ['status' => 'critical'],
-            getEntitiesRestrictCriteria($av_table, '', '', true)
+            // Pas de clause « récursif » : la table n'a pas de colonne is_recursive
+            // (la demander provoquait une erreur SQL dès qu'une entité parente existait).
+            getEntitiesRestrictCriteria($av_table, '', '', false)
         ))
         : 0;
     $stat_cards[] = ['url' => $base . '/front/dashboard_alerts.php', 'count' => (int) $toner_crit,

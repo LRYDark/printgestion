@@ -158,7 +158,12 @@ class PluginPrintgestionBillingview extends CommonDBTM {
                 new \QueryExpression('COUNT(DISTINCT `entities_id`) AS nb_entities'),
             ],
             'FROM'  => $table,
-            'WHERE' => ['users_id' => $users_id, 'view_mode' => $view],
+            // Défense en profondeur : les lignes sont déjà calculées sur le périmètre
+            // de l'utilisateur, les totaux ne doivent pas pouvoir le dépasser.
+            'WHERE' => array_merge(
+                ['users_id' => $users_id, 'view_mode' => $view],
+                getEntitiesRestrictCriteria($table, '', '', false)
+            ),
         ])->current();
 
         $row = is_array($row) ? $row : [];

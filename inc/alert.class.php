@@ -356,10 +356,17 @@ class PluginPrintgestionAlert extends CommonDBTM {
     }
 
     /**
-     * Génère la liste complète des alertes pour affichage dashboard.
+     * Génère la liste complète des alertes.
      * Retourne un tableau de lignes enrichies.
+     *
+     * @param int|null $entities_id         Filtre sur une entité précise, en plus du périmètre.
+     * @param bool     $restrict_to_session true (défaut) : limité aux entités actives de
+     *                                      l'utilisateur connecté. false : toutes les entités,
+     *                                      réservé aux traitements internes (tâches
+     *                                      automatiques, matérialisation) — jamais à un
+     *                                      affichage ni à un export.
      */
-    public static function listAll(?int $entities_id = null): array {
+    public static function listAll(?int $entities_id = null, bool $restrict_to_session = true): array {
         global $DB;
 
         $config               = PluginPrintgestionConfig::getInstance();
@@ -479,6 +486,11 @@ class PluginPrintgestionAlert extends CommonDBTM {
         if ($entities_id !== null && $entities_id >= 0) {
             $criteria['WHERE']['p.entities_id'] = $entities_id;
         }
+        if ($restrict_to_session) {
+            // Cloisonnement client : jamais au-delà des entités de l'utilisateur,
+            // même si le filtre d'entité est vide ou manipulé.
+            $criteria['WHERE'][] = getEntitiesRestrictCriteria('p', '', '', true);
+        }
 
         foreach ($DB->request($criteria) as $r) {
             $parsed = PluginPrintgestionTonerreading::parseTonerValue((string)$r['value']);
@@ -574,9 +586,11 @@ class PluginPrintgestionAlert extends CommonDBTM {
         global $GLPI_CACHE;
 
         // Clé incluant la version pour que invalidateCache() invalide réellement
-        // toutes les variantes en cache (par entité) d'un coup.
+        // toutes les variantes en cache (par entité) d'un coup, et le périmètre
+        // d'entités de l'utilisateur (données restreintes par listAll()).
         // v5 = daily dedup normalisé minuit + guard div 0
-        $key = 'plugin_printgestion_alerts_v5_' . self::getCacheVersion() . '_' . ($entities_id ?? 'all');
+        $key = 'plugin_printgestion_alerts_v5_' . self::getCacheVersion() . '_' . ($entities_id ?? 'all')
+            . '_' . PluginPrintgestionSecurity::sessionEntityScopeKey();
         if (isset($GLPI_CACHE) && $GLPI_CACHE->has($key)) {
             $cached = $GLPI_CACHE->get($key);
             if (is_array($cached)) {
@@ -843,7 +857,8 @@ class PluginPrintgestionAlert extends CommonDBTM {
         $config = PluginPrintgestionConfig::getInstance();
         $gabarit_commercial = (int)($config->fields['gabarit_commercial'] ?? 0);
 
-        $rows    = self::listAll();
+        // Tâche automatique : toutes les entités (destinataires internes uniquement).
+        $rows    = self::listAll(null, false);
         $pending = [];
 
         foreach ($rows as $row) {
@@ -1104,6 +1119,8 @@ class PluginPrintgestionAlert extends CommonDBTM {
         if ($entities_id !== null && $entities_id >= 0) {
             $criteria['WHERE']['pd.entities_id'] = $entities_id;
         }
+        // Cloisonnement client (affichage) : entités de l'utilisateur uniquement.
+        $criteria['WHERE'][] = getEntitiesRestrictCriteria('pd', '', '', true);
 
         foreach ($DB->request($criteria) as $a) {
             $days_since = !empty($a['date_alert'])
@@ -1160,6 +1177,8 @@ class PluginPrintgestionAlert extends CommonDBTM {
         if ($entities_id !== null && $entities_id >= 0) {
             $criteria['WHERE']['p.entities_id'] = $entities_id;
         }
+        // Cloisonnement client (affichage) : entités de l'utilisateur uniquement.
+        $criteria['WHERE'][] = getEntitiesRestrictCriteria('p', '', '', true);
 
         foreach ($DB->request($criteria) as $e) {
             $days_since = !empty($e['date_shipped'])
