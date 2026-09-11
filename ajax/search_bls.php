@@ -13,6 +13,12 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
 header('Content-Type: application/json; charset=utf-8');
 global $DB;
 
+// La recherche sert uniquement à associer des BL à une expédition (droit de
+// modification des expéditions) ; elle déclenche en outre un appel à l'API Sage.
+if (!Session::haveRight('plugin_printgestion_expedition', UPDATE)) {
+    PluginPrintgestionSecurity::denyJson();
+}
+
 $config = PluginPrintgestionConfig::getInstance();
 if ((int)($config->fields['plugin_gestion_enabled'] ?? 0) !== 1
     || !$plugin->isInstalled('gestion')
@@ -32,6 +38,10 @@ if (mb_strlen($q) < 2) {
 $printers_id = (int)($_GET['printers_id'] ?? 0);
 $entities_filter = null;
 if ($printers_id > 0) {
+    // Cloisonnement client : imprimante dans le périmètre de l'utilisateur.
+    if (!PluginPrintgestionSecurity::canAccessPrinter($printers_id)) {
+        PluginPrintgestionSecurity::denyJson();
+    }
     $printerRow = $DB->request([
         'SELECT' => ['entities_id'],
         'FROM'   => 'glpi_printers',
@@ -45,6 +55,9 @@ if ($printers_id > 0) {
 
 $where = [
     's.bl' => ['LIKE', '%' . $q . '%'],
+    // Cloisonnement client : jamais de BL hors des entités de l'utilisateur,
+    // y compris quand aucune imprimante n'est précisée.
+    getEntitiesRestrictCriteria('s', '', '', false),
 ];
 if ($entities_filter !== null) {
     $where['s.entities_id'] = $entities_filter;

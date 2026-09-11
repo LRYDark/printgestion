@@ -994,7 +994,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (!CAN_UPDATE) {
       menu.querySelectorAll(
-        '[data-pc-action="edit-expedition"],[data-pc-action="send-cartridge"],[data-pc-action="snooze"],[data-pc-action="unsnooze"]'
+        '[data-pc-action="edit-expedition"],[data-pc-action="send-cartridge"],[data-pc-action="snooze"],[data-pc-action="unsnooze"],[data-pc-action="link-bl"]'
       ).forEach(function(el) { el.style.setProperty('display', 'none', 'important'); });
     }
 

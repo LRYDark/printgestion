@@ -13,12 +13,23 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
 // GET : pas de CSRF (lecture seule)
 header('Content-Type: application/json; charset=utf-8');
 
+// Lecture réservée aux profils ayant accès aux alertes ou aux expéditions.
+if (!Session::haveRight('plugin_printgestion_dashboard', READ)
+    && !Session::haveRight('plugin_printgestion_expedition', READ)) {
+    PluginPrintgestionSecurity::denyJson();
+}
+
 $printers_id = (int)($_GET['printers_id'] ?? 0);
 $property    = trim((string)($_GET['property'] ?? ''));
 
 if ($printers_id <= 0 || $property === '') {
     echo json_encode(['ok' => false, 'error' => 'Missing parameters']);
     exit;
+}
+
+// Cloisonnement client : imprimante dans le périmètre de l'utilisateur.
+if (!PluginPrintgestionSecurity::canAccessPrinter($printers_id)) {
+    PluginPrintgestionSecurity::denyJson();
 }
 
 global $DB;
