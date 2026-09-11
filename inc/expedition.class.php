@@ -895,18 +895,36 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      *   - 1 fichier Excel (1 cartouche/ligne) envoyé aux ACHATS, demandeur en copie,
      *     corps de mail générique (tout le détail est dans l'Excel).
      *
+     * Le mail aux Achats EST la commande. Les expéditions et ce mail sont traités
+     * dans une même transaction : si l'envoi échoue (ou si aucun destinataire Achats
+     * n'est configuré), la transaction est annulée, rien n'est enregistré et la cause
+     * est renvoyée. Sans cela, l'anti-doublon bloquait ensuite la re-commande d'une
+     * cartouche que les Achats n'avaient jamais reçue.
+     *
      * @param array $items [['printers_id'=>int,'property'=>string,'level'=>int,'days'=>?int], ...]
-     * @return array ['ok'=>bool,'created'=>int,'skipped'=>int,'mail'=>bool,'rows'=>int]
+     * @return array ['ok'=>bool,'created'=>int,'skipped'=>int,'mail'=>bool,'rows'=>int,
+     *                'error'=>string (si ok = false),'warnings'=>string[] (mails complémentaires)]
      */
     public static function createPurchaseOrder(array $items, bool $send_planif = false, bool $send_courtesy = false): array {
+        global $DB;
+
+        $result = [
+            'ok'       => false,
+            'created'  => 0,
+            'skipped'  => 0,
+            'mail'     => false,
+            'rows'     => 0,
+            'error'    => '',
+            'warnings' => [],
+        ];
         if (empty($items)) {
-            return ['ok' => false, 'created' => 0, 'skipped' => 0, 'mail' => false, 'rows' => 0];
+            $result['error'] = __('Aucune cartouche à commander.', 'printgestion');
+            return $result;
         }
 
-        $group_id = self::generateUuid();
-        $created  = 0;
-        $skipped  = 0;
-        $rows     = [];
+        // ── 1. Préparation, sans écriture : lignes de l'Excel et expéditions à créer ──
+        $rows      = [];
+        $to_create = [];
 
         foreach ($items as $item) {
             $printers_id = (int)($item['printers_id'] ?? 0);
@@ -923,13 +941,16 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             // Anti-doublon : si une expédition active existe déjà, on ne recrée pas
             // d'expédition mais on liste quand même la cartouche dans la commande.
             if (self::getActiveForPrinterProperty($printers_id, $property) !== null) {
-                $skipped++;
+                $result['skipped']++;
             } else {
                 $cartridgeitems_id = PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($printers_id, $property);
-                $reason = self::getCartridgeStock($cartridgeitems_id) > 0 ? 'normal' : 'stock_empty';
-                if (self::createFromAlert($printers_id, $property, $level, $days, $reason, false, $group_id) > 0) {
-                    $created++;
-                }
+                $to_create[] = [
+                    'printers_id' => $printers_id,
+                    'property'    => $property,
+                    'level'       => $level,
+                    'days'        => $days,
+                    'reason'      => self::getCartridgeStock($cartridgeitems_id) > 0 ? 'normal' : 'stock_empty',
+                ];
             }
 
             $row = self::buildPurchaseRowData($printers_id, $property);
@@ -940,25 +961,78 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         }
 
         if (empty($rows)) {
-            return ['ok' => false, 'created' => $created, 'skipped' => $skipped, 'mail' => false, 'rows' => 0];
+            $result['error'] = __('Aucune cartouche valide à commander.', 'printgestion');
+            return $result;
         }
+        $result['rows'] = count($rows);
 
-        $mail_ok = self::sendPurchaseOrderMail($rows);
+        // ── 2. Expéditions + mail Achats : tout ou rien ──
+        $group_id = self::generateUuid();
+        $DB->beginTransaction();
+        // DBmysql n'expose pas l'état de la transaction : suivi local, pour ne jamais
+        // appeler rollBack() hors transaction (qui lèverait une nouvelle exception).
+        $in_transaction = true;
+        try {
+            foreach ($to_create as $c) {
+                if (self::createFromAlert($c['printers_id'], $c['property'], $c['level'], $c['days'], $c['reason'], false, $group_id) > 0) {
+                    $result['created']++;
+                }
+            }
 
-        // Mail Planif (logistique) — uniquement si demandé (case cochée côté UI).
-        if ($send_planif) {
-            self::sendOrderPlanifMail($rows);
+            $mail = self::sendPurchaseOrderMail($rows);
+            if (!$mail['ok']) {
+                $DB->rollBack();
+                $in_transaction    = false;
+                $result['created'] = 0;
+                $result['error']   = $mail['error'] . ' '
+                    . __('Aucune expédition n\'a été enregistrée : la commande peut être relancée.', 'printgestion');
+                return $result;
+            }
+            $DB->commit();
+            $in_transaction = false;
+        } catch (Throwable $e) {
+            \Glpi\Error\ErrorHandler::logCaughtException($e);
+            if ($in_transaction) {
+                try {
+                    $DB->rollBack();
+                } catch (Throwable $rollback_error) {
+                    // Annulation impossible : tracée ; la réponse reste un échec explicite.
+                    \Glpi\Error\ErrorHandler::logCaughtException($rollback_error);
+                }
+            }
+            $result['created'] = 0;
+            $result['error']   = __('Commande non passée : erreur technique pendant l\'enregistrement ou l\'envoi (détail dans le journal d\'erreurs GLPI). Aucune expédition n\'a été enregistrée.', 'printgestion');
+            return $result;
         }
-        // Mail de courtoisie client — uniquement si demandé (case cochée côté UI).
+        $result['ok']   = true;
+        $result['mail'] = true;
+
+        // ── 3. Mails complémentaires : non bloquants, mais jamais passés sous silence ──
+        if ($send_planif && !self::sendOrderPlanifMail($rows)) {
+            $result['warnings'][] = __('Commande envoyée aux Achats, mais le mail à la planification n\'est pas parti (destinataires ou modèle non configurés, ou erreur d\'envoi).', 'printgestion');
+        }
         if ($send_courtesy) {
-            self::sendOrderCourtesyMails($rows);
+            $courtesy = self::sendOrderCourtesyMails($rows);
+            if ($courtesy['no_template']) {
+                $result['warnings'][] = __('Mail de courtoisie non envoyé : aucun modèle de notification configuré.', 'printgestion');
+            }
+            if ($courtesy['no_contact'] > 0) {
+                $result['warnings'][] = sprintf(
+                    __('Mail de courtoisie non envoyé pour %d imprimante(s) sans usager renseigné.', 'printgestion'),
+                    $courtesy['no_contact']
+                );
+            }
+            if ($courtesy['failed'] > 0) {
+                $result['warnings'][] = sprintf(
+                    __('Échec d\'envoi de %d mail(s) de courtoisie.', 'printgestion'),
+                    $courtesy['failed']
+                );
+            }
         }
 
-        if (class_exists('PluginPrintgestionAlert')) {
-            PluginPrintgestionAlert::invalidateCache();
-        }
+        PluginPrintgestionAlert::invalidateCache();
 
-        return ['ok' => true, 'created' => $created, 'skipped' => $skipped, 'mail' => $mail_ok, 'rows' => count($rows)];
+        return $result;
     }
 
     /**
@@ -999,63 +1073,93 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      * (quoi envoyer / quoi commander) est dans l'Excel.
      *
      * @param ?int $requester_user_id User GLPI à mettre en copie (défaut : user connecté).
+     * @return array ['ok' => bool, 'error' => string] — error renseigné quand ok = false.
      */
-    protected static function sendPurchaseOrderMail(array $rows, ?int $requester_user_id = null): bool {
+    protected static function sendPurchaseOrderMail(array $rows, ?int $requester_user_id = null): array {
         if (empty($rows)) {
-            return false;
+            return ['ok' => false, 'error' => __('Aucune ligne à commander.', 'printgestion')];
         }
 
-        $achats_mail      = PluginPrintgestionAlert::resolveRecipientsForRole('achat');
-        $uid              = $requester_user_id ?? (int)(Session::getLoginUserID() ?: 0);
-        $requester_emails = PluginPrintgestionAlert::resolveEmailsForUsers([$uid]);
-
-        // TO = 1er achats valide ; CC = autres achats + demandeur
-        $valid = [];
-        foreach (array_merge($achats_mail, $requester_emails) as $e) {
-            $e = trim((string)$e);
-            if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) {
-                $valid[strtolower($e)] = $e;
+        $normalize = static function (array $emails): array {
+            $out = [];
+            foreach ($emails as $e) {
+                $e = trim((string)$e);
+                if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) {
+                    $out[strtolower($e)] = $e;
+                }
             }
+            return $out;
+        };
+
+        // Au moins un destinataire Achats valide est OBLIGATOIRE : le demandeur seul
+        // en destinataire ne vaut pas commande (les Achats ne la recevraient jamais).
+        $achats = $normalize(PluginPrintgestionAlert::resolveRecipientsForRole('achat'));
+        if (empty($achats)) {
+            return [
+                'ok'    => false,
+                'error' => __('Commande non envoyée : aucun destinataire Achats avec une adresse email valide n\'est configuré (Configuration → Print Gestion → Rôles & notifications).', 'printgestion'),
+            ];
         }
-        if (empty($valid)) {
-            return false;
-        }
-        $valid = array_values($valid);
+
+        // TO = 1er achats ; CC = autres achats + demandeur (dédoublonnés, achats en tête)
+        $uid   = $requester_user_id ?? (int)(Session::getLoginUserID() ?: 0);
+        $valid = array_values($achats + $normalize(PluginPrintgestionAlert::resolveEmailsForUsers([$uid])));
 
         $xlsx  = self::buildPurchaseExcel($rows);
         $count = count($rows);
 
         $config  = PluginPrintgestionConfig::getInstance();
         $gabarit = (int)($config->fields['gabarit_achat'] ?? 0);
+        $ok      = false;
+        $error   = '';
 
-        if ($gabarit > 0) {
-            $ok = PluginPrintgestionConfig::sendMail($valid, $gabarit, self::buildPurchaseBalises($rows), $xlsx);
-        } else {
-            // Fallback sans gabarit : corps générique
-            $to = array_shift($valid);
-            $cc = $valid;
-            $subject  = sprintf(__('[GLPI] Commande cartouches — %d référence(s)', 'printgestion'), $count);
-            $bodyHtml = '<p>' . __('Bonjour,', 'printgestion') . '</p>'
-                . '<p>' . sprintf(
-                    __('Veuillez trouver ci-joint le fichier des cartouches à traiter (%d ligne(s)). Le détail (référence, client, livraison, stock GLPI…) figure dans le fichier Excel joint.', 'printgestion'),
-                    $count
-                ) . '</p>'
-                . '<p>' . __('Merci.', 'printgestion') . '</p>';
-            $ok = self::sendRawMail($to, $cc, $subject, $bodyHtml, $xlsx);
+        try {
+            if ($gabarit > 0) {
+                $ok = PluginPrintgestionConfig::sendMail($valid, $gabarit, self::buildPurchaseBalises($rows), $xlsx);
+                if (!$ok) {
+                    $error = PluginPrintgestionConfig::getLastMailError();
+                }
+            } else {
+                // Fallback sans gabarit : corps générique
+                $to = array_shift($valid);
+                $cc = $valid;
+                $subject  = sprintf(__('[GLPI] Commande cartouches — %d référence(s)', 'printgestion'), $count);
+                $bodyHtml = '<p>' . __('Bonjour,', 'printgestion') . '</p>'
+                    . '<p>' . sprintf(
+                        __('Veuillez trouver ci-joint le fichier des cartouches à traiter (%d ligne(s)). Le détail (référence, client, livraison, stock GLPI…) figure dans le fichier Excel joint.', 'printgestion'),
+                        $count
+                    ) . '</p>'
+                    . '<p>' . __('Merci.', 'printgestion') . '</p>';
+                $raw_error = null;
+                $ok = self::sendRawMail($to, $cc, $subject, $bodyHtml, $xlsx, $raw_error);
+                if (!$ok) {
+                    $error = (string)$raw_error;
+                }
+            }
+        } finally {
+            // Fichier temporaire supprimé dans tous les cas : succès, échec ou exception.
+            if (is_file($xlsx)) {
+                @unlink($xlsx);
+            }
         }
 
-        if (is_file($xlsx)) {
-            @unlink($xlsx);
+        if (!$ok) {
+            return [
+                'ok'    => false,
+                'error' => sprintf(
+                    __('Commande non envoyée : échec de l\'envoi du mail aux Achats (%s).', 'printgestion'),
+                    $error !== '' ? $error : __('cause inconnue', 'printgestion')
+                ),
+            ];
         }
-
-        return $ok;
+        return ['ok' => true, 'error' => ''];
     }
 
     /**
      * Envoi direct d'un mail (GLPIMailer/Symfony) sans gabarit : sujet + corps HTML
      * + pièce jointe optionnelle. $to = destinataire principal, $cc = copies.
      */
-    protected static function sendRawMail(string $to, array $cc, string $subject, string $bodyHtml, ?string $attachment = null): bool {
+    protected static function sendRawMail(string $to, array $cc, string $subject, string $bodyHtml, ?string $attachment = null, ?string &$error = null): bool {
         global $CFG_GLPI;
 
         $mmail = new GLPIMailer();
@@ -1081,7 +1185,10 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         $mmail->Body    = $bodyHtml;
         $mmail->AltBody = strip_tags($bodyHtml);
 
-        return (bool)$mmail->send();
+        // Cause de l'échec renvoyée à l'appelant ($error), null si succès.
+        $ok    = (bool)$mmail->send();
+        $error = $ok ? null : (string)$mmail->getError();
+        return $ok;
     }
 
     /**
@@ -1229,11 +1336,14 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      * ses imprimantes au lieu d'un mail par imprimante. Gabarit dédié
      * (balise ##printgestion.printers_list##).
      */
-    protected static function sendOrderCourtesyMails(array $rows): void {
+    protected static function sendOrderCourtesyMails(array $rows): array {
+        // Bilan renvoyé à l'appelant : rien ne doit rester non signalé.
+        $stats  = ['sent' => 0, 'failed' => 0, 'no_contact' => 0, 'no_template' => false];
         $config = PluginPrintgestionConfig::getInstance();
         $gab    = (int)($config->fields['gabarit_courtoisie'] ?? 0);
         if ($gab <= 0) {
-            return;
+            $stats['no_template'] = true;
+            return $stats;
         }
 
         // 1 entrée par imprimante (plusieurs cartouches possibles par imprimante)
@@ -1249,9 +1359,6 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         $groups = [];
         foreach ($byPrinter as $pid => $r) {
             $emails = self::resolveClientEmailsForPrinter($pid);
-            if (empty($emails)) {
-                continue;
-            }
             $norm = [];
             foreach ($emails as $e) {
                 $e = strtolower(trim((string)$e));
@@ -1260,6 +1367,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 }
             }
             if (empty($norm)) {
+                $stats['no_contact']++;
                 continue;
             }
             ksort($norm);
@@ -1285,13 +1393,16 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             }
             $list .= '</ul>';
 
-            PluginPrintgestionConfig::sendMail($g['emails'], $gab, [
+            $sent = PluginPrintgestionConfig::sendMail($g['emails'], $gab, [
                 '##printgestion.printer##'       => implode(', ', $printers),
                 '##printgestion.client##'        => implode(', ', array_values($clients)),
                 '##printgestion.printers_list##' => $list,
                 '##printgestion.count##'         => (string)count($g['printers']),
             ]);
+            $stats[$sent ? 'sent' : 'failed']++;
         }
+
+        return $stats;
     }
 
     /**

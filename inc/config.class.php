@@ -14,6 +14,14 @@ class PluginPrintgestionConfig extends CommonDBTM {
 
     static private $_instance = null;
 
+    /** Cause du dernier échec de sendMail() ; chaîne vide après un envoi réussi. */
+    private static string $last_mail_error = '';
+
+    /** Cause du dernier échec de sendMail(), à afficher ou journaliser par l'appelant. */
+    public static function getLastMailError(): string {
+        return self::$last_mail_error;
+    }
+
     function __construct() {
         global $DB;
         if ($DB->tableExists($this->getTable())) {
@@ -1311,7 +1319,10 @@ HTML;
     public static function sendMail($email, int $gabarit_id, array $balises = [], ?string $attachment = null): bool {
         global $DB, $CFG_GLPI;
 
+        self::$last_mail_error = '';
+
         if ($gabarit_id <= 0) {
+            self::$last_mail_error = __('aucun modèle de notification configuré', 'printgestion');
             return false;
         }
 
@@ -1327,6 +1338,7 @@ HTML;
             }
         }
         if (empty($valid)) {
+            self::$last_mail_error = __('aucune adresse email valide parmi les destinataires', 'printgestion');
             return false;
         }
         $valid = array_values($valid);
@@ -1362,6 +1374,7 @@ HTML;
             ])->current();
         }
         if (!is_array($tpl)) {
+            self::$last_mail_error = sprintf(__('modèle de notification %d introuvable ou sans traduction', 'printgestion'), $gabarit_id);
             return false;
         }
 
@@ -1443,13 +1456,14 @@ HTML;
         $mmail->Body    = $bodyHtml;
         $mmail->AltBody = $bodyText;
 
-        $ok = $mmail->send();
+        $ok = (bool)$mmail->send();
         if (!$ok) {
+            self::$last_mail_error = (string)$mmail->getError();
             Session::addMessageAfterRedirect(
-                __('Erreur envoi mail Print Gestion : ', 'printgestion') . $mmail->ErrorInfo,
+                __('Erreur envoi mail Print Gestion : ', 'printgestion') . self::$last_mail_error,
                 true, ERROR
             );
         }
-        return (bool)$ok;
+        return $ok;
     }
 }

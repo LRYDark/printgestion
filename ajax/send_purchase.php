@@ -83,9 +83,12 @@ $send_courtesy = (string)($_POST['send_courtesy'] ?? '0') === '1';
 $result = PluginPrintgestionExpedition::createPurchaseOrder($clean, $send_planif, $send_courtesy);
 
 echo json_encode([
-    'ok'      => (bool)$result['ok'],
-    'created' => (int)$result['created'],
-    'skipped' => (int)$result['skipped'],
-    'mail'    => (bool)$result['mail'],
-    'rows'    => (int)$result['rows'],
+    'ok'       => (bool)$result['ok'],
+    'created'  => (int)$result['created'],
+    'skipped'  => (int)$result['skipped'],
+    'mail'     => (bool)$result['mail'],
+    'rows'     => (int)$result['rows'],
+    // Cause de l'échec (commande NON passée) et avertissements non bloquants.
+    'error'    => (string)($result['error'] ?? ''),
+    'warnings' => array_values((array)($result['warnings'] ?? [])),
 ]);

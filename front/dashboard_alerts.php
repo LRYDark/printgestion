@@ -514,10 +514,20 @@ echo <<<HTML
       })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-          if (data && data.ok) { window.location.reload(); }
-          else { confirmBtn.disabled = false; confirmBtn.innerHTML = orig; alert('Erreur lors de la commande'); }
+          if (data && data.ok) {
+            // Commande passée : avertissements éventuels (planif, courtoisie) avant rechargement.
+            if (Array.isArray(data.warnings) && data.warnings.length) { alert(data.warnings.join('\\n')); }
+            window.location.reload();
+          } else {
+            // Commande NON passée : rien n'a été enregistré, la cause est affichée.
+            confirmBtn.disabled = false; confirmBtn.innerHTML = orig;
+            alert((data && data.error) ? data.error : 'Commande non passée : erreur inconnue.');
+          }
         })
-        .catch(function() { confirmBtn.disabled = false; confirmBtn.innerHTML = orig; alert('Erreur lors de la commande'); });
+        .catch(function() {
+          confirmBtn.disabled = false; confirmBtn.innerHTML = orig;
+          alert('Erreur réseau : la commande n\'a pas pu être confirmée. Vérifiez l\'écran des expéditions avant de relancer.');
+        });
     });
   }
 
