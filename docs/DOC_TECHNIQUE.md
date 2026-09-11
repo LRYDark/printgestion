@@ -185,7 +185,8 @@ Détails d'implémentation (tous dans `expedition.class.php` sauf mention) :
 - **Courtoisie** (`sendOrderCourtesyMails`) : regroupée par **destinataire** (clé = ensemble
   d'emails résolus, trié) — un contact couvrant 3 imprimantes reçoit 1 seul mail listant
   ses 3 imprimantes (`##printgestion.printers_list##`). Destinataires résolus par
-  `resolveClientEmailsForPrinter()` : usager de l'imprimante, sinon utilisateurs de l'entité.
+  `resolveClientEmailsForPrinter()` : **uniquement l'usager renseigné sur la fiche imprimante** ;
+  sans usager (ou sans email), aucun mail n'est envoyé pour cette imprimante. Case décochée par défaut.
 - **Digests cron** : `Alert::sendPendingAlerts()` et `Expedition::sendInstallReminders()`
   collectent d'abord tous les items du run (anti-doublon 24 h conservé PAR item via
   `glpi_plugin_printgestion_alerts`), puis envoient **un seul mail** avec liste plafonnée.

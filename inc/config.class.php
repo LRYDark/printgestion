@@ -930,7 +930,7 @@ class PluginPrintgestionConfig extends CommonDBTM {
             'emptylabel'          => '-----',
         ]);
         echo "<small class='text-muted d-block mt-1'>"
-            . __('Destinataire : usager lié à l\'imprimante ; à défaut, utilisateurs de l\'entité.', 'printgestion')
+            . __('Destinataire : uniquement l\'usager renseigné sur la fiche imprimante. Sans usager, aucun mail n\'est envoyé pour cette imprimante.', 'printgestion')
             . "</small>";
         echo "</div></div>";
         echo "</div>";
@@ -991,7 +991,7 @@ class PluginPrintgestionConfig extends CommonDBTM {
             [
                 __('Client (courtoisie)', 'printgestion'),
                 $notifList([[__('Cartouche(s) en cours d\'envoi — regroupé par contact (1 mail listant ses imprimantes) — si la case Courtoisie est cochée', 'printgestion'), $gabOk('gabarit_courtoisie')]]),
-                "<em>" . __('Usager de l\'imprimante (sinon utilisateurs de l\'entité) — varie par imprimante', 'printgestion') . "</em>",
+                "<em>" . __('Usager renseigné sur la fiche imprimante (aucun envoi sans usager) — varie par imprimante', 'printgestion') . "</em>",
             ],
             [
                 __('Demandeur (en copie)', 'printgestion'),

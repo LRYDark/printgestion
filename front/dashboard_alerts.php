@@ -121,9 +121,9 @@ echo "<div class='modal fade' id='pg-cmd-modal' tabindex='-1'><div class='modal-
     . "<div class='form-check'><input type='checkbox' class='form-check-input' id='pg-cmd-planif'>"
     . "<label class='form-check-label' for='pg-cmd-planif'>"
     . __('Prévenir la planification (logistique) — pré-cochée si en stock', 'printgestion') . "</label></div>"
-    . "<div class='form-check'><input type='checkbox' class='form-check-input' id='pg-cmd-courtesy' checked>"
+    . "<div class='form-check'><input type='checkbox' class='form-check-input' id='pg-cmd-courtesy'>"
     . "<label class='form-check-label' for='pg-cmd-courtesy'>"
-    . __('Envoyer un mail de courtoisie au client', 'printgestion') . "</label></div>"
+    . __('Envoyer un mail de courtoisie au client (uniquement aux imprimantes dont l\'usager est renseigné)', 'printgestion') . "</label></div>"
     . "</div>"
     . "<div class='modal-footer'>"
     . "<button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>" . __('Annuler', 'printgestion') . "</button>"
@@ -448,11 +448,12 @@ echo <<<HTML
     }
     const items = collectItems(rows);
 
-    // Pré-coche « Planif » si au moins une cartouche est en stock ; courtoisie par défaut cochée.
+    // Pré-coche « Planif » si au moins une cartouche est en stock ; courtoisie
+    // décochée par défaut : un mail à un client externe est un choix explicite.
     const planifCb = document.getElementById('pg-cmd-planif');
     if (planifCb) planifCb.checked = items.some(function(it) { return (parseInt(it.stock, 10) || 0) > 0; });
     const courtesyCb = document.getElementById('pg-cmd-courtesy');
-    if (courtesyCb) courtesyCb.checked = true;
+    if (courtesyCb) courtesyCb.checked = false;
 
     const body = document.getElementById('pg-cmd-modal-body');
     if (!body) return;

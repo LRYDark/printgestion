@@ -898,7 +898,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      * @param array $items [['printers_id'=>int,'property'=>string,'level'=>int,'days'=>?int], ...]
      * @return array ['ok'=>bool,'created'=>int,'skipped'=>int,'mail'=>bool,'rows'=>int]
      */
-    public static function createPurchaseOrder(array $items, bool $send_planif = false, bool $send_courtesy = true): array {
+    public static function createPurchaseOrder(array $items, bool $send_planif = false, bool $send_courtesy = false): array {
         if (empty($items)) {
             return ['ok' => false, 'created' => 0, 'skipped' => 0, 'mail' => false, 'rows' => 0];
         }
@@ -1086,37 +1086,21 @@ class PluginPrintgestionExpedition extends CommonDBTM {
 
     /**
      * Emails du CLIENT à prévenir pour une imprimante (mail de courtoisie) :
-     *   1. l'usager lié à l'imprimante (champ « Utilisateur ») ;
-     *   2. à défaut : les utilisateurs rattachés à l'entité de l'imprimante.
+     * uniquement l'usager renseigné sur la fiche imprimante (champ « Utilisateur »).
+     * Sans usager identifié, ou sans email, AUCUN destinataire : plus de repli sur
+     * les utilisateurs ayant un profil sur l'entité (techniciens internes compris).
      */
     public static function resolveClientEmailsForPrinter(int $printers_id): array {
-        global $DB;
-
         $printer = new Printer();
         if (!$printer->getFromDB($printers_id)) {
             return [];
         }
 
         $uid = (int)($printer->fields['users_id'] ?? 0);
-        if ($uid > 0) {
-            $emails = PluginPrintgestionAlert::resolveEmailsForUsers([$uid]);
-            if (!empty($emails)) {
-                return $emails;
-            }
+        if ($uid <= 0) {
+            return [];
         }
-
-        // Fallback : utilisateurs habilités dans l'entité de l'imprimante.
-        $entities_id = (int)($printer->fields['entities_id'] ?? 0);
-        $uids = [];
-        foreach ($DB->request([
-            'SELECT'   => ['users_id'],
-            'DISTINCT' => true,
-            'FROM'     => 'glpi_profiles_users',
-            'WHERE'    => ['entities_id' => $entities_id],
-        ]) as $r) {
-            $uids[] = (int)$r['users_id'];
-        }
-        return PluginPrintgestionAlert::resolveEmailsForUsers($uids);
+        return PluginPrintgestionAlert::resolveEmailsForUsers([$uid]);
     }
 
     /**
