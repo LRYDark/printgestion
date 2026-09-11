@@ -16,9 +16,13 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
     exit;
 }
 
-if (!Session::haveRight('plugin_printgestion_dashboard', READ)
-    && !Session::haveRight('plugin_printgestion_billing', READ)
-    && !Session::haveRight('plugin_printgestion_expedition', READ)) {
+// Recalcul complet des alertes (lourd : vidage et reconstruction de la table) :
+// réservé au droit de modification des alertes. Invalidation du cache de
+// facturation : droit de lecture du coût à la page.
+$can_refresh_alerts  = Session::haveRight('plugin_printgestion_dashboard', UPDATE);
+$can_refresh_billing = Session::haveRight('plugin_printgestion_billing', READ);
+
+if (!$can_refresh_alerts && !$can_refresh_billing) {
     http_response_code(403);
     echo json_encode(['ok' => false, 'error' => 'Forbidden']);
     exit;
@@ -36,16 +40,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     exit;
 }
 
-if (class_exists('PluginPrintgestionAlert')) {
+if ($can_refresh_alerts) {
     PluginPrintgestionAlert::invalidateCache();
-}
-if (class_exists('PluginPrintgestionBilling')) {
-    PluginPrintgestionBilling::invalidateCache();
-}
-// Reconstruit la table matérialisée des alertes (tableau Search natif).
-if (class_exists('PluginPrintgestionAlertview')
-    && Session::haveRight('plugin_printgestion_dashboard', READ)) {
+    // Reconstruit la table matérialisée des alertes.
     PluginPrintgestionAlertview::rebuild();
 }
+if ($can_refresh_billing) {
+    PluginPrintgestionBilling::invalidateCache();
+}
 
-echo json_encode(['ok' => true]);
+echo json_encode(['ok' => true, 'alerts' => $can_refresh_alerts, 'billing' => $can_refresh_billing]);

@@ -43,7 +43,8 @@ $can_update = Session::haveRight('plugin_printgestion_expedition', UPDATE);
 
 echo "<div class='container-fluid mt-3'>";
 
-PluginPrintgestionMenu::showTabBar('tn_exp', true);
+// Bouton « Rafraîchir » (recalcul complet des alertes) : droit de modification seulement.
+PluginPrintgestionMenu::showTabBar('tn_exp', Session::haveRight('plugin_printgestion_dashboard', UPDATE));
 
 // ── Alertes prioritaires (wrong_printer + late_shipment) — côté PHP (non paginé) ──
 $priority_alerts = PluginPrintgestionAlert::listPriorityAlerts($entities_id);

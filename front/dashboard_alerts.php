@@ -30,7 +30,8 @@ if (!in_array($filter_status, ['all', 'critical_watch', 'critical', 'watch', 'ex
 
 echo "<div class='container-fluid mt-3'>";
 
-PluginPrintgestionMenu::showTabBar('tn_alerts', true);
+// Bouton « Rafraîchir » (recalcul complet des alertes) : droit de modification seulement.
+PluginPrintgestionMenu::showTabBar('tn_alerts', Session::haveRight('plugin_printgestion_dashboard', UPDATE));
 
 // ── Filtres (client + statut) ────────────────────────────────────────────────
 echo "<form method='get' class='card mb-3' id='pc-filters-alerts'>";
