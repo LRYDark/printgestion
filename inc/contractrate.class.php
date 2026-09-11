@@ -194,7 +194,7 @@ class PluginPrintgestionContractrate extends CommonDBTM {
     }
 
     static function install(Migration $migration) {
-        // Table créée dans PluginPrintgestionConfig::install()
+        // Table créée par le schéma versionné (PluginPrintgestionSchema)
         return true;
     }
 

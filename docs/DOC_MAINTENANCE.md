@@ -8,12 +8,14 @@
 ## 1. Mettre à jour le plugin (procédure standard)
 
 1. Déployer les fichiers dans `plugins/printgestion/` (remplacer le dossier).
-2. Si `setup.php`, `hook.php` ou un `install()` de classe a changé :
-   GLPI → Configuration → Plugins → Print Gestion → **« Mettre à jour »** (ou désactiver/réactiver
-   selon le cas). Cela rejoue `plugin_printgestion_install()` qui est **idempotent** :
-   - `CREATE TABLE IF NOT EXISTS` sur toutes les tables (ne touche pas aux données existantes) ;
+2. Si `PLUGIN_PRINTGESTION_VERSION` (`setup.php`) a changé, GLPI désactive le plugin et propose
+   **« Mettre à jour »** (Configuration → Plugins → Print Gestion). Cela rejoue
+   `plugin_printgestion_install()` :
+   - joue les **étapes de migration de schéma** non encore appliquées (voir §2) ;
    - réenregistre les 3 crons ;
    - **réécrit les gabarits mail** (voir §3 — écrase les éditions manuelles fr_FR).
+   Une erreur SQL pendant la migration **fait échouer la mise à jour** (message affiché) : corriger
+   la cause puis relancer, l'étape en échec est rejouée.
 3. Incrémenter le **jeton anti-cache** des assets si `public/css/*` ou `public/js/*` a changé :
    dans `setup.php`, variable `$cb = '?b=N'` → passer à `N+1`. Sinon les navigateurs gardent
    l'ancien JS/CSS en cache.
@@ -22,26 +24,35 @@
 
 ---
 
-## 2. Schéma BDD : PAS de migration à chaud
+## 2. Schéma BDD : migrations versionnées
 
-**Design assumé** : tout le schéma est créé à l'installation ; il n'y a pas de système de
-migration incrémentale. Conséquences :
+Le schéma est versionné par `inc/schema.class.php` :
 
-- **Ajouter une table** : ajouter le `CREATE TABLE IF NOT EXISTS` dans l'`install()` de la classe
-  concernée (ou `config.class.php::install()`), puis « Mettre à jour » le plugin. Sans risque.
-- **Ajouter une colonne à une table existante** : le `CREATE TABLE IF NOT EXISTS` ne la créera PAS
-  sur les installations existantes. Deux options :
-  1. (préférée) ajouter la colonne **à la main** en SQL sur l'instance (`ALTER TABLE ... ADD ...`)
-     ET dans le `CREATE TABLE` du code (pour les installations neuves) ;
-  2. désinstaller/réinstaller le plugin — **DESTRUCTIF** : toutes les données métier du plugin
-     sont perdues (expéditions, relevés, alertes, tarifs…). À éviter en production.
-  - Cas particulier : `config.class.php` contient un bloc d'ajout de colonnes de config
-    (tableau `champ => définition` appliqué si la colonne manque) — pour une colonne de
-    **configuration**, passer par ce mécanisme.
-- **⚠️ Gotcha vécu** : un bloc « cleanup d'anciennes tables » dans `install()` ne doit JAMAIS
-  contenir une table vivante. `..._billing_view` (table ACTIVE) avait été listée dans un drop
-  → créée puis droppée à chaque install. Tables vivantes à ne jamais dropper :
-  `_alertview` et `_billing_view`.
+- la version installée est stockée dans `glpi_configs` (contexte `plugin:printgestion`, clé
+  `schema_version`) ;
+- `PluginPrintgestionSchema::STEPS` liste les étapes dans l'ordre (`version => méthode`) ;
+- à chaque installation / « Mettre à jour », seules les étapes dont la version est supérieure à la
+  version installée sont jouées ; la version n'est enregistrée qu'après la réussite de l'étape ;
+- l'étape **1.0.0** est le schéma de référence historique (`Config::installSchemaBaseline()`) : elle
+  couvre une installation neuve comme une installation antérieure au versionnement ;
+- si la base est plus récente que le code déployé, l'installation s'arrête avec un message explicite.
+
+**Faire évoluer le schéma (table, colonne, index, donnée) :**
+
+1. écrire une méthode `migrateToXYZ(Migration $migration)` **idempotente** dans `schema.class.php`,
+   en passant par l'API `Migration` de GLPI (`addField`, `changeField`, `addKey`…) ;
+2. l'ajouter **à la fin** de `STEPS` ;
+3. **incrémenter `PLUGIN_PRINTGESTION_VERSION`** dans `setup.php` (sinon GLPI ne propose pas la mise
+   à jour et l'étape n'est jamais jouée) ;
+4. ne jamais modifier une étape déjà livrée ni `installSchemaBaseline()`.
+
+**Interdit** : `ALTER TABLE` à la main sur l'instance, désinstaller / réinstaller pour faire évoluer le
+schéma (**destructif** : toutes les données métier du plugin sont perdues), et tout `try/catch` qui
+masque une erreur de migration.
+
+- **⚠️ Gotcha vécu** : un bloc « cleanup d'anciennes tables » ne doit JAMAIS contenir une table
+  vivante. `..._billing_view` (table ACTIVE) avait été listée dans un drop → créée puis droppée à
+  chaque install. Tables vivantes à ne jamais dropper : `_alertview` et `_billing_view`.
 
 ---
 

@@ -68,8 +68,9 @@ printgestion/
 
 ## 3. Modèle de données
 
-Toutes les tables sont créées **à l'installation** (`config.class.php::install()` + `install()` de chaque classe,
-`CREATE TABLE IF NOT EXISTS`, idempotent). **Aucune migration à chaud** (voir doc maintenance).
+Le schéma est **versionné** (`inc/schema.class.php`) : la version installée est enregistrée dans la
+configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema_version`) et chaque
+évolution est une étape de migration jouée une seule fois lors du « Mettre à jour » (voir doc maintenance §2).
 
 | Table | Contenu |
 |---|---|

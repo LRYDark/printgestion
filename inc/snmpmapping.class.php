@@ -321,12 +321,8 @@ class PluginPrintgestionSnmpmapping extends CommonDBTM {
         return is_array($row) ? $row : null;
     }
 
-    static function install(Migration $migration) {
-        // La table est créée par PluginPrintgestionConfig::install().
-        // On pré-remplit avec les mappings par défaut si la table est vide.
-        self::seedDefaults();
-        return true;
-    }
+    // Table créée et pré-remplie (seedDefaults) par le schéma versionné
+    // (PluginPrintgestionSchema, étape 1.0.0).
 
     static function uninstall(Migration $migration) {
         return true;

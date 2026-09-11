@@ -4,7 +4,9 @@
  * JCD Groupe — Joris Reinert
  */
 
-define('PLUGIN_PRINTGESTION_VERSION', '1.0.0');
+// À incrémenter à chaque nouvelle étape de schéma (inc/schema.class.php) : GLPI
+// ne rejoue l'installation, donc les migrations, que si cette version change.
+define('PLUGIN_PRINTGESTION_VERSION', '1.0.1');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');
@@ -24,9 +26,9 @@ function plugin_init_printgestion() {
     $plugin = new Plugin();
     if ($plugin->isInstalled('printgestion') && $plugin->isActivated('printgestion')) {
 
-        // Aucune migration à chaud : TOUT (tables, colonnes, gabarits) est créé
-        // dans l'install (hook.php → install() de chaque classe) à la 1ʳᵉ
-        // installation. Une évolution du schéma = désinstaller / réinstaller.
+        // Schéma versionné (inc/schema.class.php) : les migrations sont jouées par
+        // plugin_printgestion_install(), lors de l'installation ou du « Mettre à
+        // jour » que GLPI propose dès que PLUGIN_PRINTGESTION_VERSION change.
 
         // La table matérialisée du « coût à la page » porte un nom NON
         // conventionnel (`..._billing_view`, avec underscore) : getItemTypeForTable()

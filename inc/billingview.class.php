@@ -53,43 +53,7 @@ class PluginPrintgestionBillingview extends CommonDBTM {
         return $dir . '/front/dashboard_billing.php';
     }
 
-    static function install(Migration $migration) {
-        global $DB;
-
-        $table = self::getTable();
-        if (!$DB->tableExists($table)) {
-            $charset   = DBConnection::getDefaultCharset();
-            $collation = DBConnection::getDefaultCollation();
-            $sign      = DBConnection::getDefaultPrimaryKeySignOption();
-
-            $DB->doQuery("CREATE TABLE IF NOT EXISTS `$table` (
-                `id` int {$sign} NOT NULL AUTO_INCREMENT,
-                `users_id` int {$sign} NOT NULL DEFAULT '0',
-                `view_mode` enum('printer','client') NOT NULL DEFAULT 'printer',
-                `entities_id` int {$sign} NOT NULL DEFAULT '0',
-                `printers_id` int {$sign} NOT NULL DEFAULT '0',
-                `printer_name` varchar(255) DEFAULT NULL,
-                `entity_name` varchar(255) DEFAULT NULL,
-                `contracts_id` int {$sign} NOT NULL DEFAULT '0',
-                `contract_name` varchar(255) DEFAULT NULL,
-                `printers_count` int DEFAULT NULL,
-                `pages_nb` int NOT NULL DEFAULT '0',
-                `pages_color` int NOT NULL DEFAULT '0',
-                `rate_nb` decimal(14,6) NOT NULL DEFAULT '0.000000',
-                `rate_color` decimal(14,6) NOT NULL DEFAULT '0.000000',
-                `total_cost` decimal(16,2) NOT NULL DEFAULT '0.00',
-                `period_start` date DEFAULT NULL,
-                `period_end` date DEFAULT NULL,
-                `date_compute` timestamp NULL DEFAULT NULL,
-                PRIMARY KEY (`id`),
-                KEY `users_id` (`users_id`),
-                KEY `view_mode` (`view_mode`),
-                KEY `entities_id` (`entities_id`),
-                KEY `printers_id` (`printers_id`)
-            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC") or die($DB->error());
-        }
-        return true;
-    }
+    // La table est créée par le schéma versionné (PluginPrintgestionSchema).
 
     static function uninstall(Migration $migration) {
         global $DB;

@@ -43,37 +43,7 @@ class PluginPrintgestionAlertview extends CommonDBTM {
         return $dir . '/front/dashboard_alerts.php';
     }
 
-    static function install(Migration $migration) {
-        global $DB;
-
-        $table = self::getTable();
-        if (!$DB->tableExists($table)) {
-            $charset   = DBConnection::getDefaultCharset();
-            $collation = DBConnection::getDefaultCollation();
-            $sign      = DBConnection::getDefaultPrimaryKeySignOption();
-
-            $DB->doQuery("CREATE TABLE IF NOT EXISTS `$table` (
-                `id` int {$sign} NOT NULL AUTO_INCREMENT,
-                `printers_id` int {$sign} NOT NULL DEFAULT '0',
-                `entities_id` int {$sign} NOT NULL DEFAULT '0',
-                `toner_property` varchar(255) DEFAULT NULL,
-                `toner_color` varchar(20) DEFAULT NULL,
-                `level_percent` int NOT NULL DEFAULT '0',
-                `days_remaining` int DEFAULT NULL,
-                `status` enum('ok','watch','critical') NOT NULL DEFAULT 'ok',
-                `cartridge_label` varchar(255) DEFAULT NULL,
-                `has_expedition` tinyint NOT NULL DEFAULT '0',
-                `is_snoozed` tinyint NOT NULL DEFAULT '0',
-                `is_estimate` tinyint NOT NULL DEFAULT '0',
-                `date_compute` timestamp NULL DEFAULT NULL,
-                PRIMARY KEY (`id`),
-                KEY `entities_id` (`entities_id`),
-                KEY `printers_id` (`printers_id`),
-                KEY `status` (`status`)
-            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC") or die($DB->error());
-        }
-        return true;
-    }
+    // La table est créée par le schéma versionné (PluginPrintgestionSchema).
 
     static function uninstall(Migration $migration) {
         global $DB;

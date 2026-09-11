@@ -72,10 +72,16 @@ class PluginPrintgestionConfig extends CommonDBTM {
     }
 
     // ─────────────────────────────────────────────────────────────
-    //  INSTALLATION
+    //  SCHÉMA DE RÉFÉRENCE (étape 1.0.0 du versionnement)
     // ─────────────────────────────────────────────────────────────
 
-    static function install(Migration $migration) {
+    /**
+     * Schéma de référence 1.0.0. Appelé UNIQUEMENT par
+     * PluginPrintgestionSchema::migrateTo100(). Toute évolution ultérieure du
+     * schéma est une nouvelle étape de PluginPrintgestionSchema, jamais une
+     * modification de cette méthode.
+     */
+    static function installSchemaBaseline(Migration $migration) {
         global $DB;
 
         $default_charset   = DBConnection::getDefaultCharset();
@@ -125,7 +131,7 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 `enable_cout` tinyint NOT NULL DEFAULT '1',
                 PRIMARY KEY (`id`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$default_charset} COLLATE={$default_collation} ROW_FORMAT=DYNAMIC;";
-            $DB->doQuery($query) or die($DB->error());
+            $DB->doQuery($query); // lève une exception en cas d'erreur SQL
 
             $config = new self();
             $config->add(['id' => 1]);
@@ -358,9 +364,6 @@ class PluginPrintgestionConfig extends CommonDBTM {
         // pas en BDD. Voir dashboardactions::renderJs + ajax/save_table_prefs.php.
 
         // ─── Tables MATÉRIALISÉES (tableaux Search natifs) ───────────────────
-        // Créées ici (install central éprouvé) et non plus uniquement par leur
-        // propre install() : la boucle glob(inc/*.class.php) de hook.php peut
-        // manquer un fichier sur un montage réseau instable (SMB).
         $tables['glpi_plugin_printgestion_alertview'] = "
             CREATE TABLE IF NOT EXISTS `glpi_plugin_printgestion_alertview` (
                 `id` int {$default_key_sign} NOT NULL AUTO_INCREMENT,
@@ -412,7 +415,7 @@ class PluginPrintgestionConfig extends CommonDBTM {
         foreach ($tables as $t => $sql) {
             if (!$DB->tableExists($t)) {
                 $migration->displayMessage("Installing $t");
-                $DB->doQuery($sql) or die($DB->error());
+                $DB->doQuery($sql); // lève une exception en cas d'erreur SQL
             }
         }
 
@@ -444,13 +447,14 @@ class PluginPrintgestionConfig extends CommonDBTM {
                     $migration->addField($alerts_table, $col, $def);
                 }
             }
-            // Élargir l'enum alert_type pour inclure 'wrong_printer'
-            try {
-                $DB->doQuery("ALTER TABLE `{$alerts_table}` MODIFY COLUMN `alert_type` "
-                    . "enum('low_toner','stock_empty','no_install_reminder','contract_expiry','wrong_printer') NOT NULL");
-            } catch (Throwable $e) {
-                // silent : déjà à jour
-            }
+            // Élargir l'enum alert_type pour inclure 'wrong_printer' (redéfinition
+            // identique sans effet si la colonne est déjà à jour).
+            $migration->changeField(
+                $alerts_table,
+                'alert_type',
+                'alert_type',
+                "enum('low_toner','stock_empty','no_install_reminder','contract_expiry','wrong_printer') NOT NULL"
+            );
             $migration->migrationOneTable($alerts_table);
         }
 
@@ -484,19 +488,16 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 ],
             ])->count();
             if ($has_uniq === 0) {
-                try {
-                    // Dédoublonnage préalable : garde le dernier reading par (printer, property, date)
-                    $DB->doQuery("DELETE t1 FROM `{$tr_table}` t1
-                        INNER JOIN `{$tr_table}` t2
-                        WHERE t1.printers_id = t2.printers_id
-                          AND t1.property_name = t2.property_name
-                          AND DATE(t1.reading_date) = DATE(t2.reading_date)
-                          AND t1.id < t2.id");
-                    $DB->doQuery("ALTER TABLE `{$tr_table}`
-                        ADD UNIQUE KEY `uniq_daily` (`printers_id`, `property_name`, `reading_date`)");
-                } catch (Throwable $e) {
-                    // silent : déjà à jour ou conflit
-                }
+                // Dédoublonnage préalable : garde le dernier reading par (printer, property, date).
+                // Une erreur (conflit résiduel…) lève une exception : migration en échec, visible.
+                $DB->doQuery("DELETE t1 FROM `{$tr_table}` t1
+                    INNER JOIN `{$tr_table}` t2
+                    WHERE t1.printers_id = t2.printers_id
+                      AND t1.property_name = t2.property_name
+                      AND DATE(t1.reading_date) = DATE(t2.reading_date)
+                      AND t1.id < t2.id");
+                $DB->doQuery("ALTER TABLE `{$tr_table}`
+                    ADD UNIQUE KEY `uniq_daily` (`printers_id`, `property_name`, `reading_date`)");
             }
 
             // Index composite pour lookup rapide (getLatestLevel, getLevelNDaysAgo)
@@ -509,27 +510,19 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 ],
             ])->count();
             if ($has_idx === 0) {
-                try {
-                    $DB->doQuery("ALTER TABLE `{$tr_table}`
-                        ADD INDEX `idx_lookup` (`printers_id`, `property_name`, `reading_date`)");
-                } catch (Throwable $e) {
-                    // silent
-                }
+                $DB->doQuery("ALTER TABLE `{$tr_table}`
+                    ADD INDEX `idx_lookup` (`printers_id`, `property_name`, `reading_date`)");
             }
         }
 
         // Migration cron snapshot : passage horaire → journalier (optimisation scale)
-        try {
-            $DB->update('glpi_crontasks', [
-                'frequency' => DAY_TIMESTAMP,
-            ], [
-                'itemtype' => 'PluginPrintgestionReminder',
-                'name'     => 'PrintgestionSnapshotReadings',
-                'frequency' => ['<', DAY_TIMESTAMP],
-            ]);
-        } catch (Throwable $e) {
-            // silent
-        }
+        $DB->update('glpi_crontasks', [
+            'frequency' => DAY_TIMESTAMP,
+        ], [
+            'itemtype' => 'PluginPrintgestionReminder',
+            'name'     => 'PrintgestionSnapshotReadings',
+            'frequency' => ['<', DAY_TIMESTAMP],
+        ]);
 
         // Migration snmp_mapping : ajout cartridgeitemtypes_id + dédoublonnage sur snmp_property
         $snmp_table = 'glpi_plugin_printgestion_snmp_mapping';
@@ -584,11 +577,8 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 ],
             ])->count();
             if ($indexes === 0) {
-                try {
-                    $DB->doQuery("ALTER TABLE `{$snmp_table}` ADD UNIQUE KEY `uniq_snmp_property` (`snmp_property`)");
-                } catch (Throwable $e) {
-                    // silent : index existe déjà ou doublon résiduel
-                }
+                // Doublon résiduel après dédoublonnage = exception : migration en échec, visible.
+                $DB->doQuery("ALTER TABLE `{$snmp_table}` ADD UNIQUE KEY `uniq_snmp_property` (`snmp_property`)");
             }
         }
 
