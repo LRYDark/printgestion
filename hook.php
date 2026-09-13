@@ -283,3 +283,18 @@ function plugin_printgestion_create_templates() {
         $DB->update('glpi_plugin_printgestion_configs', $config_updates, ['id' => 1]);
     }
 }
+
+/**
+ * Hook AUTOINVENTORY_INFORMATION (Printer) : sonde responsable dans la carte native « Informations d'inventaire ».
+ */
+function plugin_printgestion_printer_probe_card($item): void {
+    PluginPrintgestionPrinteragent::showInInventoryCard($item);
+}
+
+/**
+ * Hook POST_ITEM_FORM : sonde responsable sous le formulaire d'une imprimante, quand la carte native n'est pas
+ * affichée à l'utilisateur.
+ */
+function plugin_printgestion_printer_probe_form($params): void {
+    PluginPrintgestionPrinteragent::showAfterForm(is_array($params) ? $params : []);
+}

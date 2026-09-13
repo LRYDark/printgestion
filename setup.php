@@ -82,6 +82,10 @@ function plugin_init_printgestion() {
             }
             if (PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
                 Plugin::registerClass('PluginPrintgestionAgentdeploy', ['addtabon' => 'Entity']); // Déploiement Agent
+                // Sonde responsable sur la fiche imprimante : dans la carte native « Informations d'inventaire »
+                // quand l'utilisateur la voit, sinon sous le formulaire (droits revérifiés à l'affichage).
+                $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::AUTOINVENTORY_INFORMATION]['printgestion'] = ['Printer' => 'plugin_printgestion_printer_probe_card'];
+                $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::POST_ITEM_FORM]['printgestion']             = 'plugin_printgestion_printer_probe_form';
             }
 
             // Jeton anti-cache (beta) : à incrémenter à chaque modif de public/css|js.

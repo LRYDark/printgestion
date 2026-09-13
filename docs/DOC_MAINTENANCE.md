@@ -232,6 +232,10 @@ Raccordement :
   autrement, modifier son lieu dans GLPI suffit (GLPI verrouille alors le champ). Verrous : Administration →
   Inventaire → Champs verrouillés.
 - Historique : page « Raccordements » du module ; chaque raccordement garde son journal horodaté.
+- **Fiche imprimante : « Aucune sonde trouvée »** : aucune plage IP de GLPI Inventory de son entité (ou d'une entité
+  parente) ne contient l'adresse de l'imprimante, ou aucune tâche ne vise cette plage ; la raccorder avec
+  l'assistant. Le bloc de la sonde est dans la carte « Informations d'inventaire » pour les profils qui ont le droit
+  Inventaire, sinon sous le formulaire ; le lien vers la fiche de l'agent demande le droit Agent.
 
 ### Cartouche « Réf. non résolue » (non commandable)
 

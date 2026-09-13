@@ -162,8 +162,8 @@ class PluginPrintgestionCollectsetup {
         return $ranges;
     }
 
-    /** Jobs d'une méthode, avec leur tâche, et les plages, agents et postes qu'ils visent. */
-    private static function getJobs(string $method): array {
+    /** Jobs d'une méthode, avec leur tâche, et les plages, imprimantes, agents et postes qu'ils visent. */
+    public static function getJobs(string $method): array {
         global $DB;
 
         $jobs = [];
@@ -177,6 +177,7 @@ class PluginPrintgestionCollectsetup {
             'ORDER'      => ['j.id'],
         ]) as $row) {
             $row['range_ids']    = self::extractIds((string) $row['targets'], self::RANGE_TYPE);
+            $row['printer_ids']  = self::extractIds((string) $row['targets'], Printer::class);
             $row['agent_ids']    = self::extractIds((string) $row['actors'], Agent::class);
             $row['computer_ids'] = self::extractIds((string) $row['actors'], Computer::class);
             $jobs[] = $row;

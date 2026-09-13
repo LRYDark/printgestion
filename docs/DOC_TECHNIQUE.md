@@ -70,6 +70,7 @@ printgestion/
 | `Raccordement` | Assistant de raccordement des imprimantes (4 étapes, journal horodaté), page « Raccordements », bloc 3 de l'onglet Déploiement Agent de l'entité |
 | `Collectsetup` | Service (sans table) : configuration de collecte créée dans GLPI Inventory (plage, identifiants SNMP, modules de la sonde, tâches), déclenchement, vérification adresse par adresse |
 | `Raccordementdetail` | Lieu (hiérarchie créée dans l'entité), commentaire et contrat des imprimantes d'un raccordement : saisie en attente (carte 2 bis), application aux imprimantes remontées avec verrou natif (étape 5) |
+| `Printeragent` | Fiche imprimante : sonde responsable (plage et tâche GLPI Inventory), version, dernier contact, dernier inventaire réseau réussi ; dans la carte native « Informations d'inventaire », sinon sous le formulaire |
 | `NotificationTargetDemande` | Notifications natives GLPI des demandes d'envoi (proposée, relance, exportée) |
 | `Contractalert` | État et activation des alertes de contrat natives GLPI |
 | `Snmpmapping` | Mapping constructeur + propriété SNMP → modèle de cartouche + couleur |
@@ -525,6 +526,24 @@ revérifiée à chaque requête (hors périmètre : 404). Lieu, commentaire et c
   le verrou, l'inventaire garde le lieu déclaré. Au premier import, rien n'empêche la découverte de créer et
   d'attacher le lieu SNMP : il est remplacé à l'étape 5.
 - **Réglage « Lieu » de la configuration d'inventaire** : lu nulle part par le cœur de GLPI 11.0.8, il n'empêche rien.
+
+### Déploiement Agent — phase 4 : sonde responsable sur la fiche imprimante (`inc/printeragent.class.php`)
+
+La carte native « Informations d'inventaire » d'une imprimante inventoriée en SNMP n'indique aucun agent : le cœur ne
+garde le lien agent ↔ actif que pour les ordinateurs (`MainAsset::rulepassed`). Le bloc du plugin (module actif, droit
+`deploiement` READ, imprimante visible) n'affiche que ce qui manque :
+- la ou les sondes : acteurs des jobs `networkinventory` puis `networkdiscovery` (agents, ou agent du poste désigné)
+  dont une cible est une plage IP contenant une adresse IPv4 de l'imprimante, dans son entité ou une entité parente,
+  ou l'imprimante elle-même ; tâche et plage indiquées. À défaut, la sonde de son dernier inventaire réseau ;
+- pour chaque sonde : nom (lien vers la fiche native si l'utilisateur a le droit Agent), version, dernier contact
+  (« Muette » au-delà de `silent_days`) ;
+- la date du dernier inventaire réseau réussi de l'imprimante, lue comme le contrôle de la remontée (journal d'import,
+  journaux des tâches GLPI Inventory), avec la mention d'une découverte plus récente, qui fait avancer la date de la
+  carte native sans relire les niveaux.
+
+Emplacement : hook `AUTOINVENTORY_INFORMATION` (Printer), dans la carte native, quand l'utilisateur la voit (droit
+Inventaire en lecture, imprimante dynamique) ; sinon hook `POST_ITEM_FORM`, sous le formulaire : le profil Technicien
+n'a pas le droit Inventaire par défaut. Aucun champ de saisie, le bloc étant rendu dans le formulaire de l'imprimante.
 
 ### Contrôle de la remontée (`inc/collect.class.php`, onglet « Contrôle de la remontée »)
 
