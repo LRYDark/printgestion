@@ -63,7 +63,7 @@ printgestion/
 | `Gesconso` | Fichier de commande Gesconso (9 colonnes), contrôles bloquants avant écriture, archivage en Document |
 | `Snmpadapter` | Service (classe simple, sans table) : lecture fiable des niveaux SNMP — sentinelles, états bruts max/used/remaining, application des règles par constructeur |
 | `Snmprule` | Règle de lecture SNMP par constructeur (ignorer / inverser une propriété) : table, carte de configuration, droit de configuration du plugin |
-| `Collect` | Collecte SNMP : imprimantes jamais remontées, muettes ou sans niveau lisible, agents qui ne remontent plus |
+| `Collect` | Contrôle de la remontée (lecture seule) : prérequis, états de collecte datés par le journal d'import GLPI, agents et versions, valeurs de consommables et compteurs par modèle, doublons de numéro de série |
 | `NotificationTargetDemande` | Notifications natives GLPI des demandes d'envoi (proposée, relance, exportée) |
 | `Contractalert` | État et activation des alertes de contrat natives GLPI |
 | `Snmpmapping` | Mapping constructeur + propriété SNMP → modèle de cartouche + couleur |
@@ -357,21 +357,37 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
 - Les mails historiques du plugin (Achats, planification, courtoisie, digests) restent sur leurs gabarits
   (§6) : pas de refonte globale.
 
-### Collecte SNMP (`inc/collect.class.php`, onglet « Collecte SNMP »)
+### Contrôle de la remontée (`inc/collect.class.php`, onglet « Contrôle de la remontée »)
 
-L'absence de remontée est un **état à signaler**, jamais une absence d'alerte : une imprimante dont on ne
-lit plus les niveaux ne déclenche aucune alerte toner. Aucune couverture complète du parc n'est supposée.
+Ce que l'inventaire GLPI reçoit **réellement** des imprimantes, avant tout calcul d'alerte. Page en lecture
+seule sur les tables natives ; périmètre : entités de l'utilisateur (droit `dashboard` READ). L'absence de
+remontée est un **état à signaler**, jamais une absence d'alerte. Aucune couverture complète du parc n'est
+supposée.
 
-| État | Condition |
-|---|---|
-| Jamais remontée | Ni date d'inventaire (`last_inventory_update`) ni consommable remonté |
-| Muette | Dernier inventaire plus ancien que `silent_days` jours (3 par défaut) |
-| Sans niveau lisible | Inventaire à jour, mais aucun niveau exploitable (sentinelles, OK, valeurs inconnues) |
-| Collecte normale | — |
+1. **Prérequis** : inventaire GLPI activé (`inventory.enabled_inventory`), plugin GLPI Inventory installé et
+   actif, imprimantes inventoriées sur 24 h et 7 jours, agents muets, versions d'agent (avant 1.15 : une
+   valeur de compteur invalide fait rejeter tout l'inventaire ; 1.19 conseillée).
+2. **États** datés par le journal d'import GLPI (`glpi_rulematchedlogs`) : seul un inventaire réseau compte
+   (méthodes `snmp`, `snmpquery`, `netinventory`). Une découverte réseau (`netdiscovery`) fait avancer
+   `glpi_printers.last_inventory_update` sans relire niveaux ni compteurs : elle est affichée à part.
+   Le journal ne garde que les 30 derniers passages par équipement.
 
-Agents : dernier agent ayant inventorié chaque imprimante (`glpi_rulematchedlogs`), signalé « ne remonte
-plus » si son dernier contact dépasse `silent_days` jours, avec le nombre d'imprimantes concernées.
-Périmètre : entités de l'utilisateur (droit `dashboard` READ).
+   | État | Condition |
+   |---|---|
+   | Jamais inventoriée en SNMP | Aucun inventaire réseau dans le journal d'import |
+   | Muette | Dernier inventaire réseau plus ancien que `silent_days` jours (3 par défaut) |
+   | Sans niveau lisible | Inventaire à jour, mais aucun niveau exploitable (sentinelles, OK, valeurs inconnues) |
+   | Collecte normale | — |
+
+   Agents : celui du dernier inventaire réseau (à défaut, de la dernière découverte), avec sa version et
+   « ne remonte plus » si son dernier contact dépasse `silent_days` jours.
+3. **Valeurs de consommables reçues, par fabricant et modèle** : pour chaque propriété, répartition des
+   valeurs brutes (pourcentage, 0, OK, WARNING, pages restantes, autre unité, négatif, supérieur à 100,
+   vide) et exemples non chiffrés. Sert à régler la lecture par constructeur et par modèle.
+4. **Compteurs disponibles, par modèle** (dernier relevé `glpi_printerlogs`) : relevé ancien, N&B et
+   couleur, total seul, compteurs à 0, imprimantes couleur sans compteur couleur, compteur couleur
+   supérieur au total, baisses du compteur total sur 90 jours ; listes détaillées (200 lignes au plus).
+5. **Numéros de série en double** parmi les imprimantes actives.
 
 ### Points d'entrée (ajax/)
 

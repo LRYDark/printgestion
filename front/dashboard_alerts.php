@@ -86,7 +86,7 @@ PluginPrintgestionUi::statsBar([
      'tooltip' => __('Niveau inchangé alors que l\'imprimante imprime : estimation approximative', 'printgestion'),
      'icon' => 'ti ti-snowflake', 'color' => 'azure'],
     ['count' => $silent, 'label' => __('Imprimantes muettes ou illisibles', 'printgestion'),
-     'tooltip' => __('Aucune alerte possible sans remontée : voir « Collecte SNMP »', 'printgestion'),
+     'tooltip' => __('Aucune alerte possible sans remontée : voir « Contrôle de la remontée »', 'printgestion'),
      'icon' => 'ti ti-wifi-off', 'color' => 'dark', 'url' => PLUGIN_PRINTGESTION_WEBDIR . '/front/collect.php'],
 ], 'printgestionAlertsStatsBar');
 

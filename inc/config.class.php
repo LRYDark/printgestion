@@ -772,7 +772,7 @@ class PluginPrintgestionConfig extends CommonDBTM {
         echo "<div class='col-md-3'>"
             . $label_with_tip(
                 __('Imprimante muette après (jours)', 'printgestion'),
-                __("Sans inventaire depuis ce nombre de jours, une imprimante (ou l'agent qui l'inventorie) est signalée muette dans l'écran « Collecte SNMP » : elle ne peut plus déclencher d'alerte toner.", 'printgestion')
+                __("Sans inventaire depuis ce nombre de jours, une imprimante (ou l'agent qui l'inventorie) est signalée muette dans l'écran « Contrôle de la remontée » : elle ne peut plus déclencher d'alerte toner.", 'printgestion')
             );
         echo "<input type='number' min='1' max='365' class='form-control' name='silent_days' value='"
             . PluginPrintgestionCollect::getSilentDays() . "'></div>";

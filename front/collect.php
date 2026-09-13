@@ -1,7 +1,8 @@
 <?php
 /**
- * Collecte SNMP : imprimantes muettes, jamais remontées ou sans niveau lisible, et agents
- * d'inventaire qui ne remontent plus (lecture des alertes toner).
+ * Contrôle de la remontée : ce que l'inventaire GLPI reçoit réellement des imprimantes
+ * (prérequis, états de collecte, agents, valeurs de consommables, compteurs, doublons).
+ * Lecture seule.
  */
 include('../../../inc/includes.php');
 

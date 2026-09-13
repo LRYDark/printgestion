@@ -57,7 +57,7 @@ class PluginPrintgestionMenu extends CommonGLPI {
                     // File des demandes : droit de validation OU lecture des alertes (voir sans valider).
                     ['key' => 'tn_dem',    'label' => __('Demandes d\'envoi', 'printgestion'), 'icon' => 'ti ti-clipboard-check', 'path' => '/front/demande.php', 'right' => [['plugin_printgestion_validation', READ], ['plugin_printgestion_dashboard', READ]]],
                     ['key' => 'tn_exp',    'label' => __('Expéditions', 'printgestion'),   'icon' => 'ti ti-truck',                'path' => '/front/dashboard_expeditions.php', 'right' => ['plugin_printgestion_expedition', READ]],
-                    ['key' => 'tn_collect', 'label' => __('Collecte SNMP', 'printgestion'), 'icon' => 'ti ti-wifi-off', 'path' => '/front/collect.php', 'right' => ['plugin_printgestion_dashboard', READ]],
+                    ['key' => 'tn_collect', 'label' => __('Contrôle de la remontée', 'printgestion'), 'icon' => 'ti ti-activity', 'path' => '/front/collect.php', 'right' => ['plugin_printgestion_dashboard', READ]],
                     // Import du référentiel Sage par fichier : fonction administrateur.
                     ['key' => 'tn_sage',   'label' => __('Référentiel Sage', 'printgestion'), 'icon' => 'ti ti-database-import', 'path' => '/front/sageimport.php', 'right' => ['plugin_printgestion_config', UPDATE]],
                 ],
