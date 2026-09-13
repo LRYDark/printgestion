@@ -201,7 +201,10 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   **déjà parti** (`Expedition::DEPARTED_STATUSES` : expédié, en transit, livré) d'une autre imprimante
   de la même entité, du **même site** (racine du lieu) et de la **même référence** de cartouche, dans
   la fenêtre `wrong_printer_lookback_days`. Site ou référence inconnus : aucun rapprochement. L'alerte
-  est une proposition : aucune réattribution automatique.
+  est une proposition (envoi, deux machines, dates) : aucune réattribution automatique. La réattribution
+  manuelle (écran Expéditions) n'est acceptée que pour un envoi parti et vers l'imprimante où l'alerte
+  en cours a détecté la pose (`Expedition::getReassignRefusal()`) ; annuler l'envoi ou confirmer sa pose
+  résout l'alerte.
 - Chaque ligne d'alerte porte son verrou (`lock`) ; le mail « toner bas » ignore les emplacements
   verrouillés (sauf contournement).
 - **Écran des alertes** (moteur de recherche natif sur `alertview`) : colonnes Verrou (envoi en cours,

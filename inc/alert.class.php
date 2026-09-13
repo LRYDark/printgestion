@@ -762,9 +762,15 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 'pi.name AS intended_name',
                 'pd.entities_id',
                 'ei.completename AS entity_name',
+                'ex.statut AS expedition_statut',
+                'ex.date_shipped',
+                'ex.date_delivered',
             ],
             'FROM'      => 'glpi_plugin_printgestion_alerts AS a',
             'LEFT JOIN' => [
+                'glpi_plugin_printgestion_expeditions AS ex' => [
+                    'ON' => ['a' => 'expeditions_id', 'ex' => 'id'],
+                ],
                 'glpi_printers AS pd' => [
                     'ON' => ['a' => 'detected_printers_id', 'pd' => 'id'],
                 ],
@@ -804,6 +810,10 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 'toner_property'       => (string)$a['toner_property'],
                 'level_percent'        => (int)($a['level_percent'] ?? 0),
                 'days_since'           => $days_since,
+                'date_detected'        => (string)($a['date_alert'] ?? ''),
+                'expedition_statut'    => (string)($a['expedition_statut'] ?? ''),
+                'date_shipped'         => (string)($a['date_shipped'] ?? ''),
+                'date_delivered'       => (string)($a['date_delivered'] ?? ''),
             ];
         }
 

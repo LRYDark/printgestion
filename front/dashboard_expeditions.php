@@ -75,15 +75,22 @@ if (!empty($priority_alerts)) {
                 echo " — " . htmlspecialchars($pa['entity_name'], ENT_QUOTES, 'UTF-8');
             }
             echo "<br>";
+            // Proposition à confirmer, jamais appliquée seule : l'envoi, les deux machines et
+            // les dates, pour vérifier sur place avant de réattribuer.
+            $sent_label = !empty($pa['date_delivered'])
+                ? sprintf(__('livré le %s', 'printgestion'), Html::convDateTime((string) $pa['date_delivered']))
+                : sprintf(__('expédié le %s', 'printgestion'), Html::convDateTime((string) $pa['date_shipped']));
             echo "<span class='text-muted small'>"
                 . sprintf(
-                    __('Cartouche "%s" attendue sur %s détectée sur %s depuis %d jour(s)', 'printgestion'),
+                    __('Envoi #%1$d « %2$s » (%3$s) prévu pour %4$s ; pose de la même référence détectée sur %5$s le %6$s. À vérifier sur place avant de réattribuer.', 'printgestion'),
+                    (int) $pa['expeditions_id'],
                     htmlspecialchars($pa['toner_property'], ENT_QUOTES, 'UTF-8'),
+                    htmlspecialchars($sent_label, ENT_QUOTES, 'UTF-8'),
                     "<a href='" . htmlspecialchars($intended_url, ENT_QUOTES, 'UTF-8') . "'><strong>"
                         . htmlspecialchars($pa['intended_name'], ENT_QUOTES, 'UTF-8') . "</strong></a>",
                     "<a href='" . htmlspecialchars($detected_url, ENT_QUOTES, 'UTF-8') . "'><strong>"
                         . htmlspecialchars($pa['detected_name'], ENT_QUOTES, 'UTF-8') . "</strong></a>",
-                    $pa['days_since']
+                    htmlspecialchars(Html::convDateTime((string) $pa['date_detected']), ENT_QUOTES, 'UTF-8')
                 )
                 . "</span>";
             echo "</div>";
@@ -93,7 +100,12 @@ if (!empty($priority_alerts)) {
                 // Confirmation portée par un attribut data-* entièrement échappé et
                 // lue par un gestionnaire délégué (script en fin de bloc) : aucun
                 // texte dynamique (nom d'imprimante issu du SNMP) dans un attribut on*.
-                $confirm_msg = sprintf(__('Réattribuer l\'expédition à %s ?', 'printgestion'), $pa['detected_name']);
+                $confirm_msg = sprintf(
+                    __('Réattribuer l\'envoi #%1$d de %2$s à %3$s ? Il sera marqué posé sur %3$s.', 'printgestion'),
+                    (int) $pa['expeditions_id'],
+                    $pa['intended_name'],
+                    $pa['detected_name']
+                );
                 echo "<form method='post' action='" . PLUGIN_PRINTGESTION_WEBDIR . "/ajax/reassign_expedition.php' class='d-inline'"
                     . " data-pg-confirm=\"" . htmlspecialchars($confirm_msg, ENT_QUOTES, 'UTF-8') . "\">";
                 echo Html::hidden('expedition_id', ['value' => $pa['expeditions_id']]);

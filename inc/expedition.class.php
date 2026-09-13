@@ -1483,8 +1483,71 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     }
 
     /**
-     * Réassigne une expédition à une autre imprimante, typiquement depuis
-     * une alerte wrong_printer où l'utilisateur accepte le nouveau destinataire.
+     * Motif de refus d'une réattribution, chaîne vide si elle est acceptée. Réattribution
+     * manuelle uniquement, d'un envoi déjà parti, vers l'imprimante où une alerte « mauvaise
+     * imprimante » encore ouverte a détecté la pose : jamais vers une autre machine, jamais
+     * un envoi en attente, posé ou annulé.
+     */
+    public static function getReassignRefusal(int $expedition_id, int $new_printers_id): string {
+        global $DB;
+
+        $exp = $DB->request([
+            'SELECT' => ['id', 'statut'],
+            'FROM'   => self::getTable(),
+            'WHERE'  => ['id' => $expedition_id],
+            'LIMIT'  => 1,
+        ])->current();
+        if (!is_array($exp)) {
+            return sprintf(__('Réattribution refusée : envoi #%d introuvable.', 'printgestion'), $expedition_id);
+        }
+        $statut = (string) $exp['statut'];
+        if (in_array($statut, [self::STATUS_INSTALLED, 'cancelled'], true)) {
+            return sprintf(__('Réattribution refusée : l\'envoi #%d est déjà clos (posé ou annulé).', 'printgestion'), $expedition_id);
+        }
+        if (!in_array($statut, self::DEPARTED_STATUSES, true)) {
+            return sprintf(
+                __('Réattribution refusée : l\'envoi #%d n\'est pas encore parti ; seul un envoi expédié, en transit ou livré peut avoir été posé ailleurs.', 'printgestion'),
+                $expedition_id
+            );
+        }
+
+        $alert = $DB->request([
+            'SELECT' => ['id'],
+            'FROM'   => 'glpi_plugin_printgestion_alerts',
+            'WHERE'  => [
+                'alert_type'           => 'wrong_printer',
+                'expeditions_id'       => $expedition_id,
+                'detected_printers_id' => $new_printers_id,
+                'is_resolved'          => 0,
+            ],
+            'LIMIT'  => 1,
+        ])->current();
+        if (!is_array($alert)) {
+            return sprintf(
+                __('Réattribution refusée : aucune alerte « mauvaise imprimante » en cours n\'a détecté la pose de l\'envoi #%d sur cette imprimante.', 'printgestion'),
+                $expedition_id
+            );
+        }
+        return '';
+    }
+
+    /** Résout les alertes « mauvaise imprimante » ouvertes d'un envoi (réattribué, annulé ou posé). */
+    public static function resolveWrongPrinterAlerts(int $expedition_id): void {
+        global $DB;
+
+        $DB->update('glpi_plugin_printgestion_alerts', [
+            'is_resolved' => 1,
+        ], [
+            'alert_type'     => 'wrong_printer',
+            'expeditions_id' => $expedition_id,
+            'is_resolved'    => 0,
+        ]);
+    }
+
+    /**
+     * Réassigne une expédition à une autre imprimante, depuis une alerte wrong_printer
+     * où l'utilisateur, après vérification, accepte le nouveau destinataire. Refusée si
+     * getReassignRefusal() donne un motif.
      *
      * Effets :
      *   - Met à jour expedition.printers_id = $new_printers_id
@@ -1497,7 +1560,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     public static function reassignToPrinter(int $expedition_id, int $new_printers_id): bool {
         global $DB;
 
-        if ($expedition_id <= 0 || $new_printers_id <= 0) {
+        if ($expedition_id <= 0 || $new_printers_id <= 0
+            || self::getReassignRefusal($expedition_id, $new_printers_id) !== '') {
             return false;
         }
 
@@ -1544,13 +1608,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         );
 
         // 3. Marque toutes les alertes wrong_printer liées comme résolues
-        $DB->update('glpi_plugin_printgestion_alerts', [
-            'is_resolved' => 1,
-        ], [
-            'alert_type'     => 'wrong_printer',
-            'expeditions_id' => $expedition_id,
-            'is_resolved'    => 0,
-        ]);
+        self::resolveWrongPrinterAlerts($expedition_id);
 
         return true;
     }

@@ -82,6 +82,12 @@ try {
     exit;
 }
 
+// Envoi annulé ou pose confirmée à la main : une alerte « mauvaise imprimante » qui
+// proposait de le réattribuer n'a plus d'objet.
+if ($ok && in_array($statut, ['cancelled', 'installed'], true)) {
+    PluginPrintgestionExpedition::resolveWrongPrinterAlerts($expedition_id);
+}
+
 echo json_encode([
     'ok'      => (bool)$ok,
     'updated' => (int)$ok,

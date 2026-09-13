@@ -25,6 +25,14 @@ if (PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id) === null
     throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException();
 }
 
+// Réattribution manuelle d'un envoi parti, vers l'imprimante où une alerte « mauvaise
+// imprimante » en cours a détecté la pose ; jamais vers une autre machine.
+$refusal = PluginPrintgestionExpedition::getReassignRefusal($expedition_id, $new_printers_id);
+if ($refusal !== '') {
+    Session::addMessageAfterRedirect(htmlspecialchars($refusal, ENT_QUOTES, 'UTF-8'), true, ERROR);
+    Html::back();
+}
+
 if (PluginPrintgestionExpedition::reassignToPrinter($expedition_id, $new_printers_id)) {
     Session::addMessageAfterRedirect(
         __('Expédition réassignée et alerte résolue', 'printgestion'),
