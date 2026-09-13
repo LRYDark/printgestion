@@ -254,7 +254,10 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   toners critiques ou à surveiller, non snoozés, sans verrou bloquant, sans ligne annulée depuis moins de
   30 jours sur la machine (`Demande::RECENT_CANCEL_DAYS`, sauf pose détectée ou confirmée depuis : une
   annulation n'est pas défaite au passage suivant, la commande directe reste possible) ; regroupement par client (entité) et
-  site (lieu racine) — la demande proposée existante du groupe est complétée, sinon créée (contact prérempli
+  site (lieu racine). **Un toner à surveiller ne déclenche pas d'envoi seul** : un site n'est proposé que s'il
+  compte un toner critique, ou pour compléter sa demande déjà proposée ; un toner à surveiller n'y est ajouté
+  qu'avec sa cartouche résolue (compteur « À surveiller en attente » du journal de la tâche). La demande
+  proposée existante du groupe est complétée, sinon créée (contact prérempli
   depuis la fiche de la première imprimante). Chaque ligne : cartouche résolue (0 si non résolue, ligne
   bloquée à la validation), couverture contrat, prix 0 sous contrat ou vide. Verrous réévalués juste avant
   l'écriture ; une transaction par groupe, groupe en échec annulé en entier et journalisé.

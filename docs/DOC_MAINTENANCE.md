@@ -163,6 +163,9 @@ nouvelle interception passe par `PluginPrintgestionLogger`.
 - Une ligne annulée (à la main, avec sa demande ou avec son expédition) écarte l'emplacement pendant 30 jours,
   sauf pose détectée ou confirmée depuis : compteur « Écartés (annulés < 30 j) » du journal de la tâche. La
   commande directe depuis l'écran des alertes reste possible.
+- Un site dont les toners sont seulement « à surveiller » n'est pas proposé : il faut un toner critique sur le
+  site, ou une demande déjà proposée à compléter. Un toner à surveiller sans cartouche résolue n'est jamais
+  ajouté. Compteur « À surveiller en attente » du journal de la tâche.
 - « Groupes en échec » dans le journal de la tâche : détail dans `files/_log/printgestion.log`
   (contexte `demandes`) ; le groupe est annulé en entier et retenté au passage suivant.
 

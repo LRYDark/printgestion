@@ -1273,6 +1273,10 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
      * jours, sans pose détectée ou confirmée depuis. L'annulation est une décision : elle
      * n'est pas défaite au passage suivant, et la commande directe depuis l'écran des
      * alertes reste possible.
+     * Regroupement par site : un toner à surveiller ne justifie pas un envoi à lui seul. Un
+     * site n'est proposé que s'il compte un toner critique, ou pour compléter la demande déjà
+     * proposée pour ce client et ce site ; un toner à surveiller n'y est ajouté qu'avec sa
+     * cartouche résolue.
      * Pour un client et un site, la demande proposée existante est complétée, sinon une
      * demande est créée. Chaque ligne porte la cartouche résolue (0 si non résolue : la
      * ligne est créée mais bloquée à la validation, jamais exportée sans référence), la
@@ -1281,7 +1285,8 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
      * journalisé, et n'empêche pas les autres.
      *
      * @return array ['demandes_created' => int, 'lines_added' => int, 'unresolved' => int,
-     *                'recently_cancelled' => int, 'failed_groups' => int]
+     *                'recently_cancelled' => int, 'deferred' => int (à surveiller non proposés),
+     *                'failed_groups' => int]
      */
     public static function proposeFromAlerts(): array {
         global $DB;
@@ -1291,6 +1296,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             'lines_added'        => 0,
             'unresolved'         => 0,
             'recently_cancelled' => 0,
+            'deferred'           => 0,
             'failed_groups'      => 0,
         ];
 
@@ -1352,6 +1358,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 $stats['demandes_created'] += $result['created'];
                 $stats['lines_added']      += $result['lines'];
                 $stats['unresolved']       += $result['unresolved'];
+                $stats['deferred']         += $result['deferred'];
                 if ($result['lines'] > 0) {
                     self::raiseEventFor('demande_proposed', (int) $result['demandes_id']);
                 }
@@ -1451,11 +1458,13 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
      *
      * Les verrous sont réévalués juste avant l'écriture : le calcul des alertes peut être
      * long et une commande a pu être passée entre-temps depuis l'écran des alertes.
+     * Sans toner critique ni demande déjà proposée, rien n'est écrit ; un toner à surveiller
+     * sans cartouche résolue n'est pas ajouté. Les deux sont comptés dans « deferred ».
      */
     private static function proposeGroup(array $group): array {
         global $DB;
 
-        $result = ['created' => 0, 'lines' => 0, 'unresolved' => 0, 'demandes_id' => 0];
+        $result = ['created' => 0, 'lines' => 0, 'unresolved' => 0, 'deferred' => 0, 'demandes_id' => 0];
 
         $locks = PluginPrintgestionGuard::evaluate(array_map(static fn(array $row) => [
             'printers_id' => (int) $row['printers_id'],
@@ -1480,6 +1489,19 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             ],
             'LIMIT'  => 1,
         ])->current();
+
+        $has_critical = false;
+        foreach ($rows as $row) {
+            if ($row['status'] === PluginPrintgestionAlert::STATUS_CRITICAL) {
+                $has_critical = true;
+                break;
+            }
+        }
+        if (!$has_critical && !is_array($existing)) {
+            // Seulement des toners à surveiller : ils attendent un envoi critique sur le site.
+            $result['deferred'] = count($rows);
+            return $result;
+        }
 
         if (is_array($existing)) {
             $demandes_id = (int) $existing['id'];
@@ -1512,6 +1534,11 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             $printers_id = (int) $row['printers_id'];
             $property    = (string) $row['property'];
             $ref         = PluginPrintgestionSnmpmapping::resolveCartridge($printers_id, $property);
+            if ($row['status'] !== PluginPrintgestionAlert::STATUS_CRITICAL && $ref['cartridgeitems_id'] <= 0) {
+                // À surveiller sans référence : pas de ligne bloquante ajoutée à l'envoi du site.
+                $result['deferred']++;
+                continue;
+            }
             $coverage    = PluginPrintgestionContractrate::getConsumablesCoverage($printers_id);
 
             $line    = new PluginPrintgestionDemandeline();
