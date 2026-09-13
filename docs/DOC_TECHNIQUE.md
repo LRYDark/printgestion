@@ -116,7 +116,9 @@ Tonerreading::snapshotAllPrinters() ──> toner_readings (horodaté)
         │                                        → Expedition::markInstalledOnDetection()
         │  (cron 2, horaire)
         ▼
-Alert : vitesse = (level_t-30 − level_t) / 30 ; jours_restants = level_t / vitesse
+Alert : pages restantes = niveau fiable × rendement (mesuré sur le cycle, sinon historique, sinon défaut)
+        − pages imprimées depuis ; jours restants = pages restantes / cadence (pages/jour lissées sur 28 j)
+        (relevé « niveau figé » : niveau inchangé malgré l'impression → conservé, marqué is_suspect)
         │
         ├─> statuts : ok / watch / critical (seuils config + seuils par imprimante)
         ├─> sendPendingAlerts() : mail commercial DIGEST (1 mail/run, voir §6)

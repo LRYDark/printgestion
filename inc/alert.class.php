@@ -32,98 +32,8 @@ class PluginPrintgestionAlert extends CommonDBTM {
         return parent::getTable($classname);
     }
 
-    /**
-     * Calcule le temps restant estimé pour une propriété toner.
-     * Retourne ['level' => int, 'speed_per_day' => float, 'days_remaining' => int|null].
-     * days_remaining = null si vitesse non calculable (pas assez d'historique ou vitesse nulle).
-     */
-    public static function computeRemaining(int $printers_id, string $property): array {
-        $latest = PluginPrintgestionTonerreading::getLatestLevel($printers_id, $property);
-        if ($latest === null) {
-            return ['level' => 0, 'speed_per_day' => 0.0, 'days_remaining' => null, 'is_estimate' => false];
-        }
-
-        $level_now = (int)$latest['level_percent'];
-        $past      = PluginPrintgestionTonerreading::getLevelNDaysAgo($printers_id, $property, 30);
-
-        if ($past !== null) {
-            $level_past = (int)$past['level_percent'];
-            $date_past  = strtotime((string)$past['reading_date']);
-            $date_now   = strtotime((string)$latest['reading_date']);
-
-            if ($level_past > $level_now && $date_now > $date_past) {
-                $days_elapsed = max(1, ($date_now - $date_past) / 86400);
-                $speed        = ($level_past - $level_now) / $days_elapsed;
-                if ($speed > 0) {
-                    return [
-                        'level'          => $level_now,
-                        'speed_per_day'  => $speed,
-                        'days_remaining' => (int)floor($level_now / $speed),
-                        'is_estimate'    => false,
-                    ];
-                }
-            }
-        }
-
-        // Niveau stable → pas d'estimation (plus de fallback date_creation qui trompait)
-        return ['level' => $level_now, 'speed_per_day' => 0.0, 'days_remaining' => null, 'is_estimate' => false];
-    }
-
-    /**
-     * Fallback de calcul quand l'historique est insuffisant.
-     * Utilise glpi_printers_cartridgeinfos.date_creation comme pseudo-point de départ
-     * en supposant que le toner était à 100% à l'inventaire initial.
-     */
-    protected static function computeFallbackFromSnmp(int $printers_id, string $property, ?int $level_now_hint = null): array {
-        global $DB;
-
-        $row = $DB->request([
-            'SELECT' => ['value', 'date_creation', 'date_mod'],
-            'FROM'   => 'glpi_printers_cartridgeinfos',
-            'WHERE'  => [
-                'printers_id' => $printers_id,
-                'property'    => $property,
-            ],
-            'LIMIT'  => 1,
-        ])->current();
-
-        if (!is_array($row)) {
-            return ['level' => $level_now_hint ?? 0, 'speed_per_day' => 0.0, 'days_remaining' => null, 'is_estimate' => false];
-        }
-
-        // Parse la valeur live si pas fournie en paramètre
-        if ($level_now_hint === null) {
-            $parsed = PluginPrintgestionTonerreading::parseTonerValue((string)$row['value']);
-            if (!$parsed['usable']) {
-                return ['level' => 0, 'speed_per_day' => 0.0, 'days_remaining' => null, 'is_estimate' => false];
-            }
-            $level_now = (int)$parsed['value'];
-        } else {
-            $level_now = $level_now_hint;
-        }
-
-        $date_creation = !empty($row['date_creation']) ? strtotime((string)$row['date_creation']) : null;
-        if ($date_creation === null || $date_creation <= 0) {
-            return ['level' => $level_now, 'speed_per_day' => 0.0, 'days_remaining' => null, 'is_estimate' => false];
-        }
-
-        $days_since_inventory = max(1, (time() - $date_creation) / 86400);
-        $consumed             = max(0, 100 - $level_now);
-
-        if ($consumed <= 0) {
-            return ['level' => $level_now, 'speed_per_day' => 0.0, 'days_remaining' => null, 'is_estimate' => true];
-        }
-
-        $speed          = $consumed / $days_since_inventory;
-        $days_remaining = (int)floor($level_now / $speed);
-
-        return [
-            'level'          => $level_now,
-            'speed_per_day'  => $speed,
-            'days_remaining' => $days_remaining,
-            'is_estimate'    => true,
-        ];
-    }
+    /** Fenêtre de lissage de la cadence de pages par jour (vacances scolaires comprises). */
+    const PAGES_RATE_DAYS = 28;
 
     /**
      * Calcul d'estimation jours restants — approche FM Audit-like précise.
@@ -169,8 +79,16 @@ class PluginPrintgestionAlert extends CommonDBTM {
         }
         $cycle = array_slice($readings, $cycle_start_idx);
 
-        $latest = end($cycle);
-        reset($cycle);
+        // Relevés « niveau figé » (is_suspect) : compteurs fiables, niveau non. Ils servent à la
+        // cadence de pages et aux pages imprimées depuis le dernier niveau fiable, pas au rendement.
+        $reliable = array_values(array_filter($cycle, static fn(array $r) => empty($r['is_suspect'])));
+        if (empty($reliable)) {
+            $reliable = $cycle;
+        }
+        $latest_any    = end($readings);
+        $level_suspect = !empty($latest_any['is_suspect']);
+
+        $latest = end($reliable);
         $level_now = (int)$latest['level_percent'];
 
         // ── 2. Sélection du bon compteur selon la couleur du toner ───────
@@ -224,34 +142,42 @@ class PluginPrintgestionAlert extends CommonDBTM {
         // ── 4. Pages restantes ───────────────────────────────────────────
         $pages_remaining = $level_now * $yield_per_percent;
 
-        // ── 5. Pages par jour sur 7j glissants (utilise le compteur spécifique) ──
+        // ── 5. Pages par jour lissées sur PAGES_RATE_DAYS (28) jours glissants : une semaine de
+        //       vacances (écoles, mairies) ne fausse plus la cadence. Tous les relevés comptent,
+        //       suspects compris, et la fenêtre dépasse le cycle courant (compteur de l'imprimante). ──
+        $counter_of = static function (array $r) use ($counter_key): int {
+            $specific = (int)($r[$counter_key] ?? 0);
+            $total    = (int)($r['total_pages'] ?? 0);
+            return ($specific === 0 && $total > 0) ? $total : $specific;
+        };
+
         $pages_per_day = 0.0;
-        $cutoff_7d_ts  = time() - (7 * 86400);
+        $cutoff_ts     = time() - (self::PAGES_RATE_DAYS * 86400);
         $past_reading  = null;
-        foreach ($cycle as $r) {
+        foreach ($readings as $r) {
             $ts = strtotime((string)$r['reading_date']);
-            if ($ts !== false && $ts <= $cutoff_7d_ts) {
+            if ($ts !== false && $ts <= $cutoff_ts) {
                 $past_reading = $r;
             }
         }
-        // Si rien à 7j, prendre le plus ancien du cycle
-        if ($past_reading === null && count($cycle) >= 2) {
-            $past_reading = reset($cycle);
+        // Moins de 28 jours d'historique : le plus ancien relevé disponible.
+        if ($past_reading === null && count($readings) >= 2) {
+            $past_reading = reset($readings);
         }
 
-        if ($past_reading && $past_reading !== $latest) {
-            $pages_past    = (int)($past_reading[$counter_key] ?? 0);
-            $pages_past_tt = (int)($past_reading['total_pages'] ?? 0);
-            if ($pages_past === 0 && $pages_past_tt > 0) {
-                $pages_past = $pages_past_tt;
-            }
-            $date_past = strtotime((string)$past_reading['reading_date']);
-            $date_now  = strtotime((string)$latest['reading_date']);
-            if ($pages_now_cnt > $pages_past && $date_now > $date_past) {
+        $pages_last = $counter_of($latest_any);
+        if ($past_reading && $past_reading !== $latest_any) {
+            $pages_past = $counter_of($past_reading);
+            $date_past  = strtotime((string)$past_reading['reading_date']);
+            $date_now   = strtotime((string)$latest_any['reading_date']);
+            if ($pages_last > $pages_past && $date_now > $date_past) {
                 $days_elapsed  = max(1, ($date_now - $date_past) / 86400);
-                $pages_per_day = ($pages_now_cnt - $pages_past) / $days_elapsed;
+                $pages_per_day = ($pages_last - $pages_past) / $days_elapsed;
             }
         }
+
+        // Pages imprimées depuis le dernier niveau fiable (niveau figé) : déduites du restant.
+        $pages_remaining = max(0.0, $pages_remaining - max(0, $pages_last - $pages_now_cnt));
 
         // ── 6. Jours restants ────────────────────────────────────────────
         // Guards : div 0 impossible ici (yield_per_percent >= 1 via max, pages_per_day > 0)
@@ -261,7 +187,8 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 'level'          => $level_now,
                 'speed_per_day'  => 0.0,
                 'days_remaining' => null,
-                'is_estimate'    => false,
+                'is_estimate'    => $level_suspect,
+                'level_suspect'  => $level_suspect,
             ];
         }
 
@@ -271,64 +198,11 @@ class PluginPrintgestionAlert extends CommonDBTM {
             'level'          => $level_now,
             'speed_per_day'  => $pages_per_day / $yield_per_percent,
             'days_remaining' => $days_remaining,
-            'is_estimate'    => $yield_source !== 'measured',
+            'is_estimate'    => $yield_source !== 'measured' || $level_suspect,
+            'level_suspect'  => $level_suspect,
             'yield_source'   => $yield_source,
             'pages_per_day'  => $pages_per_day,
             'yield_per_pct'  => $yield_per_percent,
-        ];
-    }
-
-    /**
-     * Variante de computeRemaining() qui utilise des données pré-chargées en batch
-     * (évite N+1 queries lors du listing de toutes les imprimantes).
-     *
-     * @param int      $printers_id
-     * @param string   $property
-     * @param int      $level_live_snmp  Valeur live SNMP parsée (niveau actuel réel)
-     * @param array|null $latest_reading  Dernier relevé stocké (ou null)
-     * @param array|null $past_reading    Relevé ~30 jours en arrière (ou null)
-     * @param string|null $inventory_date date_creation de cartridgeinfos (fallback)
-     */
-    public static function computeRemainingFromCache(
-        int $printers_id,
-        string $property,
-        int $level_live_snmp,
-        ?array $latest_reading,
-        ?array $past_reading,
-        ?string $inventory_date
-    ): array {
-        $level_now = is_array($latest_reading)
-            ? (int)$latest_reading['level_percent']
-            : $level_live_snmp;
-
-        // Si relevé passé disponible et niveau a diminué → calcul de vitesse réelle
-        if (is_array($past_reading) && is_array($latest_reading)) {
-            $level_past = (int)$past_reading['level_percent'];
-            $date_past  = strtotime((string)$past_reading['reading_date']);
-            $date_now   = strtotime((string)$latest_reading['reading_date']);
-
-            if ($level_past > $level_now && $date_now > $date_past) {
-                $days_elapsed = max(1, ($date_now - $date_past) / 86400);
-                $speed        = ($level_past - $level_now) / $days_elapsed;
-                if ($speed > 0) {
-                    return [
-                        'level'          => $level_now,
-                        'speed_per_day'  => $speed,
-                        'days_remaining' => (int)floor($level_now / $speed),
-                        'is_estimate'    => false,
-                    ];
-                }
-            }
-        }
-
-        // Pas de baisse détectée entre les relevés → niveau stable, pas d'estimation
-        // fiable. On retourne null pour days_remaining (affiché "Stable" côté UI)
-        // au lieu du fallback "date d'inventaire" qui donnait des valeurs arbitraires.
-        return [
-            'level'          => $level_now,
-            'speed_per_day'  => 0.0,
-            'days_remaining' => null,
-            'is_estimate'    => false,
         ];
     }
 
@@ -391,6 +265,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
             if ($DB->fieldExists($tr_table, 'total_pages')) $tr_select[] = 'total_pages';
             if ($DB->fieldExists($tr_table, 'bw_pages'))    $tr_select[] = 'bw_pages';
             if ($DB->fieldExists($tr_table, 'color_pages')) $tr_select[] = 'color_pages';
+            if ($DB->fieldExists($tr_table, 'is_suspect'))  $tr_select[] = 'is_suspect';
 
             foreach ($DB->request([
                 'SELECT' => $tr_select,
@@ -559,6 +434,8 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 'speed_per_day'  => $computed['speed_per_day'],
                 'days_remaining' => $computed['days_remaining'],
                 'is_estimate'    => (bool)($computed['is_estimate'] ?? false),
+                // Niveau figé alors que l'imprimante imprime : lecture SNMP suspecte.
+                'level_suspect'  => (bool)($computed['level_suspect'] ?? false),
                 'status'         => $status,
                 'cartridge_type' => $cartridge_label,
                 'toner_color'    => $toner_color,

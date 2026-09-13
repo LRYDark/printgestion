@@ -16,6 +16,13 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
 
     static $rightname = 'plugin_printgestion_dashboard';
 
+    /**
+     * Niveau figé : un relevé au niveau inchangé est conservé, marqué suspect, quand
+     * l'imprimante a imprimé au moins l'équivalent de ce nombre de points de pourcentage
+     * (rendement de la cartouche / 100) depuis le relevé précédent.
+     */
+    const FROZEN_PERCENT_STEPS = 3;
+
     static function getTypeName($nb = 0) {
         return _n('Relevé toner', 'Relevés toner', $nb, 'printgestion');
     }
@@ -70,17 +77,30 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
             $latest[$key] = $r['max_date'];
         }
         $latest_levels = [];
+        $latest_pages  = [];
         if (!empty($latest)) {
             foreach ($DB->request([
-                'SELECT' => ['printers_id', 'property_name', 'level_percent', 'reading_date'],
+                'SELECT' => ['printers_id', 'property_name', 'level_percent', 'reading_date', 'total_pages', 'bw_pages', 'color_pages'],
                 'FROM'   => $table,
                 'WHERE'  => ['reading_date' => ['IN', array_unique(array_values($latest))]],
             ]) as $r) {
                 $key = $r['printers_id'] . '|' . $r['property_name'];
                 if (isset($latest[$key]) && $latest[$key] === $r['reading_date']) {
                     $latest_levels[$key] = (int)$r['level_percent'];
+                    $latest_pages[$key]  = ['total' => (int)$r['total_pages'], 'bw' => (int)$r['bw_pages'], 'color' => (int)$r['color_pages']];
                 }
             }
+        }
+
+        // Rendement par imprimante (pages par cartouche) : seuil de détection d'un niveau figé.
+        $default_yield  = max(100, (int)(PluginPrintgestionConfig::getInstance()->fields['default_pages_per_cartridge'] ?? 5000));
+        $printer_yields = [];
+        foreach ($DB->request([
+            'SELECT' => ['printers_id', 'pages_per_cartridge'],
+            'FROM'   => 'glpi_plugin_printgestion_printer_thresholds',
+            'WHERE'  => ['pages_per_cartridge' => ['>', 0]],
+        ]) as $r) {
+            $printer_yields[(int)$r['printers_id']] = (int)$r['pages_per_cartridge'];
         }
 
         // 2. Précharge les compteurs pages COURANTS (dernier printerlog) par imprimante.
@@ -158,12 +178,22 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
             $level = (int)$parsed['value'];
             $key   = $pid . '|' . $prop;
 
-            // Dedup : skip si identique au dernier relevé stocké
+            $pc         = $printer_counters[$pid] ?? ['total' => 0, 'bw' => 0, 'color' => 0];
+            $is_suspect = 0;
+
+            // Niveau identique au dernier relevé stocké : relevé inutile… sauf si l'imprimante a
+            // imprimé nettement plus que ce que représente un point de pourcentage. Niveau figé
+            // suspect : conservé et marqué, plutôt qu'écarté (ses compteurs restent exploitables).
             if (isset($latest_levels[$key]) && $latest_levels[$key] === $level) {
-                continue;
+                $counter   = in_array(PluginPrintgestionSnmpmapping::detectColor($prop), ['cyan', 'magenta', 'yellow'], true) ? 'color' : 'total';
+                $printed   = $pc[$counter] - ($latest_pages[$key][$counter] ?? $pc[$counter]);
+                $threshold = self::FROZEN_PERCENT_STEPS * max(1, (int)round(($printer_yields[$pid] ?? $default_yield) / 100));
+                if ($printed < $threshold) {
+                    continue;
+                }
+                $is_suspect = 1;
             }
 
-            $pc = $printer_counters[$pid] ?? ['total' => 0, 'bw' => 0, 'color' => 0];
             $to_insert[] = [
                 'printers_id'   => $pid,
                 'property_name' => $prop,
@@ -171,6 +201,7 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
                 'total_pages'   => $pc['total'],
                 'bw_pages'      => $pc['bw'],
                 'color_pages'   => $pc['color'],
+                'is_suspect'    => $is_suspect,
                 'reading_date'  => $now,
             ];
         }
@@ -188,24 +219,26 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
             $values_sql = [];
             foreach ($chunk as $ins) {
                 $values_sql[] = sprintf(
-                    "(%d, %s, %d, %d, %d, %d, %s)",
+                    "(%d, %s, %d, %d, %d, %d, %d, %s)",
                     $ins['printers_id'],
                     $DB->quote($ins['property_name']),
                     $ins['level_percent'],
                     $ins['total_pages'],
                     $ins['bw_pages'],
                     $ins['color_pages'],
+                    $ins['is_suspect'],
                     $DB->quote($ins['reading_date'])
                 );
             }
             $sql = "INSERT INTO `{$table}` "
-                 . "(`printers_id`, `property_name`, `level_percent`, `total_pages`, `bw_pages`, `color_pages`, `reading_date`) "
+                 . "(`printers_id`, `property_name`, `level_percent`, `total_pages`, `bw_pages`, `color_pages`, `is_suspect`, `reading_date`) "
                  . "VALUES " . implode(', ', $values_sql)
                  . " ON DUPLICATE KEY UPDATE "
                  . "`level_percent` = VALUES(`level_percent`), "
                  . "`total_pages`   = VALUES(`total_pages`), "
                  . "`bw_pages`      = VALUES(`bw_pages`), "
                  . "`color_pages`   = VALUES(`color_pages`), "
+                 . "`is_suspect`    = VALUES(`is_suspect`), "
                  . "`reading_date`  = VALUES(`reading_date`)";
             try {
                 $DB->doQuery($sql);
@@ -220,63 +253,6 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
             }
         }
         return $inserted;
-    }
-
-    /**
-     * Retourne le niveau le plus récent pour une imprimante + propriété.
-     * Retourne null si aucun relevé.
-     */
-    public static function getLatestLevel(int $printers_id, string $property): ?array {
-        global $DB;
-
-        $row = $DB->request([
-            'SELECT' => ['level_percent', 'reading_date'],
-            'FROM'   => self::getTable(),
-            'WHERE'  => [
-                'printers_id'   => $printers_id,
-                'property_name' => $property,
-            ],
-            'ORDER'  => ['reading_date DESC'],
-            'LIMIT'  => 1,
-        ])->current();
-
-        return is_array($row) ? $row : null;
-    }
-
-    /**
-     * Retourne le niveau le plus proche de N jours en arrière (fallback : le plus ancien).
-     */
-    public static function getLevelNDaysAgo(int $printers_id, string $property, int $days): ?array {
-        global $DB;
-
-        $target = date('Y-m-d H:i:s', strtotime("-{$days} days"));
-
-        $row = $DB->request([
-            'SELECT' => ['level_percent', 'reading_date'],
-            'FROM'   => self::getTable(),
-            'WHERE'  => [
-                'printers_id'   => $printers_id,
-                'property_name' => $property,
-                'reading_date'  => ['<=', $target],
-            ],
-            'ORDER'  => ['reading_date DESC'],
-            'LIMIT'  => 1,
-        ])->current();
-
-        if (!is_array($row)) {
-            $row = $DB->request([
-                'SELECT' => ['level_percent', 'reading_date'],
-                'FROM'   => self::getTable(),
-                'WHERE'  => [
-                    'printers_id'   => $printers_id,
-                    'property_name' => $property,
-                ],
-                'ORDER'  => ['reading_date ASC'],
-                'LIMIT'  => 1,
-            ])->current();
-        }
-
-        return is_array($row) ? $row : null;
     }
 
     /**

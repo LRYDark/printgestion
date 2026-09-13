@@ -38,6 +38,7 @@ class PluginPrintgestionSchema {
         '1.4.0' => 'migrateTo140',
         '1.4.1' => 'migrateTo141',
         '1.5.0' => 'migrateTo150',
+        '1.5.1' => 'migrateTo151',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -493,5 +494,15 @@ class PluginPrintgestionSchema {
             PRIMARY KEY (`id`),
             KEY `manufacturers_id` (`manufacturers_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
+    }
+
+    /**
+     * 1.5.1 — relevés « niveau figé » conservés et marqués (is_suspect = 1) au lieu d'être
+     * écartés : niveau inchangé alors que l'imprimante a imprimé. Relevés existants : 0.
+     */
+    private static function migrateTo151(Migration $migration): void {
+        $table = 'glpi_plugin_printgestion_toner_readings';
+        $migration->addField($table, 'is_suspect', "tinyint NOT NULL DEFAULT '0'");
+        $migration->migrationOneTable($table);
     }
 }
