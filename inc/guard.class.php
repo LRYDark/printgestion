@@ -6,8 +6,8 @@
  * et un emplacement toner (propriété SNMP), trois verrous empêchent de proposer ou
  * de passer une nouvelle commande :
  *
- *  1. ENVOI EN COURS — un envoi n'est ni posé ni annulé (commandé, stock vide,
- *     expédié, en transit, livré non posé), sans borne de temps. Jamais
+ *  1. ENVOI EN COURS — un envoi n'est ni posé ni annulé (commandé, expédié,
+ *     en transit, livré non posé), sans borne de temps. Jamais
  *     contournable : la cartouche existe déjà. Si elle a été détectée posée sur une
  *     autre machine (alerte « mauvaise imprimante » non résolue), le message renvoie
  *     vers la réattribution, qui clôt l'envoi et libère cette machine.
@@ -417,7 +417,6 @@ class PluginPrintgestionGuard {
     private static function statusLabel(string $statut): string {
         $labels = [
             'pending'     => __('commandé, en attente d\'expédition', 'printgestion'),
-            'stock_empty' => __('commandé, stock vide', 'printgestion'),
             'shipped'     => __('expédié', 'printgestion'),
             'transit'     => __('en transit', 'printgestion'),
             'delivered'   => __('livré, pose non constatée', 'printgestion'),

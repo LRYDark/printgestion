@@ -929,7 +929,7 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 'gabarit' => 'gabarit_planif',
             ],
             'achat'      => [
-                'label'   => __('Achats (stock vide)', 'printgestion'),
+                'label'   => __('Achats (commande de cartouches)', 'printgestion'),
                 'gabarit' => 'gabarit_achat',
             ],
             'commercial' => [
@@ -1547,6 +1547,7 @@ HTML;
             '##printgestion.level##'           => '',
             '##printgestion.days##'            => '',
             '##printgestion.cartridge##'       => '',
+            // Plus de stock GLPI : balise conservée, toujours vide, pour les gabarits existants.
             '##printgestion.stock##'           => '',
             '##printgestion.contract##'        => '',
             '##printgestion.carrier##'         => '',

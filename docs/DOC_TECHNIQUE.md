@@ -54,7 +54,7 @@ printgestion/
 | `Tonerreading` | Snapshot horodaté des niveaux toner (lit `glpi_printers_cartridgeinfos` SNMP GLPI 11) |
 | `Cartridgehistory` | Détection automatique des changements de cartouche (hausse de niveau ≥ `detection_delta` %) |
 | `Alert` | Calcul intelligent des alertes toner (vitesse de conso sur fenêtre 30 j) + **digest mail commercial** |
-| `Alertview` | Table **matérialisée** des alertes et écran natif (recherche, colonnes verrou / référence / stock, actions de masse Commander, Ne plus alerter, Réactiver) |
+| `Alertview` | Table **matérialisée** des alertes et écran natif (recherche, colonnes verrou / référence, actions de masse Commander, Ne plus alerter, Réactiver) |
 | `Expedition` | Cycle d'expédition des cartouches, **tous les circuits mail** (planif/achats/courtoisie/rappels) |
 | `Demande` / `Demandeline` | Demande d'envoi (en-tête client + site, lignes) : statuts, contrôles avant validation, historique natif |
 | `Guard` | Verrous anti-double-envoi (envoi en cours, demande ouverte, garde après pose, ticket récent) |
@@ -72,7 +72,7 @@ printgestion/
 | `PrinterCostsTab` | Onglet « Coût à la page » sur la fiche imprimante |
 | `Tracking` | Intégrations externes : BL signés du plugin Gestion + APIs transporteurs (UPS/GLS/Chronopost) |
 | `Reminder` | Les 3 tâches cron GLPI (voir §7) |
-| `Dashboardactions` | Menu contextuel et modales des écrans Expéditions et Coût à la page (stock, modifier l'expédition, BL) |
+| `Dashboardactions` | Menu contextuel et modales des écrans Expéditions et Coût à la page (modifier l'expédition, BL) |
 
 ---
 
@@ -155,7 +155,8 @@ l'amorçage des cartouches) :
   place restante) ;
 - données chargées une fois par requête (toutes les imprimantes), aucune requête par imprimante.
 
-Le stock = cartouches du modèle ni installées (`date_use IS NULL`) ni sorties (`date_out IS NULL`).
+Aucun stock n'est lu ni affiché : le stock est dans Sage, que le plugin ne lit pas (échanges par fichier Excel
+uniquement).
 
 ---
 
@@ -163,11 +164,13 @@ Le stock = cartouches du modèle ni installées (`date_use IS NULL`) ni sorties 
 
 ```
 pending ──(planif saisit transporteur+tracking)──> shipped ──> transit ──> delivered ──> installed
-   └── stock_empty si aucun stock au déclenchement              (+ cancelled : annulée, jamais supprimée)
+                                                                (+ cancelled : annulée, jamais supprimée)
 ```
 
-- **Envoi en cours** (`Expedition::ACTIVE_STATUSES`, sans borne de temps) : pending, stock_empty,
-  shipped, transit **et delivered**. « Livrée » ne clôt pas l'envoi : seule la **pose** le fait.
+- **Envoi en cours** (`Expedition::ACTIVE_STATUSES`, sans borne de temps) : pending, shipped, transit
+  **et delivered**. « Livrée » ne clôt pas l'envoi : seule la **pose** le fait.
+- **Aucun statut lié au stock** : le statut `stock_empty`, calculé sur le stock GLPI, est supprimé depuis la
+  1.5.7 (envois concernés repassés `pending`, avec une note dans l'expédition).
 - **Clôture** : `installed` quand la pose est détectée (hausse de niveau, §4), confirmée manuellement
   (fenêtre « Modifier expédition ») ou constatée sur une autre imprimante (réattribution) ;
   `cancelled` pour une annulation (aucune suppression de ligne).
@@ -278,7 +281,7 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   mention « non transmis », noté dans leur historique, sans mail, sans changement de statut ni expédition.
   Une seule ligne en défaut refuse l'export entier.
 - **Suivi après export** (`Demande::syncFromExpeditions()`, tâches `CheckAlerts` et `TrackingUpdate`, et à
-  l'ouverture d'une fiche) : chaque ligne exportée suit son expédition (en attente / stock vide → exportée,
+  l'ouverture d'une fiche) : chaque ligne exportée suit son expédition (en attente → exportée,
   expédiée ou en transit → expédiée, livrée → livrée, posée → posée, annulée → annulée) ; l'en-tête prend le
   statut le moins avancé des lignes non annulées, annulée si toutes le sont.
 - **Droits** : `plugin_printgestion_validation` (READ voir, UPDATE modifier / valider / annuler). La file
@@ -461,9 +464,10 @@ Détails d'implémentation (tous dans `expedition.class.php` sauf mention) :
 
 ### 6.4 Balises disponibles
 
-`##printgestion.printer##`, `client`, `toner`, `level`, `days`, `cartridge`, `stock`, `contract`,
+`##printgestion.printer##`, `client`, `toner`, `level`, `days`, `cartridge`, `contract`,
 `carrier`, `tracking`, `cartridges_list` (liste HTML détaillée), `printers_list` (liste imprimantes,
 courtoisie), `count`, `glpi_url`. Toute balise non fournie est remplacée par une chaîne vide.
+`stock` reste reconnue pour les gabarits existants, toujours vide : aucun stock GLPI n'est lu.
 
 ---
 

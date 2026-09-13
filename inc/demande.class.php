@@ -893,7 +893,6 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
     /** Statut d'une ligne exportée d'après le statut de son expédition. */
     const EXPEDITION_TO_LINE_STATUS = [
         'pending'     => 'exported',
-        'stock_empty' => 'exported',
         'shipped'     => 'shipped',
         'transit'     => 'shipped',
         'delivered'   => 'delivered',
@@ -1178,13 +1177,11 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                         if (!$line_object->update(['id' => (int) $key, 'statut' => self::STATUS_EXPORTED])) {
                             throw new RuntimeException(sprintf('Export de la ligne #%d refusé par GLPI.', $key));
                         }
-                        $stock          = PluginPrintgestionExpedition::getCartridgeStock((int) $line['cartridgeitems_id']);
                         $expeditions_id = PluginPrintgestionExpedition::createFromAlert(
                             (int) $line['printers_id'],
                             (string) $line['toner_property'],
                             (int) ($line['level_at_proposal'] ?? 0),
                             $line['estimated_days'] !== null ? (int) $line['estimated_days'] : null,
-                            $stock > 0 ? 'normal' : 'stock_empty',
                             $group_id
                         );
                         if ($expeditions_id <= 0

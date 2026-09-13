@@ -530,7 +530,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 continue;
             }
             // Ignorer tout emplacement verrouillé : envoi en cours quel que soit son
-            // statut (commandé, stock vide, expédié, en transit, livré non posé), garde
+            // statut (commandé, expédié, en transit, livré non posé), garde
             // après pose ou ticket récent — sauf contournement (consommation anormale).
             if (!empty($row['lock']) && $row['lock']['blocking']) {
                 continue;

@@ -38,7 +38,7 @@ if ($action === 'ship') {
         Session::addMessageAfterRedirect(__('Expédition marquée comme expédiée', 'printgestion'), true, INFO);
     } else {
         Session::addMessageAfterRedirect(
-            __('Expédition non modifiée : seul un envoi en attente (ou en stock vide) peut être marqué expédié.', 'printgestion'),
+            __('Expédition non modifiée : seul un envoi en attente peut être marqué expédié.', 'printgestion'),
             true,
             ERROR
         );

@@ -122,13 +122,12 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
         }
 
         foreach ($rows as $r) {
-            // Référence et stock : calculés pour les toners en alerte (ceux qu'on commande).
+            // Référence : résolue pour les toners en alerte (ceux qu'on commande). Aucun stock :
+            // il est dans Sage.
             $ref_error = null;
-            $stock     = 0;
             if ($r['status'] !== PluginPrintgestionAlert::STATUS_OK) {
                 $ref       = PluginPrintgestionSnmpmapping::resolveCartridge((int) $r['printers_id'], (string) $r['property']);
                 $ref_error = $ref['cartridgeitems_id'] > 0 ? null : (string) $ref['message'];
-                $stock     = PluginPrintgestionExpedition::getCartridgeStock((int) $ref['cartridgeitems_id']);
             }
             $lock = $r['lock'] ?? null;
 
@@ -150,7 +149,6 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
                 'lock_reason'       => $lock === null ? null : ($lock['blocking'] ? $lock['reason'] : 'bypassed'),
                 'lock_message'      => $lock['message'] ?? null,
                 'ref_error'         => $ref_error,
-                'stock'             => $stock,
                 'date_compute'      => $now,
             ]);
         }
@@ -421,8 +419,6 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
                   'name' => __('Motif du verrou', 'printgestion'), 'datatype' => 'text', 'massiveaction' => false];
         $tab[] = ['id' => '13', 'table' => $table, 'field' => 'ref_error',
                   'name' => __('Référence non résolue', 'printgestion'), 'datatype' => 'text', 'massiveaction' => false];
-        $tab[] = ['id' => '14', 'table' => $table, 'field' => 'stock',
-                  'name' => __('Stock GLPI', 'printgestion'), 'datatype' => 'number', 'massiveaction' => false];
         $tab[] = ['id' => '15', 'table' => $table, 'field' => 'level_suspect',
                   'name' => __('Niveau figé suspect', 'printgestion'), 'datatype' => 'bool', 'massiveaction' => false];
         $tab[] = ['id' => '16', 'table' => $table, 'field' => 'expedition_statut',

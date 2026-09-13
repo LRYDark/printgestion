@@ -2,7 +2,7 @@
 /**
  * PluginPrintgestionExpedition — gestion du cycle d'expédition des cartouches (Point 4).
  *
- * Statuts : pending (ou stock_empty) → shipped → transit → delivered → installed
+ * Statuts : pending → shipped → transit → delivered → installed
  *           ou cancelled (annulée, jamais supprimée).
  *
  * Un envoi reste EN COURS (ACTIVE_STATUSES) tant que la pose n'est pas détectée ou
@@ -21,17 +21,16 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     const STATUS_SHIPPED     = 'shipped';
     const STATUS_TRANSIT     = 'transit';
     const STATUS_DELIVERED   = 'delivered';
-    const STATUS_STOCK_EMPTY = 'stock_empty';
     /** Pose détectée (hausse de niveau) ou confirmée manuellement : clôt l'envoi. */
     const STATUS_INSTALLED   = 'installed';
     /** Annulée (jamais supprimée) : clôt l'envoi sans pose. */
     const STATUS_CANCELLED   = 'cancelled';
 
     /**
-     * Statuts d'un envoi EN COURS, sans borne de temps : commandé (pending,
-     * stock_empty), expédié, en transit ET livré tant que la pose n'est pas constatée.
+     * Statuts d'un envoi EN COURS, sans borne de temps : commandé (pending), expédié,
+     * en transit ET livré tant que la pose n'est pas constatée.
      */
-    const ACTIVE_STATUSES = ['pending', 'stock_empty', 'shipped', 'transit', 'delivered'];
+    const ACTIVE_STATUSES = ['pending', 'shipped', 'transit', 'delivered'];
 
     /** Envois partis : seule leur cartouche peut avoir été posée (ailleurs que prévu). */
     const DEPARTED_STATUSES = ['shipped', 'transit', 'delivered'];
@@ -223,7 +222,6 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                     'shipped'     => ['bg-primary',   __('Expédiée', 'printgestion')],
                     'transit'     => ['bg-info',      __('En transit', 'printgestion')],
                     'delivered'   => ['bg-success',   __('Livrée (non posée)', 'printgestion')],
-                    'stock_empty' => ['text-bg-dark', __('Stock vide', 'printgestion')],
                     'installed'   => ['bg-teal',      __('Posée', 'printgestion')],
                     'cancelled'   => ['bg-light text-muted border', __('Annulée', 'printgestion')],
                 ];
@@ -272,10 +270,10 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         if ($entities_id !== null) {
             $where['p.entities_id'] = $entities_id;
         }
-        if (in_array($statut, ['pending','shipped','transit','delivered','stock_empty'], true)) {
+        if (in_array($statut, ['pending','shipped','transit','delivered'], true)) {
             $where['e.statut'] = $statut;
         } elseif ($statut === 'active') {
-            $where['e.statut'] = ['pending','shipped','transit','stock_empty'];
+            $where['e.statut'] = ['pending','shipped','transit'];
         }
         if ($start !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $start)) {
             $where[] = ['e.date_alert' => ['>=', $start . ' 00:00:00']];
@@ -434,9 +432,9 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     }
 
     /**
-     * Enregistre une expédition, sans aucun mail : les notifications d'une commande
-     * sont envoyées par createPurchaseOrder(), seul parcours d'envoi.
-     * @param string $reason 'normal' (stock ok) ou 'stock_empty'.
+     * Enregistre une expédition « en attente », sans aucun mail : les notifications d'une
+     * commande sont envoyées par createPurchaseOrder(), seul parcours d'envoi. Aucun stock
+     * n'est consulté : le stock est dans Sage.
      * @param string|null $group_id UUID partagé par les expéditions d'une même commande.
      */
     public static function createFromAlert(
@@ -444,7 +442,6 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         string $property,
         int $level,
         ?int $estimated_days,
-        string $reason = 'normal',
         ?string $group_id = null
     ): int {
         global $DB;
@@ -457,15 +454,11 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         $mapping = PluginPrintgestionSnmpmapping::resolveForPrinter($printers_id, $property);
         $color   = is_array($mapping) ? (string)($mapping['toner_color'] ?? 'other') : 'other';
 
-        $statut = ($reason === 'stock_empty')
-            ? self::STATUS_STOCK_EMPTY
-            : self::STATUS_PENDING;
-
         $DB->insert(self::getTable(), [
             'printers_id'    => $printers_id,
             'toner_property' => $property,
             'toner_color'    => $color,
-            'statut'         => $statut,
+            'statut'         => self::STATUS_PENDING,
             'level_at_alert' => $level,
             'estimated_days' => $estimated_days,
             'date_alert'     => date('Y-m-d H:i:s'),
@@ -483,8 +476,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     /**
      * Données d'UNE cartouche pour les mails de commande (Achats, planification,
      * courtoisie) et pour sa ligne du fichier Gesconso : client (nom d'entité, pour les
-     * mails), imprimante, cartouche, stock GLPI, commentaire du lieu (Complément
-     * livraison) et couverture contrat. Le contenu du fichier est construit par
+     * mails), imprimante, cartouche, commentaire du lieu (Complément livraison) et
+     * couverture contrat. Le contenu du fichier est construit par
      * PluginPrintgestionGesconso::prepare().
      */
     public static function buildPurchaseRowData(int $printers_id, string $property, int $cartridgeitems_id): array {
@@ -529,7 +522,6 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         return [
             'client'         => $entity_name,
             'complement'     => $loc_comment,
-            'stock'          => self::getCartridgeStock($cartridgeitems_id),
             // Sous contrat (type « consommables inclus », contrat en cours) : prix 0 dans le fichier.
             'under_contract' => PluginPrintgestionContractrate::getConsumablesCoverage($printers_id)['under_contract'],
             'printers_id'    => $printers_id,
@@ -541,7 +533,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
 
     /**
      * Crée une COMMANDE de cartouches (mono OU multi-imprimantes) :
-     *   - 1 expédition par cartouche (statut pending/stock_empty, group_id commun)
+     *   - 1 expédition par cartouche (statut pending, group_id commun)
      *   - 1 fichier Excel (1 cartouche/ligne) envoyé aux ACHATS, demandeur en copie,
      *     corps de mail générique (tout le détail est dans l'Excel).
      *
@@ -676,7 +668,6 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 'property'    => $c['property'],
                 'level'       => $c['level'],
                 'days'        => $c['days'],
-                'reason'      => self::getCartridgeStock($cartridgeitems_id) > 0 ? 'normal' : 'stock_empty',
             ];
 
             $row = self::buildPurchaseRowData($c['printers_id'], $c['property'], $cartridgeitems_id);
@@ -737,7 +728,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             try {
                 $expedition_ids = [];
                 foreach ($to_create as $c) {
-                    $expeditions_id = self::createFromAlert($c['printers_id'], $c['property'], $c['level'], $c['days'], $c['reason'], $group_id);
+                    $expeditions_id = self::createFromAlert($c['printers_id'], $c['property'], $c['level'], $c['days'], $group_id);
                     if ($expeditions_id > 0) {
                         $result['created']++;
                         $expedition_ids[] = $expeditions_id;
@@ -850,7 +841,6 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 ? sprintf(__('%d imprimantes', 'printgestion'), count($printers))
                 : (string)($printers[0] ?? ''),
             '##printgestion.cartridge##' => implode(', ', $carts),
-            '##printgestion.stock##'     => count($rows) === 1 ? (string)(int)($rows[0]['stock'] ?? 0) : '',
         ];
     }
 
@@ -1043,7 +1033,6 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                     '##printgestion.level##'     => (string)(int)($r['level'] ?? 0),
                     '##printgestion.days##'      => isset($r['days']) && $r['days'] !== null ? (string)(int)$r['days'] : 'N/A',
                     '##printgestion.cartridge##' => (string)($r['cartridge_name'] ?? ''),
-                    '##printgestion.stock##'     => (string)(int)($r['stock'] ?? 0),
                     '##printgestion.contract##'  => $contract_name,
                     '##printgestion.count##'     => '1',
                 ]);
@@ -1060,14 +1049,10 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         if ($gabarit > 0) {
             $list = '<ul>';
             foreach (array_slice($rows, 0, self::MAIL_LIST_MAX) as $r) {
-                $stock_txt = ((int)($r['stock'] ?? 0) > 0)
-                    ? ('stock: ' . (int)$r['stock'])
-                    : ('<strong style="color:#c00">stock vide</strong>');
                 $list .= '<li>'
                     . '<strong>' . htmlspecialchars((string)($r['cartridge_name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</strong>'
                     . ' — ' . htmlspecialchars((string)($r['client'] ?? ''), ENT_QUOTES, 'UTF-8')
                     . ' — ' . htmlspecialchars((string)($r['printer_name'] ?? ''), ENT_QUOTES, 'UTF-8')
-                    . ' — ' . $stock_txt
                     . '</li>';
             }
             if (count($rows) > self::MAIL_LIST_MAX) {
@@ -1092,8 +1077,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         foreach ($rows as $r) {
             $list .= '<li><strong>' . htmlspecialchars((string)($r['printer_name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</strong> — '
                 . htmlspecialchars((string)($r['client'] ?? ''), ENT_QUOTES, 'UTF-8') . ' — '
-                . htmlspecialchars((string)($r['cartridge_name'] ?? ''), ENT_QUOTES, 'UTF-8')
-                . ' <span style="color:#666">(stock: ' . (int)($r['stock'] ?? 0) . ')</span></li>';
+                . htmlspecialchars((string)($r['cartridge_name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</li>';
         }
         $list .= '</ul>';
 
@@ -1204,62 +1188,9 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     }
 
     /**
-     * Calcule le stock disponible d'un cartridgeitem (par ID GLPI).
-     * Stock = cartouches déclarées non installées (date_use IS NULL) et non sorties.
-     *
-     * Accepte aussi un nom (rétrocompat legacy) pour les vieux call-sites.
-     */
-    public static function getCartridgeStock($cartridge): int {
-        global $DB;
-
-        // Résout vers un ou plusieurs cartridgeitems_id
-        $ids = [];
-        if (is_int($cartridge) || ctype_digit((string)$cartridge)) {
-            $id = (int)$cartridge;
-            if ($id > 0) {
-                $ids[] = $id;
-            }
-        } elseif (is_string($cartridge) && $cartridge !== '') {
-            // Legacy : recherche par nom LIKE
-            foreach ($DB->request([
-                'SELECT' => ['id'],
-                'FROM'   => 'glpi_cartridgeitems',
-                'WHERE'  => [
-                    'is_deleted' => 0,
-                    'name'       => ['LIKE', '%' . $cartridge . '%'],
-                ],
-            ]) as $it) {
-                $ids[] = (int)$it['id'];
-            }
-        }
-
-        if (empty($ids)) {
-            return 0;
-        }
-
-        $total = 0;
-        foreach ($ids as $item_id) {
-            $count = $DB->request([
-                'COUNT' => 'cpt',
-                'FROM'  => 'glpi_cartridges',
-                'WHERE' => [
-                    'cartridgeitems_id' => $item_id,
-                    'date_use'          => null,
-                    'date_out'          => null,
-                ],
-            ])->current();
-            if (is_array($count)) {
-                $total += (int)$count['cpt'];
-            }
-        }
-
-        return $total;
-    }
-
-    /**
      * Passe une expédition au statut "shipped" après saisie par la planif.
-     * Seul un envoi commandé (en attente ou stock vide) peut être marqué expédié : un
-     * envoi déjà expédié, livré, posé ou annulé n'est ni modifié ni rouvert ici.
+     * Seul un envoi commandé (en attente) peut être marqué expédié : un envoi déjà
+     * expédié, livré, posé ou annulé n'est ni modifié ni rouvert ici.
      */
     public static function markShipped(int $expedition_id, string $carrier, string $tracking, ?int $bl_surveys_id = null): bool {
         global $DB;
@@ -1280,7 +1211,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
 
         $ok = $DB->update(self::getTable(), $data, [
             'id'     => $expedition_id,
-            'statut' => [self::STATUS_PENDING, self::STATUS_STOCK_EMPTY],
+            'statut' => self::STATUS_PENDING,
         ]) && $DB->affectedRows() > 0;
         if ($ok) {
             self::notifyShippedToCommercial($expedition_id);

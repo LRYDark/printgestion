@@ -113,8 +113,8 @@ echo "</div>";
 $itemtype = PluginPrintgestionAlertview::class;
 $params   = Search::manageParams($itemtype, $_GET);
 $params['target'] = $page;
-// Imprimante, Client, Toner, Cartouche, Niveau, Jours, Statut, Verrou, Envoi en cours, Stock, Référence
-$forced = [1, 80, 2, 3, 4, 5, 6, 11, 16, 14, 13];
+// Imprimante, Client, Toner, Cartouche, Niveau, Jours, Statut, Verrou, Envoi en cours, Référence
+$forced = [1, 80, 2, 3, 4, 5, 6, 11, 16, 13];
 
 echo "<div class='search_page row'>";
 echo "<div class='col search-container' data-glpi-search-container>";

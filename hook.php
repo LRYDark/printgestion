@@ -163,7 +163,7 @@ function plugin_printgestion_template_definitions(): array {
             ),
         ],
         'gabarit_achat' => [
-            'name'    => 'Print Gestion - Commander cartouche (stock vide)',
+            'name'    => 'Print Gestion - Commande cartouches (Achats)',
             'subject' => '[Print Gestion] Commande cartouches — ##printgestion.count## référence(s)',
             'html'    => plugin_printgestion_email_html('#ea580c', 'Commande cartouche requise',
                 '<p style="margin:0 0 14px;">Bonjour,</p>'

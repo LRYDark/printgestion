@@ -44,6 +44,7 @@ class PluginPrintgestionSchema {
         '1.5.4' => 'migrateTo154',
         '1.5.5' => 'migrateTo155',
         '1.5.6' => 'migrateTo156',
+        '1.5.7' => 'migrateTo157',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -595,5 +596,77 @@ class PluginPrintgestionSchema {
         $config = 'glpi_plugin_printgestion_configs';
         $migration->dropField($config, 'wrong_printer_auto_reassign_days');
         $migration->migrationOneTable($config);
+    }
+
+    /**
+     * 1.5.7 — aucun stock GLPI : le stock est dans Sage, que le plugin ne lit pas.
+     * Les envois « stock vide » repassent « en attente » (ils sont commandés, rien de plus),
+     * avec une note dans chaque expédition, puis le statut disparaît. Retirés aussi : la
+     * colonne stock de la table des alertes et sa préférence d'affichage, le type d'alerte
+     * « stock_empty » (jamais écrit) et la mention « stock vide » du gabarit du mail aux
+     * Achats, qui est la commande quel que soit le stock.
+     */
+    private static function migrateTo157(Migration $migration): void {
+        global $DB;
+
+        $table = 'glpi_plugin_printgestion_expeditions';
+        $moved = 0;
+        foreach ($DB->request([
+            'SELECT' => ['id', 'notes'],
+            'FROM'   => $table,
+            'WHERE'  => ['statut' => 'stock_empty'],
+        ]) as $row) {
+            $DB->update($table, [
+                'statut' => 'pending',
+                'notes'  => trim((string) ($row['notes'] ?? '') . "\n[" . date('Y-m-d H:i') . '] '
+                    . 'Migration 1.5.7 : statut « stock vide » supprimé (aucun stock GLPI), envoi repassé « en attente ».'),
+            ], ['id' => (int) $row['id']]);
+            $moved++;
+        }
+        if ($moved > 0) {
+            $migration->displayMessage(sprintf(
+                'Print Gestion — %d envoi(s) « stock vide » repassé(s) « en attente » (note dans chaque expédition).',
+                $moved
+            ));
+        }
+        $migration->changeField(
+            $table,
+            'statut',
+            'statut',
+            "enum('pending','shipped','transit','delivered','installed','cancelled') NOT NULL DEFAULT 'pending'"
+        );
+        $migration->migrationOneTable($table);
+
+        $alerts = 'glpi_plugin_printgestion_alerts';
+        if (countElementsInTable($alerts, ['alert_type' => 'stock_empty']) === 0) {
+            $migration->changeField(
+                $alerts,
+                'alert_type',
+                'alert_type',
+                "enum('low_toner','no_install_reminder','contract_expiry','wrong_printer') NOT NULL"
+            );
+            $migration->migrationOneTable($alerts);
+        } else {
+            $migration->displayMessage('Print Gestion — type d\'alerte « stock_empty » conservé : des alertes le portent.');
+        }
+
+        $alertview = 'glpi_plugin_printgestion_alertview';
+        $migration->dropField($alertview, 'stock');
+        $migration->migrationOneTable($alertview);
+        $DB->delete('glpi_displaypreferences', [
+            'itemtype' => 'PluginPrintgestionAlertview',
+            'num'      => 14,
+        ]);
+
+        $templates = 'glpi_notificationtemplates';
+        $marker    = 'Created by plugin printgestion';
+        $new_name  = 'Print Gestion - Commande cartouches (Achats)';
+        if (countElementsInTable($templates, ['name' => $new_name, 'comment' => $marker]) === 0) {
+            $DB->update(
+                $templates,
+                ['name' => $new_name],
+                ['name' => 'Print Gestion - Commander cartouche (stock vide)', 'comment' => $marker]
+            );
+        }
     }
 }

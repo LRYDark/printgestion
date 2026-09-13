@@ -174,15 +174,9 @@ nouvelle interception passe par `PluginPrintgestionLogger`.
 
 Une ligne « absente du dernier import » n'est pas perdue : elle redevient active si elle réapparaît.
 
-### Le stock affiché est faux
-
-Stock = cartouches du `CartridgeItem` résolu avec `date_use IS NULL AND date_out IS NULL`.
-Vérifier le binding (onglet Print Gestion de la cartouche, ou mapping SNMP constructeur) :
-`Snmpmapping::resolveCartridge()` doit retrouver le bon modèle.
-
 ### Cartouche « Réf. non résolue » (non commandable)
 
-Le motif s'affiche au survol du badge (écran Alertes) et dans « Voir stock » :
+Le motif figure dans la colonne « Référence non résolue » de l'écran Alertes toner :
 
 - **modèle non renseigné** : compléter le modèle sur la fiche imprimante ;
 - **aucune cartouche** : sur la fiche de la cartouche, déclarer le modèle dans « Modèles d'imprimantes

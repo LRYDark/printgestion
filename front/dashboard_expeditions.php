@@ -23,7 +23,7 @@ $entities_id = (isset($_GET['entities_id']) && $_GET['entities_id'] !== '' && (i
     ? (int)$_GET['entities_id'] : null;
 
 $filter_status = $_GET['status'] ?? 'all';
-if (!in_array($filter_status, ['all', 'pending', 'shipped', 'transit', 'delivered', 'stock_empty'], true)) {
+if (!in_array($filter_status, ['all', 'pending', 'shipped', 'transit', 'delivered'], true)) {
     $filter_status = 'all';
 }
 
@@ -171,7 +171,7 @@ document.addEventListener('submit', function (e) {
 
 // ── Compteurs par statut (calculés, restreints par l'entité de l'imprimante) ──
 $exp_t         = 'glpi_plugin_printgestion_expeditions';
-$status_counts = ['pending' => 0, 'shipped' => 0, 'transit' => 0, 'delivered' => 0, 'stock_empty' => 0, 'installed' => 0, 'cancelled' => 0];
+$status_counts = ['pending' => 0, 'shipped' => 0, 'transit' => 0, 'delivered' => 0, 'installed' => 0, 'cancelled' => 0];
 $sel = [];
 foreach (array_keys($status_counts) as $st) {
     $sel[] = new QueryExpression("SUM(`{$exp_t}`.`statut` = '{$st}') AS `{$st}`");
@@ -251,7 +251,7 @@ foreach ($exp_data as $r) {
     ];
 }
 
-// 2) Menu clic droit + modales (Voir stock, Modifier expédition, Associer BL) + JS.
+// 2) Menu clic droit + modales (Modifier expédition, Associer BL) + JS.
 PluginPrintgestionDashboardactions::renderSharedAssets('expeditions');
 
 // 3) Pont : recopie les data-pc-* sur chaque ligne native (via le marqueur caché

@@ -28,7 +28,7 @@ if (PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id) === null
     PluginPrintgestionSecurity::denyJson();
 }
 
-$allowed_statuts  = ['pending', 'shipped', 'transit', 'delivered', 'stock_empty', 'installed', 'cancelled'];
+$allowed_statuts  = ['pending', 'shipped', 'transit', 'delivered', 'installed', 'cancelled'];
 $allowed_carriers = ['', 'ups', 'gls', 'chronopost', 'other'];
 
 $statut   = in_array($_POST['statut']  ?? '', $allowed_statuts, true)  ? $_POST['statut']  : null;

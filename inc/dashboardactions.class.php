@@ -5,7 +5,7 @@
  * utilise le moteur de recherche natif et ses actions de masse (PluginPrintgestionAlertview).
  *
  * Fournit :
- *   - Le HTML des modals (stock, modifier expédition, associer des BL)
+ *   - Le HTML des modals (modifier expédition, associer des BL)
  *   - Le div du menu contextuel
  *   - Le JS qui gère le right-click, les appels AJAX et la logique des modals
  *
@@ -64,7 +64,7 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
      *
      * @param string $context 'expeditions' | 'billing' — détermine quelles actions du
      *   clic-droit sont affichées :
-     *     expeditions : stock, modifier l'expédition, BL, fiche imprimante
+     *     expeditions : modifier l'expédition, BL, fiche imprimante
      *     billing     : uniquement "Ouvrir la fiche imprimante"
      */
     public static function renderSharedAssets(string $context = 'expeditions'): void {
@@ -94,7 +94,6 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
         // Les modals ne sont rendus que si au moins une action du menu les utilise.
         // Pour billing, seule "Ouvrir la fiche imprimante" est active → aucun modal.
         if ($context === 'expeditions') {
-            self::renderStockModal();
             self::renderEditExpeditionModal();
             if ($bl_enabled) {
                 self::renderLinkBlModal();
@@ -108,17 +107,12 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
         // Actions autorisées par contexte (déjà filtrées côté PHP — pas besoin
         // de tout rendre puis de cacher en JS, ça allège le DOM).
         $allowed = [
-            'expeditions' => ['view-stock', 'edit-expedition', 'link-bl', 'open-printer'],
+            'expeditions' => ['edit-expedition', 'link-bl', 'open-printer'],
             'billing'     => ['open-printer'],
         ];
         $ctx_actions = $allowed[$context] ?? $allowed['billing'];
 
         $items = [
-            'view-stock' => [
-                'icon'    => 'fa-boxes-stacked',
-                'label'   => 'Voir le stock',
-                'require' => null,
-            ],
             'edit-expedition' => [
                 'icon'    => 'fa-pen',
                 'label'   => 'Modifier expédition…',
@@ -164,30 +158,6 @@ tr[data-pc-row="1"] { cursor: context-menu; }
 HTML;
     }
 
-    protected static function renderStockModal(): void {
-        $title = __('Stock cartouche', 'printgestion');
-        $loading = __('Chargement…', 'printgestion');
-        $close = _sx('button', 'Close');
-        echo <<<HTML
-<div class="modal fade" id="pc-modal-stock" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="fa-solid fa-boxes-stacked me-2"></i>{$title}</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body" id="pc-modal-stock-body">
-        <div class="text-center text-muted">{$loading}</div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{$close}</button>
-      </div>
-    </div>
-  </div>
-</div>
-HTML;
-    }
-
     protected static function renderEditExpeditionModal(): void {
         $title = __('Modifier expédition', 'printgestion');
         $close = _sx('button', 'Close');
@@ -201,7 +171,6 @@ HTML;
             'shipped'     => __('Expédiée', 'printgestion'),
             'transit'     => __('En transit', 'printgestion'),
             'delivered'   => __('Livrée (non posée)', 'printgestion'),
-            'stock_empty' => __('Stock vide', 'printgestion'),
             'installed'   => __('Posée — confirmer la pose (clôt l\'envoi)', 'printgestion'),
             'cancelled'   => __('Annulée (clôt l\'envoi, sans suppression)', 'printgestion'),
         ];
@@ -487,16 +456,9 @@ document.addEventListener('DOMContentLoaded', function() {
             'csrf'       => Session::getNewCSRFToken(),
             'msg'       => [
                 'error'             => __("Erreur lors de l'action", 'printgestion'),
-                'no_stock_info'     => __('Aucune information de stock', 'printgestion'),
                 'no_bl_available'   => __('Aucun BL disponible pour ce client', 'printgestion'),
-                'stock_label'       => __('Stock disponible', 'printgestion'),
-                'cartridge_label'   => __('Cartouche', 'printgestion'),
                 'level_label'       => __('Niveau actuel', 'printgestion'),
                 'days_label'        => __('Jours restants estimés', 'printgestion'),
-                'client_label'      => __('Client', 'printgestion'),
-                'printer_label'     => __('Imprimante', 'printgestion'),
-                'property_label'    => __('Propriété SNMP', 'printgestion'),
-                'location_label'    => __('Emplacement', 'printgestion'),
                 'toner_label'       => __('Toner', 'printgestion'),
                 'nothing_selected'  => __('Aucune cartouche sélectionnée', 'printgestion'),
                 'stable'            => __('Stable', 'printgestion'),
@@ -507,7 +469,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 'exp_shipped'       => __('Expédiée', 'printgestion'),
                 'exp_transit'       => __('En transit', 'printgestion'),
                 'exp_delivered'     => __('Livrée', 'printgestion'),
-                'exp_stock_empty'   => __('Stock vide', 'printgestion'),
             ],
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
@@ -644,42 +605,9 @@ document.addEventListener('DOMContentLoaded', function() {
         + '/front/printer.form.php?id=' + encodeURIComponent(d.printers_id);
       return;
     }
-    if (act === 'view-stock') { openStockModal(d); return; }
     if (act === 'edit-expedition') { openEditExpModal(d); return; }
     if (act === 'link-bl')         { openLinkBlModal(d);  return; }
   });
-
-  // ── Stock modal (AJAX GET) ──
-  function openStockModal(d) {
-    const body = document.getElementById('pc-modal-stock-body');
-    body.innerHTML = '<div class="text-center text-muted">...</div>';
-    const modal = new bootstrap.Modal(document.getElementById('pc-modal-stock'));
-    modal.show();
-    fetch(AJAX_BASE + '/cartridge_stock.php?printers_id=' + encodeURIComponent(d.printers_id)
-          + '&property=' + encodeURIComponent(d.property), {
-      credentials: 'same-origin',
-      headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (!data || !data.ok) {
-          body.innerHTML = '<div class="alert alert-warning mb-0">' + escapeHtml(MSG.no_stock_info) + '</div>';
-          return;
-        }
-        let html = '<table class="table table-sm mb-0">';
-        html += '<tr><th>' + escapeHtml(MSG.printer_label) + '</th><td>' + escapeHtml(d.printer_name) + '</td></tr>';
-        if (d.entity_name) html += '<tr><th>' + escapeHtml(MSG.client_label) + '</th><td>' + escapeHtml(d.entity_name) + '</td></tr>';
-        html += '<tr><th>' + escapeHtml(MSG.property_label) + '</th><td>' + escapeHtml(d.property) + '</td></tr>';
-        html += '<tr><th>' + escapeHtml(MSG.cartridge_label) + '</th><td>' + escapeHtml(data.cartridge_name || '—') + '</td></tr>';
-        if (data.ref_error) html += '<tr><td colspan="2" class="text-danger small">' + escapeHtml(data.ref_error) + '</td></tr>';
-        html += '<tr><th>' + escapeHtml(MSG.stock_label) + '</th><td><strong class="'
-             + (data.stock > 0 ? 'text-success' : 'text-danger') + '">' + data.stock + '</strong></td></tr>';
-        if (data.location) html += '<tr><th>' + escapeHtml(MSG.location_label) + '</th><td>' + escapeHtml(data.location) + '</td></tr>';
-        html += '</table>';
-        body.innerHTML = html;
-      })
-      .catch(function() { body.innerHTML = '<div class="alert alert-danger mb-0">' + escapeHtml(MSG.error) + '</div>'; });
-  }
 
   // ── Edit expedition modal ──
   function openEditExpModal(d) {
