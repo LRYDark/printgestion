@@ -48,6 +48,7 @@ class PluginPrintgestionSchema {
         '1.5.8' => 'migrateTo158',
         '1.5.9' => 'migrateTo159',
         '1.6.0' => 'migrateTo160',
+        '1.6.1' => 'migrateTo161',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -792,5 +793,85 @@ class PluginPrintgestionSchema {
         $migration->addField($config, 'agent_server_url', 'varchar(255) DEFAULT NULL');
         $migration->addField($config, 'agent_httpd_trust', 'varchar(255) DEFAULT NULL');
         $migration->migrationOneTable($config);
+    }
+
+    /**
+     * 1.6.1 — Déploiement Agent, assistant de raccordement des imprimantes : le raccordement
+     * (entité, sonde, avancement, objets GLPI Inventory utilisés ou créés), les adresses déclarées
+     * avec leur résultat, et le journal horodaté de l'exécution. Rien n'est supprimé : un
+     * raccordement abandonné garde ses adresses et son journal.
+     * Statuts et résultats volontairement figés ici (étape livrée = SQL immuable).
+     */
+    private static function migrateTo161(Migration $migration): void {
+        global $DB;
+
+        $charset   = DBConnection::getDefaultCharset();
+        $collation = DBConnection::getDefaultCollation();
+        $sign      = DBConnection::getDefaultPrimaryKeySignOption();
+        $options   = "ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC";
+
+        if (!$DB->tableExists('glpi_plugin_printgestion_raccordements')) {
+            $migration->displayMessage('Print Gestion — création de la table des raccordements d\'imprimantes');
+            $DB->doQuery("CREATE TABLE `glpi_plugin_printgestion_raccordements` (
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `entities_id` int {$sign} NOT NULL DEFAULT '0',
+                `agents_id` int {$sign} NOT NULL DEFAULT '0',
+                `status` enum('open','configured','triggered','closed','abandoned') NOT NULL DEFAULT 'open',
+                `snmpcredentials_id` int {$sign} NOT NULL DEFAULT '0',
+                `ipranges` text,
+                `discovery_tasks` text,
+                `inventory_tasks` text,
+                `created_items` text,
+                `users_id` int {$sign} NOT NULL DEFAULT '0',
+                `date_creation` timestamp NULL DEFAULT NULL,
+                `date_mod` timestamp NULL DEFAULT NULL,
+                `date_configured` timestamp NULL DEFAULT NULL,
+                `date_triggered` timestamp NULL DEFAULT NULL,
+                `date_inventory_prepared` timestamp NULL DEFAULT NULL,
+                `date_verified` timestamp NULL DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `entities_id` (`entities_id`),
+                KEY `agents_id` (`agents_id`),
+                KEY `status` (`status`),
+                KEY `users_id` (`users_id`),
+                KEY `date_creation` (`date_creation`),
+                KEY `date_mod` (`date_mod`)
+            ) {$options}");
+        }
+
+        if (!$DB->tableExists('glpi_plugin_printgestion_raccordementips')) {
+            $migration->displayMessage('Print Gestion — création de la table des adresses de raccordement');
+            $DB->doQuery("CREATE TABLE `glpi_plugin_printgestion_raccordementips` (
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `plugin_printgestion_raccordements_id` int {$sign} NOT NULL DEFAULT '0',
+                `ip` varchar(15) NOT NULL DEFAULT '',
+                `ip_num` int unsigned NOT NULL DEFAULT '0',
+                `result` enum('pending','waiting_discovery','waiting_inventory','found','no_levels','no_snmp','not_printer','wrong_entity') NOT NULL DEFAULT 'pending',
+                `itemtype` varchar(100) DEFAULT NULL,
+                `items_id` int {$sign} NOT NULL DEFAULT '0',
+                `items_entities_id` int {$sign} DEFAULT NULL,
+                `date_check` timestamp NULL DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uniq_ip` (`plugin_printgestion_raccordements_id`, `ip_num`),
+                KEY `result` (`result`),
+                KEY `item` (`itemtype`, `items_id`)
+            ) {$options}");
+        }
+
+        if (!$DB->tableExists('glpi_plugin_printgestion_raccordementlogs')) {
+            $migration->displayMessage('Print Gestion — création du journal des raccordements');
+            $DB->doQuery("CREATE TABLE `glpi_plugin_printgestion_raccordementlogs` (
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `plugin_printgestion_raccordements_id` int {$sign} NOT NULL DEFAULT '0',
+                `date` timestamp NULL DEFAULT NULL,
+                `users_id` int {$sign} NOT NULL DEFAULT '0',
+                `step` tinyint NOT NULL DEFAULT '0',
+                `level` enum('info','success','warning','error') NOT NULL DEFAULT 'info',
+                `message` text,
+                PRIMARY KEY (`id`),
+                KEY `raccordement_date` (`plugin_printgestion_raccordements_id`, `date`),
+                KEY `users_id` (`users_id`)
+            ) {$options}");
+        }
     }
 }

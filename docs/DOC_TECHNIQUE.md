@@ -67,6 +67,8 @@ printgestion/
 | `Snmprule` | Règle de lecture SNMP par constructeur (ignorer / inverser une propriété) : table, carte de configuration, droit de configuration du plugin |
 | `Collect` | Contrôle de la remontée (lecture seule) : prérequis, états de collecte datés par le journal d'import GLPI, agents et versions, valeurs de consommables et compteurs par modèle, doublons de numéro de série |
 | `Agentdeploy` | Déploiement Agent : onglet de l'entité (TAG, règle d'affectation, agents), installeur GLPI Agent servi et vérifié, paquet Windows pré-paramétré |
+| `Raccordement` | Assistant de raccordement des imprimantes (4 étapes, journal horodaté), page « Raccordements », bloc 3 de l'onglet Déploiement Agent de l'entité |
+| `Collectsetup` | Service (sans table) : configuration de collecte créée dans GLPI Inventory (plage, identifiants SNMP, modules de la sonde, tâches), déclenchement, vérification adresse par adresse |
 | `NotificationTargetDemande` | Notifications natives GLPI des demandes d'envoi (proposée, relance, exportée) |
 | `Contractalert` | État et activation des alertes de contrat natives GLPI |
 | `Snmpmapping` | Mapping constructeur + propriété SNMP → modèle de cartouche + couleur |
@@ -111,6 +113,9 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_billing_view` | **Matérialisée par utilisateur** : coût à la page pour le Search natif |
 | `glpi_plugin_printgestion_historical_yields` | Rendements historiques (pages/cartouche) |
 | `glpi_plugin_printgestion_printer_thresholds` | Seuils d'alerte personnalisés par imprimante |
+| `glpi_plugin_printgestion_raccordements` | Raccordements d'imprimantes (étape 1.6.1) : entité, sonde, statut, identifiants SNMP, plages et tâches GLPI Inventory utilisées, objets créés, dates des étapes |
+| `glpi_plugin_printgestion_raccordementips` | Adresses déclarées d'un raccordement et leur résultat (équipement trouvé, son entité) |
+| `glpi_plugin_printgestion_raccordementlogs` | Journal horodaté d'un raccordement : étape, niveau, auteur, message |
 | `glpi_plugin_printgestion_table_prefs` | Préférences d'affichage des tableaux par utilisateur |
 
 ---
@@ -419,6 +424,73 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
   impossibles depuis un GLPI sur Internet vers une sonde derrière le NAT d'un client, sauf VPN. Sans GLPI
   Inventory, l'agent ne reçoit aucune tâche réseau, et l'URL du serveur à lui donner change à l'installation
   du plugin.
+
+### Déploiement Agent — phase 2 : assistant de raccordement (`inc/raccordement.class.php`, `inc/collectsetup.class.php`, `front/raccordement.php`)
+
+Raccorder les imprimantes d'un client à sa sonde, sur place, et vérifier le résultat avant de partir. Accès : bloc 3
+de l'onglet « Déploiement Agent » de l'entité (« Nouveau raccordement ») et page « Raccordements » du module.
+Lecture : droit `deploiement` READ ; toute action (POST) : `deploiement` UPDATE ; l'entité du raccordement est
+revérifiée à chaque requête (hors périmètre : 404). Lieu, commentaire et contrat des imprimantes : phase 3.
+
+- **Statuts** : `open` → `configured` → `triggered` → `closed`, ou `abandoned` depuis tout statut non clos. Chaque
+  action revérifie le statut : on ne passe jamais à l'étape suivante si la précédente a échoué. Une sonde n'a
+  qu'un raccordement en cours : « Raccorder avec cette sonde » reprend celui qui existe.
+- **Étape 1, sonde présente** : prérequis bloquants (GLPI Inventory actif, inventaire GLPI activé, TAG de l'entité
+  valide et unique, règle d'affectation par TAG active) ; sonde de l'entité (`glpi_agents.entities_id`) : dernier
+  contact de moins de deux fois la fréquence d'inventaire (sinon bloquant ; « récent » sous une heure), modules
+  `use_module_network_discovery` et `use_module_network_inventory` déclarés par l'agent (sinon : réinstaller avec
+  `feat_NETINV`), TAG de l'agent égal à celui de l'entité. « Demander le statut » : `Agent::requestStatus()` natif.
+  Ces conditions sont revérifiées avant les étapes 3 et 4.
+- **Étape 2, imprimantes** : adresses IPv4, plages `a-b` ou `a-N`, réseaux de /22 à /32 (sans réseau ni diffusion),
+  1 024 au plus ; enregistrées en attente (`raccordementips.result = pending`), remplaçables tant que la
+  configuration n'est pas créée. Rien n'est appliqué aux imprimantes.
+- **Étape 3, configuration de la collecte** : plan affiché sans rien écrire, recalculé au moment de créer, puis
+  écriture dans **une transaction** (au moindre échec, rien n'est gardé ; vérifié avec un déclencheur SQL qui
+  refuse la création du job). Valeurs relevées en base après une configuration faite à la main dans GLPI
+  Inventory, et reproduites :
+  - plage : `name`, `entities_id`, `ip_start`, `ip_end` ; liaison aux identifiants SNMP : `rank` = rang maximal + 1 ;
+  - modules de la sonde : identifiant de l'agent, en texte, dans `exceptions` de `NETWORKDISCOVERY` et
+    `NETWORKINVENTORY` (`["3"]` ; une exception inverse l'activation globale). `PluginGlpiinventoryAgentmodule::updateForAgent()`
+    n'est pas utilisée : pour un module que l'agent ne change pas, elle retire la première exception d'un autre
+    agent (`unset` sur un `array_search` à `false`) ;
+  - une tâche par méthode, GLPI Inventory ne gérant plus plusieurs jobs dans une tâche : tâche créée inactive
+    (`reprepare_if_successful` = 1, dates vides, plages horaires 0 = toujours), job `targets`
+    `[{"PluginGlpiinventoryIPRange":"<id>"}]`, `actors` `[{"Agent":"<id>"}]`, `restrict_to_task_entity` = 1, puis
+    tâche activée (une tâche active ne se modifie plus).
+
+  Existant vérifié **dans l'entité et pour la sonde** : deux clients, ou deux sites d'un client, ont souvent le
+  même réseau privé. Plage de l'entité collectée par cette sonde, ou par aucune tâche, qui contient des adresses :
+  réutilisée ; plage collectée par une autre sonde : laissée de côté (note), la sonde aura la sienne ; adresses
+  restantes : une plage du minimum au maximum, refusée si elle chevauche une plage réutilisable ; tâche de cette
+  sonde sur une plage réutilisée : réutilisée si active, refus si désactivée ; nouveaux identifiants identiques à
+  des existants (version et communauté, sensible à la casse) : réutilisés. SNMP v3 : identifiants créés dans GLPI.
+- **Étape 4, déclenchement et vérification** : « Lancer la découverte » = `PluginGlpiinventoryTask::forceRunning()`
+  sur les tâches de découverte (job préparé pour la sonde), puis réveil natif `Agent::requestInventory()` (GET /now
+  sur le port de l'agent). Sonde injoignable (NAT) : geste sur place, `http://127.0.0.1:62354` puis « Force an
+  Inventory » (autorisé par `HTTPD_TRUST=127.0.0.1/32` du paquet), deux fois : découverte, puis relevé des niveaux.
+  Vérification (bouton, et automatique toutes les 60 s tant qu'un résultat est en attente) à partir des journaux
+  GLPI Inventory de la sonde datés d'après le déclenchement : découverte terminée pour toutes les plages → relevé
+  des niveaux préparé une seule fois (`forceRunning()` des tâches d'inventaire, qui ne retiennent que les
+  équipements importés avec des identifiants) et nouveau réveil. Résultat par adresse, **parmi les seuls
+  équipements cités par ces journaux** (`[[Printer::8]]`), jamais l'équipement d'un autre client à la même adresse :
+
+  | Résultat | Condition |
+  |---|---|
+  | Trouvée | Imprimante dans l'entité, inventaire réseau terminé depuis le déclenchement, niveaux dans `glpi_printers_cartridgeinfos` |
+  | Sans niveaux | Idem, sans aucun niveau |
+  | Mauvaise entité | Imprimante d'une autre entité : irréversible par l'assistant (les règles ne jouent qu'au premier import), transfert manuel, alerte appuyée |
+  | Pas de réponse SNMP | Découverte terminée, rien à l'adresse, ou un actif non géré (répond sans SNMP) |
+  | Pas une imprimante | Équipement SNMP d'un autre type |
+  | En attente | Découverte, ou relevé des niveaux, pas encore rendu par la sonde |
+
+  La date d'inventaire de l'imprimante n'est pas utilisée : la découverte la fait avancer.
+- **Journal** (`raccordementlogs`) : chaque action, avec l'étape, le niveau, l'auteur et l'heure : sonde choisie,
+  adresses, objets créés ou réutilisés, refus, réveils, préparation du relevé, vérifications dont le résultat
+  change, fin ou abandon. Un abandon ne supprime rien : les objets créés dans GLPI Inventory restent (listés).
+- **Constats sur échanges simulés** (formats XML de l'agent, à confirmer au pilote) : la découverte applique la
+  règle TAG de la sonde aux imprimantes ; le paramètre `ENTITY` de la plage est ignoré par le cœur ; la découverte
+  crée le lieu SNMP (sysLocation) dans l'entité et le rattache à l'imprimante, même avec « Lieu » désactivé dans
+  la configuration de l'inventaire (à verrouiller en phase 3).
 
 ### Contrôle de la remontée (`inc/collect.class.php`, onglet « Contrôle de la remontée »)
 

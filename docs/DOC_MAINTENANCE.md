@@ -201,9 +201,29 @@ Pour chaque client :
 2. Onglet « Déploiement Agent » de l'entité : corriger ce qui n'est pas vert, puis « Windows » télécharge le paquet.
 3. Sur place : suivre `LISEZMOI.txt` (extraire, double-clic sur le `.bat`, assistant), puis vérifier dans l'onglet
    que l'agent apparaît avec un contact récent et la collecte réseau installée.
+4. Toujours sur place : bloc 3 de l'onglet, « Nouveau raccordement » (droit Déploiement en modification). Choisir la
+   sonde, saisir les adresses des imprimantes, créer la configuration de collecte, lancer la découverte. Si GLPI ne
+   joint pas la sonde (cas normal derrière la box) : sur le PC sonde, ouvrir `http://127.0.0.1:62354` et cliquer
+   « Force an Inventory », puis refaire ce geste quand l'assistant annonce le relevé des niveaux. Ne pas partir
+   avant d'avoir le résultat adresse par adresse, puis « Terminer le raccordement ».
 
 Échec d'installation : journal `%TEMP%\GLPI-Agent-install.log` sur le PC. Agent absent de l'onglet : il est
 peut-être rattaché à une autre entité (TAG, règle) — voir Administration → Inventaire → Agents.
+
+Raccordement :
+- **Configuration refusée** : le message dit pourquoi, rien n'est créé. « Chevaucherait la plage » : adresses de
+  part et d'autre d'une plage existante de la sonde, les déclarer dans des raccordements séparés (ou élargir la
+  plage dans GLPI Inventory). « Tâche désactivée » : la réactiver dans GLPI Inventory plutôt que d'en créer une
+  seconde.
+- **Découverte « pas encore rendue »** : la sonde n'a pas reçu ou pas exécuté le job ; faire le geste sur place, ou
+  attendre son prochain contact. Relancer la découverte ne crée rien de plus.
+- **Mauvaise entité** : l'imprimante était déjà dans GLPI ailleurs, ou le TAG / la règle l'a envoyée ailleurs.
+  Transférer l'imprimante à la main (Actions → Transférer), corriger la cause, puis relancer la découverte.
+- **Pas de réponse SNMP** : imprimante éteinte, mauvaise adresse, SNMP désactivé ou autre communauté ; un « actif non
+  géré » à l'adresse répond sur le réseau mais pas en SNMP avec ces identifiants.
+- **Abandon** : rien n'est supprimé ; le journal le liste. Désactiver la tâche dans GLPI Inventory si la collecte
+  ne doit pas avoir lieu.
+- Historique : page « Raccordements » du module ; chaque raccordement garde son journal horodaté.
 
 ### Cartouche « Réf. non résolue » (non commandable)
 

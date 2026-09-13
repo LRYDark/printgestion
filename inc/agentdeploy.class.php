@@ -453,7 +453,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             __('Les 3 gestes', 'printgestion'),
             __('1. Sur le PC qui servira de sonde (allumé en permanence, sur le réseau des imprimantes) : clic droit sur le fichier ZIP > Extraire tout.', 'printgestion'),
             __('2. Dans le dossier extrait : double-clic sur installer-glpi-agent.bat, accepter la demande d\'administrateur et suivre l\'assistant. L\'adresse du serveur et le TAG sont déjà remplis : ne pas les modifier.', 'printgestion'),
-            __('3. Dans GLPI (fiche de l\'entité, onglet « Déploiement Agent ») : vérifier que l\'agent apparaît avec un contact récent, avant de partir.', 'printgestion'),
+            __('3. Dans GLPI (fiche de l\'entité, onglet « Déploiement Agent ») : vérifier que l\'agent apparaît avec un contact récent, puis raccorder les imprimantes avec l\'assistant (bloc 3), avant de partir.', 'printgestion'),
             '',
             __('Si Windows refuse de lancer le fichier .bat : ouvrir l\'invite de commandes (cmd, pas PowerShell) dans le dossier extrait et coller la commande du fichier commande-cmd.txt.', 'printgestion'),
             __('En cas d\'échec de l\'installation : journal %TEMP%\\GLPI-Agent-install.log sur le PC.', 'printgestion'),
@@ -719,7 +719,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         echo "</tbody></table></div>";
         echo "</div></div>";
 
-        echo "<p class='text-muted small'>" . $esc(__('3. Assistant de raccordement des imprimantes (adresses IP, lieu, commentaire) : phase 2.', 'printgestion')) . "</p>";
+        // ── 3. Raccordement des imprimantes ──
+        PluginPrintgestionRaccordement::showForEntity($entity);
         echo "</div>";
     }
 
