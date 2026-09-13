@@ -22,8 +22,9 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
     exit;
 }
 
-if (!Session::haveRight('plugin_printgestion_expedition', UPDATE)
-    && !Session::haveRight('plugin_printgestion_dashboard', UPDATE)) {
+// Déclencher une commande relève du droit de validation (Q6), distinct de la mise en
+// pause d'une alerte (dashboard) et du suivi des expéditions (expedition).
+if (!Session::haveRight('plugin_printgestion_validation', UPDATE)) {
     http_response_code(403);
     echo json_encode(['ok' => false, 'error' => 'Forbidden']);
     exit;

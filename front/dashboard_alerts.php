@@ -84,9 +84,12 @@ PluginPrintgestionUi::statsBar($metric_cards, 'pc-metrics-alerts');
 
 // ── Tableau groupé (1 ligne / imprimante, toners empilés) — moteur PC_TABLE ───
 // Bouton « Commander la sélection » (visible dès qu'au moins 1 imprimante cochée).
-echo "<div class='mb-2'><button type='button' class='btn btn-primary btn-sm' id='pg-cmd-btn' style='display:none'>"
-    . "<i class='fa-solid fa-cart-shopping me-1'></i>" . __('Commander la sélection', 'printgestion')
-    . " (<span class='pg-cmd-count'>0</span>)</button></div>";
+// Commande : droit de validation uniquement (le serveur le vérifie aussi).
+if (Session::haveRight('plugin_printgestion_validation', UPDATE)) {
+    echo "<div class='mb-2'><button type='button' class='btn btn-primary btn-sm' id='pg-cmd-btn' style='display:none'>"
+        . "<i class='fa-solid fa-cart-shopping me-1'></i>" . __('Commander la sélection', 'printgestion')
+        . " (<span class='pg-cmd-count'>0</span>)</button></div>";
+}
 
 PluginPrintgestionDashboardactions::renderTableToolbar('pc-tbl-alerts');
 
