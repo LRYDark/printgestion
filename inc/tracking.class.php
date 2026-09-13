@@ -16,13 +16,7 @@ if (!defined('GLPI_ROOT')) {
     die("Sorry. You can't access this file directly");
 }
 
-class PluginPrintgestionTracking extends CommonDBTM {
-
-    static $rightname = 'plugin_printgestion_expedition';
-
-    static function getTypeName($nb = 0) {
-        return __('Suivi expéditions', 'printgestion');
-    }
+class PluginPrintgestionTracking {
 
     // ─────────────────────────────────────────────────────────────
     //  INTÉGRATION PLUGIN GESTION (BL signé → delivered)
