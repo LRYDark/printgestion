@@ -1,10 +1,11 @@
 <?php
 /**
  * PluginPrintgestionDashboardactions — assets partagés pour le context-menu
- * des dashboards Print Gestion (Alertes toner et Expéditions).
+ * des dashboards Print Gestion (Expéditions, Coût à la page). L'écran des alertes toner
+ * utilise le moteur de recherche natif et ses actions de masse (PluginPrintgestionAlertview).
  *
  * Fournit :
- *   - Le HTML des 4 modals (stock, edit expedition, snooze, send recap)
+ *   - Le HTML des modals (stock, modifier expédition, associer des BL)
  *   - Le div du menu contextuel
  *   - Le JS qui gère le right-click, les appels AJAX et la logique des modals
  *
@@ -23,29 +24,6 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
 
     static function getTypeName($nb = 0) {
         return __('Actions dashboard', 'printgestion');
-    }
-
-    /**
-     * Produit les attributs data-pc-* à injecter sur un <tr> de dashboard_alerts.
-     * $row est une ligne de PluginPrintgestionAlert::listAll().
-     */
-    public static function rowDataAttributesForAlert(array $row): string {
-        $exp = $row['expedition'] ?? null;
-        $attrs = [
-            'data-pc-row'            => '1',
-            'data-pc-source'         => 'alert',
-            'data-pc-printers-id'    => (int)$row['printers_id'],
-            'data-pc-printer-name'   => (string)($row['printer_name'] ?? ''),
-            'data-pc-entity-name'    => (string)($row['entity_name'] ?? ''),
-            'data-pc-property'       => (string)$row['property'],
-            'data-pc-level'          => (int)($row['level'] ?? 0),
-            'data-pc-days'           => (int)($row['days_remaining'] ?? 0),
-            'data-pc-cartridge'      => (string)($row['cartridge_type'] ?? ''),
-            'data-pc-has-expedition' => is_array($exp) ? '1' : '0',
-            'data-pc-expedition-id'  => is_array($exp) ? (int)$exp['id'] : 0,
-            'data-pc-exp-statut'     => is_array($exp) ? (string)$exp['statut'] : '',
-        ];
-        return self::serializeAttrs($attrs);
     }
 
     /**
@@ -84,13 +62,12 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
      * Rend le HTML des modals + le context-menu + le JS.
      * À appeler UNE FOIS en fin de page (avant Html::footer()).
      *
-     * @param string $context 'alerts' | 'expeditions' | 'billing' — détermine
-     *   quelles actions du clic-droit sont affichées :
-     *     alerts      : toutes les actions (stock, envoi, modifier, snooze, BL, fiche)
-     *     expeditions : stock, modifier, snooze, BL, fiche (pas d'envoi — déjà envoyée)
+     * @param string $context 'expeditions' | 'billing' — détermine quelles actions du
+     *   clic-droit sont affichées :
+     *     expeditions : stock, modifier l'expédition, BL, fiche imprimante
      *     billing     : uniquement "Ouvrir la fiche imprimante"
      */
-    public static function renderSharedAssets(string $context = 'alerts'): void {
+    public static function renderSharedAssets(string $context = 'expeditions'): void {
         $can_expedition_update = Session::haveRight('plugin_printgestion_expedition', UPDATE);
         $ajax_base = PLUGIN_PRINTGESTION_WEBDIR . '/ajax';
 
@@ -116,92 +93,31 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
 
         // Les modals ne sont rendus que si au moins une action du menu les utilise.
         // Pour billing, seule "Ouvrir la fiche imprimante" est active → aucun modal.
-        if ($context !== 'billing') {
+        if ($context === 'expeditions') {
             self::renderStockModal();
-            self::renderSnoozeModal();
-            self::renderSnoozeGroupModal();
-            self::renderUnsnoozeModal();
-        }
-        if ($context === 'alerts' || $context === 'expeditions') {
             self::renderEditExpeditionModal();
             if ($bl_enabled) {
                 self::renderLinkBlModal();
             }
         }
-        // Envoi / commande : fenêtre de commande de l'écran des alertes uniquement
-        // (dashboard_alerts.php → send_purchase.php), pas de modale ici.
 
         self::renderJs($ajax_base, $can_expedition_update, $bl_enabled);
     }
 
-    /**
-     * Rend la barre de recherche + tri + pagination JS pour un tableau.
-     * À appeler AVANT le <table>, avec une table qui a `id="$table_id"`.
-     *
-     * Les colonnes triables doivent avoir la classe 'pc-sortable' sur le <th>.
-     * La recherche est full-text sur toutes les cellules visibles de chaque row.
-     */
-    public static function renderTableToolbar(string $table_id): void {
-        $search_placeholder = __('Rechercher dans le tableau…', 'printgestion');
-        $per_page_label     = __('Par page', 'printgestion');
-        $count_label        = __('résultats', 'printgestion');
-
-        echo "<div class='card mb-3'><div class='card-body'>";
-        echo "<div class='row g-2 mb-3 align-items-center'>";
-        echo "<div class='col-md-6'>";
-        echo "<div class='input-group input-group-sm'>";
-        echo "<span class='input-group-text'><i class='fa-solid fa-magnifying-glass'></i></span>";
-        echo "<input type='text' class='form-control pc-table-search' "
-            . "data-pc-table-target='{$table_id}' "
-            . "placeholder='" . htmlspecialchars($search_placeholder, ENT_QUOTES, 'UTF-8') . "'>";
-        echo "</div>";
-        echo "</div>";
-        echo "<div class='col-md-3'>";
-        echo "<div class='input-group input-group-sm'>";
-        echo "<span class='input-group-text'>" . htmlspecialchars($per_page_label, ENT_QUOTES, 'UTF-8') . "</span>";
-        echo "<select class='form-select pc-table-perpage' data-pc-table-target='{$table_id}'>";
-        foreach ([10, 25, 50, 100, 250] as $n) {
-            $sel = ($n === 25) ? ' selected' : '';
-            echo "<option value='{$n}'{$sel}>{$n}</option>";
-        }
-        echo "</select>";
-        echo "</div>";
-        echo "</div>";
-        echo "<div class='col-md-3 text-end'>";
-        echo "<span class='text-muted small pc-table-count' data-pc-table-target='{$table_id}'></span>";
-        echo "</div>";
-        echo "</div>";
-    }
-
-    /**
-     * Rend la barre de pagination sous le tableau.
-     */
-    public static function renderTablePagination(string $table_id): void {
-        echo "<nav class='mt-3 d-flex justify-content-center'><ul class='pagination pagination-sm mb-0 pc-table-pagination' "
-            . "data-pc-table-target='{$table_id}'></ul></nav>";
-        echo "</div></div>"; // close card-body + card opened in renderTableToolbar
-    }
-
-    protected static function renderContextMenu(bool $can_update, bool $bl_enabled = false, string $context = 'alerts'): void {
+    protected static function renderContextMenu(bool $can_update, bool $bl_enabled = false, string $context = 'expeditions'): void {
         // Actions autorisées par contexte (déjà filtrées côté PHP — pas besoin
         // de tout rendre puis de cacher en JS, ça allège le DOM).
         $allowed = [
-            'alerts'      => ['view-stock', 'send-cartridge', 'edit-expedition', 'link-bl', 'snooze', 'unsnooze', 'open-printer'],
             'expeditions' => ['view-stock', 'edit-expedition', 'link-bl', 'open-printer'],
             'billing'     => ['open-printer'],
         ];
-        $ctx_actions = $allowed[$context] ?? $allowed['alerts'];
+        $ctx_actions = $allowed[$context] ?? $allowed['billing'];
 
         $items = [
             'view-stock' => [
                 'icon'    => 'fa-boxes-stacked',
                 'label'   => 'Voir le stock',
                 'require' => null,
-            ],
-            'send-cartridge' => [
-                'icon'    => 'fa-paper-plane',
-                'label'   => 'Envoyer cartouche…',
-                'require' => 'no-exp',
             ],
             'edit-expedition' => [
                 'icon'    => 'fa-pen',
@@ -212,16 +128,6 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
                 'icon'    => 'fa-file-signature',
                 'label'   => 'Associer des BL (plugin Gestion)…',
                 'require' => 'has-exp',
-            ],
-            'snooze' => [
-                'icon'    => 'fa-bell-slash',
-                'label'   => 'Ne plus alerter pendant…',
-                'require' => null,
-            ],
-            'unsnooze' => [
-                'icon'    => 'fa-bell',
-                'label'   => 'Réactiver les alertes',
-                'require' => 'has-snoozed',
             ],
             'open-printer' => [
                 'icon'    => 'fa-print',
@@ -254,32 +160,6 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
 <style>
 #pc-ctx-menu a:hover { background:#f1f3f5; }
 tr[data-pc-row="1"] { cursor: context-menu; }
-table[data-pc-sortable="1"] th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-table[data-pc-sortable="1"] td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pc-col-resizer {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 6px;
-  height: 100%;
-  cursor: col-resize;
-  user-select: none;
-  z-index: 5;
-}
-.pc-col-resizer:hover { background: rgba(13,110,253,0.3); }
-.pc-table-wrap { min-height: 120px; }
-.pc-table-spinner {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(255,255,255,0.75);
-  display: none;
-  align-items: flex-start;
-  justify-content: center;
-  /* Décale le spinner sous la thead du tableau (hauteur typique ~48px + marge) */
-  padding-top: 56px;
-  z-index: 50;
-}
-.pc-table-spinner .pc-spinner-inner { text-align: center; }
 </style>
 HTML;
     }
@@ -372,157 +252,6 @@ HTML;
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{$close}</button>
           <button type="submit" class="btn btn-primary"><i class="fa-solid fa-save me-1"></i>{$save}</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-HTML;
-    }
-
-    protected static function renderSnoozeModal(): void {
-        $title = __('Ne plus alerter pendant…', 'printgestion');
-        $close = _sx('button', 'Close');
-        $confirm = __('Confirmer', 'printgestion');
-        $label = __('Durée', 'printgestion');
-        $header = __('Cette ligne sera masquée du dashboard pendant la durée choisie. Les alertes reprendront automatiquement ensuite.', 'printgestion');
-
-        echo <<<HTML
-<div class="modal fade" id="pc-modal-snooze" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <form id="pc-form-snooze">
-        <div class="modal-header">
-          <h5 class="modal-title"><i class="fa-solid fa-bell-slash me-2"></i>{$title}</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <p class="text-muted small">{$header}</p>
-          <input type="hidden" name="printers_id" id="pc-snooze-printer">
-          <input type="hidden" name="property"    id="pc-snooze-property">
-          <div class="mb-3">
-            <div class="text-muted small mb-2" id="pc-snooze-header"></div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">{$label}</label>
-            <select name="days" class="form-select">
-              <option value="1">1 jour</option>
-              <option value="3">3 jours</option>
-              <option value="7" selected>7 jours</option>
-              <option value="14">14 jours</option>
-              <option value="30">30 jours</option>
-            </select>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{$close}</button>
-          <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check me-1"></i>{$confirm}</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-HTML;
-    }
-
-    protected static function renderSnoozeGroupModal(): void {
-        $title   = __('Ne plus alerter pendant…', 'printgestion');
-        $close   = _sx('button', 'Cancel');
-        $confirm = __('Appliquer', 'printgestion');
-        $intro   = __('Sélectionne les cartouches à snoozer et la durée. Les cartouches déjà snoozées sont désactivées.', 'printgestion');
-        $duration= __('Durée', 'printgestion');
-
-        $title_h    = htmlspecialchars($title,    ENT_QUOTES, 'UTF-8');
-        $close_h    = htmlspecialchars($close,    ENT_QUOTES, 'UTF-8');
-        $confirm_h  = htmlspecialchars($confirm,  ENT_QUOTES, 'UTF-8');
-        $intro_h    = htmlspecialchars($intro,    ENT_QUOTES, 'UTF-8');
-        $duration_h = htmlspecialchars($duration, ENT_QUOTES, 'UTF-8');
-
-        echo <<<HTML
-<div class="modal fade" id="pc-modal-snoozegroup" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <form id="pc-form-snoozegroup">
-        <div class="modal-header">
-          <h5 class="modal-title"><i class="fa-solid fa-bell-slash me-2"></i>{$title_h}</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <p class="text-muted small mb-2">{$intro_h}</p>
-          <div class="text-muted small mb-3" id="pc-snoozegroup-header"></div>
-          <input type="hidden" name="printers_id" id="pc-snoozegroup-printers-id">
-          <div class="mb-3">
-            <label class="form-label">{$duration_h}</label>
-            <select name="days" id="pc-snoozegroup-days" class="form-select">
-              <option value="1">1 jour</option>
-              <option value="3">3 jours</option>
-              <option value="7" selected>7 jours</option>
-              <option value="14">14 jours</option>
-              <option value="30">30 jours</option>
-            </select>
-          </div>
-          <table class="table table-sm table-bordered align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th style="width:40px">&nbsp;</th>
-                <th>Toner</th>
-              </tr>
-            </thead>
-            <tbody id="pc-snoozegroup-tbody"></tbody>
-          </table>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{$close_h}</button>
-          <button type="submit" class="btn btn-primary">
-            <i class="fa-solid fa-bell-slash me-1"></i>{$confirm_h}
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-HTML;
-    }
-
-    protected static function renderUnsnoozeModal(): void {
-        $title   = __('Réactiver les alertes', 'printgestion');
-        $close   = _sx('button', 'Cancel');
-        $confirm = __('Réactiver la sélection', 'printgestion');
-        $intro   = __('Sélectionne les cartouches pour lesquelles tu veux réactiver les alertes. Le snooze actif sera supprimé.', 'printgestion');
-
-        $title_h   = htmlspecialchars($title,   ENT_QUOTES, 'UTF-8');
-        $close_h   = htmlspecialchars($close,   ENT_QUOTES, 'UTF-8');
-        $confirm_h = htmlspecialchars($confirm, ENT_QUOTES, 'UTF-8');
-        $intro_h   = htmlspecialchars($intro,   ENT_QUOTES, 'UTF-8');
-
-        echo <<<HTML
-<div class="modal fade" id="pc-modal-unsnooze" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <form id="pc-form-unsnooze">
-        <div class="modal-header">
-          <h5 class="modal-title"><i class="fa-solid fa-bell me-2"></i>{$title_h}</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-          <p class="text-muted small mb-2">{$intro_h}</p>
-          <div class="text-muted small mb-3" id="pc-unsnooze-header"></div>
-          <input type="hidden" name="printers_id" id="pc-unsnooze-printers-id">
-          <table class="table table-sm table-bordered align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th style="width:40px">&nbsp;</th>
-                <th>Toner</th>
-              </tr>
-            </thead>
-            <tbody id="pc-unsnooze-tbody"></tbody>
-          </table>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{$close_h}</button>
-          <button type="submit" class="btn btn-primary">
-            <i class="fa-solid fa-bell me-1"></i>{$confirm_h}
-          </button>
         </div>
       </form>
     </div>
@@ -747,25 +476,14 @@ document.addEventListener('DOMContentLoaded', function() {
     protected static function renderJs(string $ajax_base, bool $can_update, bool $bl_enabled = false): void {
         // Toutes les valeurs injectées dans le JS passent par json_encode() pour
         // gérer correctement les apostrophes, accents et caractères spéciaux.
-        global $CFG_GLPI, $GLPI_CACHE;
+        global $CFG_GLPI;
         $root_doc = rtrim((string)($CFG_GLPI['root_doc'] ?? ''), '/');
-
-        // Charge les préférences colonnes depuis le cache GLPI (fichier dans files/_cache/)
-        $table_prefs = [];
-        $users_id = (int)(Session::getLoginUserID() ?: 0);
-        if ($users_id > 0 && isset($GLPI_CACHE)) {
-            $cached = $GLPI_CACHE->get('plugin_printgestion_table_prefs_' . $users_id);
-            if (is_array($cached)) {
-                $table_prefs = $cached;
-            }
-        }
 
         $js_config = json_encode([
             'canUpdate'  => (bool)$can_update,
             'blEnabled'  => (bool)$bl_enabled,
             'ajaxBase'   => $ajax_base,
             'rootDoc'    => $root_doc,
-            'tablePrefs' => $table_prefs,
             'csrf'       => Session::getNewCSRFToken(),
             'msg'       => [
                 'error'             => __("Erreur lors de l'action", 'printgestion'),
@@ -871,45 +589,21 @@ document.addEventListener('DOMContentLoaded', function() {
     e.preventDefault();
     currentRow = tr;
 
-    const hasExp  = tr.getAttribute('data-pc-has-expedition') === '1';
-    const grouped = tr.getAttribute('data-pc-grouped') === '1';
-    // Détecte si au moins une cartouche de la ligne est snoozée
-    let hasSnoozed = false;
-    const cartridgesJson = tr.getAttribute('data-pc-cartridges');
-    if (cartridgesJson) {
-      try {
-        const cs = JSON.parse(cartridgesJson) || [];
-        hasSnoozed = cs.some(function(c) { return c && c.snoozed; });
-      } catch (err) { hasSnoozed = false; }
-    }
+    const hasExp = tr.getAttribute('data-pc-has-expedition') === '1';
 
     // Helper show/hide : les menu items ont la classe Bootstrap "d-block" qui
-    // applique `display: block !important`. Un inline style sans !important
-    // ne peut pas override → on passe via setProperty avec priority important.
+    // applique `display: block !important` → setProperty avec priorité important.
     function setShown(el, shown) {
       el.style.setProperty('display', shown ? 'block' : 'none', 'important');
     }
 
     menu.querySelectorAll('[data-pc-require]').forEach(function(el) {
-      const req = el.getAttribute('data-pc-require');
-      const act = el.getAttribute('data-pc-action');
-      // En mode groupé : "Envoyer cartouches" est toujours accessible, la
-      // logique (cartouches déjà expédiées → checkbox disabled) est portée
-      // par la modale groupée.
-      if (grouped && act === 'send-cartridge') {
-        setShown(el, true);
-        return;
-      }
-      if (req === 'has-exp')          setShown(el, hasExp);
-      else if (req === 'no-exp')      setShown(el, !hasExp);
-      else if (req === 'has-snoozed') setShown(el, hasSnoozed);
-      else                            setShown(el, true);
+      setShown(el, el.getAttribute('data-pc-require') === 'has-exp' ? hasExp : true);
     });
 
     if (!CAN_UPDATE) {
-      menu.querySelectorAll(
-        '[data-pc-action="edit-expedition"],[data-pc-action="send-cartridge"],[data-pc-action="snooze"],[data-pc-action="unsnooze"],[data-pc-action="link-bl"]'
-      ).forEach(function(el) { el.style.setProperty('display', 'none', 'important'); });
+      menu.querySelectorAll('[data-pc-action="edit-expedition"],[data-pc-action="link-bl"]')
+        .forEach(function(el) { el.style.setProperty('display', 'none', 'important'); });
     }
 
     menu.style.left = e.pageX + 'px';
@@ -931,14 +625,7 @@ document.addEventListener('DOMContentLoaded', function() {
     e.preventDefault();
     menu.style.display = 'none';
     const act = a.getAttribute('data-pc-action');
-    let cartridges = [];
-    const cartridgesJson = currentRow.getAttribute('data-pc-cartridges');
-    if (cartridgesJson) {
-      try { cartridges = JSON.parse(cartridgesJson) || []; }
-      catch (err) { cartridges = []; }
-    }
     const d = {
-      grouped:       currentRow.getAttribute('data-pc-grouped') === '1',
       printers_id:   currentRow.getAttribute('data-pc-printers-id'),
       printer_name:  currentRow.getAttribute('data-pc-printer-name'),
       entity_name:   currentRow.getAttribute('data-pc-entity-name'),
@@ -950,7 +637,6 @@ document.addEventListener('DOMContentLoaded', function() {
       exp_statut:    currentRow.getAttribute('data-pc-exp-statut'),
       exp_carrier:   currentRow.getAttribute('data-pc-exp-carrier') || '',
       exp_tracking:  currentRow.getAttribute('data-pc-exp-tracking') || '',
-      cartridges:    cartridges,
     };
 
     if (act === 'open-printer') {
@@ -958,24 +644,8 @@ document.addEventListener('DOMContentLoaded', function() {
         + '/front/printer.form.php?id=' + encodeURIComponent(d.printers_id);
       return;
     }
-    if (act === 'view-stock') {
-      if (d.grouped && d.cartridges.length > 0) openStockGroupModal(d);
-      else openStockModal(d);
-      return;
-    }
-    if (act === 'send-cartridge') {
-      // Commande de cartouches (mail Achats + Excel joint), mono OU multi-sélection :
-      // seul parcours d'envoi, porté par l'écran des alertes (PG_openPurchaseModal).
-      if (typeof window.PG_openPurchaseModal === 'function') { window.PG_openPurchaseModal(d); }
-      return;
-    }
+    if (act === 'view-stock') { openStockModal(d); return; }
     if (act === 'edit-expedition') { openEditExpModal(d); return; }
-    if (act === 'snooze') {
-      if (d.grouped && d.cartridges.length > 0) openSnoozeGroupModal(d);
-      else openSnoozeModal(d);
-      return;
-    }
-    if (act === 'unsnooze') { handleUnsnooze(d); return; }
     if (act === 'link-bl')         { openLinkBlModal(d);  return; }
   });
 
@@ -1038,30 +708,6 @@ document.addEventListener('DOMContentLoaded', function() {
         .catch(function() { alert(MSG.error); });
     });
   }
-
-  // ── Snooze modal ──
-  function openSnoozeModal(d) {
-    document.getElementById('pc-snooze-printer').value = d.printers_id;
-    document.getElementById('pc-snooze-property').value = d.property;
-    document.getElementById('pc-snooze-header').innerHTML =
-      escapeHtml(d.printer_name) + (d.entity_name ? ' — ' + escapeHtml(d.entity_name) : '')
-      + '<br>' + escapeHtml(MSG.toner_label) + ' : ' + escapeHtml(d.property);
-    const modal = new bootstrap.Modal(document.getElementById('pc-modal-snooze'));
-    modal.show();
-  }
-
-  const snoozeForm = document.getElementById('pc-form-snooze');
-  if (snoozeForm) snoozeForm.addEventListener('submit', function(e) {
-    e.preventDefault();
-    const fd = new FormData(this);
-    pcPost(AJAX_BASE + '/snooze_alert.php', fd)
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data && data.ok) { window.location.reload(); }
-        else { alert(MSG.error); }
-      })
-      .catch(function() { alert(MSG.error); });
-  });
 
   // ── Link BL modal (plugin Gestion) ──
   // Le select2 ajax est déjà initialisé au DOMContentLoaded dans renderLinkBlModal().
@@ -1169,608 +815,11 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  // ══════════════════════════════════════════════════════════════
-  //  Modales « groupées » : 1 ligne imprimante = N cartouches.
-  // ══════════════════════════════════════════════════════════════
-
-  function fetchStock(printers_id, property) {
-    return fetch(AJAX_BASE + '/cartridge_stock.php?printers_id=' + encodeURIComponent(printers_id)
-          + '&property=' + encodeURIComponent(property), {
-        credentials: 'same-origin',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-      })
-      .then(function(r) { return r.json(); })
-      .catch(function() { return { ok: false }; });
-  }
-
-  function renderGroupHeader(d) {
-    return escapeHtml(d.printer_name)
-      + (d.entity_name ? ' — ' + escapeHtml(d.entity_name) : '');
-  }
-
-  // ── Voir stock groupé : tableau multi-lignes ──
-  function openStockGroupModal(d) {
-    const body = document.getElementById('pc-modal-stock-body');
-    if (!body) return;
-    body.innerHTML = '<div class="text-center text-muted">...</div>';
-    const modal = new bootstrap.Modal(document.getElementById('pc-modal-stock'));
-    modal.show();
-
-    const header = '<div class="text-muted small mb-2">' + renderGroupHeader(d) + '</div>';
-    // Pré-remplit la table avec skeleton, puis replace le stock au fur et à mesure
-    let tbl = '<table class="table table-sm mb-0"><thead><tr>'
-      + '<th>' + escapeHtml(MSG.toner_label) + '</th>'
-      + '<th>' + escapeHtml(MSG.cartridge_label) + '</th>'
-      + '<th>' + escapeHtml(MSG.stock_label) + '</th>'
-      + '</tr></thead><tbody>';
-    d.cartridges.forEach(function(c, i) {
-      tbl += '<tr data-pc-stock-row="' + i + '">'
-        + '<td>' + escapeHtml(c.property) + '</td>'
-        + '<td class="pc-cart-name">...</td>'
-        + '<td class="pc-cart-stock text-muted">...</td></tr>';
-    });
-    tbl += '</tbody></table>';
-    body.innerHTML = header + tbl;
-
-    d.cartridges.forEach(function(c, i) {
-      fetchStock(d.printers_id, c.property).then(function(data) {
-        const row = body.querySelector('[data-pc-stock-row="' + i + '"]');
-        if (!row) return;
-        const nameCell  = row.querySelector('.pc-cart-name');
-        const stockCell = row.querySelector('.pc-cart-stock');
-        if (data && data.ok) {
-          if (nameCell)  nameCell.textContent  = data.cartridge_name || data.ref_error || c.cartridge_type || '—';
-          if (nameCell && data.ref_error) nameCell.classList.add('text-danger');
-          if (stockCell) {
-            const n = data.stock || 0;
-            stockCell.innerHTML = '<strong class="' + (n > 0 ? 'text-success' : 'text-danger') + '">'
-              + n + '</strong>';
-          }
-        } else {
-          if (nameCell)  nameCell.textContent = c.cartridge_type || '—';
-          if (stockCell) stockCell.textContent = '?';
-        }
-      });
-    });
-  }
-
-  // ── Réactiver alertes (unsnooze) ──
-  // 1 cartouche snoozée → réactive directement.
-  // 2+ cartouches snoozées → modal avec checkboxes pour choisir.
-  function handleUnsnooze(d) {
-    const snoozed = (d.cartridges || []).filter(function(c) { return c && c.snoozed; });
-    // Mode unitaire (fallback quand data-pc-grouped n'est pas set)
-    if (!d.grouped && d.property) {
-      // Dashboard alerts mode legacy (pas utilisé actuellement mais safe)
-      unsnoozeApply(d.printers_id, [d.property]);
-      return;
-    }
-    if (snoozed.length === 0) {
-      // Pas censé arriver puisqu'on cache l'action via has-snoozed require
-      return;
-    }
-    if (snoozed.length === 1) {
-      unsnoozeApply(d.printers_id, [snoozed[0].property]);
-      return;
-    }
-    openUnsnoozeGroupModal(d, snoozed);
-  }
-
-  function unsnoozeApply(printers_id, properties) {
-    const fd = new FormData();
-    fd.append('printers_id', printers_id);
-    fd.append('properties',  JSON.stringify(properties));
-    pcPost(AJAX_BASE + '/unsnooze_group.php', fd)
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data && data.ok) { window.location.reload(); }
-        else { alert(MSG.error); }
-      })
-      .catch(function() { alert(MSG.error); });
-  }
-
-  function openUnsnoozeGroupModal(d, snoozedCartridges) {
-    const tbody  = document.getElementById('pc-unsnooze-tbody');
-    const hdr    = document.getElementById('pc-unsnooze-header');
-    const hidden = document.getElementById('pc-unsnooze-printers-id');
-    if (!tbody || !hdr || !hidden) {
-      // Fallback si le modal n'est pas rendu : applique à toutes
-      unsnoozeApply(d.printers_id, snoozedCartridges.map(function(c) { return c.property; }));
-      return;
-    }
-    hdr.innerHTML   = renderGroupHeader(d);
-    hidden.value    = d.printers_id;
-    tbody.innerHTML = '';
-
-    snoozedCartridges.forEach(function(c, i) {
-      tbody.insertAdjacentHTML('beforeend',
-          '<tr data-pc-us-row="' + i + '" data-pc-us-property="' + escapeAttr(c.property) + '">'
-        + '<td class="text-center"><input type="checkbox" class="form-check-input pc-us-chk" checked></td>'
-        + '<td><span class="pc-color-dot color-' + escapeAttr(c.toner_color || 'other') + '"></span>'
-        + escapeHtml(c.property) + '</td>'
-        + '</tr>'
-      );
-    });
-
-    const modal = new bootstrap.Modal(document.getElementById('pc-modal-unsnooze'));
-    modal.show();
-  }
-
-  const usForm = document.getElementById('pc-form-unsnooze');
-  if (usForm) {
-    usForm.addEventListener('submit', function(e) {
-      e.preventDefault();
-      const printers_id = document.getElementById('pc-unsnooze-printers-id').value;
-      const rows = document.querySelectorAll('#pc-unsnooze-tbody tr[data-pc-us-row]');
-      const properties = [];
-      rows.forEach(function(row) {
-        const chk = row.querySelector('.pc-us-chk');
-        if (chk && chk.checked) {
-          properties.push(row.getAttribute('data-pc-us-property'));
-        }
-      });
-      if (properties.length === 0) {
-        alert(MSG.nothing_selected);
-        return;
-      }
-      unsnoozeApply(printers_id, properties);
-    });
-  }
-
-  // ── Snooze sur ligne groupée — routing intelligent ──
-  // Si 1 seule cartouche non-snoozée → modal simple (juste la durée).
-  // Sinon (2+ cartouches, ou 0 non-snoozées) → modal avec checkboxes + durée.
-  function openSnoozeGroupModal(d) {
-    const notSnoozed = (d.cartridges || []).filter(function(c) { return c && !c.snoozed; });
-
-    // Cas "une seule à snoozer" → modal unitaire classique
-    if (notSnoozed.length === 1) {
-      openSnoozeModal({
-        printers_id:  d.printers_id,
-        printer_name: d.printer_name,
-        entity_name:  d.entity_name,
-        property:     notSnoozed[0].property,
-      });
-      return;
-    }
-
-    // Sinon : modal groupé avec checkboxes
-    const tbody  = document.getElementById('pc-snoozegroup-tbody');
-    const hdr    = document.getElementById('pc-snoozegroup-header');
-    const hidden = document.getElementById('pc-snoozegroup-printers-id');
-    if (!tbody || !hdr || !hidden) return;
-
-    hdr.innerHTML   = renderGroupHeader(d);
-    hidden.value    = d.printers_id;
-    tbody.innerHTML = '';
-
-    d.cartridges.forEach(function(c, i) {
-      const disabled = c.snoozed ? 'disabled' : '';
-      const checked  = c.snoozed ? ''         : 'checked';
-      const badge    = c.snoozed
-        ? ' <i class="fa-solid fa-bell-slash text-muted ms-1" title="Déjà snoozé"></i>'
-        : '';
-
-      tbody.insertAdjacentHTML('beforeend',
-          '<tr data-pc-sn-row="' + i + '" data-pc-sn-property="' + escapeAttr(c.property) + '">'
-        + '<td class="text-center"><input type="checkbox" class="form-check-input pc-sn-chk" '
-        + checked + ' ' + disabled + '></td>'
-        + '<td><span class="pc-color-dot color-' + escapeAttr(c.toner_color || 'other') + '"></span>'
-        + escapeHtml(c.property) + badge + '</td>'
-        + '</tr>'
-      );
-    });
-
-    const modal = new bootstrap.Modal(document.getElementById('pc-modal-snoozegroup'));
-    modal.show();
-  }
-
-  const snForm = document.getElementById('pc-form-snoozegroup');
-  if (snForm) {
-    snForm.addEventListener('submit', function(e) {
-      e.preventDefault();
-      const printers_id = document.getElementById('pc-snoozegroup-printers-id').value;
-      const days        = document.getElementById('pc-snoozegroup-days').value;
-      const rows = document.querySelectorAll('#pc-snoozegroup-tbody tr[data-pc-sn-row]');
-      const properties = [];
-      rows.forEach(function(row) {
-        const chk = row.querySelector('.pc-sn-chk');
-        if (chk && chk.checked && !chk.disabled) {
-          properties.push(row.getAttribute('data-pc-sn-property'));
-        }
-      });
-      if (properties.length === 0) {
-        alert(MSG.nothing_selected);
-        return;
-      }
-      const fd = new FormData();
-      fd.append('printers_id', printers_id);
-      fd.append('days',        days);
-      fd.append('properties',  JSON.stringify(properties));
-      pcPost(AJAX_BASE + '/snooze_group.php', fd)
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          if (data && data.ok) { window.location.reload(); }
-          else { alert(MSG.error); }
-        })
-        .catch(function() { alert(MSG.error); });
-    });
-  }
-
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
       return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
     });
   }
-  function escapeAttr(s) { return escapeHtml(s); }
-
-  // ══════════════════════════════════════════════════════════════
-  //  Tableau AJAX : fetch serveur + spinner + col width persist
-  // ══════════════════════════════════════════════════════════════
-  //
-  //  Chaque dashboard déclare sa config avant le chargement de ce JS :
-  //    window.PC_TABLE_CONFIG['pc-tbl-xxx'] = {
-  //       endpoint:    '/ajax/list_xxx.php',
-  //       extraParams: function() { return { filter1: 'x', filter2: 'y' }; },
-  //       renderRow:   function(row) { return <tr>; },
-  //       onMetrics:   function(m)  { /* update cards */ },   (optionnel)
-  //       emptyColspan: N,
-  //       emptyLabel:  'Aucune donnée',
-  //    };
-  //
-  //  Le JS pilote : fetch au démarrage, à chaque changement (search/perPage/
-  //  sort/pagination/filtre externe), avec un spinner overlay pendant l'AJAX.
-
-  window.PC_TABLE_CONFIG = window.PC_TABLE_CONFIG || {};
-  const tableStates = {};
-
-  function getTable(id) { return document.getElementById(id); }
-
-  function showSpinner(tableId) {
-    const st = tableStates[tableId];
-    if (!st || !st.spinner) return;
-    st.spinner.style.display = 'flex';
-  }
-  function hideSpinner(tableId) {
-    const st = tableStates[tableId];
-    if (!st || !st.spinner) return;
-    st.spinner.style.display = 'none';
-  }
-
-  function ensureSpinner(tableId) {
-    const table = getTable(tableId);
-    if (!table) return null;
-    // Wrap la table dans un conteneur relatif si pas déjà fait
-    let wrap = table.parentNode;
-    if (!wrap.classList.contains('pc-table-wrap')) {
-      const newWrap = document.createElement('div');
-      newWrap.className = 'pc-table-wrap';
-      newWrap.style.position = 'relative';
-      table.parentNode.insertBefore(newWrap, table);
-      newWrap.appendChild(table);
-      wrap = newWrap;
-    }
-    let sp = wrap.querySelector('.pc-table-spinner');
-    if (!sp) {
-      sp = document.createElement('div');
-      sp.className = 'pc-table-spinner';
-      sp.innerHTML = '<div class="pc-spinner-inner">'
-        + '<div class="spinner-border text-primary" role="status">'
-        + '<span class="visually-hidden">Chargement…</span></div></div>';
-      sp.style.display = 'none';
-      wrap.appendChild(sp);
-    }
-    return sp;
-  }
-
-  function buildQueryString(tableId) {
-    const st = tableStates[tableId];
-    const cfg = window.PC_TABLE_CONFIG[tableId] || {};
-    const params = new URLSearchParams();
-    params.set('page', String(st.page));
-    params.set('per_page', String(st.perPage));
-    if (st.search) params.set('search', st.search);
-    if (st.sortCol) params.set('sort_col', st.sortCol);
-    if (st.sortDir) params.set('sort_dir', st.sortDir);
-    // Extra params du dashboard (filtres GET)
-    if (typeof cfg.extraParams === 'function') {
-      const extra = cfg.extraParams() || {};
-      Object.keys(extra).forEach(function(k) {
-        if (extra[k] !== null && extra[k] !== undefined && extra[k] !== '') {
-          params.set(k, String(extra[k]));
-        }
-      });
-    }
-    return params.toString();
-  }
-
-  function fetchPage(tableId) {
-    const st = tableStates[tableId];
-    const cfg = window.PC_TABLE_CONFIG[tableId];
-    if (!st || !cfg || !cfg.endpoint) return;
-
-    // Annule un fetch en cours si l'utilisateur enchaîne les clics
-    if (st.abortCtrl) { try { st.abortCtrl.abort(); } catch (e) {} }
-    st.abortCtrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-
-    showSpinner(tableId);
-
-    const url = AJAX_BASE + '/' + cfg.endpoint + '?' + buildQueryString(tableId);
-    fetch(url, {
-      credentials: 'same-origin',
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-      signal: st.abortCtrl ? st.abortCtrl.signal : undefined,
-    })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (!data || !data.ok) {
-          st.tbody.innerHTML = '<tr><td colspan="' + (cfg.emptyColspan || 10) + '" class="text-center text-danger py-3">'
-            + 'Erreur de chargement</td></tr>';
-          return;
-        }
-        st.total = data.total || 0;
-        // Vider puis re-remplir le tbody
-        st.tbody.innerHTML = '';
-        if (!data.rows || data.rows.length === 0) {
-          const colspan = cfg.emptyColspan || 10;
-          st.tbody.innerHTML = '<tr><td colspan="' + colspan + '" class="text-center text-muted py-3">'
-            + (cfg.emptyLabel || 'Aucune donnée') + '</td></tr>';
-        } else {
-          data.rows.forEach(function(row) {
-            const tr = cfg.renderRow ? cfg.renderRow(row) : null;
-            if (tr) st.tbody.appendChild(tr);
-          });
-        }
-        // Métriques
-        if (typeof cfg.onMetrics === 'function' && data.metrics) {
-          cfg.onMetrics(data.metrics);
-        }
-        // Compteur + pagination
-        updateCountAndPagination(tableId);
-      })
-      .catch(function(err) {
-        if (err && err.name === 'AbortError') return;
-        st.tbody.innerHTML = '<tr><td colspan="' + (cfg.emptyColspan || 10) + '" class="text-center text-danger py-3">'
-          + 'Erreur réseau</td></tr>';
-      })
-      .finally(function() {
-        hideSpinner(tableId);
-      });
-  }
-
-  function updateCountAndPagination(tableId) {
-    const st = tableStates[tableId];
-    if (!st) return;
-    const total = st.total || 0;
-    const totalPages = Math.max(1, Math.ceil(total / st.perPage));
-    if (st.page > totalPages) st.page = totalPages;
-
-    const countEl = document.querySelector('.pc-table-count[data-pc-table-target="' + tableId + '"]');
-    if (countEl) countEl.textContent = total + ' résultat(s)';
-
-    const pagEl = document.querySelector('.pc-table-pagination[data-pc-table-target="' + tableId + '"]');
-    if (!pagEl) return;
-    pagEl.innerHTML = '';
-    if (totalPages <= 1) return;
-
-    const cur = st.page;
-    const addItem = function(label, page, opts) {
-      opts = opts || {};
-      const li = document.createElement('li');
-      li.className = 'page-item'
-        + (opts.active ? ' active' : '')
-        + (opts.disabled ? ' disabled' : '');
-      const a = document.createElement('a');
-      a.className = 'page-link';
-      a.href = '#';
-      a.innerHTML = label;
-      if (!opts.disabled && !opts.active && page !== null) {
-        a.addEventListener('click', function(ev) {
-          ev.preventDefault();
-          st.page = page;
-          fetchPage(tableId);
-        });
-      } else {
-        a.addEventListener('click', function(ev) { ev.preventDefault(); });
-      }
-      li.appendChild(a);
-      pagEl.appendChild(li);
-    };
-
-    addItem('&laquo;',  1,           { disabled: cur === 1 });
-    addItem('&lsaquo;', cur - 1,     { disabled: cur === 1 });
-    const pages = new Set([1, totalPages, cur, cur - 1, cur + 1, cur - 2, cur + 2]);
-    const sorted = Array.from(pages).filter(function(p) { return p >= 1 && p <= totalPages; })
-                        .sort(function(a, b) { return a - b; });
-    let prev = 0;
-    sorted.forEach(function(p) {
-      if (p - prev > 1) addItem('&hellip;', null, { disabled: true });
-      addItem(String(p), p, { active: p === cur });
-      prev = p;
-    });
-    addItem('&rsaquo;', cur + 1,     { disabled: cur === totalPages });
-    addItem('&raquo;',  totalPages,  { disabled: cur === totalPages });
-  }
-
-  function initTable(tableId) {
-    const table = getTable(tableId);
-    if (!table) return;
-    const tbody = table.tBodies[0];
-    if (!tbody) return;
-    const perPageSel = document.querySelector('.pc-table-perpage[data-pc-table-target="' + tableId + '"]');
-    const initialPerPage = perPageSel ? (parseInt(perPageSel.value, 10) || 25) : 25;
-
-    tableStates[tableId] = {
-      table: table,
-      tbody: tbody,
-      spinner: ensureSpinner(tableId),
-      search: '',
-      perPage: initialPerPage,
-      page: 1,
-      sortCol: null,
-      sortDir: 'asc',
-      total: 0,
-      abortCtrl: null,
-    };
-
-    // Tri : clic sur les headers pc-sortable
-    const ths = table.querySelectorAll('thead th.pc-sortable');
-    ths.forEach(function(th) {
-      const col = th.getAttribute('data-pc-sort-col') || '';
-      if (!col) return;
-      th.style.cursor = 'pointer';
-      th.innerHTML = th.innerHTML + ' <i class="fa-solid fa-sort text-muted ms-1 pc-sort-icon"></i>';
-      th.addEventListener('click', function(e) {
-        if (e.target && e.target.classList && e.target.classList.contains('pc-col-resizer')) return;
-        const st = tableStates[tableId];
-        if (st.sortCol === col) {
-          st.sortDir = st.sortDir === 'asc' ? 'desc' : 'asc';
-        } else {
-          st.sortCol = col;
-          st.sortDir = 'asc';
-        }
-        ths.forEach(function(t) {
-          const i = t.querySelector('.pc-sort-icon');
-          if (i) i.className = 'fa-solid fa-sort text-muted ms-1 pc-sort-icon';
-        });
-        const icon = th.querySelector('.pc-sort-icon');
-        if (icon) icon.className = 'fa-solid fa-sort-' + (st.sortDir === 'asc' ? 'up' : 'down')
-          + ' text-primary ms-1 pc-sort-icon';
-        st.page = 1;
-        fetchPage(tableId);
-      });
-    });
-
-    // Largeur colonnes : applique les préférences user si disponibles
-    table.style.tableLayout = 'fixed';
-    const allThs = table.querySelectorAll('thead th');
-    const savedWidths = (PC_CONFIG.tablePrefs && PC_CONFIG.tablePrefs[tableId] && PC_CONFIG.tablePrefs[tableId].widths) || {};
-    allThs.forEach(function(th, idx) {
-      const saved = savedWidths[idx];
-      if (saved && parseInt(saved, 10) > 0) {
-        th.style.width = parseInt(saved, 10) + 'px';
-      } else if (!th.style.width) {
-        th.style.width = th.offsetWidth + 'px';
-      }
-      th.style.position = 'relative';
-      const handle = document.createElement('span');
-      handle.className = 'pc-col-resizer';
-      handle.innerHTML = '&nbsp;';
-      th.appendChild(handle);
-
-      let startX = 0, startW = 0;
-      handle.addEventListener('mousedown', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        startX = e.pageX;
-        startW = th.offsetWidth;
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-
-        function onMove(ev) {
-          const w = Math.max(40, startW + (ev.pageX - startX));
-          th.style.width = w + 'px';
-        }
-        function onUp() {
-          document.removeEventListener('mousemove', onMove);
-          document.removeEventListener('mouseup', onUp);
-          document.body.style.cursor = '';
-          document.body.style.userSelect = '';
-          // Persiste les largeurs
-          saveColumnWidths(tableId);
-        }
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-      });
-      handle.addEventListener('click', function(e) { e.stopPropagation(); });
-    });
-
-    // Fetch initial
-    fetchPage(tableId);
-  }
-
-  function saveColumnWidths(tableId) {
-    const table = getTable(tableId);
-    if (!table) return;
-    const widths = {};
-    table.querySelectorAll('thead th').forEach(function(th, idx) {
-      widths[idx] = parseInt(th.offsetWidth, 10) || 0;
-    });
-    // POST + jeton CSRF en en-tête (pcPost). Pour les requêtes AJAX, GLPI 11 garde
-    // le jeton valide (preserve_token) : il n'est pas consommé par cet appel.
-    const fd = new FormData();
-    fd.append('table_id', tableId);
-    fd.append('prefs', JSON.stringify({ widths: widths }));
-    pcPost(AJAX_BASE + '/save_table_prefs.php', fd).catch(function(err) {
-      console.warn('Print Gestion : préférences de colonnes non enregistrées', err);
-    });
-  }
-
-  // Debounce helper pour la recherche
-  function debounce(fn, ms) {
-    let t = null;
-    return function() {
-      const args = arguments;
-      if (t) clearTimeout(t);
-      t = setTimeout(function() { fn.apply(null, args); }, ms);
-    };
-  }
-
-  // Handlers globaux search + perPage
-  document.querySelectorAll('.pc-table-search').forEach(function(input) {
-    const tableId = input.getAttribute('data-pc-table-target');
-    const debouncedFetch = debounce(function() {
-      const st = tableStates[tableId];
-      if (!st) return;
-      st.search = input.value;
-      st.page = 1;
-      fetchPage(tableId);
-    }, 300);
-    input.addEventListener('input', debouncedFetch);
-  });
-
-  document.querySelectorAll('.pc-table-perpage').forEach(function(select) {
-    const tableId = select.getAttribute('data-pc-table-target');
-    select.addEventListener('change', function() {
-      const st = tableStates[tableId];
-      if (!st) return;
-      st.perPage = parseInt(this.value, 10) || 25;
-      st.page = 1;
-      fetchPage(tableId);
-    });
-  });
-
-  function initAllTables() {
-    document.querySelectorAll('table[data-pc-ajax="1"]').forEach(function(t) {
-      if (window.PC_TABLE_CONFIG[t.id] && !tableStates[t.id]) {
-        initTable(t.id);
-      }
-    });
-  }
-
-  // Init différée : les scripts de config des dashboards sont inline APRÈS
-  // ce script partagé, donc on attend DOMContentLoaded pour que PC_TABLE_CONFIG
-  // soit peuplé avant de lancer les fetch.
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initAllTables);
-  } else {
-    // DOM déjà prêt → laisse tourner la pile d'événements pour que les <script>
-    // inline qui suivent aient fini d'exécuter.
-    setTimeout(initAllTables, 0);
-  }
-
-  // Exposé : permet aux dashboards de forcer un refetch + init à la demande.
-  window.PC_TABLE = {
-    refresh: function(tableId) {
-      const st = tableStates[tableId];
-      if (!st) { initTable(tableId); return; }
-      st.page = 1;
-      fetchPage(tableId);
-    },
-    init: function(tableId) {
-      if (!tableStates[tableId]) initTable(tableId);
-    },
-  };
 
 })();
 </script>

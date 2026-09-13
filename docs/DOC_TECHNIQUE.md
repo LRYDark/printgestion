@@ -193,8 +193,9 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   si l'imprimante détectée n'attendait elle-même aucun envoi pour ce toner.
 - Chaque ligne d'alerte porte son verrou (`lock`) ; le mail « toner bas » ignore les emplacements
   verrouillés (sauf contournement).
-- **Fenêtre de commande** : les cartouches sous verrou bloquant sont retirées de la sélection et listées
-  à part avec leur motif ; une cartouche commandable sous contournement est signalée par un badge.
+- **Écran des alertes** (moteur de recherche natif sur `alertview`) : colonnes Verrou (envoi en cours,
+  demande en cours, garde, ticket, contournement), Motif du verrou et Référence non résolue ; l'action de
+  masse « Commander » (droit validation UPDATE) refuse la commande entière si une ligne est non commandable.
 - **Côté serveur** (`Expedition::createPurchaseOrder()`) : verrous réévalués avant toute écriture ; une
   seule ligne verrouillée fait refuser la commande entière avec la liste des lignes et leur motif ;
   lignes en double écartées ; commande sous contournement acceptée avec avertissement.
@@ -320,7 +321,7 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
   ou aux demandes exportées. Entité racine, **non récursif** : invisible des comptes clients. L'archivage est
   dans la transaction de la commande : échec d'archivage = commande non passée ; transaction annulée = copie
   du fichier retirée du dossier des documents.
-- La commande directe (fenêtre de commande des alertes) utilise ce générateur : plus de colonne « Stock
+- La commande directe (action de masse « Commander » de l'écran des alertes) utilise ce générateur : plus de colonne « Stock
   GLPI », plus de nom d'entité en code client.
 
 ### Notifications natives (`inc/notificationtargetdemande.class.php`, `inc/contractalert.class.php`)
@@ -362,10 +363,10 @@ Périmètre : entités de l'utilisateur (droit `dashboard` READ).
 
 | Endpoint | Action |
 |---|---|
-| `send_purchase.php` | **Seul parcours d'envoi** : commande mono/multi-imprimantes (et multi-clients) → `createPurchaseOrder()` (expéditions + mail Achats en transaction) |
+| *(action de masse « Commander »)* | **Seul parcours de commande directe** : `Alertview::processOrder()` → `createPurchaseOrder()` (expéditions + fichier + mail Achats en transaction), droit validation UPDATE |
 | `update_expedition.php` | Marquer expédié (transporteur + tracking) → `markShipped()` |
 | `edit_expedition.php`, `reassign_expedition.php` | Édition / réassignation vers une autre imprimante |
-| `snooze_alert.php`, `snooze_group.php`, `unsnooze_group.php`, `resolve_alert.php` | Gestion des alertes |
+| `resolve_alert.php` | Ignorer une alerte « mauvaise imprimante » (suspendre / réactiver : actions de masse de l'écran des alertes) |
 
 CSRF : la validation est faite par le `CheckCsrfListener` de GLPI 11 **avant** le chargement
 des fichiers ajax (token `X-Glpi-Csrf-Token`). Ne PAS rajouter de `Session::checkCSRF()` dedans

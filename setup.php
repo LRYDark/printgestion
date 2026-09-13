@@ -7,7 +7,7 @@
 // À incrémenter à chaque nouvelle étape de schéma (inc/schema.class.php) ou nouvelle
 // tâche automatique : GLPI ne rejoue l'installation (migrations, enregistrement des
 // tâches) que si cette version change.
-define('PLUGIN_PRINTGESTION_VERSION', '1.5.3');
+define('PLUGIN_PRINTGESTION_VERSION', '1.5.4');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');
@@ -75,7 +75,7 @@ function plugin_init_printgestion() {
             }
 
             // Jeton anti-cache (beta) : à incrémenter à chaque modif de public/css|js.
-            $cb = '?b=1';
+            $cb = '?b=2';
             $PLUGIN_HOOKS['add_css']['printgestion']        = ['public/css/printgestion.css' . $cb];
             $PLUGIN_HOOKS['add_javascript']['printgestion'] = ['public/js/printgestion.js' . $cb];
         }

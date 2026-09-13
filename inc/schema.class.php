@@ -41,6 +41,7 @@ class PluginPrintgestionSchema {
         '1.5.1' => 'migrateTo151',
         '1.5.2' => 'migrateTo152',
         '1.5.3' => 'migrateTo153',
+        '1.5.4' => 'migrateTo154',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -530,5 +531,22 @@ class PluginPrintgestionSchema {
         $demandes = 'glpi_plugin_printgestion_demandes';
         $migration->addField($demandes, 'date_last_reminder', 'timestamp NULL DEFAULT NULL');
         $migration->migrationOneTable($demandes);
+    }
+
+    /**
+     * 1.5.4 — écran des alertes sur le moteur de recherche natif : la table matérialisée
+     * alertview porte aussi le verrou anti-double-envoi, la référence non résolue, le stock
+     * GLPI, le niveau figé suspect et le statut de l'envoi en cours. Table recalculée par la
+     * tâche horaire : colonnes vides jusqu'au prochain calcul.
+     */
+    private static function migrateTo154(Migration $migration): void {
+        $table = 'glpi_plugin_printgestion_alertview';
+        $migration->addField($table, 'lock_reason', 'varchar(20) DEFAULT NULL');
+        $migration->addField($table, 'lock_message', 'text DEFAULT NULL');
+        $migration->addField($table, 'ref_error', 'text DEFAULT NULL');
+        $migration->addField($table, 'stock', "int NOT NULL DEFAULT '0'");
+        $migration->addField($table, 'level_suspect', "tinyint NOT NULL DEFAULT '0'");
+        $migration->addField($table, 'expedition_statut', 'varchar(20) DEFAULT NULL');
+        $migration->migrationOneTable($table);
     }
 }

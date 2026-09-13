@@ -239,8 +239,9 @@ class PluginPrintgestionAlert extends CommonDBTM {
      *                                      réservé aux traitements internes (tâches
      *                                      automatiques, matérialisation) — jamais à un
      *                                      affichage ni à un export.
+     * @param ?array   $printer_ids         Restreindre à ces imprimantes (recalcul partiel).
      */
-    public static function listAll(?int $entities_id = null, bool $restrict_to_session = true): array {
+    public static function listAll(?int $entities_id = null, bool $restrict_to_session = true, ?array $printer_ids = null): array {
         global $DB;
 
         $config               = PluginPrintgestionConfig::getInstance();
@@ -267,11 +268,15 @@ class PluginPrintgestionAlert extends CommonDBTM {
             if ($DB->fieldExists($tr_table, 'color_pages')) $tr_select[] = 'color_pages';
             if ($DB->fieldExists($tr_table, 'is_suspect'))  $tr_select[] = 'is_suspect';
 
-            foreach ($DB->request([
+            $tr_criteria = [
                 'SELECT' => $tr_select,
                 'FROM'   => $tr_table,
                 'ORDER'  => ['printers_id', 'property_name', 'reading_date ASC'],
-            ]) as $r) {
+            ];
+            if ($printer_ids !== null) {
+                $tr_criteria['WHERE'] = ['printers_id' => array_values(array_map('intval', $printer_ids)) ?: [0]];
+            }
+            foreach ($DB->request($tr_criteria) as $r) {
                 $k = $r['printers_id'] . '|' . $r['property_name'];
                 if (!isset($all_readings_by_toner[$k])) {
                     $all_readings_by_toner[$k] = [];
@@ -350,6 +355,9 @@ class PluginPrintgestionAlert extends CommonDBTM {
             ],
             'ORDER' => ['e.completename', 'p.name'],
         ];
+        if ($printer_ids !== null) {
+            $criteria['WHERE']['p.id'] = array_values(array_unique(array_map('intval', $printer_ids))) ?: [0];
+        }
 
         if ($entities_id !== null && $entities_id >= 0) {
             $criteria['WHERE']['p.entities_id'] = $entities_id;
@@ -472,253 +480,13 @@ class PluginPrintgestionAlert extends CommonDBTM {
     }
 
     /**
-     * Liste complète avec cache GLPI (PSR-16, fichiers dans files/_cache/).
-     * TTL 15min — rafraîchi par le cron PrintgestionCheckAlerts.
-     */
-    public static function listAllCached(?int $entities_id = null): array {
-        global $GLPI_CACHE;
-
-        // Clé incluant la version pour que invalidateCache() invalide réellement
-        // toutes les variantes en cache (par entité) d'un coup, et le périmètre
-        // d'entités de l'utilisateur (données restreintes par listAll()).
-        // v5 = daily dedup normalisé minuit + guard div 0 ; v6 = verrous anti-double-envoi (lock)
-        $key = 'plugin_printgestion_alerts_v6_' . self::getCacheVersion() . '_' . ($entities_id ?? 'all')
-            . '_' . PluginPrintgestionSecurity::sessionEntityScopeKey();
-        if (isset($GLPI_CACHE) && $GLPI_CACHE->has($key)) {
-            $cached = $GLPI_CACHE->get($key);
-            if (is_array($cached)) {
-                return $cached;
-            }
-        }
-
-        $rows = self::listAll($entities_id);
-        if (isset($GLPI_CACHE)) {
-            $GLPI_CACHE->set($key, $rows, 900); // 15 minutes
-        }
-        return $rows;
-    }
-
-    /**
-     * Invalide le cache alerts (appelé par cron après refresh + par les actions
-     * qui modifient l'état : snooze, resolve, create expedition…).
+     * Signale que l'écran des alertes (table matérialisée alertview) ne reflète plus l'état
+     * réel : commande, annulation, seuils… Bandeau « Recalculer » sur l'écran ; recalcul
+     * complet par la tâche horaire. Une commande revérifie de toute façon les verrous et les
+     * références côté serveur.
      */
     public static function invalidateCache(): void {
-        global $GLPI_CACHE;
-        if (!isset($GLPI_CACHE)) {
-            return;
-        }
-        // On ne connaît pas toutes les entités filtrées → on utilise un tag "version"
-        // incrémenté à chaque invalidation. Simple : delete par pattern impossible en PSR-16,
-        // donc on stocke un compteur et on l'inclut dans la clé.
-        $ver = (int)($GLPI_CACHE->get('plugin_printgestion_alerts_ver') ?? 0);
-        $GLPI_CACHE->set('plugin_printgestion_alerts_ver', $ver + 1, 86400);
-    }
-
-    /**
-     * Version effective du cache (utilisée dans listAllCached pour bypass rapide).
-     */
-    protected static function getCacheVersion(): int {
-        global $GLPI_CACHE;
-        if (!isset($GLPI_CACHE)) {
-            return 0;
-        }
-        return (int)($GLPI_CACHE->get('plugin_printgestion_alerts_ver') ?? 0);
-    }
-
-    /**
-     * Liste paginée + filtrée + triée pour le dashboard (source = cache GLPI).
-     *
-     * Mode groupé (`$params['grouped']` truthy, défaut=1) :
-     *   - filtre par statut AVANT le groupage : une ligne imprimante ne liste que
-     *     les cartouches qui passent le filtre (ex: filter=critical → seulement
-     *     les cartouches critiques, même si d'autres sont watch/ok sur la même
-     *     imprimante)
-     *   - chaque row = {printers_id, printer_name, entity_name, worst_status,
-     *     min_days, has_expedition, cartridges:[{property, level, …}, …]}
-     *   - pagination sur les imprimantes, pas sur les cartouches
-     *
-     * Mode unitaire (`grouped=0`) : comportement legacy, 1 row = 1 cartouche.
-     */
-    public static function listPagedCached(array $params): array {
-        $entities_id = (isset($params['entities_id']) && $params['entities_id'] !== '' && (int)$params['entities_id'] >= 0)
-            ? (int)$params['entities_id'] : null;
-        $grouped = !isset($params['grouped']) || (int)$params['grouped'] === 1;
-
-        $all = self::listAllCached($entities_id);
-
-        // Filtre statut — appliqué avant le groupage : la ligne imprimante ne liste
-        // que les cartouches qui passent le filtre.
-        $filter_status = (string)($params['status'] ?? 'critical_watch');
-        if ($filter_status === 'critical') {
-            $all = array_values(array_filter($all, fn($r) => $r['status'] === self::STATUS_CRITICAL));
-        } elseif ($filter_status === 'watch') {
-            $all = array_values(array_filter($all, fn($r) => $r['status'] === self::STATUS_WATCH));
-        } elseif ($filter_status === 'critical_watch') {
-            $all = array_values(array_filter($all, fn($r) => in_array($r['status'], [self::STATUS_CRITICAL, self::STATUS_WATCH], true)));
-        } elseif ($filter_status === 'expeditions') {
-            $all = array_values(array_filter($all, fn($r) => $r['expedition'] !== null));
-        }
-
-        // Recherche globale — sur les champs row-level (avant groupage)
-        $search = trim((string)($params['search'] ?? ''));
-        if ($search !== '') {
-            $q = mb_strtolower($search);
-            $all = array_values(array_filter($all, function ($r) use ($q) {
-                $hay = mb_strtolower(
-                    ($r['printer_name'] ?? '') . ' '
-                    . ($r['entity_name'] ?? '') . ' '
-                    . ($r['property'] ?? '') . ' '
-                    . ($r['cartridge_type'] ?? '') . ' '
-                    . ($r['status'] ?? '')
-                );
-                return mb_strpos($hay, $q) !== false;
-            }));
-        }
-
-        $sort_col = (string)($params['sort_col'] ?? '');
-        $sort_dir = strtolower((string)($params['sort_dir'] ?? 'asc')) === 'desc' ? -1 : 1;
-
-        if (!$grouped) {
-            // Mode unitaire (legacy)
-            if ($sort_col !== '') {
-                usort($all, function ($a, $b) use ($sort_col, $sort_dir) {
-                    $av = $a[$sort_col] ?? '';
-                    $bv = $b[$sort_col] ?? '';
-                    if (is_numeric($av) && is_numeric($bv)) {
-                        return (($av <=> $bv)) * $sort_dir;
-                    }
-                    return strcasecmp((string)$av, (string)$bv) * $sort_dir;
-                });
-            }
-
-            $total    = count($all);
-            $page     = max(1, (int)($params['page'] ?? 1));
-            $per_page = max(1, min(500, (int)($params['per_page'] ?? 25)));
-            $offset   = ($page - 1) * $per_page;
-
-            return [
-                'rows'  => array_slice($all, $offset, $per_page),
-                'total' => $total,
-            ];
-        }
-
-        // Mode groupé : agrégat par imprimante
-        $grouped_rows = self::groupByPrinter($all);
-
-        // Tri sur les lignes groupées
-        $status_priority = [self::STATUS_CRITICAL => 0, self::STATUS_WATCH => 1, self::STATUS_OK => 2];
-        if ($sort_col === '') {
-            $sort_col = 'worst_status';
-            $sort_dir = 1;
-        }
-        usort($grouped_rows, function ($a, $b) use ($sort_col, $sort_dir, $status_priority) {
-            switch ($sort_col) {
-                case 'worst_status':
-                    $pa = $status_priority[$a['worst_status']] ?? 3;
-                    $pb = $status_priority[$b['worst_status']] ?? 3;
-                    if ($pa === $pb) {
-                        $da = $a['min_days'] ?? PHP_INT_MAX;
-                        $db = $b['min_days'] ?? PHP_INT_MAX;
-                        return ($da <=> $db) * $sort_dir;
-                    }
-                    return ($pa <=> $pb) * $sort_dir;
-                case 'min_days':
-                    $av = $a['min_days'] ?? PHP_INT_MAX;
-                    $bv = $b['min_days'] ?? PHP_INT_MAX;
-                    return ($av <=> $bv) * $sort_dir;
-                case 'printer_name':
-                case 'entity_name':
-                    return strcasecmp((string)($a[$sort_col] ?? ''), (string)($b[$sort_col] ?? '')) * $sort_dir;
-                default:
-                    return 0;
-            }
-        });
-
-        $total    = count($grouped_rows);
-        $page     = max(1, (int)($params['page'] ?? 1));
-        $per_page = max(1, min(500, (int)($params['per_page'] ?? 25)));
-        $offset   = ($page - 1) * $per_page;
-
-        return [
-            'rows'  => array_slice($grouped_rows, $offset, $per_page),
-            'total' => $total,
-        ];
-    }
-
-    /**
-     * Regroupe les rows unitaires par imprimante.
-     * Les cartouches au sein d'une ligne sont triées par priorité de statut
-     * puis par couleur (black, cyan, magenta, yellow, other) pour un rendu stable.
-     */
-    protected static function groupByPrinter(array $rows): array {
-        $color_order = ['black' => 0, 'cyan' => 1, 'magenta' => 2, 'yellow' => 3, 'other' => 4];
-        $status_priority = [self::STATUS_CRITICAL => 0, self::STATUS_WATCH => 1, self::STATUS_OK => 2];
-
-        $groups = [];
-        foreach ($rows as $r) {
-            $pid = (int)$r['printers_id'];
-            if (!isset($groups[$pid])) {
-                $groups[$pid] = [
-                    'printers_id'    => $pid,
-                    'printer_name'   => (string)($r['printer_name'] ?? ''),
-                    'entity_name'    => (string)($r['entity_name'] ?? ''),
-                    'entities_id'    => (int)($r['entities_id'] ?? 0),
-                    'cartridges'     => [],
-                    'worst_status'   => self::STATUS_OK,
-                    'min_days'       => null,
-                    'has_expedition' => false,
-                ];
-            }
-            // Référence de cartouche, résolution stricte : si elle n'est pas résolue, la
-            // cartouche n'est pas commandable et le motif est affiché.
-            $ref = PluginPrintgestionSnmpmapping::resolveCartridge($pid, (string)$r['property']);
-            $groups[$pid]['cartridges'][] = [
-                'property'       => (string)$r['property'],
-                'level'          => (int)$r['level'],
-                'days_remaining' => $r['days_remaining'],
-                'is_estimate'    => (bool)($r['is_estimate'] ?? false),
-                'status'         => (string)$r['status'],
-                'cartridge_type' => (string)($r['cartridge_type'] ?? ''),
-                'toner_color'    => (string)($r['toner_color'] ?? 'other'),
-                'expedition'     => $r['expedition'],
-                'snoozed'        => (bool)($r['snoozed'] ?? false),
-                'snooze_until'   => $r['snooze_until'] ?? null,
-                'lock'           => $r['lock'] ?? null,
-                'ref_error'      => $ref['cartridgeitems_id'] > 0 ? '' : (string)$ref['message'],
-                // Stock GLPI de la cartouche (sert à pré-cocher « Planif » dans la commande).
-                'stock'          => PluginPrintgestionExpedition::getCartridgeStock((int)$ref['cartridgeitems_id']),
-            ];
-
-            // Agrégats par imprimante
-            $cur_prio   = $status_priority[$groups[$pid]['worst_status']] ?? 3;
-            $this_prio  = $status_priority[(string)$r['status']] ?? 3;
-            if ($this_prio < $cur_prio) {
-                $groups[$pid]['worst_status'] = (string)$r['status'];
-            }
-            if ($r['days_remaining'] !== null) {
-                $d = (int)$r['days_remaining'];
-                if ($groups[$pid]['min_days'] === null || $d < $groups[$pid]['min_days']) {
-                    $groups[$pid]['min_days'] = $d;
-                }
-            }
-            if ($r['expedition'] !== null) {
-                $groups[$pid]['has_expedition'] = true;
-            }
-        }
-
-        foreach ($groups as &$g) {
-            usort($g['cartridges'], function ($a, $b) use ($color_order, $status_priority) {
-                $pa = $status_priority[$a['status']] ?? 3;
-                $pb = $status_priority[$b['status']] ?? 3;
-                if ($pa !== $pb) return $pa <=> $pb;
-                $ca = $color_order[$a['toner_color']] ?? 99;
-                $cb = $color_order[$b['toner_color']] ?? 99;
-                return $ca <=> $cb;
-            });
-        }
-        unset($g);
-
-        return array_values($groups);
+        PluginPrintgestionAlertview::markStale();
     }
 
     /**

@@ -151,7 +151,8 @@ nouvelle interception passe par `PluginPrintgestionLogger`.
 - Vérifier que l'inventaire SNMP GLPI remonte bien `glpi_printers_cartridgeinfos`.
 - Cron `PrintgestionSnapshotReadings` exécuté ? (il faut ~30 j de relevés pour une vitesse fiable ;
   en-deçà, le calcul utilise la fenêtre disponible).
-- Dashboard alertes : bouton « Rafraîchir » force `Alertview::rebuild()` + invalidation cache.
+- Écran des alertes : bouton « Recalculer maintenant » (`Alertview::rebuild()`) ; un bandeau signale les
+  actions (commandes, annulations…) pas encore reflétées depuis le dernier calcul complet.
 - Seuils : config globale + seuils par imprimante (`printer_thresholds`).
 
 ### Aucune demande d'envoi proposée

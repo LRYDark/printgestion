@@ -400,9 +400,6 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 UNIQUE KEY `printers_id` (`printers_id`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$default_charset} COLLATE={$default_collation} ROW_FORMAT=DYNAMIC;";
 
-        // Préférences colonnes → stockées dans le cache GLPI ($GLPI_CACHE),
-        // pas en BDD. Voir dashboardactions::renderJs + ajax/save_table_prefs.php.
-
         // ─── Tables MATÉRIALISÉES (tableaux Search natifs) ───────────────────
         $tables['glpi_plugin_printgestion_alertview'] = "
             CREATE TABLE IF NOT EXISTS `glpi_plugin_printgestion_alertview` (
