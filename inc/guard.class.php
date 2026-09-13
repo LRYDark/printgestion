@@ -327,13 +327,11 @@ class PluginPrintgestionGuard {
         ))));
         $levels = [];
         if (!empty($printer_ids)) {
-            foreach ($DB->request([
-                'SELECT' => ['printers_id', 'property', 'value'],
-                'FROM'   => 'glpi_printers_cartridgeinfos',
-                'WHERE'  => ['printers_id' => $printer_ids],
-            ]) as $info) {
-                $parsed = PluginPrintgestionTonerreading::parseTonerValue((string) $info['value']);
-                $levels[$info['printers_id'] . '|' . $info['property']] = $parsed['usable'] ? (int) $parsed['value'] : null;
+            // Niveaux lisibles (sentinelles écartées, règles appliquées), jamais du navigateur.
+            foreach (PluginPrintgestionSnmpadapter::getLevels($printer_ids) as $pid => $properties) {
+                foreach ($properties as $property => $parsed) {
+                    $levels[$pid . '|' . $property] = $parsed['usable'] ? (int) $parsed['value'] : null;
+                }
             }
         }
 

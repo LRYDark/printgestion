@@ -63,7 +63,7 @@ class PluginPrintgestionCartridgesnmp extends CommonDBTM {
         }
 
         $rows = $DB->request([
-            'SELECT'     => ['ci.property', 'ci.value'],
+            'SELECT'     => ['ci.printers_id', 'ci.property', 'ci.value'],
             'DISTINCT'   => true,
             'FROM'       => 'glpi_printers_cartridgeinfos AS ci',
             'INNER JOIN' => [
@@ -85,7 +85,7 @@ class PluginPrintgestionCartridgesnmp extends CommonDBTM {
         $properties = [];
         foreach ($rows as $r) {
             // Skip les valeurs non exploitables (OK, WARNING, vide)
-            $parsed = PluginPrintgestionTonerreading::parseTonerValue((string)$r['value']);
+            $parsed = PluginPrintgestionTonerreading::parseTonerValue((string)$r['value'], (string)$r['property'], (int)$r['printers_id']);
             if (!$parsed['usable']) {
                 continue;
             }

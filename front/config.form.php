@@ -115,6 +115,11 @@ if (isset($_POST['update'])) {
         Session::addMessageAfterRedirect(__('Erreur lors de la mise à jour', 'printgestion'), true, ERROR);
     }
 
+    // Règles de lecture SNMP par constructeur (suppressions cochées, ajout).
+    foreach (PluginPrintgestionSnmpadapter::saveConfig($_POST) as $snmp_error) {
+        Session::addMessageAfterRedirect(htmlspecialchars($snmp_error, ENT_QUOTES, 'UTF-8'), false, ERROR);
+    }
+
     // ══════════════════════════════════════════════════════════════════
     //  Batch mapping SNMP — tout passe dans le même POST que la config.
     //  Le hidden `snmp_mapping_batch=1` est rendu dans showSnmpMappingCard().

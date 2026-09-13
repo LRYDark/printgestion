@@ -392,7 +392,7 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
         ]);
 
         foreach ($rows as $r) {
-            $parsed = PluginPrintgestionTonerreading::parseTonerValue((string)$r['value']);
+            $parsed = PluginPrintgestionTonerreading::parseTonerValue((string)$r['value'], (string)$r['property'], (int)$r['printers_id']);
             if (!$parsed['usable']) {
                 continue;
             }
@@ -459,7 +459,7 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
 
             if (!is_array($internal_exists)) {
                 // Parse la valeur live pour le niveau à l'install
-                $parsed_live = PluginPrintgestionTonerreading::parseTonerValue((string)$r['value']);
+                $parsed_live = PluginPrintgestionTonerreading::parseTonerValue((string)$r['value'], $property, $printers_id);
                 $level_at_install = $parsed_live['usable'] ? (int)$parsed_live['value'] : 100;
 
                 $DB->insert(self::getTable(), [

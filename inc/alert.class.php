@@ -455,22 +455,15 @@ class PluginPrintgestionAlert extends CommonDBTM {
             }
         }
 
-        // ── Requête principale cartridgeinfos ─────────────────────────────
+        // ── Imprimantes du périmètre, puis niveaux lisibles (PluginPrintgestionSnmpadapter) ──
         $criteria = [
             'SELECT' => [
-                'ci.printers_id',
-                'ci.property',
-                'ci.value',
+                'p.id AS printers_id',
                 'p.name AS printer_name',
                 'p.entities_id',
                 'e.completename AS entity_name',
             ],
-            'FROM'        => 'glpi_printers_cartridgeinfos AS ci',
-            'INNER JOIN'  => [
-                'glpi_printers AS p' => [
-                    'ON' => ['ci' => 'printers_id', 'p' => 'id'],
-                ],
-            ],
+            'FROM'      => 'glpi_printers AS p',
             'LEFT JOIN' => [
                 'glpi_entities AS e' => [
                     'ON' => ['p' => 'entities_id', 'e' => 'id'],
@@ -480,7 +473,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 'p.is_deleted'  => 0,
                 'p.is_template' => 0,
             ],
-            'ORDER' => ['e.completename', 'p.name', 'ci.property'],
+            'ORDER' => ['e.completename', 'p.name'],
         ];
 
         if ($entities_id !== null && $entities_id >= 0) {
@@ -492,8 +485,19 @@ class PluginPrintgestionAlert extends CommonDBTM {
             $criteria['WHERE'][] = getEntitiesRestrictCriteria('p', '', '', true);
         }
 
-        foreach ($DB->request($criteria) as $r) {
-            $parsed = PluginPrintgestionTonerreading::parseTonerValue((string)$r['value']);
+        $printers = iterator_to_array($DB->request($criteria), false);
+        $levels   = PluginPrintgestionSnmpadapter::getLevels(array_column($printers, 'printers_id'));
+        $slots    = [];
+        foreach ($printers as $printer) {
+            $printer_levels = $levels[(int)$printer['printers_id']] ?? [];
+            ksort($printer_levels);
+            foreach ($printer_levels as $property => $parsed) {
+                $slots[] = $printer + ['property' => (string)$property, 'parsed' => $parsed];
+            }
+        }
+
+        foreach ($slots as $r) {
+            $parsed = $r['parsed'];
             if (!$parsed['usable']) {
                 continue;
             }

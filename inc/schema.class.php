@@ -37,6 +37,7 @@ class PluginPrintgestionSchema {
         '1.3.1' => 'migrateTo131',
         '1.4.0' => 'migrateTo140',
         '1.4.1' => 'migrateTo141',
+        '1.5.0' => 'migrateTo150',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -464,5 +465,33 @@ class PluginPrintgestionSchema {
         $migration->addField($config, 'gesconso_separator', "varchar(20) NOT NULL DEFAULT ' # '");
         $migration->addField($config, 'gesconso_designation_max', "int NOT NULL DEFAULT '69'");
         $migration->migrationOneTable($config);
+    }
+
+    /**
+     * 1.5.0 — règles de lecture SNMP par constructeur (PluginPrintgestionSnmpadapter) :
+     * ignorer ou inverser une propriété (motif avec *), constructeur 0 = tous. Table vide
+     * par défaut : les sentinelles et les états bruts sont gérés sans règle.
+     */
+    private static function migrateTo150(Migration $migration): void {
+        global $DB;
+
+        $table = 'glpi_plugin_printgestion_snmpadapters';
+        if ($DB->tableExists($table)) {
+            return;
+        }
+        $charset   = DBConnection::getDefaultCharset();
+        $collation = DBConnection::getDefaultCollation();
+        $sign      = DBConnection::getDefaultPrimaryKeySignOption();
+        $migration->displayMessage('Print Gestion — création de la table des règles de lecture SNMP');
+        $DB->doQuery("CREATE TABLE `{$table}` (
+            `id` int {$sign} NOT NULL AUTO_INCREMENT,
+            `manufacturers_id` int {$sign} NOT NULL DEFAULT '0',
+            `property_pattern` varchar(255) NOT NULL DEFAULT '',
+            `action` enum('ignore','invert') NOT NULL DEFAULT 'ignore',
+            `comment` varchar(255) DEFAULT NULL,
+            `date_creation` timestamp NULL DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `manufacturers_id` (`manufacturers_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
     }
 }

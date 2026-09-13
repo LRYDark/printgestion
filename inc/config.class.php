@@ -859,6 +859,9 @@ class PluginPrintgestionConfig extends CommonDBTM {
             . PluginPrintgestionGesconso::getDesignationMax() . "'></div>";
         echo "</div></div></div>";
 
+        // ── Lecture des niveaux SNMP : règles par constructeur ────
+        PluginPrintgestionSnmpadapter::showConfigCard();
+
         // Active les tooltips Bootstrap sur les icônes d'info
         echo "<script>
 (function() {

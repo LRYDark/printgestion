@@ -28,33 +28,14 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
     }
 
     /**
-     * Parse une valeur SNMP brute remontée par l'agent GLPI.
-     * Retourne ['type' => 'percent|ok|warning|unknown', 'value' => int|null, 'usable' => bool].
+     * Lecture d'une valeur SNMP (PluginPrintgestionSnmpadapter). Avec la propriété et
+     * l'imprimante : règles par constructeur et pourcentage reconstitué depuis les états
+     * bruts ; sinon lecture de la valeur seule (pourcentage, OK / WARNING, sentinelles
+     * -1 / -2 / -3, jamais lues comme un pourcentage).
+     * Retourne ['type', 'value' => int|null, 'usable' => bool].
      */
-    public static function parseTonerValue(string $raw): array {
-        $raw = trim($raw);
-
-        if ($raw === '') {
-            return ['type' => 'unknown', 'value' => null, 'usable' => false];
-        }
-
-        // Numérique (ex: "27", "27%", "  85 %")
-        if (preg_match('/^(\d{1,3})\s*%?$/', $raw, $m)) {
-            $pct = (int)$m[1];
-            if ($pct >= 0 && $pct <= 100) {
-                return ['type' => 'percent', 'value' => $pct, 'usable' => true];
-            }
-        }
-
-        $upper = strtoupper($raw);
-        if ($upper === 'OK') {
-            return ['type' => 'ok', 'value' => null, 'usable' => false];
-        }
-        if ($upper === 'WARNING' || $upper === 'WARN') {
-            return ['type' => 'warning', 'value' => null, 'usable' => false];
-        }
-
-        return ['type' => 'unknown', 'value' => null, 'usable' => false];
+    public static function parseTonerValue(string $raw, string $property = '', int $printers_id = 0): array {
+        return PluginPrintgestionSnmpadapter::parse($raw, $property, $printers_id);
     }
 
     /**
@@ -161,18 +142,19 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
             }
         }
 
-        // 3. Scanne l'inventaire SNMP et prépare les inserts
+        // 3. Niveaux lisibles de l'inventaire SNMP (sentinelles écartées, règles appliquées,
+        //    pourcentages reconstitués) et préparation des inserts
         $to_insert = [];
-        foreach ($DB->request([
-            'SELECT' => ['printers_id', 'property', 'value'],
-            'FROM'   => 'glpi_printers_cartridgeinfos',
-        ]) as $row) {
-            $parsed = self::parseTonerValue((string)$row['value']);
+        $slots     = [];
+        foreach (PluginPrintgestionSnmpadapter::getLevels() as $pid => $properties) {
+            foreach ($properties as $prop => $parsed) {
+                $slots[] = [(int)$pid, (string)$prop, $parsed];
+            }
+        }
+        foreach ($slots as [$pid, $prop, $parsed]) {
             if (!$parsed['usable']) {
                 continue;
             }
-            $pid   = (int)$row['printers_id'];
-            $prop  = (string)$row['property'];
             $level = (int)$parsed['value'];
             $key   = $pid . '|' . $prop;
 

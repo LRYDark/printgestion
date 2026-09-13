@@ -134,6 +134,18 @@ Résolution de la cartouche à commander pour une propriété SNMP (`Snmpmapping
 Aucun repli sans modèle (liaison toutes imprimantes confondues, type seul toutes marques). Référence non
 résolue = cartouche non commandable : badge « Réf. non résolue » avec le motif, exclue de la fenêtre de
 commande, refus côté serveur. Les synchronisations de l'onglet Cartouches natif ignorent aussi ces emplacements.
+**Lecture des niveaux** (`inc/snmpadapter.class.php`, utilisée par les relevés, les alertes, les verrous et
+l'amorçage des cartouches) :
+
+- sentinelles de la Printer MIB (RFC 3805) : `-1` non mesurable, `-2` inconnu, `-3` « il en reste » —
+  jamais lues comme un pourcentage (ni 0 %, ni 100 %) ;
+- propriétés d'état brut `…max`, `…used`, `…remaining` : pas des emplacements ; si le pourcentage manque ou
+  est une sentinelle, il est reconstitué (restant / max, ou (max − utilisé) / max) ;
+- règles par constructeur (Configuration → « Lecture des niveaux SNMP ») : ignorer ou inverser une propriété,
+  motif avec `*`, constructeur vide = tous ; aucune règle par défaut (un bac de récupération remonte déjà la
+  place restante) ;
+- données chargées une fois par requête (toutes les imprimantes), aucune requête par imprimante.
+
 Le stock = cartouches du modèle ni installées (`date_use IS NULL`) ni sorties (`date_out IS NULL`).
 
 ---
