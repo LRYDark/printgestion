@@ -136,6 +136,8 @@ class PluginPrintgestionAgentalert extends CommonDBTM {
 
     /**
      * Imprimantes collectées par une sonde qui contacte GLPI et qui ne remontent plus.
+     * Fondé sur les journaux d'inventaire réseau. Passage aux relevés toner : dépendance notée dans
+     * Tonerreading::snapshotAllPrinters() (correction 3), à traiter avec le moteur d'alertes.
      *
      * @return array ['problems' => [printers_id => ['entities_id', 'agents_id', 'reason', 'since']],
      *                'skipped'  => [printers_id => true] (toutes leurs sondes sont muettes)]

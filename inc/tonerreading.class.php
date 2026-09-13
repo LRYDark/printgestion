@@ -184,6 +184,11 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
             // Niveau identique au dernier relevé stocké : relevé inutile… sauf si l'imprimante a
             // imprimé nettement plus que ce que représente un point de pourcentage. Niveau figé
             // suspect : conservé et marqué, plutôt qu'écarté (ses compteurs restent exploitables).
+            // Dépendance notée (Déploiement Agent, correction 3), à traiter avec le moteur d'alertes, pas avant
+            // les données du site pilote : l'alerte « imprimante qui ne remonte plus de niveaux » ne pourra reposer
+            // sur cette table que lorsqu'un niveau inchangé sera gardé et marqué au lieu d'être écarté ici, et que
+            // reading_date sera la date d'une vraie lecture SNMP (aujourd'hui : jour du passage de la tâche, copie
+            // des valeurs courantes de GLPI, relues ou non). Voir DOC_TECHNIQUE, phase 5 du Déploiement Agent.
             if (isset($latest_levels[$key]) && $latest_levels[$key] === $level) {
                 $counter   = in_array(PluginPrintgestionSnmpmapping::detectColor($prop), ['cyan', 'magenta', 'yellow'], true) ? 'color' : 'total';
                 $printed   = $pc[$counter] - ($latest_pages[$key][$counter] ?? $pc[$counter]);

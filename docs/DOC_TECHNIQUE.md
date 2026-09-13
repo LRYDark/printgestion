@@ -632,6 +632,16 @@ modification ordinaire, que GLPI verrouille contre les inventaires suivants comm
   inventaire réseau des journaux, jamais `last_inventory_update`, qu'une découverte fait avancer. Les lignes de
   niveaux ne changent de date que si leur valeur change et ne prouvent donc pas une lecture récente ; un inventaire
   réseau reçu sans bloc consommables laisse les anciennes valeurs (limite, à mesurer au pilote) ;
+- **dépendance notée (correction 3), à traiter avec le moteur d'alertes** : l'alerte « imprimante qui ne remonte plus
+  de niveaux » devra reposer sur les relevés toner (`glpi_plugin_printgestion_toner_readings`) plutôt que sur les
+  journaux d'inventaire réseau. Pas possible en l'état : `Tonerreading::snapshotAllPrinters()` écarte un niveau
+  inchangé (gardé, `is_suspect = 1`, seulement si l'imprimante a imprimé au moins `FROZEN_PERCENT_STEPS` × rendement /
+  100 pages), et `reading_date` est le jour du passage de la tâche, copie des valeurs courantes de GLPI, pas la date
+  d'une lecture SNMP : garder tous les points donnerait des « relevés » quotidiens à une imprimante muette depuis des
+  semaines. À faire ensemble, dans le chantier du moteur d'alertes (après les données du site pilote) : un point par
+  lecture réelle (nouvel inventaire réseau depuis le point précédent : journal des tâches ou `glpi_printerlogs`),
+  niveau inchangé gardé et marqué, suspect seulement quand il est figé alors que les pages avancent ; puis l'alerte
+  bascule sur ces points. Rien n'est changé à ce stade ;
 - tâche quotidienne `PrintgestionSilentProbes` : une alerte ouverte par épisode (index unique sur `type`,
   `agents_id`, `printers_id`, `open_lock`, colonne générée à 1 tant que `date_end` est vide), motif ou sonde mis à
   jour sans nouvelle notification, fermée au retour, jamais supprimée. Tant que toutes les sondes d'une imprimante
