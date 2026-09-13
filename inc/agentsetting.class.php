@@ -865,7 +865,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             return;
         }
         $dates  = PluginPrintgestionCollect::getImportDates($coverage);
-        $cutoff = date('Y-m-d H:i:s', time() - PluginPrintgestionCollect::getSilentDays() * DAY_TIMESTAMP);
+        $cutoff = static fn(int $entities_id): string => date('Y-m-d H:i:s', time() - PluginPrintgestionCollectfrequency::getSilentDaysForEntity($entities_id) * DAY_TIMESTAMP);
         $ips    = [];
         foreach ($DB->request([
             'SELECT'   => ['mainitems_id', 'name'],
@@ -891,7 +891,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
                 . "<td>" . $esc(Dropdown::getDropdownName(Entity::getTable(), (int) $printer['entities_id'])) . "</td>"
                 . "<td class='font-monospace small'>" . $esc(implode(', ', $ips[$printers_id] ?? []) ?: '—') . "</td>"
                 . "<td>" . $esc($snmp !== null ? Html::convDateTime((string) $snmp) : __('aucun connu', 'printgestion'))
-                . ($snmp === null || (string) $snmp < $cutoff ? " <span class='badge bg-red text-red-fg'>" . $esc(__('Muette', 'printgestion')) . "</span>" : '') . "</td></tr>";
+                . ($snmp === null || (string) $snmp < $cutoff((int) $printer['entities_id']) ? " <span class='badge bg-red text-red-fg'>" . $esc(__('Muette', 'printgestion')) . "</span>" : '') . "</td></tr>";
         }
         echo "</tbody></table></div></div></div>";
     }

@@ -79,6 +79,11 @@ class PluginPrintgestionCollect extends CommonGLPI {
         return $days > 0 ? $days : self::DEFAULT_SILENT_DAYS;
     }
 
+    /** Limite « muette » d'une imprimante : délai global, porté à la fréquence de relevé de son entité plus un jour. */
+    public static function getPrinterCutoff(int $entities_id, string $format = 'Y-m-d H:i:s'): string {
+        return date($format, time() - PluginPrintgestionCollectfrequency::getSilentDaysForEntity($entities_id) * DAY_TIMESTAMP);
+    }
+
     /** Méthodes du journal d'import GLPI qui correspondent à un inventaire réseau (SNMP). */
     private static function getNetworkInventoryMethods(): array {
         return [AbstractRequest::SNMP_QUERY, AbstractRequest::OLD_SNMP_QUERY, AbstractRequest::NETINV_TASK];
@@ -245,7 +250,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
         ];
 
         $criteria = [
-            'SELECT'    => ['p.id', 'p.name', 'e.completename AS entity'],
+            'SELECT'    => ['p.id', 'p.name', 'p.entities_id', 'e.completename AS entity'],
             'FROM'      => 'glpi_printers AS p',
             'LEFT JOIN' => ['glpi_entities AS e' => ['ON' => ['p' => 'entities_id', 'e' => 'id']]],
             'WHERE'     => ['p.is_deleted' => 0, 'p.is_template' => 0],
@@ -289,7 +294,8 @@ class PluginPrintgestionCollect extends CommonGLPI {
             $pid  = (int) $printer['id'];
             $snmp = $dates[$pid]['snmp'] ?? null;
 
-            $state = self::getState($snmp, self::hasReadableLevel($levels[$pid] ?? []), $cutoff);
+            // Seuil de l'entité de l'imprimante : une entité relevée moins souvent n'est pas muette plus tôt.
+            $state = self::getState($snmp, self::hasReadableLevel($levels[$pid] ?? []), self::getPrinterCutoff((int) $printer['entities_id']));
 
             $agents_id = (int) ($dates[$pid]['agents_id'] ?? 0);
             if (isset($agents[$agents_id])) {
@@ -405,7 +411,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
         $out = [];
         foreach (array_chunk(array_values(array_unique(array_map('intval', $printer_ids))), 1000) as $chunk) {
             foreach ($DB->request([
-                'SELECT'    => ['p.id', 'p.name', 'p.manufacturers_id', 'p.printermodels_id', 'm.name AS manufacturer', 'pm.name AS model'],
+                'SELECT'    => ['p.id', 'p.name', 'p.entities_id', 'p.manufacturers_id', 'p.printermodels_id', 'm.name AS manufacturer', 'pm.name AS model'],
                 'FROM'      => 'glpi_printers AS p',
                 'LEFT JOIN' => [
                     'glpi_manufacturers AS m'  => ['ON' => ['p' => 'manufacturers_id', 'm' => 'id']],
@@ -418,6 +424,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
                     'manufacturer' => (string) ($row['manufacturer'] ?? ''),
                     'model'        => (string) ($row['model'] ?? ''),
                     'name'         => (string) $row['name'],
+                    'entities_id'  => (int) $row['entities_id'],
                 ];
             }
         }
@@ -481,7 +488,6 @@ class PluginPrintgestionCollect extends CommonGLPI {
             return $out;
         }
         $ids          = array_keys($models);
-        $stale_cutoff = date('Y-m-d', time() - self::getSilentDays() * DAY_TIMESTAMP);
 
         // Imprimantes couleur : un consommable cyan, magenta ou jaune remonté.
         $color_printers = [];
@@ -582,7 +588,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
                 continue;
             }
             $entry['with_log']++;
-            if ((string) $log['date'] < $stale_cutoff) {
+            if ((string) $log['date'] < self::getPrinterCutoff($model['entities_id'], 'Y-m-d')) {
                 $entry['stale_log']++;
             }
             $total = (int) $log['total_pages'];
@@ -738,7 +744,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
         PluginPrintgestionUi::statsBar($cards, 'printgestionCollectStatsBar');
 
         echo "<p class='text-muted small'>" . $esc(sprintf(
-            __('Date de référence : dernier inventaire réseau (SNMP) du journal d\'import GLPI ; une simple découverte réseau ne compte pas. Muette : aucun inventaire depuis plus de %d jour(s) (Configuration → Print Gestion). Une imprimante muette ou sans niveau lisible ne déclenche aucune alerte toner : à traiter comme une alerte.', 'printgestion'),
+            __('Date de référence : dernier inventaire réseau (SNMP) du journal d\'import GLPI ; une simple découverte réseau ne compte pas. Muette : aucun inventaire depuis plus de %d jour(s) (Configuration → Print Gestion), ou la fréquence de relevé de son entité plus un jour si elle est plus longue. Une imprimante muette ou sans niveau lisible ne déclenche aucune alerte toner : à traiter comme une alerte.', 'printgestion'),
             self::getSilentDays()
         )) . "</p>";
 
@@ -844,7 +850,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
         $counters = self::analyzeCounters($printer_ids);
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Compteurs disponibles, par modèle', 'printgestion')) . "</h3></div>";
         echo "<div class='card-body pb-0'><p class='text-muted small'>" . $esc(sprintf(
-            __('Dernier relevé de compteurs de chaque imprimante (glpi_printerlogs, un relevé par jour). « Total seul » : aucune répartition noir et blanc / couleur, facturation couleur impossible par SNMP. « Relevé ancien » : plus de %1$d jour(s). « Baisses » : compteur total en baisse sur %2$d jours (remise à zéro, remplacement de carte, changement de compteur lu par l\'agent).', 'printgestion'),
+            __('Dernier relevé de compteurs de chaque imprimante (glpi_printerlogs, un relevé par jour). « Total seul » : aucune répartition noir et blanc / couleur, facturation couleur impossible par SNMP. « Relevé ancien » : plus de %1$d jour(s), ou la fréquence de relevé de l\'entité plus un jour. « Baisses » : compteur total en baisse sur %2$d jours (remise à zéro, remplacement de carte, changement de compteur lu par l\'agent).', 'printgestion'),
             self::getSilentDays(),
             self::COUNTER_WINDOW_DAYS
         )) . "</p></div>";

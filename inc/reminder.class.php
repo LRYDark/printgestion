@@ -192,6 +192,13 @@ class PluginPrintgestionReminder extends CommonGLPI {
             DAY_TIMESTAMP,
             ['state' => CronTask::STATE_WAITING]
         );
+        // Déploiement Agent : fréquence des relevés d'imprimantes par entité (tâches GLPI Inventory).
+        CronTask::Register(
+            'PluginPrintgestionCollectfrequency',
+            'PrintgestionCollectSchedule',
+            15 * MINUTE_TIMESTAMP,
+            ['state' => CronTask::STATE_WAITING]
+        );
         return true;
     }
 

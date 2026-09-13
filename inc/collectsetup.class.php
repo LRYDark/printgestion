@@ -695,6 +695,8 @@ class PluginPrintgestionCollectsetup {
         }
 
         $since = (string) Session::getCurrentTime();
+        // Date de début posée par la fréquence de l'entité : effacée pour lancer la découverte tout de suite.
+        PluginPrintgestionCollectfrequency::releaseTasks($task_ids);
         foreach ($tasks as $task) {
             $task->forceRunning();
         }
@@ -837,6 +839,8 @@ class PluginPrintgestionCollectsetup {
         $progress    = self::getProgress($racc);
 
         if ($progress['discovery_finished'] && !$progress['discovery_failed'] && empty($racc->fields['date_inventory_prepared'])) {
+            // Date de début posée par la fréquence de l'entité : effacée pour relever les niveaux tout de suite.
+            PluginPrintgestionCollectfrequency::releaseTasks(self::getTaskIds($racc, 'networkinventory'));
             foreach (self::getTaskIds($racc, 'networkinventory') as $tasks_id) {
                 $task = new PluginGlpiinventoryTask();
                 if ($task->getFromDB($tasks_id) && (int) $task->fields['is_active'] === 1) {

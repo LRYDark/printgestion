@@ -170,8 +170,10 @@ class PluginPrintgestionPrinteragent {
                 : __('sonde de sa dernière découverte (aucune tâche GLPI Inventory ne la couvre aujourd\'hui)', 'printgestion');
             $probes = self::loadAgents([(int) $dates['agents_id'] => [$source]]);
         }
-        $silent_days = PluginPrintgestionCollect::getSilentDays();
-        $cutoff      = date('Y-m-d H:i:s', time() - $silent_days * DAY_TIMESTAMP);
+        // Sonde muette : délai global ; imprimante muette : délai porté à la fréquence de relevé de son entité.
+        $cutoff         = date('Y-m-d H:i:s', time() - PluginPrintgestionCollect::getSilentDays() * DAY_TIMESTAMP);
+        $printer_days   = PluginPrintgestionCollectfrequency::getSilentDaysForEntity((int) $printer->fields['entities_id']);
+        $printer_cutoff = date('Y-m-d H:i:s', time() - $printer_days * DAY_TIMESTAMP);
         $date        = static fn($value): string => empty($value) ? '—' : Html::convDateTime((string) $value);
 
         if ($in_card) {
@@ -188,8 +190,8 @@ class PluginPrintgestionPrinteragent {
         $inventory = $esc($date($dates['snmp']));
         if (empty($dates['snmp'])) {
             $inventory = $esc(__('aucun connu', 'printgestion'));
-        } elseif ((string) $dates['snmp'] < $cutoff) {
-            $inventory .= " <span class='badge bg-red text-red-fg'>" . $esc(sprintf(__('plus de %d jours', 'printgestion'), $silent_days)) . "</span>";
+        } elseif ((string) $dates['snmp'] < $printer_cutoff) {
+            $inventory .= " <span class='badge bg-red text-red-fg'>" . $esc(sprintf(__('plus de %d jours', 'printgestion'), $printer_days)) . "</span>";
         }
         if (!empty($dates['discovery']) && (empty($dates['snmp']) || (string) $dates['discovery'] > (string) $dates['snmp'])) {
             $inventory .= "<div class='text-muted small'>" . $esc(sprintf(__('Découverte seule le %s : elle fait avancer la date d\'inventaire de la carte sans relire les niveaux.', 'printgestion'), $date($dates['discovery']))) . "</div>";

@@ -74,6 +74,7 @@ printgestion/
 | `Agentsetting` | Sondes : dernière version connue de GLPI Agent (GitHub, saisie), conformité, réglages de mise à jour par sonde, paquet de consigne, imprimantes collectées, statut du PC sonde ; onglet de la fiche Agent et page « Sondes » |
 | `Agentalert` | Alertes « sonde sans contact » et « imprimante qui ne remonte plus » (tâche quotidienne), réglages et action dans « Agent cleanup », cartes du tableau de bord |
 | `NotificationTargetAgentalert` | Notifications natives des alertes de sondes (sonde sans contact, imprimantes qui ne remontent plus) |
+| `Collectfrequency` | Fréquence des relevés d'imprimantes par entité (héritée, quotidienne par défaut) : réglage de l'onglet de l'entité, planification des tâches GLPI Inventory des raccordements, seuil « muette » des imprimantes |
 | `NotificationTargetDemande` | Notifications natives GLPI des demandes d'envoi (proposée, relance, exportée) |
 | `Contractalert` | État et activation des alertes de contrat natives GLPI |
 | `Snmpmapping` | Mapping constructeur + propriété SNMP → modèle de cartouche + couleur |
@@ -123,6 +124,7 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_raccordementlogs` | Journal horodaté d'un raccordement : étape, niveau, auteur, message |
 | `glpi_plugin_printgestion_agentsettings` | Réglages de mise à jour par sonde (étape 1.6.3) : agent (unique), mise à jour automatique, version cible, auteur, dates |
 | `glpi_plugin_printgestion_agentalerts` | Alertes de sondes (étape 1.6.3) : type (sonde sans contact, imprimante qui ne remonte plus), entité, sonde, imprimante, motif, début, notification, fin ; une seule alerte ouverte par sonde ou par imprimante (colonne générée `open_lock`) |
+| `glpi_plugin_printgestion_collectfrequencies` | Fréquence des relevés d'imprimantes par entité (étape 1.6.4) : entité (unique), unité (`hourly`, `daily`), nombre, auteur, dates ; sans ligne, l'entité hérite de sa parente, sinon quotidienne |
 | `glpi_plugin_printgestion_table_prefs` | Préférences d'affichage des tableaux par utilisateur |
 
 ---
@@ -678,6 +680,42 @@ affichée dans l'onglet et la note : installer le bon paquet, puis dans Terminal
 inventaire (`Agentsetting::getHostPlatform()` : Windows, macOS, sinon Linux) ; les deux consignes Windows et Linux
 si le système est inconnu ; note de mise à jour manuelle pour macOS.
 
+### Fréquence des relevés d'imprimantes par entité (`inc/collectfrequency.class.php`)
+
+**Pourquoi côté serveur** (vérifié dans le code de GLPI 11.0.8, GLPI Inventory 1.6.10 et GLPI Agent 1.19) : un agent
+installé en service (Windows `EXECMODE=1`, démon Linux et macOS) prend son intervalle dans la réponse CONTACT du
+serveur (`expiration`, la « fréquence d'inventaire » globale de GLPI, en heures) ; le cœur n'offre aucun point
+d'extension pour la changer agent par agent (le hook `PROLOG_RESPONSE` ne touche que la réponse PROLOG, que l'agent
+n'utilise pour son planning qu'avec un serveur non GLPI). `TASK_FREQUENCY`, `TASK_HOURLY_MODIFIER` et
+`TASK_DAILY_MODIFIER` du MSI ne règlent que la tâche planifiée du mode tâche Windows (`EXECMODE=2`), qui ôterait
+l'interface locale de l'agent (geste « Force an Inventory » de l'assistant, contrôle « agent en attente » avant mise à
+jour) ; l'installeur Linux ne connaît que `--cron` (horaire) et aucune clé de `conf.d` ou de `local.cfg` ne règle
+l'intervalle (`delaytime` ne vaut que pour le premier contact).
+
+**Réglage** : onglet « Déploiement Agent » de l'entité, bloc 2, avant le téléchargement (droit Déploiement en
+modification, `front/collectfrequency.php`) : « Toutes les N heures » (1 à 23), « Tous les N jours » (1 à 365, défaut
+1) ou « Comme l'entité parente ». Sans réglage propre, l'entité hérite de l'entité parente la plus proche qui en a un,
+sinon quotidienne. Chaque changement est tracé dans l'historique de l'entité et dans le journal des raccordements dont
+la fréquence effective change ; l'étape 3 de l'assistant journalise la fréquence retenue ; la note d'une page des
+trois paquets la rappelle.
+
+**Application** : aux tâches GLPI Inventory de découverte et d'inventaire réseau enregistrées par les raccordements
+(tous statuts). Vérifié dans GLPI Inventory : un job n'est préparé que si la date de début de sa tâche est vide ou
+passée, et un job demandé avant cette date, ou pour une tâche désactivée, est annulé à la remise à l'agent. La tâche
+automatique `PrintgestionCollectSchedule` (toutes les 15 minutes, et à chaque enregistrement) pose donc
+`datetime_start` = fin du dernier relevé terminé (journal des jobs `FINISHED` ou `IN_ERROR`) + fréquence, ou l'efface
+quand le relevé est dû ; elle ne touche ni une tâche dont un relevé est en cours (jobs transmis à la sonde), ni une
+tâche avec une date de fin (plage réglée à la main). Écriture directe dans la table de GLPI Inventory : il refuse toute
+modification d'une tâche active et annule ses jobs préparés quand on la désactive. L'assistant efface la date avant de
+lancer la découverte puis le relevé des niveaux (lancement immédiat). Limites : jamais plus souvent que la fréquence
+d'inventaire globale de GLPI, puisque la sonde ne reçoit ses jobs qu'à son contact (avertissement sur l'onglet quand la
+fréquence de l'entité est plus courte) ; la fréquence ne porte que sur les relevés d'imprimantes, pas sur l'inventaire
+du PC sonde. Sans la tâche automatique, les tâches restent sans date : relevé à chaque contact, jamais moins souvent.
+
+**Seuil « muette »** d'une imprimante : `max(silent_days, jours de la fréquence de son entité + 1)` (contrôle de la
+remontée, alertes d'imprimantes, bloc de la fiche imprimante, onglet de la sonde). Une sonde reste muette au-delà de
+`silent_days` : elle contacte GLPI à la fréquence globale quelle que soit l'entité.
+
 ### Contrôle de la remontée (`inc/collect.class.php`, onglet « Contrôle de la remontée »)
 
 Ce que l'inventaire GLPI reçoit **réellement** des imprimantes, avant tout calcul d'alerte. Page en lecture
@@ -702,7 +740,7 @@ supposée.
    | État | Condition |
    |---|---|
    | Jamais inventoriée en SNMP | Aucun inventaire réseau dans le journal d'import |
-   | Muette | Dernier inventaire réseau plus ancien que `silent_days` jours (3 par défaut) |
+   | Muette | Dernier inventaire réseau plus ancien que `silent_days` jours (3 par défaut), ou que la fréquence de relevé de son entité plus un jour si elle est plus longue |
    | Sans niveau lisible | Inventaire à jour, mais aucun niveau exploitable (sentinelles, OK, valeurs inconnues) |
    | Collecte normale | — |
 
@@ -805,8 +843,9 @@ courtoisie), `count`, `glpi_url`. Toute balise non fournie est remplacée par un
 | `PrintgestionProposeDemandes` | horaire, **enregistrée désactivée** | Demandes d'envoi proposées à partir des alertes, regroupées par client et site (`Demande::proposeFromAlerts()`) |
 | `PrintgestionCheckAgentVersion` (classe `Agentsetting`) | hebdomadaire | Dernière version publiée de GLPI Agent sur GitHub (une saisie à la main est gardée) |
 | `PrintgestionSilentProbes` (classe `Agentalert`) | quotidienne | Alertes « sonde sans contact » et « imprimante qui ne remonte plus » : ouverture, fermeture, notifications |
+| `PrintgestionCollectSchedule` (classe `Collectfrequency`) | 15 minutes | Fréquence des relevés de chaque entité appliquée aux tâches GLPI Inventory des raccordements (date de début) |
 
-Les 4 premières tâches sortent immédiatement (`return 0`) si la feature `toner` est désactivée, les 2 du module
+Les 4 premières tâches sortent immédiatement (`return 0`) si la feature `toner` est désactivée, les 3 du module
 Déploiement Agent si la feature `deploiement` l'est. Toutes sont enregistrées par `Reminder::install()`.
 `PrintgestionProposeDemandes` est enregistrée désactivée : une ligne proposée bloque la commande de sa
 cartouche depuis l'écran des alertes jusqu'à son export ou son annulation. L'activer quand l'export des
@@ -824,7 +863,7 @@ demandes validées est en service. Une mise à jour du plugin ne change pas l'é
 | `plugin_printgestion_dashboard` | Alertes toner (dashboard + actions) ; onglet « Seuils d'alerte » des imprimantes (UPDATE pour enregistrer) |
 | `plugin_printgestion_expedition` | Expéditions (UPDATE pour agir) |
 | `plugin_printgestion_validation` | Demandes d'envoi : READ voir, UPDATE modifier / valider / annuler (file aussi visible avec `dashboard` READ, sans agir) |
-| `plugin_printgestion_deploiement` | Collecte SNMP / Déploiement Agent : READ voir et télécharger l'installeur et les paquets de consigne, page « Sondes », onglet de la fiche Agent, cartes du tableau de bord ; UPDATE raccorder des imprimantes, régler la mise à jour des sondes, marquer le PC sonde ; « Contrôle de la remontée » |
+| `plugin_printgestion_deploiement` | Collecte SNMP / Déploiement Agent : READ voir et télécharger l'installeur et les paquets de consigne, page « Sondes », onglet de la fiche Agent, cartes du tableau de bord ; UPDATE raccorder des imprimantes, régler la fréquence des relevés de l'entité, régler la mise à jour des sondes, marquer le PC sonde ; « Contrôle de la remontée » |
 | `plugin_printgestion_sage` | Référentiel Sage : READ onglet Sage de l'entité, UPDATE import et correspondances |
 | `plugin_printgestion_billing` | Coût à la page : écrans et onglet de la fiche imprimante (prix et coûts ; jamais le seul droit sur l'imprimante) |
 | `plugin_printgestion_config` | Configuration du plugin + mappings SNMP |

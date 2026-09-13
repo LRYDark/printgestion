@@ -140,7 +140,7 @@ class PluginPrintgestionAgentalert extends CommonDBTM {
      * @return array ['problems' => [printers_id => ['entities_id', 'agents_id', 'reason', 'since']],
      *                'skipped'  => [printers_id => true] (toutes leurs sondes sont muettes)]
      */
-    private static function findSilentPrinters(array $coverage, array $probes, string $cutoff): array {
+    private static function findSilentPrinters(array $coverage, array $probes): array {
         global $DB;
 
         $result            = ['problems' => [], 'skipped' => []];
@@ -175,10 +175,12 @@ class PluginPrintgestionAgentalert extends CommonDBTM {
                 $result['skipped'][$printers_id] = true;
                 continue;
             }
+            // Seuil de l'entité de l'imprimante : une entité relevée moins souvent n'est pas muette plus tôt.
+            $printer_cutoff = date('Y-m-d H:i:s', time() - PluginPrintgestionCollectfrequency::getSilentDaysForEntity((int) $row['entities_id']) * DAY_TIMESTAMP);
             $snmp  = $dates[$printers_id]['snmp'] ?? null;
-            $state = PluginPrintgestionCollect::getState($snmp, PluginPrintgestionCollect::hasReadableLevel($levels[$printers_id] ?? []), $cutoff);
+            $state = PluginPrintgestionCollect::getState($snmp, PluginPrintgestionCollect::hasReadableLevel($levels[$printers_id] ?? []), $printer_cutoff);
             if ($state === PluginPrintgestionCollect::STATE_OK
-                || ($state === PluginPrintgestionCollect::STATE_NO_INVENTORY && (string) $row['date_creation'] >= $cutoff)) {
+                || ($state === PluginPrintgestionCollect::STATE_NO_INVENTORY && (string) $row['date_creation'] >= $printer_cutoff)) {
                 continue;
             }
             // Sonde de l'alerte : celle du dernier inventaire réseau si elle contacte GLPI, sinon la première active.
@@ -252,7 +254,7 @@ class PluginPrintgestionAgentalert extends CommonDBTM {
                 }
             }
 
-            $silent = self::findSilentPrinters($coverage, $probes, self::getCutoff());
+            $silent = self::findSilentPrinters($coverage, $probes);
             foreach ($silent['problems'] as $printers_id => $problem) {
                 $row = $open[self::TYPE_PRINTER][$printers_id] ?? null;
                 if ($row === null) {

@@ -532,6 +532,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             $report(3, $result['events']);
             if ($result['ok']) {
                 $report(3, [['success', __('Étape 3 validée : configuration de collecte en place dans GLPI Inventory.', 'printgestion')]]);
+                $report(3, [['info', PluginPrintgestionCollectfrequency::getJournalLine($entities_id)]]);
             }
             return $back;
         }

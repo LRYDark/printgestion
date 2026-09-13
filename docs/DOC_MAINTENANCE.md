@@ -206,7 +206,9 @@ Pour chaque client :
 
 1. Fiche de l'entité → Informations avancées : renseigner le TAG (lettres, chiffres, point, tiret, soulignement ;
    unique), **avant le premier inventaire** : les règles d'entité ne jouent qu'au premier import.
-2. Onglet « Déploiement Agent » de l'entité : corriger ce qui n'est pas vert, puis « Windows » télécharge le paquet.
+2. Onglet « Déploiement Agent » de l'entité : corriger ce qui n'est pas vert, régler la fréquence des relevés
+   d'imprimantes (quotidienne par défaut, toutes les N heures ou tous les N jours), puis télécharger le paquet du
+   système du PC sonde (Windows, Linux ou macOS).
 3. Sur place : suivre `LISEZMOI.txt`, puis vérifier dans l'onglet que l'agent apparaît avec un contact récent et la
    collecte réseau installée. Page « Sondes » : « Marquer ce PC comme sonde ».
    - Windows : extraire, clic droit sur le `.bat` → Exécuter en tant qu'administrateur, assistant, attendre le
@@ -277,6 +279,22 @@ Raccordement :
   `sudo /etc/cron.monthly/glpi-agent-printgestion`.
 - **macOS** : pas de mise à jour automatique ; réinstaller le paquet d'une version plus récente (paquet de l'entité),
   `local.cfg` est gardé.
+
+### Fréquence des relevés d'imprimantes
+
+- **Où** : onglet « Déploiement Agent » de l'entité, bloc 2 (droit Déploiement en modification). Elle se change à
+  tout moment, sans toucher à la sonde ; les sous-entités sans réglage propre en héritent. La liste sous le réglage
+  indique, tâche par tâche, le prochain relevé.
+- **Relevés moins fréquents que prévu** : la sonde ne reçoit ses jobs qu'à son contact, à la fréquence d'inventaire
+  globale de GLPI (Administration → Inventaire, 24 h par défaut). Pour des relevés toutes les N heures, la régler à 1
+  heure (tous les agents contacteront GLPI toutes les heures). Vérifier aussi l'action automatique
+  `PrintgestionCollectSchedule` (Configuration → Actions automatiques) et celle de GLPI Inventory `taskscheduler`.
+- **« Plage de dates réglée à la main »** : la tâche a une date de fin dans GLPI Inventory ; le plugin ne la touche
+  pas. Effacer les dates de la tâche pour que la fréquence de l'entité s'applique.
+- **Job annulé « due to the task's schedule »** dans GLPI Inventory : normal, la sonde a demandé ses jobs avant
+  l'heure du prochain relevé ; il repart au contact suivant après cette heure.
+- **Imprimante muette** : pas avant la fréquence de son entité plus un jour (le délai global
+  « Imprimante muette après (jours) » reste le minimum).
 - **Pas de notification** : réglages « Print Gestion » de Configuration → Inventaire → « Agent cleanup » ;
   notifications actives avec des destinataires (Configuration → Notifications) ; journal de la tâche
   `PrintgestionSilentProbes` (alertes ouvertes, fermées, notifiées). Une alerte n'est notifiée qu'une fois par

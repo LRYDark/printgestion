@@ -51,6 +51,7 @@ class PluginPrintgestionSchema {
         '1.6.1' => 'migrateTo161',
         '1.6.2' => 'migrateTo162',
         '1.6.3' => 'migrateTo163',
+        '1.6.4' => 'migrateTo164',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -957,6 +958,34 @@ class PluginPrintgestionSchema {
                 KEY `agents_id` (`agents_id`),
                 KEY `printers_id` (`printers_id`),
                 KEY `date_end` (`date_end`),
+                KEY `date_creation` (`date_creation`),
+                KEY `date_mod` (`date_mod`)
+            ) {$options}");
+        }
+    }
+
+    /** 1.6.4 : fréquence des relevés d'imprimantes par entité (Déploiement Agent). */
+    private static function migrateTo164(Migration $migration): void {
+        global $DB;
+
+        $charset   = DBConnection::getDefaultCharset();
+        $collation = DBConnection::getDefaultCollation();
+        $sign      = DBConnection::getDefaultPrimaryKeySignOption();
+        $options   = "ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC";
+
+        if (!$DB->tableExists('glpi_plugin_printgestion_collectfrequencies')) {
+            $migration->displayMessage('Print Gestion — création de la table des fréquences de relevé par entité');
+            $DB->doQuery("CREATE TABLE `glpi_plugin_printgestion_collectfrequencies` (
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `entities_id` int {$sign} NOT NULL DEFAULT '0',
+                `frequency` varchar(10) NOT NULL DEFAULT 'daily',
+                `modifier` smallint unsigned NOT NULL DEFAULT '1',
+                `users_id` int {$sign} NOT NULL DEFAULT '0',
+                `date_creation` timestamp NULL DEFAULT NULL,
+                `date_mod` timestamp NULL DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `entities_id` (`entities_id`),
+                KEY `users_id` (`users_id`),
                 KEY `date_creation` (`date_creation`),
                 KEY `date_mod` (`date_mod`)
             ) {$options}");

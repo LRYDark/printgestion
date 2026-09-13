@@ -523,6 +523,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             __('2. Dans le dossier extrait : clic droit sur installer-glpi-agent.bat > Exécuter en tant qu\'administrateur, puis suivre l\'assistant. L\'adresse du serveur et le TAG sont déjà remplis : ne pas les modifier. Attendre le message final avant de fermer la fenêtre.', 'printgestion'),
             __('3. Dans GLPI (fiche de l\'entité, onglet « Déploiement Agent ») : vérifier que l\'agent apparaît avec un contact récent, puis raccorder les imprimantes avec l\'assistant (bloc 3), avant de partir.', 'printgestion'),
             '',
+            PluginPrintgestionCollectfrequency::getPackageLine((int) $entity->getID()),
             $update
                 ? sprintf(
                     __('Mise à jour automatique : le lanceur pose la tâche planifiée « %1$s » (le 1er du mois à 3 h, compte SYSTEM, winget, %2$s, seulement si l\'agent est en attente ; journal C:\\ProgramData\\PrintGestion\\glpi-agent-update.log). Pour la changer ou la retirer : régler la sonde dans GLPI, puis lancer son paquet de consigne sur ce PC ; le réglage de GLPI seul ne change rien sur le PC.', 'printgestion'),
@@ -669,6 +670,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             sprintf(__('2. cd %s puis sudo sh installer-glpi-agent.sh — l\'installeur officiel installe l\'agent avec la découverte et l\'inventaire réseau ; l\'adresse du serveur et le TAG sont déjà réglés, aucune question n\'est posée.', 'printgestion'), $folder),
             __('3. Dans GLPI (fiche de l\'entité, onglet « Déploiement Agent ») : vérifier que l\'agent apparaît avec un contact récent, puis raccorder les imprimantes avec l\'assistant (bloc 3), avant de partir.', 'printgestion'),
             '',
+            PluginPrintgestionCollectfrequency::getPackageLine((int) $entity->getID()),
             $update
                 ? sprintf(
                     __('Mise à jour automatique : le script pose la tâche cron mensuelle %1$s (%2$s ; installeur officiel téléchargé sur GitHub, empreinte vérifiée ; seulement si l\'agent est en attente ; journal /var/log/glpi-agent-printgestion-update.log ; curl nécessaire). Pour la changer ou la retirer : régler la sonde dans GLPI, puis lancer son paquet de consigne sur ce PC ; le réglage de GLPI seul ne change rien sur le PC.', 'printgestion'),
@@ -769,6 +771,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             self::getMacosCommands($version, $tag),
             [
                 '',
+                PluginPrintgestionCollectfrequency::getPackageLine((int) $entity->getID()),
                 __('macOS 12 ou antérieur : remplacer les deux dernières commandes par « sudo launchctl unload » puis « sudo launchctl load » suivis du même chemin.', 'printgestion'),
                 __('Mise à jour : manuelle, en réinstallant le paquet d\'une version plus récente (onglet « Déploiement Agent » de l\'entité) ; local.cfg est gardé.', 'printgestion'),
                 '',
@@ -992,6 +995,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             $blockers[$platform] = self::getPackageBlockers($entity, $platform);
         }
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(sprintf(__('2. Télécharger l\'installeur (GLPI Agent %s)', 'printgestion'), $version)) . "</h3></div><div class='card-body'>";
+        PluginPrintgestionCollectfrequency::showForEntity($entity);
         $all_blockers = array_values(array_unique(array_merge(...array_values($blockers))));
         if (!empty($all_blockers)) {
             echo "<div class='alert alert-warning'><strong>" . $esc(__('Paquet indisponible :', 'printgestion')) . "</strong><ul class='mb-0'>";
