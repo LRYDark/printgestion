@@ -422,7 +422,7 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
 ### Contrôle de la remontée (`inc/collect.class.php`, onglet « Contrôle de la remontée »)
 
 Ce que l'inventaire GLPI reçoit **réellement** des imprimantes, avant tout calcul d'alerte. Page en lecture
-seule sur les tables natives ; périmètre : entités de l'utilisateur (module Collecte SNMP / Déploiement Agent, droit `deploiement` READ, ou `dashboard` READ : l'écran des alertes y renvoie). L'absence de
+seule sur les tables natives ; périmètre : entités de l'utilisateur (module Collecte SNMP / Déploiement Agent, droit `deploiement` READ ; la carte des imprimantes muettes de l'écran des alertes n'y renvoie qu'avec ce droit). L'absence de
 remontée est un **état à signaler**, jamais une absence d'alerte. Aucune couverture complète du parc n'est
 supposée.
 
@@ -556,7 +556,7 @@ demandes validées est en service. Une mise à jour du plugin ne change pas l'é
 | `plugin_printgestion_dashboard` | Alertes toner (dashboard + actions) |
 | `plugin_printgestion_expedition` | Expéditions (UPDATE pour agir) |
 | `plugin_printgestion_validation` | Demandes d'envoi : READ voir, UPDATE modifier / valider / annuler (file aussi visible avec `dashboard` READ, sans agir) |
-| `plugin_printgestion_deploiement` | Collecte SNMP / Déploiement Agent : READ voir et télécharger l'installeur, UPDATE raccorder des imprimantes ; « Contrôle de la remontée » (aussi avec `dashboard` READ) |
+| `plugin_printgestion_deploiement` | Collecte SNMP / Déploiement Agent : READ voir et télécharger l'installeur, UPDATE raccorder des imprimantes ; « Contrôle de la remontée » |
 | `plugin_printgestion_sage` | Référentiel Sage : READ onglet Sage de l'entité, UPDATE import et correspondances |
 | `plugin_printgestion_billing` | Coût à la page |
 | `plugin_printgestion_config` | Configuration du plugin + mappings SNMP |

@@ -69,8 +69,7 @@ class PluginPrintgestionMenu extends CommonGLPI {
                 'tabs'    => [
                     // Installeur servi par le plugin : version, fichier en cache, adresses.
                     ['key' => 'dp_agent', 'label' => __('Installeur GLPI Agent', 'printgestion'), 'icon' => 'ti ti-download', 'path' => '/front/agentdeploy.php', 'right' => ['plugin_printgestion_deploiement', READ]],
-                    // Techniciens (déploiement) ou suivi des alertes toner, qui y renvoient.
-                    ['key' => 'dp_collect', 'label' => __('Contrôle de la remontée', 'printgestion'), 'icon' => 'ti ti-activity', 'path' => '/front/collect.php', 'right' => [['plugin_printgestion_deploiement', READ], ['plugin_printgestion_dashboard', READ]]],
+                    ['key' => 'dp_collect', 'label' => __('Contrôle de la remontée', 'printgestion'), 'icon' => 'ti ti-activity', 'path' => '/front/collect.php', 'right' => ['plugin_printgestion_deploiement', READ]],
                 ],
             ],
             'sage' => [

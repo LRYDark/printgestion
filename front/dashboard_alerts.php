@@ -86,8 +86,11 @@ PluginPrintgestionUi::statsBar([
      'tooltip' => __('Niveau inchangé alors que l\'imprimante imprime : estimation approximative', 'printgestion'),
      'icon' => 'ti ti-snowflake', 'color' => 'azure'],
     ['count' => $silent, 'label' => __('Imprimantes muettes ou illisibles', 'printgestion'),
-     'tooltip' => __('Aucune alerte possible sans remontée : voir « Contrôle de la remontée »', 'printgestion'),
-     'icon' => 'ti ti-wifi-off', 'color' => 'dark', 'url' => PLUGIN_PRINTGESTION_WEBDIR . '/front/collect.php'],
+     'tooltip' => __('Aucune alerte possible sans remontée : voir « Contrôle de la remontée » (module Collecte SNMP / Déploiement Agent)', 'printgestion'),
+     'icon' => 'ti ti-wifi-off', 'color' => 'dark',
+     // Page d'un autre module, à droit distinct : lien seulement pour qui y a accès.
+     'url' => PluginPrintgestionMenu::tabAllowed('deploiement', ['plugin_printgestion_deploiement', READ])
+        ? PLUGIN_PRINTGESTION_WEBDIR . '/front/collect.php' : ''],
 ], 'printgestionAlertsStatsBar');
 
 // ── Fraîcheur du calcul ──
