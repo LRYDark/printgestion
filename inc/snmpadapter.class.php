@@ -57,8 +57,12 @@ class PluginPrintgestionSnmpadapter extends CommonDBTM {
         ];
     }
 
-    /** Oublie les données préchargées (après un changement de règles, ou pour relire l'inventaire). */
-    public static function reset(): void {
+    /**
+     * Oublie les données préchargées (après un changement de règles, ou pour relire l'inventaire).
+     * Pas « reset » : CommonDBTM::reset() est une méthode d'instance, la redéclarer statique est
+     * une erreur fatale à la compilation de la classe.
+     */
+    public static function resetCache(): void {
         self::$raw           = null;
         self::$manufacturers = null;
         self::$rules         = null;
@@ -335,7 +339,7 @@ class PluginPrintgestionSnmpadapter extends CommonDBTM {
                 ]);
             }
         }
-        self::reset();
+        self::resetCache();
         return $errors;
     }
 
