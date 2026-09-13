@@ -248,8 +248,10 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   = rien n'est enregistré. **Télécharger (test, sans envoi)** : même fichier, archivé sur les demandes avec la
   mention « non transmis », noté dans leur historique, sans mail, sans changement de statut ni expédition.
   Une seule ligne en défaut refuse l'export entier.
-- **Pas encore fait** : statuts `shipped` / `delivered` / `installed` de la demande à partir de ses
-  expéditions (la demande reste `exported`, le suivi se lit sur les expéditions).
+- **Suivi après export** (`Demande::syncFromExpeditions()`, tâches `CheckAlerts` et `TrackingUpdate`, et à
+  l'ouverture d'une fiche) : chaque ligne exportée suit son expédition (en attente / stock vide → exportée,
+  expédiée ou en transit → expédiée, livrée → livrée, posée → posée, annulée → annulée) ; l'en-tête prend le
+  statut le moins avancé des lignes non annulées, annulée si toutes le sont.
 - **Droits** : `plugin_printgestion_validation` (READ voir, UPDATE modifier / valider / annuler). La file
   est aussi visible avec la lecture des alertes toner, sans pouvoir agir. Pas de création manuelle.
 

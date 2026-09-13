@@ -84,6 +84,10 @@ if (!$demande->getFromDB($id) || !$demande->can($id, READ)) {
     Html::displayNotFoundError();
 }
 
+// Statuts à jour de l'avancement des expéditions (expédiée, livrée, posée) avant affichage.
+PluginPrintgestionDemande::syncFromExpeditions([$id]);
+$demande->getFromDB($id);
+
 Html::header(
     PluginPrintgestionDemande::getTypeName(1),
     $_SERVER['PHP_SELF'],

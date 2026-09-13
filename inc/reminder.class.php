@@ -69,6 +69,8 @@ class PluginPrintgestionReminder extends CommonDBTM {
         $alerts_sent    = PluginPrintgestionAlert::sendPendingAlerts();
         $reminders_sent = PluginPrintgestionExpedition::sendInstallReminders();
         $reassigned     = PluginPrintgestionExpedition::autoReassignStaleWrongPrinterAlerts();
+        // Avancement des expéditions (poses détectées, réattributions) → demandes d'envoi.
+        PluginPrintgestionDemande::syncFromExpeditions();
 
         // Invalide le cache dashboard alerts — force un recalcul frais au prochain fetch
         PluginPrintgestionAlert::invalidateCache();
@@ -98,6 +100,11 @@ class PluginPrintgestionReminder extends CommonDBTM {
 
         // 2. API transporteurs (UPS / GLS / Chronopost)
         $updates += PluginPrintgestionTracking::refreshFromCarriers();
+
+        // 3. Avancement des expéditions → demandes d'envoi exportées.
+        if ($updates > 0) {
+            PluginPrintgestionDemande::syncFromExpeditions();
+        }
 
         if ($task !== null) {
             $task->addVolume($updates);

@@ -885,6 +885,112 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         return ['lines' => $lines, 'gesconso' => PluginPrintgestionGesconso::prepare($lines)];
     }
 
+    // ── Suivi après export ────────────────────────────────────────────────────
+
+    /** Ordre du cycle (annulée à part) : sert à retenir le statut le moins avancé. */
+    const STATUS_FLOW = ['proposed', 'validated', 'exported', 'shipped', 'delivered', 'installed'];
+
+    /** Statut d'une ligne exportée d'après le statut de son expédition. */
+    const EXPEDITION_TO_LINE_STATUS = [
+        'pending'     => 'exported',
+        'stock_empty' => 'exported',
+        'shipped'     => 'shipped',
+        'transit'     => 'shipped',
+        'delivered'   => 'delivered',
+        'installed'   => 'installed',
+        'cancelled'   => 'cancelled',
+    ];
+
+    /**
+     * Répercute l'avancement des expéditions sur les lignes exportées (exportée →
+     * expédiée → livrée → posée, ou annulée), puis sur l'en-tête des demandes concernées :
+     * statut le moins avancé des lignes non annulées, annulée si toutes le sont.
+     * Écritures par update() : historique natif. Appelée par les tâches automatiques et à
+     * l'ouverture d'une fiche.
+     *
+     * @param ?array $demandes_ids Restreindre à ces demandes (null : toutes).
+     * @return int Nombre de lignes mises à jour.
+     */
+    public static function syncFromExpeditions(?array $demandes_ids = null): int {
+        global $DB;
+
+        $criteria = [
+            'SELECT'     => ['l.id', 'l.plugin_printgestion_demandes_id', 'l.statut', 'e.statut AS expedition_statut'],
+            'FROM'       => PluginPrintgestionDemandeline::getTable() . ' AS l',
+            'INNER JOIN' => [
+                PluginPrintgestionExpedition::getTable() . ' AS e' => ['ON' => ['l' => 'expeditions_id', 'e' => 'id']],
+            ],
+            'WHERE'      => ['l.statut' => [self::STATUS_EXPORTED, self::STATUS_SHIPPED, self::STATUS_DELIVERED]],
+        ];
+        if ($demandes_ids !== null) {
+            $ids = array_values(array_filter(array_map('intval', $demandes_ids)));
+            if (empty($ids)) {
+                return 0;
+            }
+            $criteria['WHERE']['l.plugin_printgestion_demandes_id'] = $ids;
+        }
+
+        $updated  = 0;
+        $touched  = [];
+        $line     = new PluginPrintgestionDemandeline();
+        foreach ($DB->request($criteria) as $row) {
+            $target = self::EXPEDITION_TO_LINE_STATUS[(string) $row['expedition_statut']] ?? null;
+            if ($target === null || $target === (string) $row['statut']) {
+                continue;
+            }
+            if ($line->update(['id' => (int) $row['id'], 'statut' => $target])) {
+                $updated++;
+                $touched[(int) $row['plugin_printgestion_demandes_id']] = true;
+            } else {
+                PluginPrintgestionLogger::warning('demandes', sprintf('Ligne #%d : passage au statut %s refusé.', $row['id'], $target));
+            }
+        }
+
+        foreach (array_keys($touched) as $demandes_id) {
+            $demande = new self();
+            if ($demande->getFromDB($demandes_id)) {
+                $demande->refreshStatusFromLines();
+            }
+        }
+        return $updated;
+    }
+
+    /**
+     * Statut de l'en-tête d'une demande exportée ou plus avancée, d'après ses lignes. Une
+     * demande proposée ou validée n'est jamais modifiée ici (ses transitions passent par la
+     * validation et l'annulation).
+     */
+    private function refreshStatusFromLines(): void {
+        $current = (string) $this->fields['statut'];
+        if (in_array($current, self::OPEN_STATUSES, true) || $current === self::STATUS_CANCELLED) {
+            return;
+        }
+
+        $active = array_values(array_filter(
+            array_column($this->getLines(), 'statut'),
+            static fn($statut) => $statut !== self::STATUS_CANCELLED
+        ));
+        if (empty($active)) {
+            $input = [
+                'statut'          => self::STATUS_CANCELLED,
+                'cancel_reason'   => __('Toutes les expéditions de la demande ont été annulées.', 'printgestion'),
+                'users_id_cancel' => (int) Session::getLoginUserID(),
+                'date_cancel'     => $_SESSION['glpi_currenttime'],
+            ];
+        } else {
+            $ranks  = array_map(static fn($statut) => (int) array_search($statut, self::STATUS_FLOW, true), $active);
+            $target = self::STATUS_FLOW[min($ranks)];
+            if ($target === $current) {
+                return;
+            }
+            $input = ['statut' => $target];
+        }
+
+        if (!$this->update(['id' => (int) $this->getID()] + $input)) {
+            PluginPrintgestionLogger::warning('demandes', sprintf('Demande #%d : mise à jour du statut refusée.', $this->getID()));
+        }
+    }
+
     /** Code d'exception : échec du mail aux Achats pendant l'export (message affichable). */
     const EXPORT_MAIL_FAILURE = 4301;
 
