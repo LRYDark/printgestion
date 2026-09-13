@@ -730,17 +730,32 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             // DBmysql n'expose pas l'état de la transaction : suivi local, pour ne jamais
             // appeler rollBack() hors transaction (qui lèverait une nouvelle exception).
             $in_transaction = true;
+            $archive        = null; // Document créé, pour nettoyer sa copie si la transaction est annulée
             try {
+                $expedition_ids = [];
                 foreach ($to_create as $c) {
-                    if (self::createFromAlert($c['printers_id'], $c['property'], $c['level'], $c['days'], $c['reason'], $group_id) > 0) {
+                    $expeditions_id = self::createFromAlert($c['printers_id'], $c['property'], $c['level'], $c['days'], $c['reason'], $group_id);
+                    if ($expeditions_id > 0) {
                         $result['created']++;
+                        $expedition_ids[] = $expeditions_id;
                     }
                 }
+
+                // Archivage du fichier transmis, rattaché aux expéditions : dans la transaction,
+                // une commande n'est jamais passée sans sa preuve.
+                $documents_id = PluginPrintgestionGesconso::archive(
+                    $file,
+                    sprintf(__('Commande directe envoyée aux Achats le %1$s par %2$s (%3$d ligne(s)).', 'printgestion'), Html::convDateTime(date('Y-m-d H:i:s')), getUserName((int) Session::getLoginUserID()), count($rows)),
+                    array_map(static fn(int $id) => [self::class, $id], $expedition_ids)
+                );
+                $archive = new Document();
+                $archive->getFromDB($documents_id);
 
                 $mail = self::sendPurchaseOrderMail($rows, $file['path']);
                 if (!$mail['ok']) {
                     $DB->rollBack();
                     $in_transaction    = false;
+                    PluginPrintgestionGesconso::removeOrphanArchive($archive->fields);
                     $result['created'] = 0;
                     $result['error']   = $mail['error'] . ' '
                         . __('Aucune expédition n\'a été enregistrée : la commande peut être relancée.', 'printgestion');
@@ -756,6 +771,9 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                     } catch (Throwable $rollback_error) {
                         // Annulation impossible : tracée ; la réponse reste un échec explicite.
                         \Glpi\Error\ErrorHandler::logCaughtException($rollback_error);
+                    }
+                    if ($archive !== null) {
+                        PluginPrintgestionGesconso::removeOrphanArchive($archive->fields);
                     }
                 }
                 $result['created'] = 0;

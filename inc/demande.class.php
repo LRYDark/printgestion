@@ -162,6 +162,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
     function defineTabs($options = []) {
         $ong = [];
         $this->addDefaultFormTab($ong);
+        $this->addStandardTab(Document_Item::class, $ong, $options); // fichiers Gesconso archivés
         $this->addStandardTab(Log::class, $ong, $options);
         return $ong;
     }

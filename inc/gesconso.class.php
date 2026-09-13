@@ -261,4 +261,60 @@ class PluginPrintgestionGesconso {
 
         return ['path' => $path, 'filename' => $filename, 'tmpname' => $tmpname, 'prefix' => $prefix];
     }
+
+    /**
+     * Archive un fichier écrit par write() en Document GLPI natif, rattaché aux objets
+     * donnés, pour pouvoir le renvoyer et prouver ce qui a été transmis.
+     *
+     * Entité racine, non récursif : le document n'est visible que des utilisateurs de
+     * l'entité racine — jamais d'un compte client, un fichier pouvant couvrir plusieurs
+     * clients. Le fichier temporaire est conservé (l'appelant le supprime).
+     *
+     * @param array  $file    Résultat de write().
+     * @param array  $items   [[itemtype, items_id], ...]
+     * @return int documents_id
+     * @throws RuntimeException si le document ou un rattachement est refusé par GLPI.
+     */
+    public static function archive(array $file, string $comment, array $items): int {
+        $document     = new Document();
+        $documents_id = (int) $document->add([
+            'name'              => $file['filename'],
+            'entities_id'       => 0,
+            'is_recursive'      => 0,
+            'comment'           => $comment,
+            '_filename'         => [$file['tmpname']],
+            '_prefix_filename'  => [$file['prefix']],
+        ]);
+        if ($documents_id <= 0) {
+            throw new RuntimeException(sprintf('Archivage du fichier %s refusé par GLPI.', $file['filename']));
+        }
+
+        foreach ($items as [$itemtype, $items_id]) {
+            $link = new Document_Item();
+            if (!$link->add([
+                'documents_id' => $documents_id,
+                'itemtype'     => $itemtype,
+                'items_id'     => (int) $items_id,
+                'entities_id'  => 0,
+            ])) {
+                throw new RuntimeException(sprintf('Rattachement du fichier %1$s à %2$s #%3$d refusé par GLPI.', $file['filename'], $itemtype, $items_id));
+            }
+        }
+        return $documents_id;
+    }
+
+    /**
+     * Après annulation d'une transaction qui avait archivé un fichier : supprime la copie
+     * placée dans le dossier des documents si plus aucun document ne la référence.
+     */
+    public static function removeOrphanArchive(array $document_fields): void {
+        $filepath = (string) ($document_fields['filepath'] ?? '');
+        if ($filepath === '' || countElementsInTable('glpi_documents', ['filepath' => $filepath]) > 0) {
+            return;
+        }
+        $path = GLPI_DOC_DIR . '/' . $filepath;
+        if (is_file($path) && !@unlink($path)) {
+            PluginPrintgestionLogger::warning('gesconso', sprintf('Copie orpheline non supprimée : %s', $path));
+        }
+    }
 }

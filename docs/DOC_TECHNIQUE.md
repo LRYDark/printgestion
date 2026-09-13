@@ -286,6 +286,11 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
   référentiel articles importé), prix 0 hors contrat. Une ligne en défaut n'est jamais écrite : l'appelant
   refuse l'export entier avec la liste des lignes en défaut.
 - Codes et références écrits en texte explicite (zéros de tête conservés) ; cellules vides non écrites.
+- **Archivage** (`Gesconso::archive()`) : chaque fichier transmis devient un Document GLPI natif (nom
+  `Gesconso_…xlsx`, commentaire date / auteur / volume), rattaché aux expéditions créées (commande directe)
+  ou aux demandes exportées. Entité racine, **non récursif** : invisible des comptes clients. L'archivage est
+  dans la transaction de la commande : échec d'archivage = commande non passée ; transaction annulée = copie
+  du fichier retirée du dossier des documents.
 - La commande directe (fenêtre de commande des alertes) utilise ce générateur : plus de colonne « Stock
   GLPI », plus de nom d'entité en code client.
 

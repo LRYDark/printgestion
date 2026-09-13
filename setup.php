@@ -53,6 +53,11 @@ function plugin_init_printgestion() {
             Plugin::registerClass('PluginPrintgestionProfile', ['addtabon' => 'Profile']);
             Plugin::registerClass('PluginPrintgestionConfig',  ['addtabon' => 'Config']);
 
+            // Fichiers Gesconso archivés en Documents natifs, rattachés aux expéditions et
+            // aux demandes d'envoi (onglet Documents).
+            Plugin::registerClass('PluginPrintgestionExpedition', ['document_types' => true]);
+            Plugin::registerClass('PluginPrintgestionDemande',    ['document_types' => true]);
+
             // Onglets natifs gated par interrupteur de module (désactivé = non chargé).
             if (PluginPrintgestionConfig::isFeatureEnabled('contrats')) {
                 Plugin::registerClass('PluginPrintgestionContractrate', ['addtabon' => 'Contract']); // tarifs €/page
