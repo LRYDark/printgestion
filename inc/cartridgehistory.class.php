@@ -209,10 +209,16 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
     }
 
     /**
-     * Détecte le cas "mauvaise imprimante" et crée une alerte wrong_printer
-     * si un envoi EN COURS (ni posé ni annulé) récent existe pour la même propriété
-     * SNMP sur une autre imprimante de la même entité. Un envoi déjà posé ou annulé
-     * ne peut pas être la cartouche détectée : il n'est jamais retenu.
+     * Détecte le cas « mauvaise imprimante » et crée une alerte wrong_printer : une
+     * proposition à confirmer par un humain, jamais une réattribution automatique.
+     *
+     * Rapprochement strict, pour ne jamais conclure à tort qu'un envoi a été posé ailleurs :
+     *   - envoi déjà parti (expédié, en transit ou livré) dans la fenêtre de détection ;
+     *     jamais un envoi encore en attente, dont la cartouche n'a pas pu être posée ;
+     *   - autre imprimante de la même entité, pour la même propriété SNMP ;
+     *   - même site de livraison (racine du lieu) ;
+     *   - même référence de cartouche, résolue pour les deux imprimantes.
+     * Site ou référence inconnus : aucun rapprochement.
      *
      * Retourne l'ID de l'alerte créée, ou 0 si pas de cas wrong_printer.
      *
@@ -232,9 +238,9 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
         $lookback_days = max(1, (int)($config->fields['wrong_printer_lookback_days'] ?? 30));
         $cutoff = date('Y-m-d H:i:s', strtotime("-{$lookback_days} days"));
 
-        // Entité de l'imprimante détectée
+        // Entité, site et référence de l'imprimante détectée
         $detectedRow = $DB->request([
-            'SELECT' => ['entities_id'],
+            'SELECT' => ['entities_id', 'locations_id'],
             'FROM'   => 'glpi_printers',
             'WHERE'  => ['id' => $detected_printers_id],
             'LIMIT'  => 1,
@@ -243,10 +249,16 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
             return 0;
         }
         $detected_entity = (int)$detectedRow['entities_id'];
+        $detected_site   = PluginPrintgestionDemande::getSiteLocationId((int)$detectedRow['locations_id']);
+        $detected_ref    = (int)PluginPrintgestionSnmpmapping::resolveCartridge($detected_printers_id, $property)['cartridgeitems_id'];
+        if ($detected_site <= 0 || $detected_ref <= 0) {
+            return 0;
+        }
 
-        // Cherche une expédition récente pour la même propriété + autre imprimante + même entité
-        $expedition = $DB->request([
-            'SELECT'    => ['e.id', 'e.printers_id'],
+        // Envoi parti le plus récent pour une autre imprimante du même site, même référence
+        $expedition = null;
+        foreach ($DB->request([
+            'SELECT'    => ['e.id', 'e.printers_id', 'p.locations_id'],
             'FROM'      => 'glpi_plugin_printgestion_expeditions AS e',
             'INNER JOIN'=> [
                 'glpi_printers AS p' => [
@@ -258,13 +270,21 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
                 'e.printers_id'    => ['<>', $detected_printers_id],
                 'p.entities_id'    => $detected_entity,
                 'e.date_alert'     => ['>=', $cutoff],
-                'e.statut'         => PluginPrintgestionExpedition::ACTIVE_STATUSES,
+                'e.statut'         => PluginPrintgestionExpedition::DEPARTED_STATUSES,
             ],
             'ORDER' => ['e.date_alert DESC'],
-            'LIMIT' => 1,
-        ])->current();
+        ]) as $candidate) {
+            if (PluginPrintgestionDemande::getSiteLocationId((int)$candidate['locations_id']) !== $detected_site) {
+                continue;
+            }
+            if ((int)PluginPrintgestionSnmpmapping::resolveCartridge((int)$candidate['printers_id'], $property)['cartridgeitems_id'] !== $detected_ref) {
+                continue;
+            }
+            $expedition = $candidate;
+            break;
+        }
 
-        if (!is_array($expedition)) {
+        if ($expedition === null) {
             return 0; // Pas de cas wrong_printer
         }
 

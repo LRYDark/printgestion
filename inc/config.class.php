@@ -756,7 +756,7 @@ class PluginPrintgestionConfig extends CommonDBTM {
         echo "<div class='col-md-3'>"
             . $label_with_tip(
                 __("Fenêtre détection mauvaise imprimante (jours)", 'printgestion'),
-                __("Lors de la détection d'une cartouche changée, le plugin cherche dans les N jours précédents s'il existe une expédition active pour cette propriété SNMP. Si une expé existe pour une AUTRE imprimante dans cette fenêtre → alerte « wrong_printer ».", 'printgestion')
+                __("Pose détectée sur une imprimante qui n'attendait aucun envoi : le plugin cherche dans les N jours précédents un envoi déjà parti (expédié, en transit ou livré) pour une autre imprimante du même site, même référence de cartouche. Il le signale alors en « mauvaise imprimante » sur l'écran Expéditions, à vérifier et confirmer : aucune réattribution automatique.", 'printgestion')
             );
         echo "<input type='number' min='1' class='form-control' name='wrong_printer_lookback_days' value='"
             . (int)($config->fields['wrong_printer_lookback_days'] ?? 30) . "'></div>";

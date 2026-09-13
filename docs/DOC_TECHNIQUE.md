@@ -196,8 +196,12 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
 - **Cartouche posée sur la mauvaise imprimante** : la pose est enregistrée dans l'historique de
   l'imprimante qui l'a reçue (garde immédiate) ; l'imprimante prévue reste « envoi en cours » avec un
   message qui renvoie vers la réattribution, laquelle clôt l'envoi et la libère. La détection
-  « mauvaise imprimante » ne retient que les envois **en cours** d'une autre imprimante, et seulement
-  si l'imprimante détectée n'attendait elle-même aucun envoi pour ce toner.
+  « mauvaise imprimante » (`Cartridgehistory::detectAndLogWrongPrinter()`) ne s'applique que si
+  l'imprimante détectée n'attendait elle-même aucun envoi pour ce toner, et ne retient qu'un envoi
+  **déjà parti** (`Expedition::DEPARTED_STATUSES` : expédié, en transit, livré) d'une autre imprimante
+  de la même entité, du **même site** (racine du lieu) et de la **même référence** de cartouche, dans
+  la fenêtre `wrong_printer_lookback_days`. Site ou référence inconnus : aucun rapprochement. L'alerte
+  est une proposition : aucune réattribution automatique.
 - Chaque ligne d'alerte porte son verrou (`lock`) ; le mail « toner bas » ignore les emplacements
   verrouillés (sauf contournement).
 - **Écran des alertes** (moteur de recherche natif sur `alertview`) : colonnes Verrou (envoi en cours,

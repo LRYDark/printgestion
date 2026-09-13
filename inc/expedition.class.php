@@ -33,6 +33,9 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      */
     const ACTIVE_STATUSES = ['pending', 'stock_empty', 'shipped', 'transit', 'delivered'];
 
+    /** Envois partis : seule leur cartouche peut avoir été posée (ailleurs que prévu). */
+    const DEPARTED_STATUSES = ['shipped', 'transit', 'delivered'];
+
     /** Nombre max de lignes listées dans le corps d'un mail groupé/digest ;
      *  au-delà : « … et N autres » (le détail complet reste dans l'Excel joint). */
     const MAIL_LIST_MAX = 20;
