@@ -650,6 +650,15 @@ notification par sonde) et `printer_silent` (une par entité, avec la liste) ; g
 créées **inactives**, destinataire par défaut l'administrateur GLPI, jamais l'administrateur de l'entité, qui peut
 être le client. Une alerte non notifiée (réglage ou notifications désactivés) l'est au premier passage qui le permet.
 
+**Avertissement « Nettoyer les agents »** (correction 5) : le même bloc affiche, en pleine largeur sous la ligne native du
+délai et de l'action (déplacé par script ; sans JavaScript, dans la cellule du plugin), ce que détruit l'action native
+`STALE_AGENT_ACTION_CLEAN` (« Nettoyer les agents », action par défaut) : l'agent est supprimé de GLPI avec son historique
+(`Agent::$dohistory`, historique purgé avec l'objet) ; au contact suivant, le PC revient comme un nouvel agent, hors des
+tâches GLPI Inventory de ses raccordements (acteur désigné par identifiant) et sans ses réglages Print Gestion ; avec un
+délai court, des sondes saines éteintes pendant des congés sont effacées. Alerte rouge quand le réglage enregistré
+combine cette action et un délai non nul, mise à jour à l'écran quand l'administrateur change le délai ou l'action avant
+d'enregistrer. Aucun champ ajouté au formulaire natif.
+
 **Tableau de bord** : hook `DASHBOARD_CARDS`, groupe « Print Gestion — Sondes » : sondes sans contact, sondes sans
 contact par entité, sondes à mettre à jour, imprimantes qui ne remontent plus (alertes ouvertes dont la sonde
 contacte GLPI). Droits vérifiés par chaque fournisseur, GLPI gardant la liste des cartes en cache ; couverture des

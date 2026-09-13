@@ -201,8 +201,10 @@ Une fois pour tout le parc :
    éléments, à la racine, récursif).
 5. Notifications des sondes : Configuration → Inventaire → « Agent cleanup », réglages « Print Gestion » ; puis
    Configuration → Notifications → « Print Gestion - Sonde GLPI Agent sans contact » et « Print Gestion - Imprimantes
-   qui ne remontent plus » : choisir les destinataires, activer. Ne pas choisir l'action native « Supprimer » avec un
-   délai court : un agent supprimé perd ses tâches GLPI Inventory.
+   qui ne remontent plus » : choisir les destinataires, activer. Ne pas choisir l'action native « Nettoyer les agents »
+   (action par défaut) avec un délai court, ce que l'écran affiche en rouge : elle supprime l'agent et son historique ;
+   le PC revient comme un nouvel agent, hors des tâches GLPI Inventory de ses raccordements et sans ses réglages Print
+   Gestion. Une sonde éteinte pendant des congés serait ainsi effacée.
 
 Pour chaque client :
 
