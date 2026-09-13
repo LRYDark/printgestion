@@ -1166,7 +1166,8 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 });
             } else {
                 $out['documents_id'] = self::transactional(function () use ($file, $demandes, $data, $numbers, $author, $now, &$archive) {
-                    $group_id    = Rule::getUuid();
+                    // UUID de 36 caractères (colonne group_id) : Rule::getUuid() en produit 41.
+                    $group_id    = PluginPrintgestionExpedition::generateUuid();
                     $line_object = new PluginPrintgestionDemandeline();
                     $expeditions = [];
                     $mail_rows   = [];

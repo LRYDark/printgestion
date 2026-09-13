@@ -1190,9 +1190,10 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     }
 
     /**
-     * Génère un UUID v4 (RFC 4122) sans dépendance externe.
+     * Génère un UUID v4 (RFC 4122) sans dépendance externe : 36 caractères, la taille de
+     * la colonne group_id (commande directe et export des demandes d'envoi).
      */
-    protected static function generateUuid(): string {
+    public static function generateUuid(): string {
         $data = random_bytes(16);
         $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
         $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
