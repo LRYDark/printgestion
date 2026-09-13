@@ -36,6 +36,7 @@ class PluginPrintgestionSchema {
         '1.3.0' => 'migrateTo130',
         '1.3.1' => 'migrateTo131',
         '1.4.0' => 'migrateTo140',
+        '1.4.1' => 'migrateTo141',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -451,5 +452,17 @@ class PluginPrintgestionSchema {
                 $DB->doQuery("CREATE TABLE `{$table}` ({$definition}\n            ) {$options}");
             }
         }
+    }
+
+    /**
+     * 1.4.1 — fichier Gesconso : séparateur de la colonne Designation (espaces compris,
+     * « # » entouré d'espaces comme le fichier réel) et longueur maximale de la
+     * désignation (69 par défaut, limite usuelle de Sage ; 67 caractères prouvés).
+     */
+    private static function migrateTo141(Migration $migration): void {
+        $config = 'glpi_plugin_printgestion_configs';
+        $migration->addField($config, 'gesconso_separator', "varchar(20) NOT NULL DEFAULT ' # '");
+        $migration->addField($config, 'gesconso_designation_max', "int NOT NULL DEFAULT '69'");
+        $migration->migrationOneTable($config);
     }
 }

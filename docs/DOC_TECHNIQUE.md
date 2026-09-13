@@ -264,6 +264,31 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   l'ancêtre le plus proche. Modifiable sur l'onglet « Print Gestion — Sage » de l'entité ; chaque changement
   est tracé dans l'historique natif de l'entité. `registration_number` (SIRET) n'est pas utilisé.
 
+### Fichier Gesconso (`inc/gesconso.class.php`)
+
+Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succès dans Gesconso. Nom
+`Gesconso_JJMMAAAA_HHMM.xlsx`, une feuille `Export`, ligne 1 = en-têtes, **exactement 9 colonnes** :
+
+| Col | En-tête | Source |
+|---|---|---|
+| A | `Devis` | Date de la demande (commande directe : date du jour), **vraie date Excel** `jj/mm/aaaa` |
+| B | `Intitule Client` | Code client Sage de l'entité de l'imprimante (propre ou hérité) |
+| C | `Intitule Livraison` | Intitulé de l'adresse Sage du client dont le code est porté par le lieu de l'imprimante ou un parent |
+| D | `Consommable` | `CartridgeItem.ref` (vérifiée dans le référentiel articles s'il a été importé) |
+| E | `Designation` | n° série + séparateur + nom du lieu + séparateur + nom de la cartouche ; séparateur (`' # '`) et longueur max (69) configurables, troncature avec avertissement |
+| F | `Quantite` | Entier |
+| G | `Prix` | 0 sous contrat ; vide ou prix saisi hors contrat — **jamais 0 hors contrat** |
+| H | `Fournisseur` | Vide |
+| I | `Complement livraison` | Commande directe : commentaire du lieu ; demande : contact et commentaire de livraison |
+
+- **Contrôles bloquants** (`Gesconso::prepare()`) : code client absent ou absent du dernier import, adresse de
+  livraison absente, référence article absente (cartouche non résolue, référence vide, ou inconnue du
+  référentiel articles importé), prix 0 hors contrat. Une ligne en défaut n'est jamais écrite : l'appelant
+  refuse l'export entier avec la liste des lignes en défaut.
+- Codes et références écrits en texte explicite (zéros de tête conservés) ; cellules vides non écrites.
+- La commande directe (fenêtre de commande des alertes) utilise ce générateur : plus de colonne « Stock
+  GLPI », plus de nom d'entité en code client.
+
 ### Points d'entrée (ajax/)
 
 | Endpoint | Action |
@@ -304,7 +329,7 @@ Le bouton « Qui est notifié ? » de la config affiche le récapitulatif selon 
 Détails d'implémentation (tous dans `expedition.class.php` sauf mention) :
 
 - **`sendPurchaseOrderMail($rows, $requester_uid)`** : point UNIQUE du mail achats.
-  Génère l'Excel (`buildPurchaseExcel`, format Gesconso + colonne Stock GLPI, 1 cartouche/ligne),
+  Joint le fichier Gesconso (`Gesconso::write`, voir « Fichier Gesconso », 1 cartouche/ligne),
   l'envoie via `gabarit_achat` (corps synthétique : « N référence(s), détail dans l'Excel joint »),
   fallback mail brut si gabarit non configuré. Fichier temporaire supprimé après envoi.
 - **Planif simple/multi** : 1 cartouche → `gabarit_planif` (détail unitaire) ;

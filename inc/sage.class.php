@@ -146,6 +146,62 @@ class PluginPrintgestionSage extends CommonGLPI {
         return '';
     }
 
+    /**
+     * Adresse de livraison Sage d'un lieu pour un client : le lieu, puis ses parents ; le
+     * premier dont le champ natif « Code » vaut le code d'une adresse du client présente au
+     * dernier import. null si aucune.
+     *
+     * @return ?array Ligne de sagedeliveries + 'locations_id' (lieu portant le code).
+     */
+    public static function getDeliveryForLocation(int $locations_id, string $client_code): ?array {
+        global $DB;
+
+        $current = $locations_id;
+        $seen    = [];
+        while ($current > 0 && !isset($seen[$current])) {
+            $seen[$current] = true;
+            $location       = $DB->request([
+                'SELECT' => ['id', 'locations_id', 'code'],
+                'FROM'   => 'glpi_locations',
+                'WHERE'  => ['id' => $current],
+                'LIMIT'  => 1,
+            ])->current();
+            if (!is_array($location)) {
+                break;
+            }
+            $code = trim((string) $location['code']);
+            if ($code !== '') {
+                $address = $DB->request([
+                    'FROM'  => PluginPrintgestionSageimport::TABLE_DELIVERIES,
+                    'WHERE' => [
+                        'client_code'       => $client_code,
+                        'address_key'       => $code,
+                        'is_in_last_import' => 1,
+                    ],
+                    'LIMIT' => 1,
+                ])->current();
+                if (is_array($address)) {
+                    return $address + ['locations_id' => (int) $location['id']];
+                }
+            }
+            $current = (int) $location['locations_id'];
+        }
+        return null;
+    }
+
+    /** Référence article présente au dernier import des articles. */
+    public static function isArticleActive(string $ref): bool {
+        return countElementsInTable(PluginPrintgestionSageimport::TABLE_ARTICLES, [
+            'ref'               => $ref,
+            'is_in_last_import' => 1,
+        ]) > 0;
+    }
+
+    /** Un référentiel (table sage*) a-t-il déjà été importé ? */
+    public static function hasReferential(string $table): bool {
+        return countElementsInTable($table) > 0;
+    }
+
     /** Message dans l'historique natif de l'entité. */
     public static function logOnEntity(int $entities_id, string $message): void {
         Log::history($entities_id, Entity::class, [0, '', $message], '', Log::HISTORY_LOG_SIMPLE_MESSAGE);

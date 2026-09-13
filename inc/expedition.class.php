@@ -478,25 +478,19 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * Assemble les données d'UNE cartouche pour une ligne du fichier Excel achats.
-     * Mapping (format Gesconso) :
-     *   - Intitulé Client     = nom de l'entité de l'imprimante
-     *   - Intitulé Livraison  = site (racine du lieu hiérarchique de l'imprimante)
-     *   - Consommable         = référence (ref) du modèle de cartouche GLPI
-     *   - Designation         = "n° série imprimante # lieu (pièce) # nom du modèle"
-     *   - Prix                = 0 si l'imprimante est sous contrat (consommables inclus),
-     *                           vide sinon — jamais 0 hors contrat
-     *   - Complément livraison= commentaire du lieu de l'imprimante
-     *   - Stock GLPI          = nb de cartouches non utilisées en stock
+     * Données d'UNE cartouche pour les mails de commande (Achats, planification,
+     * courtoisie) et pour sa ligne du fichier Gesconso : client (nom d'entité, pour les
+     * mails), imprimante, cartouche, stock GLPI, commentaire du lieu (Complément
+     * livraison) et couverture contrat. Le contenu du fichier est construit par
+     * PluginPrintgestionGesconso::prepare().
      */
-    protected static function buildPurchaseRowData(int $printers_id, string $property): array {
+    protected static function buildPurchaseRowData(int $printers_id, string $property, int $cartridgeitems_id): array {
         global $DB;
 
-        $serial = $entity_name = $loc_site = $loc_leaf = $loc_comment = $printer_name = '';
+        $entity_name = $loc_comment = $printer_name = '';
 
         $printer = new Printer();
         if ($printer->getFromDB($printers_id)) {
-            $serial       = (string)($printer->fields['serial'] ?? '');
             $printer_name = (string)($printer->fields['name'] ?? '');
 
             $entity = new Entity();
@@ -508,107 +502,38 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             if ($loc_id > 0) {
                 $location = new Location();
                 if ($location->getFromDB($loc_id)) {
-                    $loc_leaf    = (string)($location->fields['name'] ?? '');
                     $loc_comment = (string)($location->fields['comment'] ?? '');
-                    $completename = (string)($location->fields['completename'] ?? '');
-                    // completename GLPI = "Site > … > Pièce" → racine = site de livraison
-                    $loc_site = $completename !== '' ? trim(explode(' > ', $completename)[0]) : $loc_leaf;
                 }
             }
         }
 
-        // Cartouche : ref (Consommable) + nom (description) + stock
-        $cartridgeitems_id = PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($printers_id, $property);
-        $cart_ref = $cart_name = '';
+        $cart_name = '';
         if ($cartridgeitems_id > 0) {
             $ci = $DB->request([
-                'SELECT' => ['ref', 'name'],
+                'SELECT' => ['name'],
                 'FROM'   => 'glpi_cartridgeitems',
                 'WHERE'  => ['id' => $cartridgeitems_id],
                 'LIMIT'  => 1,
             ])->current();
             if (is_array($ci)) {
-                $cart_ref  = (string)($ci['ref'] ?? '');
                 $cart_name = (string)($ci['name'] ?? '');
             }
         }
         if ($cart_name === '') {
             $cart_name = PluginPrintgestionSnmpmapping::getCartridgeLabelForProperty($printers_id, $property);
         }
-        $stock = self::getCartridgeStock($cartridgeitems_id);
-
-        // Sous contrat (type de contrat « consommables inclus », contrat en cours) : prix 0.
-        // Hors contrat : prix vide, renseigné par les Achats.
-        $coverage = PluginPrintgestionContractrate::getConsumablesCoverage($printers_id);
 
         return [
-            'devis'        => date('d/m/Y'),
-            'client'       => $entity_name,
-            'livraison'    => $loc_site,
-            'consommable'  => $cart_ref,
-            'designation'  => trim($serial) . ' # ' . trim($loc_leaf) . ' # ' . trim($cart_name),
-            'quantite'     => 1,
-            'prix'         => $coverage['under_contract'] ? 0 : null,
-            'fournisseur'  => '',
-            'complement'   => $loc_comment,
-            'stock'        => $stock,
-            // Champs annexes (non écrits dans l'Excel) réutilisés pour les mails planif/courtoisie.
-            'printers_id'   => $printers_id,
-            'printer_name'  => $printer_name,
-            'cartridge_name'=> $cart_name,
-            'property'      => $property,
+            'client'         => $entity_name,
+            'complement'     => $loc_comment,
+            'stock'          => self::getCartridgeStock($cartridgeitems_id),
+            // Sous contrat (type « consommables inclus », contrat en cours) : prix 0 dans le fichier.
+            'under_contract' => PluginPrintgestionContractrate::getConsumablesCoverage($printers_id)['under_contract'],
+            'printers_id'    => $printers_id,
+            'printer_name'   => $printer_name,
+            'cartridge_name' => $cart_name,
+            'property'       => $property,
         ];
-    }
-
-    /**
-     * Génère le fichier Excel de commande (1 cartouche par ligne, format Gesconso
-     * + colonne « Stock GLPI »). Retourne le chemin du fichier temporaire créé.
-     */
-    public static function buildPurchaseExcel(array $rows): string {
-        $ss = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
-        $sheet = $ss->getActiveSheet();
-        $sheet->setTitle('Export');
-
-        $headers = [
-            'A' => 'Devis', 'B' => 'Intitule Client', 'C' => 'Intitule Livraison',
-            'D' => 'Consommable', 'E' => 'Designation', 'F' => 'Quantite',
-            'G' => 'Prix', 'H' => 'Fournisseur', 'I' => 'Complement livraison', 'J' => 'Stock GLPI',
-        ];
-        foreach ($headers as $col => $label) {
-            $sheet->setCellValue($col . '1', $label);
-        }
-
-        $rownum = 2;
-        foreach ($rows as $row) {
-            $sheet->setCellValue('A' . $rownum, (string)$row['devis']);
-            $sheet->setCellValue('B' . $rownum, (string)$row['client']);
-            $sheet->setCellValue('C' . $rownum, (string)$row['livraison']);
-            $sheet->setCellValueExplicit('D' . $rownum, (string)$row['consommable'],
-                \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-            $sheet->setCellValueExplicit('E' . $rownum, (string)$row['designation'],
-                \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-            $sheet->setCellValue('F' . $rownum, (int)$row['quantite']);
-            // Prix : 0 uniquement sous contrat ; hors contrat la cellule reste vide.
-            if ($row['prix'] !== null) {
-                $sheet->setCellValue('G' . $rownum, (float)$row['prix']);
-            }
-            $sheet->setCellValue('H' . $rownum, (string)$row['fournisseur']);
-            $sheet->setCellValue('I' . $rownum, (string)$row['complement']);
-            $sheet->setCellValue('J' . $rownum, (int)$row['stock']);
-            $rownum++;
-        }
-
-        foreach (range('A', 'J') as $col) {
-            $sheet->getColumnDimension($col)->setAutoSize(true);
-        }
-
-        $dir   = defined('GLPI_TMP_DIR') ? GLPI_TMP_DIR : sys_get_temp_dir();
-        $fname = 'Commande_cartouches_' . date('dmY_Hi') . '_' . bin2hex(random_bytes(4)) . '.xlsx';
-        $path  = rtrim($dir, '/\\') . DIRECTORY_SEPARATOR . $fname;
-
-        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($ss))->save($path);
-
-        return $path;
     }
 
     /**
@@ -737,10 +662,11 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             return $result;
         }
 
-        // ── 3. Préparation, sans écriture : lignes de l'Excel et expéditions à créer ──
+        // ── 3. Préparation, sans écriture : lignes du fichier Gesconso et expéditions à créer ──
         $rows      = [];
         $to_create = [];
-        foreach ($clean as $c) {
+        $lines     = [];
+        foreach ($clean as $key => $c) {
             $cartridgeitems_id = $c['cartridgeitems_id'];
             $to_create[] = [
                 'printers_id' => $c['printers_id'],
@@ -750,77 +676,123 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 'reason'      => self::getCartridgeStock($cartridgeitems_id) > 0 ? 'normal' : 'stock_empty',
             ];
 
-            $row = self::buildPurchaseRowData($c['printers_id'], $c['property']);
+            $row = self::buildPurchaseRowData($c['printers_id'], $c['property'], $cartridgeitems_id);
             // Niveau / jours restants : utilisés par le mail planif (envoi simple)
             $row['level'] = $c['level'];
             $row['days']  = $c['days'];
             $rows[] = $row;
+
+            $lines[] = [
+                'key'               => $key,
+                'label'             => sprintf('%s — %s', $printer_names[$c['printers_id']] ?? ('#' . $c['printers_id']), $c['property']),
+                'printers_id'       => $c['printers_id'],
+                'cartridgeitems_id' => $cartridgeitems_id,
+                'quantity'          => 1,
+                'unit_price'        => null, // hors contrat : prix laissé aux Achats
+                'under_contract'    => $row['under_contract'],
+                'date'              => date('Y-m-d'),
+                'complement'        => $row['complement'],
+            ];
         }
         $result['rows'] = count($rows);
 
-        // ── 2. Expéditions + mail Achats : tout ou rien ──
-        $group_id = self::generateUuid();
-        $DB->beginTransaction();
-        // DBmysql n'expose pas l'état de la transaction : suivi local, pour ne jamais
-        // appeler rollBack() hors transaction (qui lèverait une nouvelle exception).
-        $in_transaction = true;
-        try {
-            foreach ($to_create as $c) {
-                if (self::createFromAlert($c['printers_id'], $c['property'], $c['level'], $c['days'], $c['reason'], $group_id) > 0) {
-                    $result['created']++;
-                }
+        // Contrôles avant export : une seule ligne impossible à écrire dans le fichier
+        // Gesconso (code client, adresse de livraison ou référence article absents) fait
+        // refuser la commande entière, avec la liste des lignes en défaut.
+        $gesconso = PluginPrintgestionGesconso::prepare($lines);
+        if (!empty($gesconso['errors'])) {
+            $messages = array_merge(...array_values($gesconso['errors']));
+            $shown    = array_slice($messages, 0, self::MAIL_LIST_MAX);
+            if (count($messages) > self::MAIL_LIST_MAX) {
+                $shown[] = sprintf(__('… et %d autre(s)', 'printgestion'), count($messages) - self::MAIL_LIST_MAX);
             }
-
-            $mail = self::sendPurchaseOrderMail($rows);
-            if (!$mail['ok']) {
-                $DB->rollBack();
-                $in_transaction    = false;
-                $result['created'] = 0;
-                $result['error']   = $mail['error'] . ' '
-                    . __('Aucune expédition n\'a été enregistrée : la commande peut être relancée.', 'printgestion');
-                return $result;
-            }
-            $DB->commit();
-            $in_transaction = false;
-        } catch (Throwable $e) {
-            \Glpi\Error\ErrorHandler::logCaughtException($e);
-            if ($in_transaction) {
-                try {
-                    $DB->rollBack();
-                } catch (Throwable $rollback_error) {
-                    // Annulation impossible : tracée ; la réponse reste un échec explicite.
-                    \Glpi\Error\ErrorHandler::logCaughtException($rollback_error);
-                }
-            }
-            $result['created'] = 0;
-            $result['error']   = self::isDuplicateActiveError($e)
-                ? __('Commande non passée : un autre envoi vient d\'être enregistré pour une de ces cartouches (commande simultanée). Rechargez l\'écran. Aucune expédition n\'a été enregistrée.', 'printgestion')
-                : __('Commande non passée : erreur technique pendant l\'enregistrement ou l\'envoi (détail dans le journal d\'erreurs GLPI). Aucune expédition n\'a été enregistrée.', 'printgestion');
+            $result['warnings'] = [];
+            $result['error']    = sprintf(
+                __('Commande non passée : %d cartouche(s) ne peuvent pas être écrites dans le fichier Gesconso. Aucune expédition n\'a été enregistrée.', 'printgestion'),
+                count($gesconso['errors'])
+            ) . "\n- " . implode("\n- ", $shown);
             return $result;
         }
-        $result['ok']   = true;
-        $result['mail'] = true;
+        $result['warnings'] = array_merge($result['warnings'], $gesconso['warnings']);
 
-        // ── 3. Mails complémentaires : non bloquants, mais jamais passés sous silence ──
-        if ($send_planif && !self::sendOrderPlanifMail($rows)) {
-            $result['warnings'][] = __('Commande envoyée aux Achats, mais le mail à la planification n\'est pas parti (destinataires ou modèle non configurés, ou erreur d\'envoi).', 'printgestion');
+        try {
+            $file = PluginPrintgestionGesconso::write($gesconso['rows']);
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::error('commande', 'Fichier Gesconso non généré.', $e);
+            $result['error'] = __('Commande non passée : le fichier Gesconso n\'a pas pu être généré (détail dans le journal printgestion). Aucune expédition n\'a été enregistrée.', 'printgestion');
+            return $result;
         }
-        if ($send_courtesy) {
-            $courtesy = self::sendOrderCourtesyMails($rows);
-            if ($courtesy['no_template']) {
-                $result['warnings'][] = __('Mail de courtoisie non envoyé : aucun modèle de notification configuré.', 'printgestion');
+
+        try {
+            // ── 4. Expéditions + mail Achats : tout ou rien ──
+            $group_id = self::generateUuid();
+            $DB->beginTransaction();
+            // DBmysql n'expose pas l'état de la transaction : suivi local, pour ne jamais
+            // appeler rollBack() hors transaction (qui lèverait une nouvelle exception).
+            $in_transaction = true;
+            try {
+                foreach ($to_create as $c) {
+                    if (self::createFromAlert($c['printers_id'], $c['property'], $c['level'], $c['days'], $c['reason'], $group_id) > 0) {
+                        $result['created']++;
+                    }
+                }
+
+                $mail = self::sendPurchaseOrderMail($rows, $file['path']);
+                if (!$mail['ok']) {
+                    $DB->rollBack();
+                    $in_transaction    = false;
+                    $result['created'] = 0;
+                    $result['error']   = $mail['error'] . ' '
+                        . __('Aucune expédition n\'a été enregistrée : la commande peut être relancée.', 'printgestion');
+                    return $result;
+                }
+                $DB->commit();
+                $in_transaction = false;
+            } catch (Throwable $e) {
+                \Glpi\Error\ErrorHandler::logCaughtException($e);
+                if ($in_transaction) {
+                    try {
+                        $DB->rollBack();
+                    } catch (Throwable $rollback_error) {
+                        // Annulation impossible : tracée ; la réponse reste un échec explicite.
+                        \Glpi\Error\ErrorHandler::logCaughtException($rollback_error);
+                    }
+                }
+                $result['created'] = 0;
+                $result['error']   = self::isDuplicateActiveError($e)
+                    ? __('Commande non passée : un autre envoi vient d\'être enregistré pour une de ces cartouches (commande simultanée). Rechargez l\'écran. Aucune expédition n\'a été enregistrée.', 'printgestion')
+                    : __('Commande non passée : erreur technique pendant l\'enregistrement ou l\'envoi (détail dans le journal d\'erreurs GLPI). Aucune expédition n\'a été enregistrée.', 'printgestion');
+                return $result;
             }
-            if ($courtesy['no_contact'] > 0) {
-                $result['warnings'][] = sprintf(
-                    __('Mail de courtoisie non envoyé pour %d imprimante(s) sans usager renseigné.', 'printgestion'),
-                    $courtesy['no_contact']
-                );
+            $result['ok']   = true;
+            $result['mail'] = true;
+
+            // ── 5. Mails complémentaires : non bloquants, mais jamais passés sous silence ──
+            if ($send_planif && !self::sendOrderPlanifMail($rows, $file['path'])) {
+                $result['warnings'][] = __('Commande envoyée aux Achats, mais le mail à la planification n\'est pas parti (destinataires ou modèle non configurés, ou erreur d\'envoi).', 'printgestion');
             }
-            if ($courtesy['failed'] > 0) {
-                $result['warnings'][] = sprintf(
-                    __('Échec d\'envoi de %d mail(s) de courtoisie.', 'printgestion'),
-                    $courtesy['failed']
-                );
+            if ($send_courtesy) {
+                $courtesy = self::sendOrderCourtesyMails($rows);
+                if ($courtesy['no_template']) {
+                    $result['warnings'][] = __('Mail de courtoisie non envoyé : aucun modèle de notification configuré.', 'printgestion');
+                }
+                if ($courtesy['no_contact'] > 0) {
+                    $result['warnings'][] = sprintf(
+                        __('Mail de courtoisie non envoyé pour %d imprimante(s) sans usager renseigné.', 'printgestion'),
+                        $courtesy['no_contact']
+                    );
+                }
+                if ($courtesy['failed'] > 0) {
+                    $result['warnings'][] = sprintf(
+                        __('Échec d\'envoi de %d mail(s) de courtoisie.', 'printgestion'),
+                        $courtesy['failed']
+                    );
+                }
+            }
+        } finally {
+            // Fichier temporaire supprimé dans tous les cas : succès, échec ou exception.
+            if (is_file($file['path'])) {
+                @unlink($file['path']);
             }
         }
 
@@ -862,14 +834,15 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     }
 
     /**
-     * Envoie le mail de commande aux achats (demandeur en copie) avec l'Excel joint.
-     * Corps synthétique via gabarit_achat (fallback : mail brut) : le détail
-     * (quoi envoyer / quoi commander) est dans l'Excel.
+     * Envoie le mail de commande aux achats (demandeur en copie) avec le fichier Gesconso
+     * joint. Corps synthétique via gabarit_achat (fallback : mail brut) : le détail est
+     * dans le fichier. Le fichier appartient à l'appelant, qui le supprime.
      *
+     * @param string $xlsx Chemin du fichier Gesconso à joindre.
      * @param ?int $requester_user_id User GLPI à mettre en copie (défaut : user connecté).
      * @return array ['ok' => bool, 'error' => string] — error renseigné quand ok = false.
      */
-    protected static function sendPurchaseOrderMail(array $rows, ?int $requester_user_id = null): array {
+    protected static function sendPurchaseOrderMail(array $rows, string $xlsx, ?int $requester_user_id = null): array {
         if (empty($rows)) {
             return ['ok' => false, 'error' => __('Aucune ligne à commander.', 'printgestion')];
         }
@@ -899,7 +872,6 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         $uid   = $requester_user_id ?? (int)(Session::getLoginUserID() ?: 0);
         $valid = array_values($achats + $normalize(PluginPrintgestionAlert::resolveEmailsForUsers([$uid])));
 
-        $xlsx  = self::buildPurchaseExcel($rows);
         $count = count($rows);
 
         $config  = PluginPrintgestionConfig::getInstance();
@@ -907,33 +879,26 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         $ok      = false;
         $error   = '';
 
-        try {
-            if ($gabarit > 0) {
-                $ok = PluginPrintgestionConfig::sendMail($valid, $gabarit, self::buildPurchaseBalises($rows), $xlsx);
-                if (!$ok) {
-                    $error = PluginPrintgestionConfig::getLastMailError();
-                }
-            } else {
-                // Fallback sans gabarit : corps générique
-                $to = array_shift($valid);
-                $cc = $valid;
-                $subject  = sprintf(__('[GLPI] Commande cartouches — %d référence(s)', 'printgestion'), $count);
-                $bodyHtml = '<p>' . __('Bonjour,', 'printgestion') . '</p>'
-                    . '<p>' . sprintf(
-                        __('Veuillez trouver ci-joint le fichier des cartouches à traiter (%d ligne(s)). Le détail (référence, client, livraison, stock GLPI…) figure dans le fichier Excel joint.', 'printgestion'),
-                        $count
-                    ) . '</p>'
-                    . '<p>' . __('Merci.', 'printgestion') . '</p>';
-                $raw_error = null;
-                $ok = self::sendRawMail($to, $cc, $subject, $bodyHtml, $xlsx, $raw_error);
-                if (!$ok) {
-                    $error = (string)$raw_error;
-                }
+        if ($gabarit > 0) {
+            $ok = PluginPrintgestionConfig::sendMail($valid, $gabarit, self::buildPurchaseBalises($rows), $xlsx);
+            if (!$ok) {
+                $error = PluginPrintgestionConfig::getLastMailError();
             }
-        } finally {
-            // Fichier temporaire supprimé dans tous les cas : succès, échec ou exception.
-            if (is_file($xlsx)) {
-                @unlink($xlsx);
+        } else {
+            // Fallback sans gabarit : corps générique
+            $to = array_shift($valid);
+            $cc = $valid;
+            $subject  = sprintf(__('[GLPI] Commande cartouches — %d référence(s)', 'printgestion'), $count);
+            $bodyHtml = '<p>' . __('Bonjour,', 'printgestion') . '</p>'
+                . '<p>' . sprintf(
+                    __('Veuillez trouver ci-joint le fichier Gesconso des cartouches à commander (%d ligne(s)) : code client, adresse de livraison, référence article, quantité et prix.', 'printgestion'),
+                    $count
+                ) . '</p>'
+                . '<p>' . __('Merci.', 'printgestion') . '</p>';
+            $raw_error = null;
+            $ok = self::sendRawMail($to, $cc, $subject, $bodyHtml, $xlsx, $raw_error);
+            if (!$ok) {
+                $error = (string)$raw_error;
             }
         }
 
@@ -1010,8 +975,10 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      *   - N cartouches → gabarit_planif_group, liste avec CLIENT par ligne
      *     (une commande peut couvrir plusieurs imprimantes / plusieurs clients).
      * Demandeur en copie. Fallback mail brut si aucun gabarit configuré.
+     *
+     * @param ?string $xlsx Fichier Gesconso joint à l'envoi groupé (supprimé par l'appelant).
      */
-    protected static function sendOrderPlanifMail(array $rows): bool {
+    protected static function sendOrderPlanifMail(array $rows, ?string $xlsx = null): bool {
         if (empty($rows)) {
             return false;
         }
@@ -1093,12 +1060,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             $balises['##printgestion.contract##']        = '';
             $balises['##printgestion.days##']            = 'N/A';
 
-            $xlsx = self::buildPurchaseExcel($rows);
-            $ok   = PluginPrintgestionConfig::sendMail($valid, $gabarit, $balises, $xlsx);
-            if (is_file($xlsx)) {
-                @unlink($xlsx);
-            }
-            return $ok;
+            return PluginPrintgestionConfig::sendMail($valid, $gabarit, $balises, $xlsx);
         }
 
         // ── Fallback sans gabarit : mail brut (ancien comportement) ──

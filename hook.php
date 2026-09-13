@@ -155,7 +155,7 @@ function plugin_printgestion_template_definitions(): array {
                 ])
                 . '<p style="margin:0 0 6px;font-weight:600;color:#1f2937;">Cartouches à préparer (##printgestion.count##) :</p>'
                 . '<div style="margin:0 0 14px;color:#374151;">##printgestion.cartridges_list##</div>'
-                . '<p style="margin:0 0 14px;color:#4b5563;">Le détail complet (référence, client, site de livraison, stock GLPI) figure dans le <strong>fichier Excel joint</strong>.</p>'
+                . '<p style="margin:0 0 14px;color:#4b5563;">Le détail complet (code client, adresse de livraison, référence article) figure dans le <strong>fichier Gesconso joint</strong>.</p>'
                 . '<p style="margin:0;color:#4b5563;">Merci de procéder aux expéditions et de mettre à jour le statut dans GLPI.</p>'
             ),
         ],
@@ -166,8 +166,8 @@ function plugin_printgestion_template_definitions(): array {
                 '<p style="margin:0 0 14px;">Bonjour,</p>'
                 . '<p style="margin:0 0 14px;"><strong>##printgestion.count## référence(s)</strong> de cartouches sont à commander'
                 . ' (client(s) : ##printgestion.client##).</p>'
-                . '<p style="margin:0 0 14px;">Le détail complet (référence, client, site de livraison, stock GLPI…) figure dans le '
-                . '<strong>fichier Excel joint</strong>.</p>'
+                . '<p style="margin:0 0 14px;">Le détail complet (code client, adresse de livraison, référence article, quantité, prix) figure dans le '
+                . '<strong>fichier Gesconso joint</strong>, prêt à importer.</p>'
                 . '<p style="margin:0;color:#4b5563;">Merci de passer commande via Sage.</p>'
             ),
         ],

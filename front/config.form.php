@@ -75,6 +75,11 @@ if (isset($_POST['update'])) {
         // Types de contrat « consommables inclus » (IDs ContractType, CSV). Liste vide
         // si aucun type n'est sélectionné (le sélecteur multiple ne poste alors rien).
         'consumables_contracttypes' => $normalize_user_ids($_POST['consumables_contracttypes'] ?? ''),
+        // Fichier Gesconso : séparateur NON rogné (ses espaces font partie du format).
+        'gesconso_separator'       => trim((string)($_POST['gesconso_separator'] ?? '')) !== ''
+            ? mb_substr((string)$_POST['gesconso_separator'], 0, 20)
+            : PluginPrintgestionGesconso::DEFAULT_SEPARATOR,
+        'gesconso_designation_max' => max(10, min(255, (int)($_POST['gesconso_designation_max'] ?? PluginPrintgestionGesconso::DEFAULT_DESIGNATION_MAX))),
         // Interrupteurs de modules
         'enable_contrats'        => ((int)($_POST['enable_contrats'] ?? 0) === 1) ? 1 : 0,
         'enable_toner'           => ((int)($_POST['enable_toner']    ?? 0) === 1) ? 1 : 0,

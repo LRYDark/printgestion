@@ -190,12 +190,18 @@ Le motif s'affiche au survol du badge (écran Alertes) et dans « Voir stock » 
 - **plusieurs cartouches possibles** (standard et XL, par exemple) : ne lier qu'une cartouche à la propriété
   pour ce modèle, ou n'en garder qu'une dans l'entité de l'imprimante.
 
-### Excel de commande vide/incomplet
+### Commande refusée : « ne peuvent pas être écrites dans le fichier Gesconso »
 
-`buildPurchaseRowData()` lit : entité de l'imprimante (Intitulé Client), racine du lieu
-(Intitulé Livraison), `ref` du CartridgeItem (Consommable), n° série + lieu + nom modèle
-(Designation), commentaire du lieu (Complément). Champs vides dans l'Excel = données manquantes
-sur la fiche imprimante/lieu/cartouche GLPI.
+Chaque ligne en défaut est listée avec son motif (`Gesconso::prepare()`) :
+
+- **code client Sage absent** : lier l'entité (ou un parent) à un client, onglet « Print Gestion — Sage »
+  de l'entité, ou importer les clients ;
+- **adresse de livraison absente** : renseigner le champ « Code » du lieu de l'imprimante (ou d'un parent)
+  avec le code adresse Sage du client, ou importer les adresses ;
+- **référence article absente** : référence de la cartouche vide, cartouche non résolue, ou référence
+  absente du dernier import articles.
+
+Aucun fichier n'est jamais produit avec une ligne incomplète.
 
 **Prix vide** : normal hors contrat (les Achats le renseignent). Prix 0 uniquement si l'imprimante a un
 contrat **en cours** dont le type est coché dans « Contrats — consommables inclus ». Une ligne attendue

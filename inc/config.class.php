@@ -836,6 +836,29 @@ class PluginPrintgestionConfig extends CommonDBTM {
         echo "</div></div>";
         echo "</div></div>";
 
+        // ── Fichier Gesconso (commande aux Achats) ───────────────
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
+            . __('Fichier Gesconso (commande aux Achats)', 'printgestion') . "</h3></div><div class='card-body'>";
+        echo "<p class='text-muted small mb-3'>"
+            . __("Colonne Designation : n° de série, lieu et libellé de la cartouche, séparés par le séparateur ci-dessous (espaces compris). Au-delà de la longueur maximale, la désignation est tronquée et un avertissement est affiché.", 'printgestion')
+            . "</p>";
+        echo "<div class='row g-3'>";
+        echo "<div class='col-md-4'>"
+            . $label_with_tip(
+                __('Séparateur de la désignation', 'printgestion'),
+                __("Espaces compris. Le fichier réel importé dans Gesconso utilise « # » entouré d'un espace de chaque côté.", 'printgestion')
+            );
+        echo "<input type='text' class='form-control' name='gesconso_separator' maxlength='20' value='"
+            . htmlspecialchars(PluginPrintgestionGesconso::getSeparator(), ENT_QUOTES, 'UTF-8') . "'></div>";
+        echo "<div class='col-md-4'>"
+            . $label_with_tip(
+                __('Longueur maximale de la désignation', 'printgestion'),
+                __("69 par défaut (limite usuelle de Sage ; 67 caractères ont été importés avec succès).", 'printgestion')
+            );
+        echo "<input type='number' min='10' max='255' class='form-control' name='gesconso_designation_max' value='"
+            . PluginPrintgestionGesconso::getDesignationMax() . "'></div>";
+        echo "</div></div></div>";
+
         // Active les tooltips Bootstrap sur les icônes d'info
         echo "<script>
 (function() {
