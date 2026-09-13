@@ -162,6 +162,17 @@ nouvelle interception passe par `PluginPrintgestionLogger`.
 - « Groupes en échec » dans le journal de la tâche : détail dans `files/_log/printgestion.log`
   (contexte `demandes`) ; le groupe est annulé en entier et retenté au passage suivant.
 
+### Importer ou mettre à jour le référentiel Sage
+
+1. Exporter de Sage un fichier par référentiel (clients, adresses de livraison, articles) avec les colonnes
+   décrites dans la doc technique (« Référentiel Sage ») ; l'écran de dépôt les rappelle.
+2. Print Gestion → Référentiel Sage : déposer, **analyser**, lire le rapport d'écarts, valider.
+3. Ordre conseillé : clients (et correspondances entités), puis adresses, puis articles.
+4. Corriger les écarts dans GLPI : champ « Code » des lieux, référence des cartouches, correspondance
+   entité ↔ client (onglet « Print Gestion — Sage » de l'entité), puis relancer l'analyse pour vérifier.
+
+Une ligne « absente du dernier import » n'est pas perdue : elle redevient active si elle réapparaît.
+
 ### Le stock affiché est faux
 
 Stock = cartouches du `CartridgeItem` résolu avec `date_use IS NULL AND date_out IS NULL`.

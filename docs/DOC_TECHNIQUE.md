@@ -58,6 +58,8 @@ printgestion/
 | `Expedition` | Cycle d'expédition des cartouches, **tous les circuits mail** (planif/achats/courtoisie/rappels) |
 | `Demande` / `Demandeline` | Demande d'envoi (en-tête client + site, lignes) : statuts, contrôles avant validation, historique natif |
 | `Guard` | Verrous anti-double-envoi (envoi en cours, demande ouverte, garde après pose, ticket récent) |
+| `Sageimport` | Import du référentiel Sage par fichier : analyse, prévisualisation, rapport d'écarts, validation |
+| `Sage` | Correspondances Sage (code client d'une entité, hérité du parent) + onglet « Print Gestion — Sage » de l'entité |
 | `Snmpmapping` | Mapping constructeur + propriété SNMP → modèle de cartouche + couleur |
 | `Cartridgesnmp` | Onglet sur fiche CartridgeItem : binding direct cartouche ↔ propriétés SNMP |
 | `Billing` / `Billingview` | Coût à la page + table matérialisée **par utilisateur** (le calcul dépend de la période choisie) |
@@ -85,6 +87,11 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_expeditions` | Expéditions de cartouches (statuts, transporteur, group_id, users) |
 | `glpi_plugin_printgestion_demandes` | Demandes d'envoi : client (entité), site de livraison, statut, mode et contact de livraison, validation, annulation |
 | `glpi_plugin_printgestion_demandelines` | Lignes de demande : imprimante, toner, cartouche, quantité, prix unitaire, contrat, statut |
+| `glpi_plugin_printgestion_sageclients` | Clients Sage importés (code, intitulé, présent au dernier import) |
+| `glpi_plugin_printgestion_entitysageclients` | Correspondance entité GLPI → client Sage (une entité = un client ; un client = plusieurs entités) |
+| `glpi_plugin_printgestion_sagedeliveries` | Adresses de livraison Sage (plusieurs par client), clé rapprochée de `Location.code` |
+| `glpi_plugin_printgestion_sagearticles` | Articles Sage (référence rapprochée de `CartridgeItem.ref`) |
+| `glpi_plugin_printgestion_sageimports` | Trace des imports (référentiel, fichier, auteur, volumes) |
 | `glpi_plugin_printgestion_expedition_bls` | Liaison expéditions ↔ BL du plugin Gestion |
 | `glpi_plugin_printgestion_snmp_mapping` | Mapping constructeur/propriété SNMP → cartouche |
 | `glpi_plugin_printgestion_cartridge_snmp` | Bindings directs cartouche ↔ propriété SNMP |
@@ -232,6 +239,30 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   hérité retiré d'une ligne passée hors contrat), lignes et demande « validée », valideur et date.
 - **Droits** : `plugin_printgestion_validation` (READ voir, UPDATE modifier / valider / annuler). La file
   est aussi visible avec la lecture des alertes toner, sans pouvoir agir. Pas de création manuelle.
+
+### Référentiel Sage (`inc/sageimport.class.php`, `inc/sage.class.php`)
+
+- **Aucune liaison directe avec Sage** : un fichier exporté de Sage est déposé à la main (onglet « Référentiel
+  Sage », droit `config` UPDATE). Formats : xlsx, xls, ods, csv (encodage et séparateur détectés). Première
+  feuille, ligne 1 = en-têtes, reconnus sans casse ni accent, libellés ou noms de champs Sage :
+
+  | Référentiel | Colonnes (obligatoires en gras) | Rapprochement GLPI |
+  |---|---|---|
+  | Clients | **Code client** (`CT_Num`), **Intitulé** (`CT_Intitule`) | Entité, par la table de correspondance du plugin |
+  | Adresses de livraison | **Code client**, **Intitulé livraison** (`LI_Intitule`), Code adresse (`LI_No`), Adresse, Code postal, Ville | Lieu dont le champ natif `Code` vaut le code adresse (à défaut : l'intitulé) |
+  | Articles | **Référence** (`AR_Ref`), Désignation (`AR_Design`) | Cartouche dont la référence (`CartridgeItem.ref`) vaut la référence |
+
+- **Déroulé** : analyse (contrôles : colonnes obligatoires, valeurs manquantes, doublons — bloquants ; codes
+  clients en minuscules ou avec espaces — avertissement), prévisualisation (nouvelles, modifiées, inchangées,
+  absentes) et **rapport d'écarts** (entités à imprimantes sans code client ; adresses sans lieu GLPI ou sans
+  client connu ; imprimantes sans adresse résolue ; cartouches sans référence ou de référence absente du
+  fichier), puis validation en transaction. L'analyse attend en session : rien n'est écrit avant validation.
+- **Aucune suppression** : une ligne absente d'un nouvel import passe `is_in_last_import = 0` et ne sert plus
+  à l'export. L'import ne modifie aucun objet GLPI ; seules les correspondances entité ↔ client cochées
+  (suggestion : entité de même nom) ou choisies à la validation sont écrites.
+- **Code client d'une entité** (`Sage::getClientForEntity()`) : correspondance propre, sinon celle de
+  l'ancêtre le plus proche. Modifiable sur l'onglet « Print Gestion — Sage » de l'entité ; chaque changement
+  est tracé dans l'historique natif de l'entité. `registration_number` (SIRET) n'est pas utilisé.
 
 ### Points d'entrée (ajax/)
 

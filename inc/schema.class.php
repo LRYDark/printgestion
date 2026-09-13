@@ -35,6 +35,7 @@ class PluginPrintgestionSchema {
         '1.2.2' => 'migrateTo122',
         '1.3.0' => 'migrateTo130',
         '1.3.1' => 'migrateTo131',
+        '1.4.0' => 'migrateTo140',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -355,6 +356,100 @@ class PluginPrintgestionSchema {
                 KEY `date_creation` (`date_creation`),
                 KEY `date_mod` (`date_mod`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
+        }
+    }
+
+    /**
+     * 1.4.0 — référentiel Sage importé par fichier (aucune liaison directe avec Sage) :
+     *  - sageclients        : clients Sage (code, intitulé) ;
+     *  - entitysageclients  : correspondance entité GLPI → client Sage, propre au plugin
+     *                         (aucun champ natif ne convient, registration_number est le
+     *                         SIRET) ; une entité a au plus un client, un client peut
+     *                         couvrir plusieurs entités ;
+     *  - sagedeliveries     : adresses de livraison, plusieurs par client, rapprochées des
+     *                         lieux GLPI par Location.code ;
+     *  - sagearticles       : articles, rapprochés des cartouches par CartridgeItem.ref ;
+     *  - sageimports        : trace de chaque import (type, fichier, auteur, volumes).
+     * Une ligne absente d'un import suivant n'est jamais supprimée : is_in_last_import = 0.
+     */
+    private static function migrateTo140(Migration $migration): void {
+        global $DB;
+
+        $charset   = DBConnection::getDefaultCharset();
+        $collation = DBConnection::getDefaultCollation();
+        $sign      = DBConnection::getDefaultPrimaryKeySignOption();
+        $options   = "ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC";
+
+        $tables = [
+            'glpi_plugin_printgestion_sageclients' => "
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `code` varchar(255) NOT NULL DEFAULT '',
+                `name` varchar(255) NOT NULL DEFAULT '',
+                `is_in_last_import` tinyint NOT NULL DEFAULT '1',
+                `date_import` timestamp NULL DEFAULT NULL,
+                `date_creation` timestamp NULL DEFAULT NULL,
+                `date_mod` timestamp NULL DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `code` (`code`),
+                KEY `is_in_last_import` (`is_in_last_import`)",
+            'glpi_plugin_printgestion_entitysageclients' => "
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `entities_id` int {$sign} NOT NULL DEFAULT '0',
+                `plugin_printgestion_sageclients_id` int {$sign} NOT NULL DEFAULT '0',
+                `date_creation` timestamp NULL DEFAULT NULL,
+                `date_mod` timestamp NULL DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `entities_id` (`entities_id`),
+                KEY `plugin_printgestion_sageclients_id` (`plugin_printgestion_sageclients_id`)",
+            'glpi_plugin_printgestion_sagedeliveries' => "
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `client_code` varchar(255) NOT NULL DEFAULT '',
+                `address_key` varchar(255) NOT NULL DEFAULT '',
+                `label` varchar(255) NOT NULL DEFAULT '',
+                `address` text,
+                `postcode` varchar(255) DEFAULT NULL,
+                `town` varchar(255) DEFAULT NULL,
+                `is_in_last_import` tinyint NOT NULL DEFAULT '1',
+                `date_import` timestamp NULL DEFAULT NULL,
+                `date_creation` timestamp NULL DEFAULT NULL,
+                `date_mod` timestamp NULL DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `client_address` (`client_code`, `address_key`),
+                KEY `address_key` (`address_key`),
+                KEY `is_in_last_import` (`is_in_last_import`)",
+            'glpi_plugin_printgestion_sagearticles' => "
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `ref` varchar(255) NOT NULL DEFAULT '',
+                `label` varchar(255) DEFAULT NULL,
+                `is_in_last_import` tinyint NOT NULL DEFAULT '1',
+                `date_import` timestamp NULL DEFAULT NULL,
+                `date_creation` timestamp NULL DEFAULT NULL,
+                `date_mod` timestamp NULL DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `ref` (`ref`),
+                KEY `is_in_last_import` (`is_in_last_import`)",
+            'glpi_plugin_printgestion_sageimports' => "
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `type` enum('clients','deliveries','articles') NOT NULL,
+                `filename` varchar(255) NOT NULL DEFAULT '',
+                `users_id` int {$sign} NOT NULL DEFAULT '0',
+                `nb_created` int NOT NULL DEFAULT '0',
+                `nb_updated` int NOT NULL DEFAULT '0',
+                `nb_unchanged` int NOT NULL DEFAULT '0',
+                `nb_absent` int NOT NULL DEFAULT '0',
+                `nb_linked` int NOT NULL DEFAULT '0',
+                `date_creation` timestamp NULL DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                KEY `type` (`type`),
+                KEY `users_id` (`users_id`),
+                KEY `date_creation` (`date_creation`)",
+        ];
+
+        foreach ($tables as $table => $definition) {
+            if (!$DB->tableExists($table)) {
+                $migration->displayMessage(sprintf('Print Gestion — création de la table %s', $table));
+                $DB->doQuery("CREATE TABLE `{$table}` ({$definition}\n            ) {$options}");
+            }
         }
     }
 }

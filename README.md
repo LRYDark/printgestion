@@ -33,6 +33,8 @@ Trois modules indépendants, activables par interrupteur dans la configuration :
 - Demandes d'envoi : regroupement par client et site de livraison, lignes sous contrat / hors contrat,
   contrôles avant validation (référence, contrat, prix, verrous anti-double-envoi), aucune suppression,
   historique GLPI natif. Droit dédié `plugin_printgestion_validation`.
+- Référentiel Sage importé par dépôt de fichier (clients, adresses de livraison, articles), avec
+  prévisualisation et rapport d'écarts. Aucune connexion directe à Sage.
 
 ### Coût à la page
 - Calcul par imprimante ou par client sur une période choisie (compteurs `printerlogs`
