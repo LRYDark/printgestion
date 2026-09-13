@@ -1,7 +1,7 @@
 <?php
 /**
  * Onglet « Print Gestion — Sage » de l'entité : enregistrement de la correspondance
- * entité ↔ client Sage (droit de configuration du plugin, entité accessible).
+ * entité ↔ client Sage (droit « Référentiel Sage » en modification, entité accessible).
  */
 include('../../../inc/includes.php');
 
@@ -9,10 +9,10 @@ Session::checkLoginUser();
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')
-    || !PluginPrintgestionConfig::isFeatureEnabled('toner')) {
+    || !PluginPrintgestionConfig::isFeatureEnabled('sage')) {
     throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
-Session::checkRight('plugin_printgestion_config', UPDATE);
+Session::checkRight('plugin_printgestion_sage', UPDATE);
 
 if (isset($_POST['save_entity_client'])) {
     // Jeton CSRF déjà validé par CheckCsrfListener avant ce fichier.

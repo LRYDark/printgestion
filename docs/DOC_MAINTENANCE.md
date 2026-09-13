@@ -173,7 +173,7 @@ nouvelle interception passe par `PluginPrintgestionLogger`.
 
 1. Exporter de Sage un fichier par référentiel (clients, adresses de livraison, articles) avec les colonnes
    décrites dans la doc technique (« Référentiel Sage ») ; l'écran de dépôt les rappelle.
-2. Print Gestion → Référentiel Sage : déposer, **analyser**, lire le rapport d'écarts, valider.
+2. Print Gestion → Référentiel Sage → Import du référentiel : déposer, **analyser**, lire le rapport d'écarts, valider.
 3. Ordre conseillé : clients (et correspondances entités), puis adresses, puis articles.
 4. Corriger les écarts dans GLPI : champ « Code » des lieux, référence des cartouches, correspondance
    entité ↔ client (onglet « Print Gestion — Sage » de l'entité), puis relancer l'analyse pour vérifier.

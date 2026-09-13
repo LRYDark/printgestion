@@ -100,6 +100,8 @@ if (isset($_POST['activate_contract_alerts'])) {
         'enable_contrats'        => ((int)($_POST['enable_contrats'] ?? 0) === 1) ? 1 : 0,
         'enable_toner'           => ((int)($_POST['enable_toner']    ?? 0) === 1) ? 1 : 0,
         'enable_cout'            => ((int)($_POST['enable_cout']     ?? 0) === 1) ? 1 : 0,
+        'enable_deploiement'     => ((int)($_POST['enable_deploiement'] ?? 0) === 1) ? 1 : 0,
+        'enable_sage'            => ((int)($_POST['enable_sage']     ?? 0) === 1) ? 1 : 0,
     ];
 
     // Clés API transporteurs : chiffrées (GLPIKey) et jamais réaffichées.

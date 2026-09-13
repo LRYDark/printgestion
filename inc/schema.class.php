@@ -46,6 +46,7 @@ class PluginPrintgestionSchema {
         '1.5.6' => 'migrateTo156',
         '1.5.7' => 'migrateTo157',
         '1.5.8' => 'migrateTo158',
+        '1.5.9' => 'migrateTo159',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -725,6 +726,56 @@ class PluginPrintgestionSchema {
                 $removed,
                 $added
             ));
+        }
+    }
+
+    /**
+     * 1.5.9 — modules et droits séparés : « Collecte SNMP / Déploiement Agent » (droit
+     * plugin_printgestion_deploiement) et « Référentiel Sage » (droit plugin_printgestion_sage,
+     * jusqu'ici couvert par le droit de configuration du plugin), chacun avec son interrupteur.
+     * Personne ne perd un accès : le module Sage reprend l'état du module toner dont il
+     * dépendait ; le droit Sage reprend le droit de configuration (lecture → lecture,
+     * modification → lecture et modification) ; le droit Déploiement est donné en lecture et
+     * modification à qui modifiait la configuration. Noms figés ici.
+     */
+    private static function migrateTo159(Migration $migration): void {
+        global $DB;
+
+        $config          = 'glpi_plugin_printgestion_configs';
+        $had_sage_switch = $DB->fieldExists($config, 'enable_sage');
+        $migration->addField($config, 'enable_deploiement', "tinyint NOT NULL DEFAULT '1'");
+        $migration->addField($config, 'enable_sage', "tinyint NOT NULL DEFAULT '1'");
+        $migration->migrationOneTable($config);
+        if (!$had_sage_switch && $DB->fieldExists($config, 'enable_toner')) {
+            $DB->doQuery("UPDATE `{$config}` SET `enable_sage` = `enable_toner`");
+        }
+
+        foreach (['plugin_printgestion_deploiement', 'plugin_printgestion_sage'] as $name) {
+            if (countElementsInTable('glpi_profilerights', ['name' => $name]) === 0) {
+                // Une ligne à 0 par profil ; vide aussi le cache des droits possibles.
+                ProfileRight::addProfileRights([$name]);
+            }
+        }
+        foreach ($DB->request([
+            'SELECT' => ['profiles_id', 'rights'],
+            'FROM'   => 'glpi_profilerights',
+            'WHERE'  => ['name' => 'plugin_printgestion_config'],
+        ]) as $row) {
+            $config_rights = (int) $row['rights'];
+            $grants        = [
+                'plugin_printgestion_sage'        => ($config_rights & UPDATE) ? (READ | UPDATE) : ($config_rights & READ),
+                'plugin_printgestion_deploiement' => ($config_rights & UPDATE) ? (READ | UPDATE) : 0,
+            ];
+            foreach ($grants as $name => $rights) {
+                if ($rights > 0) {
+                    // Seulement une ligne encore à 0 : un droit déjà réglé n'est pas écrasé.
+                    $DB->update('glpi_profilerights', ['rights' => $rights], [
+                        'profiles_id' => (int) $row['profiles_id'],
+                        'name'        => $name,
+                        'rights'      => 0,
+                    ]);
+                }
+            }
         }
     }
 }

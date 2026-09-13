@@ -1,6 +1,6 @@
 <?php
 /**
- * Référentiel Sage — import par dépôt de fichier (fonction administrateur).
+ * Référentiel Sage — import par dépôt de fichier (droit « Référentiel Sage » en modification).
  *
  *   1. POST analyze : le fichier est lu et contrôlé, l'analyse est gardée en session ;
  *   2. GET ?preview : prévisualisation et rapport d'écarts, rien n'est encore écrit ;
@@ -13,10 +13,10 @@ Session::checkLoginUser();
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')
-    || !PluginPrintgestionConfig::isFeatureEnabled('toner')) {
+    || !PluginPrintgestionConfig::isFeatureEnabled('sage')) {
     throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
-Session::checkRight('plugin_printgestion_config', UPDATE);
+Session::checkRight('plugin_printgestion_sage', UPDATE);
 
 $page = PluginPrintgestionSageimport::getPageURL();
 $key  = PluginPrintgestionSageimport::SESSION_KEY;
@@ -116,11 +116,11 @@ Html::header(
     $_SERVER['PHP_SELF'],
     'management',
     'PluginPrintgestionMenu',
-    'tn_sage'
+    'sg_import'
 );
 
 echo "<div class='container-fluid mt-3'>";
-PluginPrintgestionMenu::showTabBar('tn_sage');
+PluginPrintgestionMenu::showTabBar('sg_import');
 
 $pending = $_SESSION[$key] ?? null;
 if (isset($_GET['preview']) && is_array($pending) && hash_equals((string) $pending['token'], (string) $_GET['preview'])) {

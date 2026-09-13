@@ -8,7 +8,7 @@
 
 ## 1. Vue d'ensemble
 
-Print Gestion couvre 3 domaines, activables indépendamment par des **interrupteurs de modules**
+Print Gestion couvre 5 domaines, activables indépendamment par des **interrupteurs de modules**
 (Configuration → onglet Print Gestion) :
 
 | Module (feature) | Contenu |
@@ -16,6 +16,8 @@ Print Gestion couvre 3 domaines, activables indépendamment par des **interrupte
 | `contrats` | Dashboard contrats d'impression, liste avec moteur de recherche natif, création/association imprimante ↔ contrat (« Créer Print »), tarifs €/page par contrat |
 | `toner` | Relevés SNMP des niveaux toner, calcul d'alertes intelligent, cycle d'expédition des cartouches, commandes achats (Excel), notifications mail, suivi transporteurs |
 | `cout` | Coût à la page par imprimante / par client sur une période (compteurs `glpi_printerlogs` × tarifs contrat) |
+| `deploiement` | Collecte SNMP / Déploiement Agent (techniciens) : contrôle de la remontée, déploiement de GLPI Agent par entité client |
+| `sage` | Référentiel Sage : import par fichier, correspondance entité ↔ client Sage |
 
 Un sous-onglet du menu n'est visible que si **sa feature est activée ET le droit READ correspondant est présent**
 (`visibilité = feature ∧ droit`). Un module désactivé ne consomme aucune ressource (les crons sortent immédiatement).
@@ -46,7 +48,7 @@ printgestion/
 |---|---|
 | `Config` | Singleton de configuration (ligne id=1), **crée toutes les tables à l'install**, envoi mail générique `sendMail()` |
 | `Menu` | Entrée de menu + hub à catégories + barre d'onglets unifiée |
-| `Profile` | Droits du plugin (6 droits, voir §8) |
+| `Profile` | Droits du plugin (8 droits, voir §8) |
 | `Dashboard` | Dashboard contrats (tuiles, camemberts ECharts, liste Search native) |
 | `Contract` | Itemtype « virtuel » sur `glpi_contracts` pour borner la recherche aux contrats liés à ≥1 imprimante |
 | `Contractrate` | Tarifs N&B / Couleur par contrat (onglet sur fiche Contract) |
@@ -306,8 +308,8 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
 
 ### Référentiel Sage (`inc/sageimport.class.php`, `inc/sage.class.php`)
 
-- **Aucune liaison directe avec Sage** : un fichier exporté de Sage est déposé à la main (onglet « Référentiel
-  Sage », droit `config` UPDATE). Formats : xlsx, xls, ods, csv (encodage et séparateur détectés). Première
+- **Aucune liaison directe avec Sage** : un fichier exporté de Sage est déposé à la main (module « Référentiel
+  Sage », droit `sage` UPDATE). Formats : xlsx, xls, ods, csv (encodage et séparateur détectés). Première
   feuille, ligne 1 = en-têtes, reconnus sans casse ni accent, libellés ou noms de champs Sage :
 
   | Référentiel | Colonnes (obligatoires en gras) | Rapprochement GLPI |
@@ -380,7 +382,7 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
 ### Contrôle de la remontée (`inc/collect.class.php`, onglet « Contrôle de la remontée »)
 
 Ce que l'inventaire GLPI reçoit **réellement** des imprimantes, avant tout calcul d'alerte. Page en lecture
-seule sur les tables natives ; périmètre : entités de l'utilisateur (droit `dashboard` READ). L'absence de
+seule sur les tables natives ; périmètre : entités de l'utilisateur (module Collecte SNMP / Déploiement Agent, droit `deploiement` READ, ou `dashboard` READ : l'écran des alertes y renvoie). L'absence de
 remontée est un **état à signaler**, jamais une absence d'alerte. Aucune couverture complète du parc n'est
 supposée.
 
@@ -506,7 +508,7 @@ demandes validées est en service. Une mise à jour du plugin ne change pas l'é
 
 ## 8. Droits et profils
 
-6 droits (`Profile::initProfile()`, ALLSTANDARDRIGHT au profil ayant `config` UPDATE à l'install) :
+8 droits (`Profile::initProfile()`, ALLSTANDARDRIGHT au profil ayant `config` UPDATE à l'install) :
 
 | Droit | Protège |
 |---|---|
@@ -514,8 +516,14 @@ demandes validées est en service. Une mise à jour du plugin ne change pas l'é
 | `plugin_printgestion_dashboard` | Alertes toner (dashboard + actions) |
 | `plugin_printgestion_expedition` | Expéditions (UPDATE pour agir) |
 | `plugin_printgestion_validation` | Demandes d'envoi : READ voir, UPDATE modifier / valider / annuler (file aussi visible avec `dashboard` READ, sans agir) |
+| `plugin_printgestion_deploiement` | Collecte SNMP / Déploiement Agent : READ voir et télécharger l'installeur, UPDATE raccorder des imprimantes ; « Contrôle de la remontée » (aussi avec `dashboard` READ) |
+| `plugin_printgestion_sage` | Référentiel Sage : READ onglet Sage de l'entité, UPDATE import et correspondances |
 | `plugin_printgestion_billing` | Coût à la page |
 | `plugin_printgestion_config` | Configuration du plugin + mappings SNMP |
+
+Migration 1.5.9 : `sage` repris de `config` (lecture → lecture, modification → lecture et modification),
+`deploiement` donné en lecture et modification aux profils qui modifiaient la configuration ; le module
+`sage` reprend l'état du module `toner`.
 
 ---
 

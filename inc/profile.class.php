@@ -49,6 +49,21 @@ class PluginPrintgestionProfile extends Profile {
                 'rights'   => [READ => __('Voir', 'printgestion'), UPDATE => __('Modifier, valider, annuler', 'printgestion')],
             ],
             [
+                // Techniciens et administrateur : état du rattachement des sondes et installeur
+                // pré-paramétré par entité (lecture), raccordement des imprimantes (modification).
+                'itemtype' => 'PluginPrintgestionMenu',
+                'label'    => __('Collecte SNMP / Déploiement Agent', 'printgestion'),
+                'field'    => 'plugin_printgestion_deploiement',
+                'rights'   => [READ => __('Voir, télécharger l\'installeur', 'printgestion'), UPDATE => __('Raccorder des imprimantes', 'printgestion')],
+            ],
+            [
+                // Distinct de la configuration du plugin : personne qui gère le référentiel.
+                'itemtype' => 'PluginPrintgestionSage',
+                'label'    => __('Référentiel Sage', 'printgestion'),
+                'field'    => 'plugin_printgestion_sage',
+                'rights'   => [READ => __('Voir', 'printgestion'), UPDATE => __('Importer, modifier les correspondances', 'printgestion')],
+            ],
+            [
                 'itemtype' => 'PluginPrintgestionBilling',
                 'label'    => __('Coût à la page', 'printgestion'),
                 'field'    => 'plugin_printgestion_billing',
@@ -81,6 +96,8 @@ class PluginPrintgestionProfile extends Profile {
                 'plugin_printgestion_billing'    => 0,
                 'plugin_printgestion_expedition' => 0,
                 'plugin_printgestion_validation' => 0,
+                'plugin_printgestion_deploiement' => 0,
+                'plugin_printgestion_sage'       => 0,
             ]);
             $prof->showForm($ID);
         }
@@ -182,6 +199,8 @@ class PluginPrintgestionProfile extends Profile {
             'plugin_printgestion_billing'    => ALLSTANDARDRIGHT,
             'plugin_printgestion_expedition' => ALLSTANDARDRIGHT,
             'plugin_printgestion_validation' => ALLSTANDARDRIGHT,
+            'plugin_printgestion_deploiement' => ALLSTANDARDRIGHT,
+            'plugin_printgestion_sage'       => ALLSTANDARDRIGHT,
         ], true);
     }
 

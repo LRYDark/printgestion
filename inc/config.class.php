@@ -715,6 +715,8 @@ class PluginPrintgestionConfig extends CommonDBTM {
         $feature_toggle('contrats', __('Gestion contractuelle', 'printgestion'));
         $feature_toggle('toner', __('Gestion toner & expéditions', 'printgestion'));
         $feature_toggle('cout', __('Coût à la page', 'printgestion'));
+        $feature_toggle('deploiement', __('Collecte SNMP / Déploiement Agent', 'printgestion'));
+        $feature_toggle('sage', __('Référentiel Sage', 'printgestion'));
         echo "</div></div></div>";
 
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"

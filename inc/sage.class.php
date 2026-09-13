@@ -16,7 +16,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionSage extends CommonGLPI {
 
-    static $rightname = 'plugin_printgestion_config';
+    static $rightname = 'plugin_printgestion_sage';
 
     static function getTypeName($nb = 0) {
         return __('Référentiel Sage', 'printgestion');

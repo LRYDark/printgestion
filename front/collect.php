@@ -7,12 +7,24 @@
 include('../../../inc/includes.php');
 
 Session::checkLoginUser();
-Session::checkRight('plugin_printgestion_dashboard', READ);
 
 $plugin = new Plugin();
-if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')
-    || !PluginPrintgestionConfig::isFeatureEnabled('toner')) {
+if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
     throw new \Glpi\Exception\Http\NotFoundHttpException();
+}
+
+// Module Collecte SNMP / Déploiement Agent (techniciens), ou module toner : l'écran des
+// alertes renvoie ici pour les imprimantes muettes.
+$access = array_filter(
+    ['deploiement' => 'plugin_printgestion_deploiement', 'toner' => 'plugin_printgestion_dashboard'],
+    static fn(string $feature) => PluginPrintgestionConfig::isFeatureEnabled($feature),
+    ARRAY_FILTER_USE_KEY
+);
+if (empty($access)) {
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
+}
+if (empty(array_filter($access, static fn(string $right) => Session::haveRight($right, READ)))) {
+    throw new \Glpi\Exception\Http\AccessDeniedHttpException();
 }
 
 $state = (string) ($_GET['state'] ?? '');
@@ -25,11 +37,11 @@ Html::header(
     $_SERVER['PHP_SELF'],
     'management',
     'PluginPrintgestionMenu',
-    'tn_collect'
+    'dp_collect'
 );
 
 echo "<div class='container-fluid mt-3'>";
-PluginPrintgestionMenu::showTabBar('tn_collect');
+PluginPrintgestionMenu::showTabBar('dp_collect');
 PluginPrintgestionCollect::showPage($state);
 echo "</div>";
 
