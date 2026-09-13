@@ -220,4 +220,8 @@ echo <<<HTML
 </script>
 HTML;
 
+// Bouton « Rafraîchir » de la barre d'onglets et menu contextuel « Ouvrir la fiche
+// imprimante » : leur script partagé n'était pas chargé sur cet écran (bouton inerte).
+PluginPrintgestionDashboardactions::renderSharedAssets('billing');
+
 Html::footer();
