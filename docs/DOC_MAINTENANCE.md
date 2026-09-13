@@ -211,8 +211,10 @@ Pour chaque client :
    système du PC sonde (Windows, Linux ou macOS).
 3. Sur place : suivre `LISEZMOI.txt`, puis vérifier dans l'onglet que l'agent apparaît avec un contact récent et la
    collecte réseau installée. Page « Sondes » : « Marquer ce PC comme sonde ».
-   - Windows : extraire, clic droit sur le `.bat` → Exécuter en tant qu'administrateur, assistant, attendre le
-     message final.
+   - Windows : extraire, clic droit sur `1-installer-glpi-agent.bat` → Exécuter en tant qu'administrateur,
+     assistant, attendre le message final. Étape 2 facultative, geste séparé : `2-facultatif-mise-a-jour-automatique.bat`
+     en administrateur pose la mise à jour automatique. Sautée ou bloquée par l'antivirus : l'agent fonctionne mais ne
+     se met plus à jour seul ; décocher « Mise à jour automatique » sur la sonde (page « Sondes »).
    - Linux : `tar -xzf GLPI-Agent-…-linux-<TAG>.tar.gz`, `cd` dans le dossier, `sudo sh installer-glpi-agent.sh`.
    - macOS : double-clic sur le ZIP, installer le paquet de ce Mac (puce Apple : `_arm64`, Intel : `_x86_64`), puis
      coller dans Terminal les trois commandes affichées dans l'onglet (dépôt de `local.cfg`, arrêt et redémarrage de
@@ -265,7 +267,9 @@ Raccordement :
 - **Changer la mise à jour d'une sonde** (désactiver, épingler une version, revenir en arrière) : régler la sonde,
   télécharger son **paquet de consigne** et le lancer sur le PC, en administrateur. Sans ce geste rien ne change sur
   le PC : la tâche planifiée déjà posée continue.
-- **La mise à jour ne se fait pas** : sur le PC, `C:\ProgramData\PrintGestion\glpi-agent-update.log`. « Agent occupé
+- **La mise à jour ne se fait pas** : tâche « GLPI Agent - mise a jour (Print Gestion) » absente du Planificateur de
+  tâches : l'étape 2 facultative du paquet n'a pas été lancée, ou l'antivirus l'a bloquée ; lancer le paquet de
+  consigne de la sonde, en administrateur. Tâche présente : sur le PC, `C:\ProgramData\PrintGestion\glpi-agent-update.log`. « Agent occupé
   ou injoignable » : l'agent exécutait une tâche le 1er du mois à 3 h, mise à jour reportée au mois suivant ;
   « winget introuvable » : App Installer absent (Windows Server, Windows 10 ancien) ; code d'erreur de winget : winget
   sous le compte SYSTEM n'est pas pris en charge officiellement par Microsoft. Tâche : Planificateur de tâches →

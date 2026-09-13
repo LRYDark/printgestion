@@ -542,7 +542,10 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         ]);
     }
 
-    /** Lignes .bat qui posent la tâche planifiée mensuelle (script copié depuis le dossier du ZIP) ou la retirent. */
+    /**
+     * Lignes .bat qui posent la tâche planifiée mensuelle (script copié depuis le dossier du ZIP, dont la présence
+     * est vérifiée d'abord : un .bat lancé depuis l'aperçu du ZIP est seul dans son dossier) ou la retirent.
+     */
     public static function buildScheduleLines(bool $enabled): array {
         $task   = '"' . self::TASK_NAME . '"';
         $script = '%ProgramData%\\PrintGestion\\' . self::UPDATE_SCRIPT;
@@ -553,6 +556,11 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             ];
         }
         return [
+            'if not exist "%~dp0' . self::UPDATE_SCRIPT . '" (',
+            '  echo Fichier ' . self::UPDATE_SCRIPT . ' introuvable : extraire tout le ZIP, puis relancer depuis le dossier extrait.',
+            '  pause',
+            '  exit /b 1',
+            ')',
             'if not exist "%ProgramData%\\PrintGestion" mkdir "%ProgramData%\\PrintGestion"',
             'copy /Y "%~dp0' . self::UPDATE_SCRIPT . '" "' . $script . '" >nul',
             'schtasks /Create /TN ' . $task . ' /TR "\\"' . $script . '\\"" /SC MONTHLY /D 1 /ST 03:00 /RU SYSTEM /RL HIGHEST /F >nul',
@@ -837,7 +845,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         if ($settings['exists']) {
             echo "<p class='text-muted small mt-2 mb-0'>" . $esc(sprintf(__('Réglé le %1$s par %2$s.', 'printgestion'), Html::convDateTime((string) $settings['date_mod']), getUserName($settings['users_id']))) . "</p>";
         }
-        echo "<div class='alert alert-warning mt-3'><i class='ti ti-alert-triangle me-1'></i>" . $esc(__('Ce réglage ne change rien tout seul sur le PC. La tâche de mise à jour (tâche planifiée sous Windows, tâche cron sous Linux) y est posée par le paquet d\'installation ; pour appliquer un changement (désactiver, épingler une version, revenir en arrière), téléchargez la consigne et lancez-la sur la sonde. Décocher la case ici ne désactive pas une tâche déjà posée. Retour à une version plus ancienne : l\'installeur peut refuser de rétrograder (signalé dans le journal de la tâche) ; il faut alors désinstaller puis réinstaller avec le paquet de l\'entité.', 'printgestion')) . "</div>";
+        echo "<div class='alert alert-warning mt-3'><i class='ti ti-alert-triangle me-1'></i>" . $esc(__('Ce réglage ne change rien tout seul sur le PC. La tâche de mise à jour y est posée par le paquet d\'installation (Windows : son étape 2 facultative, 2-facultatif-mise-a-jour-automatique.bat, que le technicien a pu sauter ; Linux : tâche cron du script d\'installation) ; pour appliquer un changement (désactiver, épingler une version, revenir en arrière), téléchargez la consigne et lancez-la sur la sonde. Décocher la case ici ne désactive pas une tâche déjà posée. Retour à une version plus ancienne : l\'installeur peut refuser de rétrograder (signalé dans le journal de la tâche) ; il faut alors désinstaller puis réinstaller avec le paquet de l\'entité.', 'printgestion')) . "</div>";
         $platform = self::getHostPlatform($agent->fields);
         if ($platform === 'macos') {
             echo "<p class='mb-0'>" . $esc(__('PC sonde sous macOS : pas de mise à jour automatique (aucun mécanisme officiel). Réinstaller le paquet d\'une version plus récente depuis l\'onglet « Déploiement Agent » de l\'entité ; local.cfg est gardé.', 'printgestion')) . "</p>";

@@ -413,10 +413,16 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
      Windows et propriétés MSI expliquées, commande Linux, procédure macOS et son `local.cfg` (phase 6).
 - **Paquet Windows** (`front/agentdeploy.download.php`, droit `deploiement` READ et accès à l'entité) : ZIP généré
   à la demande dans `GLPI_TMP_DIR` et supprimé en fin de requête : MSI officiel (stocké, empreinte recalculée
-  avant envoi), `installer-glpi-agent.bat` (ASCII, CRLF, à lancer en administrateur : contrôle administrateur,
-  commande d'installation attendue par `start /wait`, puis tâche planifiée de mise à jour si elle est activée, voir
-  phase 5), `glpi-agent-update.cmd` (script de cette tâche, s'il y a lieu), `commande-cmd.txt` (la commande
-  d'installation seule, à coller dans cmd), `LISEZMOI.txt` (les 3 gestes). Chaque téléchargement est tracé dans
+  avant envoi) et deux gestes séparés, en ASCII et CRLF. Geste 1, `1-installer-glpi-agent.bat` : lance seulement
+  la commande d'installation (`start /wait`, codes 0, 3010 et 1641 acceptés) après avoir vérifié que le MSI est à
+  côté ; ni contrôle administrateur, ni copie, ni tâche. Geste 2, facultatif, présent seulement si « Nouveaux
+  paquets Windows : poser la mise à jour automatique » est coché : `2-facultatif-mise-a-jour-automatique.bat`
+  (contrôle administrateur, copie de `glpi-agent-update.cmd`, tâche planifiée ; n'installe rien) et
+  `glpi-agent-update.cmd` (script de la tâche, voir phase 5). Pourquoi deux fichiers : un .bat ne se signe pas et
+  les antivirus ou EDR se méfient d'un script qui enchaîne installation et création de tâche planifiée ; séparés,
+  le premier ne lance que le MSI signé, et un blocage du second n'empêche pas l'installation. Plus
+  `commande-cmd.txt` (la commande d'installation seule, à coller dans cmd) et `LISEZMOI.txt` (étape 1
+  obligatoire ; étape 2 facultative et ce qu'on perd en la sautant). Chaque téléchargement est tracé dans
   l'historique de l'entité. Aucun identifiant, jeton ni secret : URL du serveur et TAG seulement.
 - **Commande** : `msiexec /i "<MSI>" SERVER="…" TAG="…" ADDLOCAL="feat_AGENT,feat_NETINV" HTTPD_TRUST="127.0.0.1/32[,…]"
   SNMP_RETRIES="2" RUNNOW="1" EXECMODE="1" QUICKINSTALL="1" /l*v "%TEMP%\GLPI-Agent-install.log"`, sans `/quiet`
@@ -579,10 +585,12 @@ dans la page « Sondes » du module (`front/sondes.php`), pour les profils sans 
 Déploiement en modification, sonde dans les entités de l'utilisateur.
 
 **Mise à jour réelle, posée sur le PC** : le plugin ne pousse rien (jamais la tâche Deploy de GLPI Inventory, ni
-jeton, ni API). Le lanceur du paquet Windows de l'entité (`installer-glpi-agent.bat`, à lancer en administrateur)
-installe l'agent (`start /wait msiexec`, codes 0, 3010 et 1641 acceptés) puis, si « Nouveaux paquets Windows : poser
-la mise à jour automatique » est coché (défaut), copie `glpi-agent-update.cmd` dans `%ProgramData%\PrintGestion` et
-pose la tâche planifiée « GLPI Agent - mise a jour (Print Gestion) » : le 1er du mois à 3 h, compte SYSTEM. Le script
+jeton, ni API). Si « Nouveaux paquets Windows : poser la mise à jour automatique » est coché (défaut), le paquet de
+l'entité contient l'étape 2 facultative, `2-facultatif-mise-a-jour-automatique.bat`, que le technicien lance
+séparément après l'installation, en administrateur : elle copie `glpi-agent-update.cmd` dans
+`%ProgramData%\PrintGestion` et pose la tâche planifiée « GLPI Agent - mise a jour (Print Gestion) » : le 1er du mois
+à 3 h, compte SYSTEM. GLPI ne sait pas si cette étape a été faite : une sonde qui ne se met pas à jour apparaît
+« À mettre à jour » dans la page « Sondes » dès qu'une version plus récente est visée. Le script
 ne fait rien si l'agent n'est pas en attente (`http://127.0.0.1:62354/status`), cherche `winget.exe` dans
 `%ProgramFiles%\WindowsApps\Microsoft.DesktopAppInstaller_*` (absent du PATH de SYSTEM) et lance
 `winget upgrade --id GLPI-Project.GLPI-Agent` ou, version épinglée, `winget install --version X --force`, toujours avec

@@ -35,6 +35,10 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     const MSI_MAGIC = "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1";
     /** Description de l'installeur vérifié, à côté du fichier. */
     const METADATA_FILE = 'installer.json';
+    /** Paquet Windows, geste 1 : lance seulement le MSI officiel avec ses propriétés. */
+    const WINDOWS_INSTALL_BAT = '1-installer-glpi-agent.bat';
+    /** Paquet Windows, geste 2 facultatif et séparé : pose seulement la tâche planifiée de mise à jour. */
+    const WINDOWS_UPDATE_BAT = '2-facultatif-mise-a-jour-automatique.bat';
 
     static function getTypeName($nb = 0) {
         return __('Déploiement Agent', 'printgestion');
@@ -462,8 +466,10 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
 
     /**
      * Paquet Windows d'une entité, écrit dans un fichier temporaire que l'appelant supprime après
-     * envoi : MSI officiel vérifié, lanceur .bat (contrôle administrateur, assistant MSI, tâche planifiée de
-     * mise à jour selon les réglages par défaut), script de mise à jour, commande à copier, note d'une page.
+     * envoi : MSI officiel vérifié et deux gestes séparés. Geste 1 : un .bat qui ne fait que lancer le MSI avec
+     * ses propriétés (un .bat ne se signe pas, et les antivirus se méfient de ceux qui enchaînent installation et
+     * tâche planifiée). Geste 2, facultatif, fourni si les réglages par défaut le prévoient : un second .bat qui
+     * pose seulement la tâche planifiée de mise à jour, avec son script. Plus la commande à copier et la note.
      *
      * @return array ['ok' => bool, 'errors' => string[], 'path', 'filename', 'version', 'tag']
      */
@@ -484,58 +490,85 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $update  = (int) ($config['agent_update_default'] ?? 1) === 1;
         $target  = trim((string) ($config['agent_update_target'] ?? ''));
 
-        // Lanceur : contrôle administrateur, assistant MSI attendu (start /wait ; codes 0, 3010 et 1641 :
-        // installé, redémarrage demandé ou lancé), puis tâche planifiée de mise à jour si elle est activée.
-        $bat = implode("\r\n", array_merge(
+        // Geste 1 : le MSI officiel signé, lancé seul avec ses propriétés (start /wait ; codes 0, 3010 et 1641 :
+        // installé, redémarrage demandé ou lancé). Rien d'autre ne s'exécute : ni contrôle, ni copie, ni tâche.
+        $install_bat = implode("\r\n", array_merge(
             [
                 '@echo off',
                 'rem GLPI Agent ' . $version . ' - installation pre-parametree pour le TAG ' . $tag,
-                'rem Aucun identifiant ni secret : adresse du serveur GLPI et TAG uniquement.',
+                'rem Etape 1 : lance uniquement le MSI officiel signe, avec ses proprietes. Aucun identifiant ni secret.',
                 'rem A lancer en administrateur depuis le dossier extrait du ZIP.',
-            ],
-            PluginPrintgestionAgentsetting::buildAdminCheckLines(),
-            [
+                'if not exist "%~dp0' . $msi . '" (',
+                '  echo Fichier ' . $msi . ' introuvable : extraire tout le ZIP, puis relancer depuis le dossier extrait.',
+                '  pause',
+                '  exit /b 1',
+                ')',
                 'start "" /wait ' . self::buildWindowsCommand('%~dp0' . $msi, $tag),
                 'set "RC=%ERRORLEVEL%"',
                 'if not "%RC%"=="0" if not "%RC%"=="3010" if not "%RC%"=="1641" (',
-                '  echo Installation non terminee, code %RC% : journal %TEMP%\\GLPI-Agent-install.log',
+                '  echo Installation non terminee, code %RC% : journal "%TEMP%\\GLPI-Agent-install.log"',
                 '  pause',
                 '  exit /b %RC%',
                 ')',
+                'echo GLPI Agent installe.',
             ],
-            $update ? PluginPrintgestionAgentsetting::buildScheduleLines(true) : [],
+            $update ? ['echo Etape 2 facultative, a lancer separement : ' . self::WINDOWS_UPDATE_BAT . ' (voir LISEZMOI.txt).'] : [],
+            ['pause', '']
+        ));
+        // Geste 2, facultatif et séparé : la tâche planifiée de mise à jour ; n'installe rien.
+        $update_bat = !$update ? '' : implode("\r\n", array_merge(
             [
-                $update
-                    ? 'echo GLPI Agent installe. Mise a jour automatique mensuelle posee : ' . ($target !== '' ? 'version cible ' . $target . '.' : 'derniere version publiee.')
-                    : 'echo GLPI Agent installe. Aucune mise a jour automatique posee.',
+                '@echo off',
+                'rem Etape 2 FACULTATIVE - pose la tache planifiee de mise a jour de GLPI Agent (Print Gestion).',
+                'rem N installe rien : a lancer apres ' . self::WINDOWS_INSTALL_BAT . ', en administrateur, depuis le dossier extrait du ZIP.',
+                'rem Aucun identifiant ni secret.',
+            ],
+            PluginPrintgestionAgentsetting::buildAdminCheckLines(),
+            PluginPrintgestionAgentsetting::buildScheduleLines(true),
+            [
+                'echo Mise a jour automatique mensuelle posee : ' . ($target !== '' ? 'version cible ' . $target . '.' : 'derniere version publiee.'),
                 'pause',
                 '',
             ]
         ));
-        $command = self::buildWindowsCommand($msi, $tag) . "\r\n";
-        $readme  = implode("\r\n", [
-            sprintf(__('Installation de GLPI Agent %1$s — %2$s (TAG : %3$s)', 'printgestion'), $version, (string) $entity->fields['completename'], $tag),
-            sprintf(__('Paquet généré par Print Gestion le %1$s par %2$s.', 'printgestion'), Html::convDateTime(date('Y-m-d H:i:s')), getUserName((int) Session::getLoginUserID())),
-            __('Ce dossier ne contient aucun identifiant, mot de passe ni jeton : seulement l\'adresse du serveur GLPI et le TAG du client.', 'printgestion'),
-            '',
-            __('Les 3 gestes', 'printgestion'),
-            __('1. Sur le PC qui servira de sonde (allumé en permanence, sur le réseau des imprimantes) : clic droit sur le fichier ZIP > Extraire tout.', 'printgestion'),
-            __('2. Dans le dossier extrait : clic droit sur installer-glpi-agent.bat > Exécuter en tant qu\'administrateur, puis suivre l\'assistant. L\'adresse du serveur et le TAG sont déjà remplis : ne pas les modifier. Attendre le message final avant de fermer la fenêtre.', 'printgestion'),
-            __('3. Dans GLPI (fiche de l\'entité, onglet « Déploiement Agent ») : vérifier que l\'agent apparaît avec un contact récent, puis raccorder les imprimantes avec l\'assistant (bloc 3), avant de partir.', 'printgestion'),
-            '',
-            PluginPrintgestionCollectfrequency::getPackageLine((int) $entity->getID()),
+        $command      = self::buildWindowsCommand($msi, $tag) . "\r\n";
+        $target_label = $target !== '' ? sprintf(__('version cible %s', 'printgestion'), $target) : __('dernière version publiée', 'printgestion');
+        $readme       = implode("\r\n", array_merge(
+            [
+                sprintf(__('Installation de GLPI Agent %1$s — %2$s (TAG : %3$s)', 'printgestion'), $version, (string) $entity->fields['completename'], $tag),
+                sprintf(__('Paquet généré par Print Gestion le %1$s par %2$s.', 'printgestion'), Html::convDateTime(date('Y-m-d H:i:s')), getUserName((int) Session::getLoginUserID())),
+                __('Ce dossier ne contient aucun identifiant, mot de passe ni jeton : seulement l\'adresse du serveur GLPI et le TAG du client.', 'printgestion'),
+                '',
+                __('ÉTAPE 1 — INSTALLATION (obligatoire)', 'printgestion'),
+                __('1. Sur le PC qui servira de sonde (allumé en permanence, sur le réseau des imprimantes) : clic droit sur le fichier ZIP > Extraire tout.', 'printgestion'),
+                sprintf(__('2. Dans le dossier extrait : clic droit sur %s > Exécuter en tant qu\'administrateur, puis suivre l\'assistant. Ce fichier ne fait qu\'une chose : lancer le MSI officiel signé de GLPI Agent avec ses propriétés. L\'adresse du serveur et le TAG sont déjà remplis : ne pas les modifier. Attendre le message final avant de fermer la fenêtre.', 'printgestion'), self::WINDOWS_INSTALL_BAT),
+                __('3. Dans GLPI (fiche de l\'entité, onglet « Déploiement Agent ») : vérifier que l\'agent apparaît avec un contact récent, puis raccorder les imprimantes avec l\'assistant (bloc 3), avant de partir.', 'printgestion'),
+                __('Si Windows refuse de lancer le fichier .bat : ouvrir l\'invite de commandes en administrateur (cmd, pas PowerShell) dans le dossier extrait et coller la commande du fichier commande-cmd.txt.', 'printgestion'),
+                __('En cas d\'échec de l\'installation : journal %TEMP%\\GLPI-Agent-install.log sur le PC.', 'printgestion'),
+                '',
+            ],
             $update
-                ? sprintf(
-                    __('Mise à jour automatique : le lanceur pose la tâche planifiée « %1$s » (le 1er du mois à 3 h, compte SYSTEM, winget, %2$s, seulement si l\'agent est en attente ; journal C:\\ProgramData\\PrintGestion\\glpi-agent-update.log). Pour la changer ou la retirer : régler la sonde dans GLPI, puis lancer son paquet de consigne sur ce PC ; le réglage de GLPI seul ne change rien sur le PC.', 'printgestion'),
-                    PluginPrintgestionAgentsetting::TASK_NAME,
-                    $target !== '' ? sprintf(__('version cible %s', 'printgestion'), $target) : __('dernière version publiée', 'printgestion')
-                )
-                : __('Mise à jour automatique : non posée par ce paquet. Pour la poser plus tard : paquet de consigne de la sonde dans GLPI.', 'printgestion'),
-            '',
-            __('Si Windows refuse de lancer le fichier .bat : ouvrir l\'invite de commandes en administrateur (cmd, pas PowerShell) dans le dossier extrait et coller la commande du fichier commande-cmd.txt ; elle installe l\'agent sans poser la mise à jour automatique.', 'printgestion'),
-            __('En cas d\'échec de l\'installation : journal %TEMP%\\GLPI-Agent-install.log sur le PC.', 'printgestion'),
-            '',
-        ]);
+                ? [
+                    __('ÉTAPE 2 — MISE À JOUR AUTOMATIQUE (facultative, geste séparé)', 'printgestion'),
+                    sprintf(
+                        __('Après l\'étape 1, si vous le souhaitez : clic droit sur %1$s > Exécuter en tant qu\'administrateur. Ce fichier n\'installe rien : il pose la tâche planifiée « %2$s » (le 1er du mois à 3 h, compte SYSTEM, winget, %3$s, seulement si l\'agent est en attente ; journal C:\\ProgramData\\PrintGestion\\glpi-agent-update.log).', 'printgestion'),
+                        self::WINDOWS_UPDATE_BAT,
+                        PluginPrintgestionAgentsetting::TASK_NAME,
+                        $target_label
+                    ),
+                    sprintf(__('Ce que l\'on perd en sautant cette étape : la mise à jour automatique de cette sonde, rien d\'autre. L\'agent fonctionne normalement (inventaire du PC, découverte et relevés des imprimantes) mais reste en version %s jusqu\'à une intervention sur ce PC. La page « Sondes » de Print Gestion montre sa conformité de version : elle le signalera « À mettre à jour » dès qu\'une version plus récente sera visée.', 'printgestion'), $version),
+                    __('Étape sautée ou bloquée par l\'antivirus : l\'installation de l\'étape 1 reste valable. Dans GLPI, décocher « Mise à jour automatique » sur la sonde (page « Sondes ») pour que son réglage corresponde au PC ; pour poser la tâche plus tard : paquet de consigne de la sonde, lancé sur ce PC.', 'printgestion'),
+                    __('Pour changer ou retirer la tâche : régler la sonde dans GLPI, puis lancer son paquet de consigne sur ce PC ; le réglage de GLPI seul ne change rien sur le PC.', 'printgestion'),
+                ]
+                : [
+                    sprintf(__('Mise à jour automatique : non posée par ce paquet (réglage de la page « Installeur GLPI Agent »). L\'agent reste en version %s jusqu\'à une intervention sur ce PC ; la page « Sondes » de Print Gestion le signalera « À mettre à jour » dès qu\'une version plus récente sera visée. Pour la poser plus tard : paquet de consigne de la sonde dans GLPI.', 'printgestion'), $version),
+                ],
+            [
+                '',
+                PluginPrintgestionCollectfrequency::getPackageLine((int) $entity->getID()),
+                '',
+            ]
+        ));
 
         $path = GLPI_TMP_DIR . '/printgestion-agent-' . bin2hex(random_bytes(8)) . '.zip';
         $zip  = new ZipArchive();
@@ -545,8 +578,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         }
         $zip->addFile($installer['path'], $msi);
         $zip->setCompressionName($msi, ZipArchive::CM_STORE); // MSI déjà compressé
-        $zip->addFromString('installer-glpi-agent.bat', $bat);
+        $zip->addFromString(self::WINDOWS_INSTALL_BAT, $install_bat);
         if ($update) {
+            $zip->addFromString(self::WINDOWS_UPDATE_BAT, $update_bat);
             $zip->addFromString(PluginPrintgestionAgentsetting::UPDATE_SCRIPT, PluginPrintgestionAgentsetting::buildUpdateScript($target));
         }
         $zip->addFromString('commande-cmd.txt', $command);
@@ -1014,10 +1048,10 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             }
         }
         echo "</div>";
-        echo "<p class='text-muted small'>" . $esc(__('Windows : ZIP avec le MSI officiel servi par ce serveur, le lanceur installer-glpi-agent.bat à lancer en administrateur (assistant, puis tâche planifiée de mise à jour si elle est activée sur la page « Installeur GLPI Agent »), la commande seule et une note d\'une page. Linux : archive .tar.gz avec l\'installeur Perl officiel et le script installer-glpi-agent.sh à lancer avec sudo (réglages déjà remplis, tâche cron de mise à jour si elle est activée). macOS : ZIP avec les deux paquets officiels signés (Apple Silicon et Intel) et le fichier local.cfg à déposer, procédure ci-dessous ; mise à jour manuelle.', 'printgestion')) . "</p>";
+        echo "<p class='text-muted small'>" . $esc(__('Windows : ZIP avec le MSI officiel servi par ce serveur et deux gestes séparés, à lancer en administrateur : 1-installer-glpi-agent.bat ne fait que lancer le MSI avec ses propriétés (assistant prérempli) ; 2-facultatif-mise-a-jour-automatique.bat, fourni si la mise à jour automatique est activée sur la page « Installeur GLPI Agent », pose seulement la tâche planifiée de mise à jour. Plus la commande seule et une note d\'une page. Linux : archive .tar.gz avec l\'installeur Perl officiel et le script installer-glpi-agent.sh à lancer avec sudo (réglages déjà remplis, tâche cron de mise à jour si elle est activée). macOS : ZIP avec les deux paquets officiels signés (Apple Silicon et Intel) et le fichier local.cfg à déposer, procédure ci-dessous ; mise à jour manuelle.', 'printgestion')) . "</p>";
 
         if ($tag !== '' && self::isValidTag($tag)) {
-            echo "<div class='mb-2 fw-bold'>" . $esc(__('Windows : commande lancée par le paquet', 'printgestion')) . "</div>";
+            echo "<div class='mb-2 fw-bold'>" . $esc(__('Windows : commande lancée par 1-installer-glpi-agent.bat', 'printgestion')) . "</div>";
             echo "<pre class='mb-3' style='white-space:pre-wrap'>" . $esc(self::buildWindowsCommand(self::getMsiName($version), $tag)) . "</pre>";
         }
         $reasons = [
