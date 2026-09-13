@@ -61,7 +61,8 @@ printgestion/
 | `Sageimport` | Import du référentiel Sage par fichier : analyse, prévisualisation, rapport d'écarts, validation |
 | `Sage` | Correspondances Sage (code client d'une entité, hérité du parent) + onglet « Print Gestion — Sage » de l'entité |
 | `Gesconso` | Fichier de commande Gesconso (9 colonnes), contrôles bloquants avant écriture, archivage en Document |
-| `Snmpadapter` | Lecture fiable des niveaux SNMP : sentinelles, états bruts max/used/remaining, règles par constructeur |
+| `Snmpadapter` | Service (classe simple, sans table) : lecture fiable des niveaux SNMP — sentinelles, états bruts max/used/remaining, application des règles par constructeur |
+| `Snmprule` | Règle de lecture SNMP par constructeur (ignorer / inverser une propriété) : table, carte de configuration, droit de configuration du plugin |
 | `Collect` | Collecte SNMP : imprimantes jamais remontées, muettes ou sans niveau lisible, agents qui ne remontent plus |
 | `NotificationTargetDemande` | Notifications natives GLPI des demandes d'envoi (proposée, relance, exportée) |
 | `Contractalert` | État et activation des alertes de contrat natives GLPI |
@@ -97,7 +98,7 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_sagedeliveries` | Adresses de livraison Sage (plusieurs par client), clé rapprochée de `Location.code` |
 | `glpi_plugin_printgestion_sagearticles` | Articles Sage (référence rapprochée de `CartridgeItem.ref`) |
 | `glpi_plugin_printgestion_sageimports` | Trace des imports (référentiel, fichier, auteur, volumes) |
-| `glpi_plugin_printgestion_snmpadapters` | Règles de lecture SNMP par constructeur (ignorer / inverser une propriété) |
+| `glpi_plugin_printgestion_snmprules` | Règles de lecture SNMP par constructeur (ignorer / inverser une propriété) — nommée `snmpadapters` avant la 1.5.5 |
 | `glpi_plugin_printgestion_expedition_bls` | Liaison expéditions ↔ BL du plugin Gestion |
 | `glpi_plugin_printgestion_snmp_mapping` | Mapping constructeur/propriété SNMP → cartouche |
 | `glpi_plugin_printgestion_cartridge_snmp` | Bindings directs cartouche ↔ propriété SNMP |

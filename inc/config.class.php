@@ -865,7 +865,7 @@ class PluginPrintgestionConfig extends CommonDBTM {
         echo "</div></div></div>";
 
         // ── Lecture des niveaux SNMP : règles par constructeur ────
-        PluginPrintgestionSnmpadapter::showConfigCard();
+        PluginPrintgestionSnmprule::showConfigCard();
 
         // ── Notifications natives des demandes d'envoi ───────────
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"

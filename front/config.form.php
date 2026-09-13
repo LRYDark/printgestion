@@ -133,7 +133,7 @@ if (isset($_POST['activate_contract_alerts'])) {
     }
 
     // Règles de lecture SNMP par constructeur (suppressions cochées, ajout).
-    foreach (PluginPrintgestionSnmpadapter::saveConfig($_POST) as $snmp_error) {
+    foreach (PluginPrintgestionSnmprule::saveConfig($_POST) as $snmp_error) {
         Session::addMessageAfterRedirect(htmlspecialchars($snmp_error, ENT_QUOTES, 'UTF-8'), false, ERROR);
     }
 

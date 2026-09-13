@@ -1,7 +1,8 @@
 <?php
 /**
- * PluginPrintgestionSnmpadapter — lecture fiable des niveaux de consommables remontés
- * par l'inventaire SNMP de GLPI (glpi_printers_cartridgeinfos).
+ * PluginPrintgestionSnmpadapter — service de lecture fiable des niveaux de consommables
+ * remontés par l'inventaire SNMP de GLPI (glpi_printers_cartridgeinfos). Classe de service :
+ * ni table, ni formulaire, ni droits propres.
  *
  * 1. Sentinelles de la Printer MIB (RFC 3805, prtMarkerSuppliesLevel) :
  *      -1 = autre / non mesurable, -2 = inconnu, -3 = « il en reste » (présent, niveau non
@@ -9,10 +10,8 @@
  * 2. États bruts : une propriété « …max », « …used » ou « …remaining » n'est pas un
  *    emplacement ; quand le pourcentage de l'emplacement manque (ou est une sentinelle),
  *    il est reconstitué : restant / max, ou (max − utilisé) / max.
- * 3. Règles par constructeur (table snmpadapters, configuration) pour les écarts constatés
- *    sur le parc : ignorer une propriété, ou inverser sa valeur (100 − valeur). Motif de
- *    propriété avec « * » ; constructeur 0 = tous. Aucune règle par défaut : un bac de
- *    récupération (réceptacle) remonte déjà la place restante selon la RFC 3805.
+ * 3. Règles par constructeur (PluginPrintgestionSnmprule, saisies dans la configuration)
+ *    pour les écarts constatés sur le parc : ignorer une propriété, ou inverser sa valeur.
  *
  * Données préchargées une fois par requête (toutes les imprimantes) : aucune requête par
  * imprimante dans les boucles des tâches automatiques.
@@ -22,12 +21,7 @@ if (!defined('GLPI_ROOT')) {
     die("Sorry. You can't access this file directly");
 }
 
-class PluginPrintgestionSnmpadapter extends CommonDBTM {
-
-    static $rightname = 'plugin_printgestion_config';
-
-    const ACTION_IGNORE = 'ignore';
-    const ACTION_INVERT = 'invert';
+class PluginPrintgestionSnmpadapter {
 
     /** Suffixes d'état brut ajoutés par l'inventaire GLPI au nom de l'emplacement. */
     const STATE_SUFFIXES = ['remaining', 'used', 'max'];
@@ -39,29 +33,7 @@ class PluginPrintgestionSnmpadapter extends CommonDBTM {
     /** Règles actives : [['manufacturers_id', 'pattern' (regex), 'action']] */
     private static ?array $rules = null;
 
-    static function getTypeName($nb = 0) {
-        return _n('Règle de lecture SNMP', 'Règles de lecture SNMP', $nb, 'printgestion');
-    }
-
-    public static function getTable($classname = null) {
-        if ($classname === null || $classname === static::class) {
-            return 'glpi_plugin_printgestion_snmpadapters';
-        }
-        return parent::getTable($classname);
-    }
-
-    public static function getActionLabels(): array {
-        return [
-            self::ACTION_IGNORE => __('Ignorer la propriété', 'printgestion'),
-            self::ACTION_INVERT => __('Inverser la valeur (100 − valeur)', 'printgestion'),
-        ];
-    }
-
-    /**
-     * Oublie les données préchargées (après un changement de règles, ou pour relire l'inventaire).
-     * Pas « reset » : CommonDBTM::reset() est une méthode d'instance, la redéclarer statique est
-     * une erreur fatale à la compilation de la classe.
-     */
+    /** Oublie les données préchargées (après un changement de règles, ou pour relire l'inventaire). */
     public static function resetCache(): void {
         self::$raw           = null;
         self::$manufacturers = null;
@@ -144,7 +116,7 @@ class PluginPrintgestionSnmpadapter extends CommonDBTM {
             foreach (array_keys($slots) as $property) {
                 $property = (string) $property;
                 $action   = self::ruleFor($printers_id, $property);
-                if ($action === self::ACTION_IGNORE) {
+                if ($action === PluginPrintgestionSnmprule::ACTION_IGNORE) {
                     continue;
                 }
 
@@ -162,7 +134,7 @@ class PluginPrintgestionSnmpadapter extends CommonDBTM {
                     continue; // états bruts inexploitables, pas d'emplacement fantôme
                 }
 
-                if ($parsed['usable'] && $action === self::ACTION_INVERT) {
+                if ($parsed['usable'] && $action === PluginPrintgestionSnmprule::ACTION_INVERT) {
                     $parsed['value'] = 100 - (int) $parsed['value'];
                 }
                 $out[$printers_id][$property] = $parsed;
@@ -250,9 +222,11 @@ class PluginPrintgestionSnmpadapter extends CommonDBTM {
             self::$manufacturers[(int) $row['id']] = (int) $row['manufacturers_id'];
         }
 
+        // Table absente sur une base pas encore migrée en 1.5.5 : aucune règle appliquée.
         self::$rules = [];
-        if ($DB->tableExists(self::getTable())) {
-            foreach ($DB->request(['FROM' => self::getTable(), 'ORDER' => ['id']]) as $row) {
+        $table       = PluginPrintgestionSnmprule::getTable();
+        if ($DB->tableExists($table)) {
+            foreach ($DB->request(['FROM' => $table, 'ORDER' => ['id']]) as $row) {
                 $pattern = '/^' . str_replace('\*', '.*', preg_quote(trim((string) $row['property_pattern']), '/')) . '$/i';
                 self::$rules[] = [
                     'manufacturers_id' => (int) $row['manufacturers_id'],
@@ -261,91 +235,5 @@ class PluginPrintgestionSnmpadapter extends CommonDBTM {
                 ];
             }
         }
-    }
-
-    // ── Configuration ─────────────────────────────────────────────────────────
-
-    /** Carte de la configuration : règles existantes (suppression) et ajout. */
-    public static function showConfigCard(): void {
-        global $DB;
-
-        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
-            . $esc(__('Lecture des niveaux SNMP — règles par constructeur', 'printgestion')) . "</h3></div><div class='card-body'>";
-        echo "<p class='text-muted small mb-3'>" . $esc(__('Sentinelles de la Printer MIB (-1 non mesurable, -2 inconnu, -3 « il en reste ») jamais lues comme un pourcentage ; pourcentage reconstitué depuis les valeurs max / utilisé / restant quand il manque. Ajoutez une règle seulement pour un écart constaté sur un modèle (motif de propriété avec *, ex. wastetoner* ; constructeur vide = tous).', 'printgestion')) . "</p>";
-
-        $rules = iterator_to_array($DB->request(['FROM' => self::getTable(), 'ORDER' => ['manufacturers_id', 'property_pattern']]), false);
-        if (!empty($rules)) {
-            echo "<div class='table-responsive'><table class='table table-sm'><thead><tr>"
-                . "<th>" . $esc(Manufacturer::getTypeName(1)) . "</th><th>" . $esc(__('Propriété', 'printgestion')) . "</th>"
-                . "<th>" . $esc(__('Action', 'printgestion')) . "</th><th>" . $esc(__('Motif', 'printgestion')) . "</th>"
-                . "<th class='text-center'>" . $esc(__('Supprimer', 'printgestion')) . "</th></tr></thead><tbody>";
-            foreach ($rules as $rule) {
-                echo "<tr><td>" . ((int) $rule['manufacturers_id'] > 0 ? $esc(Dropdown::getDropdownName('glpi_manufacturers', (int) $rule['manufacturers_id'])) : $esc(__('Tous', 'printgestion'))) . "</td>"
-                    . "<td><code>" . $esc($rule['property_pattern']) . "</code></td>"
-                    . "<td>" . $esc(self::getActionLabels()[$rule['action']] ?? $rule['action']) . "</td>"
-                    . "<td>" . $esc($rule['comment']) . "</td>"
-                    . "<td class='text-center'><input type='checkbox' class='form-check-input' name='snmpadapter_delete[" . (int) $rule['id'] . "]' value='1'></td></tr>";
-            }
-            echo "</tbody></table></div>";
-        }
-
-        echo "<div class='row g-2 align-items-end'>";
-        echo "<div class='col-md-3'><label class='form-label'>" . $esc(Manufacturer::getTypeName(1)) . "</label>";
-        Manufacturer::dropdown(['name' => 'snmpadapter_new[manufacturers_id]', 'value' => 0, 'emptylabel' => __('Tous', 'printgestion')]);
-        echo "</div>";
-        echo "<div class='col-md-3'><label class='form-label'>" . $esc(__('Propriété (motif)', 'printgestion')) . "</label>"
-            . "<input type='text' class='form-control' name='snmpadapter_new[property_pattern]' maxlength='255' placeholder='wastetoner*'></div>";
-        echo "<div class='col-md-3'><label class='form-label'>" . $esc(__('Action', 'printgestion')) . "</label>";
-        Dropdown::showFromArray('snmpadapter_new[action]', self::getActionLabels());
-        echo "</div>";
-        echo "<div class='col-md-3'><label class='form-label'>" . $esc(__('Motif de la règle', 'printgestion')) . "</label>"
-            . "<input type='text' class='form-control' name='snmpadapter_new[comment]' maxlength='255'></div>";
-        echo "</div>";
-        echo "</div></div>";
-    }
-
-    /**
-     * Enregistre la carte de configuration : suppressions cochées, ajout d'une règle.
-     * @return string[] Messages d'erreur.
-     */
-    public static function saveConfig(array $input): array {
-        global $DB;
-
-        $errors = [];
-        $now    = $_SESSION['glpi_currenttime'];
-        foreach ((array) ($input['snmpadapter_delete'] ?? []) as $id => $flag) {
-            if ((int) $flag === 1 && (int) $id > 0) {
-                $DB->delete(self::getTable(), ['id' => (int) $id]);
-            }
-        }
-
-        $new     = (array) ($input['snmpadapter_new'] ?? []);
-        $pattern = trim((string) ($new['property_pattern'] ?? ''));
-        if ($pattern !== '') {
-            $action = (string) ($new['action'] ?? '');
-            if (!isset(self::getActionLabels()[$action])) {
-                $errors[] = __('Règle SNMP : action inconnue.', 'printgestion');
-            } elseif (!preg_match('/^[A-Za-z0-9_*.\-]+$/', $pattern)) {
-                $errors[] = __('Règle SNMP : motif de propriété invalide (lettres, chiffres, _ - . et * uniquement).', 'printgestion');
-            } else {
-                $DB->insert(self::getTable(), [
-                    'manufacturers_id' => max(0, (int) ($new['manufacturers_id'] ?? 0)),
-                    'property_pattern' => mb_substr($pattern, 0, 255),
-                    'action'           => $action,
-                    'comment'          => mb_substr(trim((string) ($new['comment'] ?? '')), 0, 255),
-                    'date_creation'    => $now,
-                ]);
-            }
-        }
-        self::resetCache();
-        return $errors;
-    }
-
-    static function uninstall(Migration $migration) {
-        global $DB;
-        $DB->doQuery('DROP TABLE IF EXISTS `' . self::getTable() . '`');
-        return true;
     }
 }

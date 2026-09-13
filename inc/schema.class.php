@@ -42,6 +42,7 @@ class PluginPrintgestionSchema {
         '1.5.2' => 'migrateTo152',
         '1.5.3' => 'migrateTo153',
         '1.5.4' => 'migrateTo154',
+        '1.5.5' => 'migrateTo155',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -472,9 +473,9 @@ class PluginPrintgestionSchema {
     }
 
     /**
-     * 1.5.0 — règles de lecture SNMP par constructeur (PluginPrintgestionSnmpadapter) :
-     * ignorer ou inverser une propriété (motif avec *), constructeur 0 = tous. Table vide
-     * par défaut : les sentinelles et les états bruts sont gérés sans règle.
+     * 1.5.0 — règles de lecture SNMP par constructeur : ignorer ou inverser une propriété
+     * (motif avec *), constructeur 0 = tous. Table vide par défaut : les sentinelles et les
+     * états bruts sont gérés sans règle. Table renommée snmprules en 1.5.5.
      */
     private static function migrateTo150(Migration $migration): void {
         global $DB;
@@ -548,5 +549,40 @@ class PluginPrintgestionSchema {
         $migration->addField($table, 'level_suspect', "tinyint NOT NULL DEFAULT '0'");
         $migration->addField($table, 'expedition_statut', 'varchar(20) DEFAULT NULL');
         $migration->migrationOneTable($table);
+    }
+
+    /**
+     * 1.5.5 — règles de lecture SNMP portées par leur propre classe (PluginPrintgestionSnmprule) :
+     * table snmpadapters renommée snmprules, règles conservées. Le service de lecture des
+     * niveaux (PluginPrintgestionSnmpadapter) n'a plus de table.
+     */
+    private static function migrateTo155(Migration $migration): void {
+        global $DB;
+
+        $old = 'glpi_plugin_printgestion_snmpadapters';
+        $new = 'glpi_plugin_printgestion_snmprules';
+        if ($DB->tableExists($new)) {
+            return;
+        }
+        if ($DB->tableExists($old)) {
+            $migration->displayMessage('Print Gestion — table des règles de lecture SNMP renommée');
+            $migration->renameTable($old, $new);
+            return;
+        }
+        // Table disparue entre-temps : recréée vide, avec la définition de l'étape 1.5.0.
+        $charset   = DBConnection::getDefaultCharset();
+        $collation = DBConnection::getDefaultCollation();
+        $sign      = DBConnection::getDefaultPrimaryKeySignOption();
+        $migration->displayMessage('Print Gestion — création de la table des règles de lecture SNMP');
+        $DB->doQuery("CREATE TABLE `{$new}` (
+            `id` int {$sign} NOT NULL AUTO_INCREMENT,
+            `manufacturers_id` int {$sign} NOT NULL DEFAULT '0',
+            `property_pattern` varchar(255) NOT NULL DEFAULT '',
+            `action` enum('ignore','invert') NOT NULL DEFAULT 'ignore',
+            `comment` varchar(255) DEFAULT NULL,
+            `date_creation` timestamp NULL DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `manufacturers_id` (`manufacturers_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
     }
 }
