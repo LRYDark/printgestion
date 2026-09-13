@@ -180,6 +180,29 @@ nouvelle interception passe par `PluginPrintgestionLogger`.
 
 Une ligne « absente du dernier import » n'est pas perdue : elle redevient active si elle réapparaît.
 
+### Déployer GLPI Agent chez un client (Windows)
+
+Une fois pour tout le parc :
+
+1. Installer et activer le plugin **GLPI Inventory avant de déployer les sondes** : l'adresse du serveur donnée
+   aux agents en dépend (`…/plugins/glpiinventory/`) ; un agent installé avant serait à réinstaller.
+2. Créer la règle d'affectation d'entité par TAG (Administration → Règles → Règles d'affectation d'un élément
+   à une entité) : critère « Tag d'inventaire » vérifie l'expression régulière `/^(.*)$/`, action « Entité depuis
+   TAG » = `#0`. Le plugin vérifie qu'elle existe, il ne la crée pas.
+3. Print Gestion → Collecte SNMP / Déploiement Agent → Installeur GLPI Agent : « Récupérer depuis GitHub ». Sans
+   accès Internet sur le serveur : déposer le MSI dans le dossier indiqué, puis vérifier son empreinte.
+
+Pour chaque client :
+
+1. Fiche de l'entité → Informations avancées : renseigner le TAG (lettres, chiffres, point, tiret, soulignement ;
+   unique), **avant le premier inventaire** : les règles d'entité ne jouent qu'au premier import.
+2. Onglet « Déploiement Agent » de l'entité : corriger ce qui n'est pas vert, puis « Windows » télécharge le paquet.
+3. Sur place : suivre `LISEZMOI.txt` (extraire, double-clic sur le `.bat`, assistant), puis vérifier dans l'onglet
+   que l'agent apparaît avec un contact récent et la collecte réseau installée.
+
+Échec d'installation : journal `%TEMP%\GLPI-Agent-install.log` sur le PC. Agent absent de l'onglet : il est
+peut-être rattaché à une autre entité (TAG, règle) — voir Administration → Inventaire → Agents.
+
 ### Cartouche « Réf. non résolue » (non commandable)
 
 Le motif figure dans la colonne « Référence non résolue » de l'écran Alertes toner :

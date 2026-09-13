@@ -7,7 +7,8 @@
  *   - Gestion contractuelle  (feature 'contrats') : Dashboard / Liste / Créer Print
  *   - Gestion toner & expéd. (feature 'toner')    : Alertes toner / Demandes / Expéditions
  *   - Coût à la page          (feature 'cout')      : Facturation
- *   - Collecte SNMP / Déploiement Agent (feature 'deploiement') : Contrôle de la remontée
+ *   - Collecte SNMP / Déploiement Agent (feature 'deploiement') : Installeur GLPI Agent / Contrôle de la remontée
+ *     (+ onglet « Déploiement Agent » sur la fiche Entité)
  *   - Référentiel Sage        (feature 'sage')      : Import du référentiel
  *
  * Un sous-onglet n'est visible que si SA feature est activée ET le droit READ
@@ -66,6 +67,8 @@ class PluginPrintgestionMenu extends CommonGLPI {
                 'icon'    => 'ti ti-antenna',
                 'feature' => 'deploiement',
                 'tabs'    => [
+                    // Installeur servi par le plugin : version, fichier en cache, adresses.
+                    ['key' => 'dp_agent', 'label' => __('Installeur GLPI Agent', 'printgestion'), 'icon' => 'ti ti-download', 'path' => '/front/agentdeploy.php', 'right' => ['plugin_printgestion_deploiement', READ]],
                     // Techniciens (déploiement) ou suivi des alertes toner, qui y renvoient.
                     ['key' => 'dp_collect', 'label' => __('Contrôle de la remontée', 'printgestion'), 'icon' => 'ti ti-activity', 'path' => '/front/collect.php', 'right' => [['plugin_printgestion_deploiement', READ], ['plugin_printgestion_dashboard', READ]]],
                 ],

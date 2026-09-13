@@ -66,6 +66,7 @@ printgestion/
 | `Snmpadapter` | Service (classe simple, sans table) : lecture fiable des niveaux SNMP — sentinelles, états bruts max/used/remaining, application des règles par constructeur |
 | `Snmprule` | Règle de lecture SNMP par constructeur (ignorer / inverser une propriété) : table, carte de configuration, droit de configuration du plugin |
 | `Collect` | Contrôle de la remontée (lecture seule) : prérequis, états de collecte datés par le journal d'import GLPI, agents et versions, valeurs de consommables et compteurs par modèle, doublons de numéro de série |
+| `Agentdeploy` | Déploiement Agent : onglet de l'entité (TAG, règle d'affectation, agents), installeur GLPI Agent servi et vérifié, paquet Windows pré-paramétré |
 | `NotificationTargetDemande` | Notifications natives GLPI des demandes d'envoi (proposée, relance, exportée) |
 | `Contractalert` | État et activation des alertes de contrat natives GLPI |
 | `Snmpmapping` | Mapping constructeur + propriété SNMP → modèle de cartouche + couleur |
@@ -86,7 +87,7 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 
 | Table | Contenu |
 |---|---|
-| `glpi_plugin_printgestion_configs` | Configuration singleton (id=1) : features, seuils, rôles mail, IDs gabarits |
+| `glpi_plugin_printgestion_configs` | Configuration singleton (id=1) : features, seuils, rôles mail, IDs gabarits, installeur GLPI Agent (étape 1.6.0) |
 | `glpi_plugin_printgestion_toner_readings` | Snapshots horodatés des niveaux toner (purge > 160 j) |
 | `glpi_plugin_printgestion_cartridge_history` | Changements de cartouche détectés |
 | `glpi_plugin_printgestion_alerts` | Alertes émises (traçabilité + anti-doublon mail 24 h) |
@@ -378,6 +379,45 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
   notifications GLPI n'est jamais modifiée : si elle est désactivée, c'est signalé.
 - Les mails historiques du plugin (Achats, planification, courtoisie, digests) restent sur leurs gabarits
   (§6) : pas de refonte globale.
+
+### Déploiement Agent — phase 1 (`inc/agentdeploy.class.php`, module « Collecte SNMP / Déploiement Agent »)
+
+Installer GLPI Agent sur un PC du client (la sonde) sans compétence GLPI ni ligne de commande, et vérifier le
+rattachement à l'entité. Rien de ce que GLPI fait nativement n'est redéveloppé : champ TAG de l'entité, règle
+d'affectation « Entity from TAG », fiche Agent (lien seulement).
+
+- **Onglet « Déploiement Agent » de l'entité** (droit `deploiement` READ ; module, droit et accès à l'entité
+  revérifiés à l'affichage) :
+  1. état du rattachement : TAG (vide : avertissement bloquant et lien vers « Informations avancées » ; caractères
+     hors `[A-Za-z0-9._-]` ou TAG porté par plusieurs entités : paquet refusé) ; règle `RuleImportEntity` portant
+     l'action `_affect_entity_by_tag` (active, position, règles actives jouées avant elle — le moteur s'arrête à
+     la première qui correspond ; jamais créée par le plugin) ; plugin GLPI Inventory ; agents de l'entité
+     (`glpi_agents.entities_id`) : version et conformité, dernier contact et « muet », TAG différent de celui de
+     l'entité, modules découverte et inventaire réseau ;
+  2. installeur : bouton Windows (Linux et macOS : phase 6), commande exacte et propriétés MSI expliquées.
+- **Paquet Windows** (`front/agentdeploy.download.php`, droit `deploiement` READ et accès à l'entité) : ZIP généré
+  à la demande dans `GLPI_TMP_DIR` et supprimé en fin de requête : MSI officiel (stocké, empreinte recalculée
+  avant envoi), `installer-glpi-agent.bat` (ASCII, CRLF, une commande), `commande-cmd.txt` (la même commande, à
+  coller dans cmd), `LISEZMOI.txt` (les 3 gestes). Chaque téléchargement est tracé dans l'historique de
+  l'entité. Aucun identifiant, jeton ni secret : URL du serveur et TAG seulement.
+- **Commande** : `msiexec /i "<MSI>" SERVER="…" TAG="…" ADDLOCAL="feat_AGENT,feat_NETINV" HTTPD_TRUST="127.0.0.1/32[,…]"
+  SNMP_RETRIES="2" RUNNOW="1" EXECMODE="1" QUICKINSTALL="1" /l*v "%TEMP%\GLPI-Agent-install.log"`, sans `/quiet`
+  (assistant standard prérempli), jamais lancée par PowerShell. `SERVER` : réglage, sinon
+  `<url_base>/plugins/glpiinventory/` si GLPI Inventory est actif, sinon `<url_base>/` (inventaire du poste
+  seulement). `HTTPD_TRUST` garde toujours `127.0.0.1/32` (interface locale de l'agent).
+- **Installeur servi** (page « Installeur GLPI Agent », `front/agentdeploy.php` ; lecture `deploiement`, actions
+  `config` UPDATE) : version servie (`DEFAULT_VERSION` = 1.19, épinglable) ; MSI récupéré par le serveur sur
+  GitHub (API des releases, proxy GLPI) et gardé seulement si son SHA-256 est l'empreinte `digest` publiée ; sans
+  accès Internet, fichier déposé dans `GLPI_PLUGIN_DOC_DIR/printgestion/agent/` puis vérifié contre l'empreinte
+  saisie (fichier `glpi-agent-<version>.sha256` de la release). Description `installer.json`, une seule version
+  en cache, dossier supprimé à la désinstallation.
+- **Réglages** (`glpi_plugin_printgestion_configs`, étape 1.6.0) : `agent_version`, `agent_server_url`,
+  `agent_httpd_trust` ; vides : automatiques.
+- **Limites vérifiées** : « Demander le statut » et « Demander un inventaire » (natifs) sont des requêtes du
+  serveur vers la sonde sur le port 62354, aux adresses du réseau local du poste (`Agent::guessAddresses()`) :
+  impossibles depuis un GLPI sur Internet vers une sonde derrière le NAT d'un client, sauf VPN. Sans GLPI
+  Inventory, l'agent ne reçoit aucune tâche réseau, et l'URL du serveur à lui donner change à l'installation
+  du plugin.
 
 ### Contrôle de la remontée (`inc/collect.class.php`, onglet « Contrôle de la remontée »)
 

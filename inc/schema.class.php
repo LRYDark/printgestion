@@ -47,6 +47,7 @@ class PluginPrintgestionSchema {
         '1.5.7' => 'migrateTo157',
         '1.5.8' => 'migrateTo158',
         '1.5.9' => 'migrateTo159',
+        '1.6.0' => 'migrateTo160',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -777,5 +778,19 @@ class PluginPrintgestionSchema {
                 }
             }
         }
+    }
+
+    /**
+     * 1.6.0 — Déploiement Agent : réglages de l'installeur GLPI Agent servi par le plugin.
+     * Vides, ils prennent la valeur automatique : version connue du plugin, URL de GLPI
+     * (point d'entrée du plugin GLPI Inventory s'il est actif), aucune adresse autorisée à
+     * réveiller l'agent en plus du poste lui-même.
+     */
+    private static function migrateTo160(Migration $migration): void {
+        $config = 'glpi_plugin_printgestion_configs';
+        $migration->addField($config, 'agent_version', 'varchar(20) DEFAULT NULL');
+        $migration->addField($config, 'agent_server_url', 'varchar(255) DEFAULT NULL');
+        $migration->addField($config, 'agent_httpd_trust', 'varchar(255) DEFAULT NULL');
+        $migration->migrationOneTable($config);
     }
 }

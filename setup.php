@@ -7,7 +7,7 @@
 // À incrémenter à chaque nouvelle étape de schéma (inc/schema.class.php) ou nouvelle
 // tâche automatique : GLPI ne rejoue l'installation (migrations, enregistrement des
 // tâches) que si cette version change.
-define('PLUGIN_PRINTGESTION_VERSION', '1.5.9');
+define('PLUGIN_PRINTGESTION_VERSION', '1.6.0');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');
@@ -78,6 +78,9 @@ function plugin_init_printgestion() {
             }
             if (PluginPrintgestionConfig::isFeatureEnabled('sage')) {
                 Plugin::registerClass('PluginPrintgestionSage', ['addtabon' => 'Entity']); // code client Sage
+            }
+            if (PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
+                Plugin::registerClass('PluginPrintgestionAgentdeploy', ['addtabon' => 'Entity']); // Déploiement Agent
             }
 
             // Jeton anti-cache (beta) : à incrémenter à chaque modif de public/css|js.
