@@ -237,6 +237,10 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
 - **Validation, tout ou rien** : contrôles recalculés ; une seule ligne bloquante refuse la validation avec
   les motifs. Sinon, en transaction : cartouche résolue, contrat et prix mis à jour (0 sous contrat, prix 0
   hérité retiré d'une ligne passée hors contrat), lignes et demande « validée », valideur et date.
+- **Contrôles avant export** (`Demande::prepareExport()`, carte « Contrôles avant export Gesconso » de la
+  fiche) : lignes validées passées dans `Gesconso::prepare()` — code client Sage, adresse de livraison,
+  référence article, prix. Une seule ligne en défaut empêche d'exporter la demande, avec la liste des lignes.
+  Affichés dès la proposition, à titre indicatif.
 - **Droits** : `plugin_printgestion_validation` (READ voir, UPDATE modifier / valider / annuler). La file
   est aussi visible avec la lecture des alertes toner, sans pouvoir agir. Pas de création manuelle.
 

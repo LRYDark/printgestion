@@ -839,6 +839,52 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         }
     }
 
+    // ── Export Gesconso ───────────────────────────────────────────────────────
+
+    /**
+     * Lignes au format de PluginPrintgestionGesconso::prepare() pour les lignes de la
+     * demande aux statuts donnés. Devis = date de validation (à défaut : de proposition) ;
+     * Complément livraison = contact et commentaire de livraison, sur une ligne.
+     */
+    public function buildExportLines(array $lines, array $statuses): array {
+        $complement = implode(' — ', array_filter([
+            trim((string) $this->fields['contact']),
+            trim((string) preg_replace('/\s+/u', ' ', (string) $this->fields['delivery_comment'])),
+        ], static fn(string $part) => $part !== ''));
+        $date = (string) ($this->fields['date_validate'] ?: $this->fields['date_creation'] ?: date('Y-m-d H:i:s'));
+
+        $out = [];
+        foreach ($lines as $line_id => $line) {
+            if (!in_array((string) $line['statut'], $statuses, true)) {
+                continue;
+            }
+            $out[] = [
+                'key'               => (string) $line_id,
+                'label'             => sprintf(__('Demande #%1$d — %2$s', 'printgestion'), $this->getID(), self::lineLabel($line)),
+                'printers_id'       => (int) $line['printers_id'],
+                'cartridgeitems_id' => (int) $line['cartridgeitems_id'],
+                'quantity'          => (int) $line['quantity'],
+                'unit_price'        => $line['unit_price'],
+                'under_contract'    => (int) $line['is_under_contract'] === 1,
+                'date'              => $date,
+                'complement'        => $complement,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Contrôles avant export des lignes VALIDÉES : Gesconso::prepare() — code client Sage,
+     * adresse de livraison, référence article, prix. Une seule ligne en défaut empêche
+     * d'exporter la demande.
+     *
+     * @return array ['lines' => lignes de buildExportLines(), 'gesconso' => résultat de prepare()]
+     */
+    public function prepareExport(): array {
+        $lines = $this->buildExportLines($this->getLines(), [self::STATUS_VALIDATED]);
+        return ['lines' => $lines, 'gesconso' => PluginPrintgestionGesconso::prepare($lines)];
+    }
+
     // ── Proposition automatique ───────────────────────────────────────────────
 
     /**
@@ -1081,6 +1127,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
 
         $this->showHeaderCard($editable);
         $this->showLinesCard($lines, $checks, $editable);
+        $this->showExportChecksCard($lines);
 
         if ($editable) {
             $this->showValidationButtons($lines, $checks);
@@ -1090,6 +1137,50 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             $this->showCancelCard();
         }
         return true;
+    }
+
+    /**
+     * Contrôles avant export Gesconso, dès la proposition : lignes qui empêcheraient
+     * d'écrire le fichier (code client, adresse de livraison, référence article, prix).
+     * Demande proposée : indicatif, sur les données du moment ; demande validée : ce sont
+     * les contrôles appliqués à l'export.
+     */
+    private function showExportChecksCard(array $lines): void {
+        $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $statut = (string) $this->fields['statut'];
+        if (!in_array($statut, self::OPEN_STATUSES, true)) {
+            return;
+        }
+        $export_lines = $this->buildExportLines($lines, [$statut]);
+        if (empty($export_lines)) {
+            return;
+        }
+        $check = PluginPrintgestionGesconso::prepare($export_lines);
+
+        echo "<div class='card mt-3'><div class='card-header'><h3 class='card-title mb-0'>"
+            . $esc(__('Contrôles avant export Gesconso', 'printgestion')) . "</h3></div><div class='card-body'>";
+        if (!empty($check['errors'])) {
+            echo "<div class='alert alert-danger mb-2'><strong>" . $esc(sprintf(
+                _n(
+                    '%d ligne en défaut : la demande ne peut pas être exportée.',
+                    '%d lignes en défaut : la demande ne peut pas être exportée.',
+                    count($check['errors']),
+                    'printgestion'
+                ),
+                count($check['errors'])
+            )) . "</strong><ul class='mb-0'>";
+            foreach (array_merge(...array_values($check['errors'])) as $message) {
+                echo "<li>" . $esc($message) . "</li>";
+            }
+            echo "</ul></div>";
+        } else {
+            echo "<div class='text-success mb-2'><i class='ti ti-check me-1'></i>"
+                . $esc(__('Toutes les lignes peuvent être écrites dans le fichier Gesconso.', 'printgestion')) . "</div>";
+        }
+        foreach ($check['warnings'] as $message) {
+            echo "<div class='text-warning small'><i class='ti ti-alert-triangle me-1'></i>" . $esc($message) . "</div>";
+        }
+        echo "</div></div>";
     }
 
     /** « Enregistrer » et « Valider » (enregistre puis valide, en un clic). */
