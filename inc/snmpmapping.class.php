@@ -26,10 +26,6 @@ class PluginPrintgestionSnmpmapping extends CommonDBTM {
     }
 
     /**
-     * Pré-remplit la table avec les mappings par défaut observés chez JCD Groupe.
-     * Ne fait rien si la table contient déjà des entrées.
-     */
-    /**
      * Détecte automatiquement la couleur d'un toner depuis le nom de la propriété SNMP
      * ou le nom d'un type de cartouche. Utilisé pour colorer la barre de progression
      * dans le dashboard alertes (pas de logique métier dessus).
@@ -51,6 +47,12 @@ class PluginPrintgestionSnmpmapping extends CommonDBTM {
         return 'other';
     }
 
+    /**
+     * Pré-remplit la table vide avec les propriétés des consommables commandés, sous leur nom
+     * réel dans l'inventaire GLPI (glpi_printers_cartridgeinfos.property, voir
+     * Glpi\Inventory\Asset\Cartridge::knownTags()), sans type de cartouche : l'administrateur
+     * choisit le type par propriété. Ne fait rien si la table contient déjà des entrées.
+     */
     public static function seedDefaults(): void {
         global $DB;
 
@@ -67,38 +69,18 @@ class PluginPrintgestionSnmpmapping extends CommonDBTM {
             return;
         }
 
-        // Une ligne par propriété SNMP UNIQUE, peu importe le constructeur.
-        // Les variantes constructeur pointent souvent vers le même type logique
-        // (ex: "Toner Noir", "developerblack", "tonerblack" = toner noir générique).
+        // Une ligne par propriété, peu importe le constructeur. L'inventaire GLPI nomme les
+        // emplacements colorés type + couleur (tonerblack, drumcyan…) ; unité de
+        // développement, bac de récupération et kits n'ont pas de couleur (developer,
+        // wastetoner, fuserkit…).
         $default = [
-            // Toner noir — variantes constructeur
-            'Toner Noir'              => 'black',
-            'tonerblack'              => 'black',
-            'developerblack'          => 'black',
-            'Black Toner Remaining'   => 'black',
-            'black-toner-remaining'   => 'black',
-            // Toner cyan
-            'Toner Cyan'              => 'cyan',
-            'tonercyan'               => 'cyan',
-            'developercyan'           => 'cyan',
-            'Cyan Toner Remaining'    => 'cyan',
-            'cyan-toner-remaining'    => 'cyan',
-            // Toner magenta
-            'Toner Magenta'           => 'magenta',
-            'tonermagenta'            => 'magenta',
-            'developermagenta'        => 'magenta',
-            'Magenta Toner Remaining' => 'magenta',
-            'magenta-toner-remaining' => 'magenta',
-            // Toner jaune
-            'Toner Jaune'             => 'yellow',
-            'toneryellow'             => 'yellow',
-            'developeryellow'         => 'yellow',
-            'Yellow Toner Remaining'  => 'yellow',
-            'yellow-toner-remaining'  => 'yellow',
-            // Kits (tambour, fusion, transfert, entretien)
-            'Kit unité de fusion'     => 'other',
-            'Kit de transfert'        => 'other',
-            "Kit d'entretien"         => 'other',
+            'tonerblack'     => 'black',
+            'tonercyan'      => 'cyan',
+            'tonermagenta'   => 'magenta',
+            'toneryellow'    => 'yellow',
+            'fuserkit'       => 'other',
+            'transferkit'    => 'other',
+            'maintenancekit' => 'other',
         ];
 
         foreach ($default as $property => $color) {
@@ -276,7 +258,7 @@ class PluginPrintgestionSnmpmapping extends CommonDBTM {
      * Cascade :
      *   1. Nom du cartridgeitem GLPI résolu via resolveCartridgeItemForSnmp (binding direct OU type)
      *   2. Nom du type GLPI (cartridgeitemtypes_id) si défini dans le mapping SNMP
-     *   3. La propriété SNMP elle-même (ex: "Toner Noir")
+     *   3. La propriété SNMP elle-même (ex. : tonerblack)
      *
      * Utilisé pour l'affichage dashboard et pour la balise ##printgestion.cartridge##
      * dans les emails.

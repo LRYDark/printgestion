@@ -187,7 +187,8 @@ Le motif figure dans la colonne « Référence non résolue » de l'écran Alert
 - **modèle non renseigné** : compléter le modèle sur la fiche imprimante ;
 - **aucune cartouche** : sur la fiche de la cartouche, déclarer le modèle dans « Modèles d'imprimantes
   compatibles », puis lier la propriété SNMP dans l'onglet Print Gestion (ou renseigner le type de cartouche
-  dans le mapping SNMP de la configuration) ;
+  dans le mapping SNMP de la configuration). L'onglet liste toutes les propriétés remontées par les imprimantes
+  de ces modèles, OK / WARNING compris, sous leur nom GLPI (`tonercyan`, `drumblack`, `fuserkit`…) ;
 - **plusieurs cartouches possibles** (standard et XL, par exemple) : ne lier qu'une cartouche à la propriété
   pour ce modèle, ou n'en garder qu'une dans l'entité de l'imprimante.
 

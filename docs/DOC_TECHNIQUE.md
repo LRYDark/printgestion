@@ -140,6 +140,18 @@ Résolution de la cartouche à commander pour une propriété SNMP (`Snmpmapping
 4. plusieurs candidates à la même étape : celle de l'entité de l'imprimante si elle est seule, sinon ambiguïté
    (référence non résolue — jamais de choix arbitraire).
 
+- **Liaison directe** (onglet Print Gestion de la cartouche, `Cartridgesnmp`) : toutes les propriétés remontées
+  par les imprimantes des modèles compatibles, quelle que soit la valeur (pourcentage, OK / WARNING, pages…),
+  états bruts `…max` / `…used` / `…remaining` ramenés à leur emplacement ; une liaison existante reste affichée
+  même si plus aucune imprimante ne remonte la propriété. L'enregistrement ne modifie que les propriétés
+  affichées (plus de purge puis réinsertion).
+- **Noms des propriétés** : ceux de l'inventaire GLPI (`Glpi\Inventory\Asset\Cartridge::knownTags()`), type +
+  couleur pour les emplacements colorés (`tonerblack`, `drumcyan`, `cartridgeyellow`), sans couleur pour
+  `developer`, `wastetoner`, `maintenancekit`, `fuserkit`, `transferkit`, `cleaningkit`. Mapping SNMP pré-rempli
+  à l'installation avec les quatre toners et les kits ; la 1.5.8 retire les anciennes lignes pré-remplies sous
+  des libellés qu'aucun inventaire ne produit (« Toner Noir », `developercyan`…), si elles n'ont pas été
+  modifiées et qu'aucune imprimante ne les remonte.
+
 Aucun repli sans modèle (liaison toutes imprimantes confondues, type seul toutes marques). Référence non
 résolue = cartouche non commandable : badge « Réf. non résolue » avec le motif, exclue de la fenêtre de
 commande, refus côté serveur. Les synchronisations de l'onglet Cartouches natif ignorent aussi ces emplacements.

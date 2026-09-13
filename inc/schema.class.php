@@ -45,6 +45,7 @@ class PluginPrintgestionSchema {
         '1.5.5' => 'migrateTo155',
         '1.5.6' => 'migrateTo156',
         '1.5.7' => 'migrateTo157',
+        '1.5.8' => 'migrateTo158',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -667,6 +668,63 @@ class PluginPrintgestionSchema {
                 ['name' => $new_name],
                 ['name' => 'Print Gestion - Commander cartouche (stock vide)', 'comment' => $marker]
             );
+        }
+    }
+
+    /**
+     * 1.5.8 — mapping SNMP sous les noms réels de l'inventaire GLPI. Les lignes pré-remplies
+     * à l'installation sous des libellés qu'aucun inventaire ne produit (« Toner Noir »,
+     * « Black Toner Remaining », « developercyan »…) sont retirées si elles sont restées
+     * telles quelles (ni type de cartouche, ni constructeur) et qu'aucune imprimante ne
+     * remonte cette propriété ; les kits sont remplacés par leur nom réel. Une ligne
+     * modifiée par l'administrateur est conservée. Listes figées ici.
+     */
+    private static function migrateTo158(Migration $migration): void {
+        global $DB;
+
+        $table        = 'glpi_plugin_printgestion_snmp_mapping';
+        $replacements = [
+            'Kit unité de fusion' => 'fuserkit',
+            'Kit de transfert'    => 'transferkit',
+            "Kit d'entretien"     => 'maintenancekit',
+        ];
+        $legacy = array_merge([
+            'Toner Noir', 'Black Toner Remaining', 'black-toner-remaining', 'developerblack',
+            'Toner Cyan', 'Cyan Toner Remaining', 'cyan-toner-remaining', 'developercyan',
+            'Toner Magenta', 'Magenta Toner Remaining', 'magenta-toner-remaining', 'developermagenta',
+            'Toner Jaune', 'Yellow Toner Remaining', 'yellow-toner-remaining', 'developeryellow',
+        ], array_keys($replacements));
+
+        $removed = 0;
+        $added   = 0;
+        foreach ($DB->request([
+            'SELECT' => ['id', 'snmp_property'],
+            'FROM'   => $table,
+            'WHERE'  => [
+                'snmp_property' => $legacy,
+                'OR'            => [['cartridgeitemtypes_id' => null], ['cartridgeitemtypes_id' => 0]],
+                ['OR' => [['manufacturer' => null], ['manufacturer' => '']]],
+                ['OR' => [['cartridge_type' => null], ['cartridge_type' => '']]],
+            ],
+        ]) as $row) {
+            if (countElementsInTable('glpi_printers_cartridgeinfos', ['property' => $row['snmp_property']]) > 0) {
+                continue; // remontée par au moins une imprimante : conservée
+            }
+            $DB->delete($table, ['id' => (int) $row['id']]);
+            $removed++;
+
+            $real = $replacements[(string) $row['snmp_property']] ?? null;
+            if ($real !== null && countElementsInTable($table, ['snmp_property' => $real]) === 0) {
+                $DB->insert($table, ['snmp_property' => $real, 'toner_color' => 'other']);
+                $added++;
+            }
+        }
+        if ($removed > 0) {
+            $migration->displayMessage(sprintf(
+                'Print Gestion — mapping SNMP : %d ligne(s) pré-remplie(s) sous un libellé jamais remonté retirée(s), %d kit(s) ajouté(s) sous leur nom réel.',
+                $removed,
+                $added
+            ));
         }
     }
 }

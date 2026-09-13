@@ -53,7 +53,10 @@ class PluginPrintgestionCartridgesnmp extends CommonDBTM {
      *
      * Filtre : seules les propriétés remontées par des imprimantes dont le modèle
      * est déclaré compatible avec cette cartouche (via glpi_cartridgeitems_printermodels).
-     * On ne garde que les valeurs numériques (%) — les OK/WARNING sont skippés.
+     * Toutes les valeurs comptent (pourcentage, OK / WARNING, pages restantes…) : une
+     * cartouche dont l'imprimante ne remonte qu'un état reste commandable, donc liable.
+     * Les états bruts (…max, …used, …remaining) ne sont pas des emplacements : c'est leur
+     * emplacement de base qui est proposé.
      */
     public static function getAvailableSnmpProperties(int $cartridgeitems_id): array {
         global $DB;
@@ -63,7 +66,7 @@ class PluginPrintgestionCartridgesnmp extends CommonDBTM {
         }
 
         $rows = $DB->request([
-            'SELECT'     => ['ci.printers_id', 'ci.property', 'ci.value'],
+            'SELECT'     => ['ci.property'],
             'DISTINCT'   => true,
             'FROM'       => 'glpi_printers_cartridgeinfos AS ci',
             'INNER JOIN' => [
@@ -84,13 +87,12 @@ class PluginPrintgestionCartridgesnmp extends CommonDBTM {
 
         $properties = [];
         foreach ($rows as $r) {
-            // Skip les valeurs non exploitables (OK, WARNING, vide)
-            $parsed = PluginPrintgestionTonerreading::parseTonerValue((string)$r['value'], (string)$r['property'], (int)$r['printers_id']);
-            if (!$parsed['usable']) {
-                continue;
+            $prop  = (string)$r['property'];
+            $state = PluginPrintgestionSnmpadapter::getStateBase($prop);
+            if ($state !== null) {
+                $prop = (string)$state['base'];
             }
-            $prop = (string)$r['property'];
-            if (!in_array($prop, $properties, true)) {
+            if ($prop !== '' && !in_array($prop, $properties, true)) {
                 $properties[] = $prop;
             }
         }
@@ -151,8 +153,12 @@ class PluginPrintgestionCartridgesnmp extends CommonDBTM {
             return;
         }
 
-        $properties = self::getAvailableSnmpProperties($cartridgeitems_id);
-        $bound      = self::getBoundProperties($cartridgeitems_id);
+        $available = self::getAvailableSnmpProperties($cartridgeitems_id);
+        $bound     = self::getBoundProperties($cartridgeitems_id);
+        // Liaisons existantes toujours affichées, même si aucune imprimante compatible ne
+        // remonte la propriété en ce moment : elles restent visibles et modifiables.
+        $properties = array_values(array_unique(array_merge($available, $bound)));
+        sort($properties);
 
         if (empty($properties)) {
             echo "<div class='alert alert-info mb-0'>";
@@ -185,13 +191,20 @@ class PluginPrintgestionCartridgesnmp extends CommonDBTM {
             echo "<tr>";
             echo "<td class='text-center'>";
             if ($canedit) {
+                // Propriétés affichées : seules celles-ci sont modifiées à l'enregistrement.
+                echo "<input type='hidden' name='shown[]' value='{$prop_h}'>";
                 echo "<input type='checkbox' class='form-check-input' "
                     . "name='bound[]' value='{$prop_h}' {$checked}>";
             } else {
                 echo $checked ? '✓' : '—';
             }
             echo "</td>";
-            echo "<td>{$prop_h}</td>";
+            echo "<td>{$prop_h}";
+            if (!in_array($prop, $available, true)) {
+                echo " <span class='badge bg-light text-muted border ms-1'>"
+                    . __('non remontée actuellement par les imprimantes compatibles', 'printgestion') . "</span>";
+            }
+            echo "</td>";
             echo "</tr>";
         }
 

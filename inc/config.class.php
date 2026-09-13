@@ -324,8 +324,8 @@ class PluginPrintgestionConfig extends CommonDBTM {
             ) ENGINE=InnoDB DEFAULT CHARSET={$default_charset} COLLATE={$default_collation} ROW_FORMAT=DYNAMIC;";
 
         // Binding direct cartouche ↔ propriété SNMP (sans passer par un type intermédiaire).
-        // Un même cartridgeitems_id peut être bindé à plusieurs propriétés SNMP
-        // (ex: HP W2031X → "Toner Cyan" + "tonercyan" + "developercyan").
+        // Un même cartridgeitems_id peut être bindé à plusieurs propriétés SNMP, sous leur nom
+        // réel dans l'inventaire GLPI (ex. : un tambour commun → « drumcyan » + « drummagenta »).
         $tables['glpi_plugin_printgestion_cartridge_snmp'] = "
             CREATE TABLE IF NOT EXISTS `glpi_plugin_printgestion_cartridge_snmp` (
                 `id` int {$default_key_sign} NOT NULL AUTO_INCREMENT,
@@ -1416,7 +1416,7 @@ function printgestionAddMappingRow() {
     tr.innerHTML =
         '<td><input type="text" class="form-control form-control-sm" ' +
             'name="new[' + idx + '][snmp_property]" ' +
-            'placeholder="Toner Noir, developerblack, …" required></td>' +
+            'placeholder="tonerblack, drumcyan, fuserkit, …" required></td>' +
         '<td>' + selectHtml + '</td>' +
         '<td><button type="button" class="btn btn-sm btn-outline-danger" ' +
             'onclick="this.closest(\'tr\').remove()">' +
