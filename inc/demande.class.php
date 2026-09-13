@@ -1256,13 +1256,23 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
     // ── Proposition automatique ───────────────────────────────────────────────
 
     /**
+     * Jours pendant lesquels un emplacement dont une ligne de demande a été annulée n'est
+     * plus proposé automatiquement, sauf pose détectée ou confirmée depuis l'annulation.
+     */
+    const RECENT_CANCEL_DAYS = 30;
+
+    /**
      * Crée ou complète les demandes PROPOSÉES à partir des alertes toner (tâche
      * automatique), regroupées par client (entité de l'imprimante) et site de livraison
      * (lieu racine).
      *
      * Retenus : toners critiques ou à surveiller (alertes snoozées exclues) sans verrou
      * bloquant — pas d'envoi en cours ni de ligne de demande ouverte, pas de garde après
-     * pose ni de ticket récent, sauf contournement (consommation anormale).
+     * pose ni de ticket récent, sauf contournement (consommation anormale). Écartés aussi :
+     * les emplacements dont une ligne a été annulée il y a moins de RECENT_CANCEL_DAYS
+     * jours, sans pose détectée ou confirmée depuis. L'annulation est une décision : elle
+     * n'est pas défaite au passage suivant, et la commande directe depuis l'écran des
+     * alertes reste possible.
      * Pour un client et un site, la demande proposée existante est complétée, sinon une
      * demande est créée. Chaque ligne porte la cartouche résolue (0 si non résolue : la
      * ligne est créée mais bloquée à la validation, jamais exportée sans référence), la
@@ -1270,13 +1280,19 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
      * Chaque groupe est une transaction : un groupe en échec est annulé en entier,
      * journalisé, et n'empêche pas les autres.
      *
-     * @return array ['demandes_created' => int, 'lines_added' => int,
-     *                'unresolved' => int, 'failed_groups' => int]
+     * @return array ['demandes_created' => int, 'lines_added' => int, 'unresolved' => int,
+     *                'recently_cancelled' => int, 'failed_groups' => int]
      */
     public static function proposeFromAlerts(): array {
         global $DB;
 
-        $stats = ['demandes_created' => 0, 'lines_added' => 0, 'unresolved' => 0, 'failed_groups' => 0];
+        $stats = [
+            'demandes_created'   => 0,
+            'lines_added'        => 0,
+            'unresolved'         => 0,
+            'recently_cancelled' => 0,
+            'failed_groups'      => 0,
+        ];
 
         // Tâche automatique : toutes les entités.
         $candidates = [];
@@ -1288,6 +1304,19 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 continue; // envoi ou demande en cours, garde après pose, ticket récent
             }
             $candidates[] = $row;
+        }
+
+        $recently_cancelled = self::getRecentlyCancelledSlots($candidates);
+        if (!empty($recently_cancelled)) {
+            $kept = [];
+            foreach ($candidates as $row) {
+                if (isset($recently_cancelled[(int) $row['printers_id'] . '|' . (string) $row['property']])) {
+                    $stats['recently_cancelled']++;
+                    continue;
+                }
+                $kept[] = $row;
+            }
+            $candidates = $kept;
         }
         if (empty($candidates)) {
             return $stats;
@@ -1344,6 +1373,76 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             PluginPrintgestionAlert::invalidateCache();
         }
         return $stats;
+    }
+
+    /**
+     * Emplacements à ne pas reproposer, en clé « imprimante|toner » : la machine
+     * (l'imprimante et ses doublons de numéro de série, comme pour les verrous) a une ligne
+     * de demande annulée depuis moins de RECENT_CANCEL_DAYS jours, sans pose détectée
+     * (hausse de niveau) ni confirmée depuis. Date d'annulation : dernière modification de
+     * la ligne, qui n'est plus modifiable une fois annulée.
+     */
+    private static function getRecentlyCancelledSlots(array $rows): array {
+        global $DB;
+
+        $printer_ids = array_values(array_unique(array_map(static fn(array $row) => (int) $row['printers_id'], $rows)));
+        if (empty($printer_ids)) {
+            return [];
+        }
+        $machines = PluginPrintgestionGuard::resolveMachines($printer_ids);
+        $all_ids  = array_values(array_unique(array_merge(...array_values($machines))));
+        $cutoff   = date('Y-m-d H:i:s', time() - self::RECENT_CANCEL_DAYS * DAY_TIMESTAMP);
+
+        $cancelled = [];
+        foreach ($DB->request([
+            'SELECT'  => ['printers_id', 'toner_property', new \QueryExpression('MAX(`date_mod`) AS `last_date`')],
+            'FROM'    => PluginPrintgestionDemandeline::getTable(),
+            'WHERE'   => [
+                'printers_id' => $all_ids,
+                'statut'      => self::STATUS_CANCELLED,
+                'date_mod'    => ['>=', $cutoff],
+            ],
+            'GROUPBY' => ['printers_id', 'toner_property'],
+        ]) as $line) {
+            $cancelled[$line['printers_id'] . '|' . $line['toner_property']] = (string) $line['last_date'];
+        }
+        if (empty($cancelled)) {
+            return [];
+        }
+
+        // Poses depuis le début de la fenêtre : détectées (hors lignes d'amorçage) ou
+        // confirmées (manuellement ou à la réattribution).
+        $installed = [];
+        foreach ([
+            ['glpi_plugin_printgestion_cartridge_history', 'date_install', ['is_detected' => 1]],
+            [PluginPrintgestionExpedition::getTable(), 'date_installed', ['statut' => PluginPrintgestionExpedition::STATUS_INSTALLED]],
+        ] as [$table, $field, $criteria]) {
+            foreach ($DB->request([
+                'SELECT'  => ['printers_id', 'toner_property', new \QueryExpression("MAX(`{$field}`) AS `last_date`")],
+                'FROM'    => $table,
+                'WHERE'   => $criteria + ['printers_id' => $all_ids, $field => ['>=', $cutoff]],
+                'GROUPBY' => ['printers_id', 'toner_property'],
+            ]) as $install) {
+                $key             = $install['printers_id'] . '|' . $install['toner_property'];
+                $installed[$key] = max($installed[$key] ?? '', (string) $install['last_date']);
+            }
+        }
+
+        $skip = [];
+        foreach ($rows as $row) {
+            $pid          = (int) $row['printers_id'];
+            $property     = (string) $row['property'];
+            $last_cancel  = '';
+            $last_install = '';
+            foreach ($machines[$pid] ?? [$pid] as $id) {
+                $last_cancel  = max($last_cancel, $cancelled[$id . '|' . $property] ?? '');
+                $last_install = max($last_install, $installed[$id . '|' . $property] ?? '');
+            }
+            if ($last_cancel !== '' && $last_install <= $last_cancel) {
+                $skip[$pid . '|' . $property] = true;
+            }
+        }
+        return $skip;
     }
 
     /**

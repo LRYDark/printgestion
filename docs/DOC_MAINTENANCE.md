@@ -160,6 +160,9 @@ nouvelle interception passe par `PluginPrintgestionLogger`.
 - Tâche `PrintgestionProposeDemandes` : installée **désactivée** (bandeau sur l'écran Demandes d'envoi).
 - Seuls les toners critiques ou à surveiller, non snoozés et sans verrou bloquant sont proposés : un envoi
   en cours, une ligne déjà ouverte, une garde après pose ou un ticket récent excluent l'emplacement.
+- Une ligne annulée (à la main, avec sa demande ou avec son expédition) écarte l'emplacement pendant 30 jours,
+  sauf pose détectée ou confirmée depuis : compteur « Écartés (annulés < 30 j) » du journal de la tâche. La
+  commande directe depuis l'écran des alertes reste possible.
 - « Groupes en échec » dans le journal de la tâche : détail dans `files/_log/printgestion.log`
   (contexte `demandes`) ; le groupe est annulé en entier et retenté au passage suivant.
 

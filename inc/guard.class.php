@@ -345,8 +345,9 @@ class PluginPrintgestionGuard {
 
     /**
      * Imprimante => [elle-même + imprimantes actives portant le même n° de série].
+     * Sert aussi à la proposition automatique (lignes de demande annulées récemment).
      */
-    private static function resolveMachines(array $printer_ids): array {
+    public static function resolveMachines(array $printer_ids): array {
         global $DB;
 
         $machines  = [];

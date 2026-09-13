@@ -133,10 +133,12 @@ class PluginPrintgestionReminder extends CommonGLPI {
         if ($task !== null) {
             $task->addVolume($stats['lines_added']);
             $task->log(sprintf(
-                'Demandes créées : %d — Lignes proposées : %d (dont référence non résolue : %d) — Groupes en échec : %d',
+                'Demandes créées : %d — Lignes proposées : %d (dont référence non résolue : %d) — Écartés (annulés < %d j) : %d — Groupes en échec : %d',
                 $stats['demandes_created'],
                 $stats['lines_added'],
                 $stats['unresolved'],
+                PluginPrintgestionDemande::RECENT_CANCEL_DAYS,
+                $stats['recently_cancelled'],
                 $stats['failed_groups']
             ));
         }
