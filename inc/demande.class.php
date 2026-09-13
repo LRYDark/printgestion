@@ -1553,7 +1553,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 . $esc(__('Toutes les lignes peuvent être écrites dans le fichier Gesconso.', 'printgestion')) . "</div>";
             if ($statut === self::STATUS_VALIDATED && self::canUpdate() && $this->canUpdateItem()) {
                 echo "<a class='btn btn-sm btn-primary mb-2' href='"
-                    . $esc(PLUGIN_PRINTGESTION_WEBDIR . '/front/demande.export.php?' . http_build_query(['id' => [(int) $this->getID()]])) . "'>"
+                    . $esc(PLUGIN_PRINTGESTION_WEBDIR . '/front/demande.export.php?' . http_build_query(['demandes' => [(int) $this->getID()]])) . "'>"
                     . "<i class='ti ti-file-export me-1'></i>" . $esc(__('Exporter vers les Achats…', 'printgestion')) . "</a>";
             }
         }

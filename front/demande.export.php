@@ -40,7 +40,7 @@ if (isset($_POST['send']) || isset($_POST['download'])) {
     // Jeton CSRF déjà validé par CheckCsrfListener avant ce fichier.
     $ids  = array_values(array_filter(array_map('intval', (array) ($_POST['demandes'] ?? [])), static fn(int $id) => $id > 0));
     $send = isset($_POST['send']);
-    $back = $page . '?' . http_build_query(['id' => $ids]);
+    $back = $page . '?' . http_build_query(['demandes' => $ids]);
 
     if (empty($ids)) {
         $flash([__('Aucune demande sélectionnée.', 'printgestion')], ERROR);
@@ -91,7 +91,9 @@ echo "<div class='container-fluid mt-3'>";
 PluginPrintgestionMenu::showTabBar('tn_dem');
 
 $esc       = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-$preselect = array_map('intval', (array) ($_GET['id'] ?? []));
+// Paramètre « demandes » et non « id » : GLPI lit id comme l'identifiant d'une fiche
+// (titre de la page) et un tableau y provoque un avertissement PHP.
+$preselect = array_map('intval', (array) ($_GET['demandes'] ?? []));
 $table     = PluginPrintgestionDemande::getTable();
 
 $rows = [];
