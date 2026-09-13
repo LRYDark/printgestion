@@ -39,6 +39,7 @@ class PluginPrintgestionSchema {
         '1.4.1' => 'migrateTo141',
         '1.5.0' => 'migrateTo150',
         '1.5.1' => 'migrateTo151',
+        '1.5.2' => 'migrateTo152',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -504,5 +505,15 @@ class PluginPrintgestionSchema {
         $table = 'glpi_plugin_printgestion_toner_readings';
         $migration->addField($table, 'is_suspect', "tinyint NOT NULL DEFAULT '0'");
         $migration->migrationOneTable($table);
+    }
+
+    /**
+     * 1.5.2 — collecte SNMP : délai (jours) sans inventaire au-delà duquel une imprimante ou
+     * un agent est signalé muet.
+     */
+    private static function migrateTo152(Migration $migration): void {
+        $config = 'glpi_plugin_printgestion_configs';
+        $migration->addField($config, 'silent_days', "int NOT NULL DEFAULT '3'");
+        $migration->migrationOneTable($config);
     }
 }

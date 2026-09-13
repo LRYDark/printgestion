@@ -323,6 +323,22 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
 - La commande directe (fenêtre de commande des alertes) utilise ce générateur : plus de colonne « Stock
   GLPI », plus de nom d'entité en code client.
 
+### Collecte SNMP (`inc/collect.class.php`, onglet « Collecte SNMP »)
+
+L'absence de remontée est un **état à signaler**, jamais une absence d'alerte : une imprimante dont on ne
+lit plus les niveaux ne déclenche aucune alerte toner. Aucune couverture complète du parc n'est supposée.
+
+| État | Condition |
+|---|---|
+| Jamais remontée | Ni date d'inventaire (`last_inventory_update`) ni consommable remonté |
+| Muette | Dernier inventaire plus ancien que `silent_days` jours (3 par défaut) |
+| Sans niveau lisible | Inventaire à jour, mais aucun niveau exploitable (sentinelles, OK, valeurs inconnues) |
+| Collecte normale | — |
+
+Agents : dernier agent ayant inventorié chaque imprimante (`glpi_rulematchedlogs`), signalé « ne remonte
+plus » si son dernier contact dépasse `silent_days` jours, avec le nombre d'imprimantes concernées.
+Périmètre : entités de l'utilisateur (droit `dashboard` READ).
+
 ### Points d'entrée (ajax/)
 
 | Endpoint | Action |

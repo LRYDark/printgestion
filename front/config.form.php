@@ -72,6 +72,7 @@ if (isset($_POST['update'])) {
         'guard_days'             => max(0, min(365, (int)($_POST['guard_days'] ?? 5))),
         'guard_bypass_level'     => max(0, min(100, (int)($_POST['guard_bypass_level'] ?? 10))),
         'guard_ticket_days'      => max(0, min(365, (int)($_POST['guard_ticket_days'] ?? 10))),
+        'silent_days'            => max(1, min(365, (int)($_POST['silent_days'] ?? PluginPrintgestionCollect::DEFAULT_SILENT_DAYS))),
         // Types de contrat « consommables inclus » (IDs ContractType, CSV). Liste vide
         // si aucun type n'est sélectionné (le sélecteur multiple ne poste alors rien).
         'consumables_contracttypes' => $normalize_user_ids($_POST['consumables_contracttypes'] ?? ''),
