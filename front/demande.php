@@ -74,6 +74,13 @@ $params   = Search::manageParams($itemtype, $_GET);
 $params['target'] = PluginPrintgestionDemande::getSearchURL();
 $forced   = [1, 80, 7, 3, 4, 13, 121]; // Nom, Client, Site, Statut, Mode, Lignes, Proposée le
 
+if (Session::haveRight('plugin_printgestion_validation', UPDATE)) {
+    echo "<div class='mb-3'><a class='btn btn-primary' href='"
+        . htmlspecialchars(PLUGIN_PRINTGESTION_WEBDIR . '/front/demande.export.php', ENT_QUOTES, 'UTF-8') . "'>"
+        . "<i class='ti ti-file-export me-1'></i>"
+        . htmlspecialchars(__('Exporter les demandes validées (Gesconso)', 'printgestion'), ENT_QUOTES, 'UTF-8') . "</a></div>";
+}
+
 echo "<div class='search_page row'>";
 echo "<div class='col search-container' data-glpi-search-container>";
 Search::showList($itemtype, $params, $forced);

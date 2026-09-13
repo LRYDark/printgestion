@@ -885,6 +885,211 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         return ['lines' => $lines, 'gesconso' => PluginPrintgestionGesconso::prepare($lines)];
     }
 
+    /** Code d'exception : échec du mail aux Achats pendant l'export (message affichable). */
+    const EXPORT_MAIL_FAILURE = 4301;
+
+    /**
+     * Export Gesconso de demandes VALIDÉES, en un seul fichier (une ligne par cartouche).
+     *
+     * $send = true  : envoi aux Achats. En transaction : une expédition par ligne (le verrou
+     *                 anti-double-envoi passe de la ligne à l'expédition), lignes et demandes
+     *                 « exportée », fichier archivé et rattaché aux demandes et aux
+     *                 expéditions, mail aux Achats. Échec de l'archivage ou du mail : rien
+     *                 n'est enregistré, les demandes restent validées.
+     * $send = false : téléchargement de test, sans mail. Le fichier est archivé (rattaché aux
+     *                 demandes, commentaire « non transmis ») et noté dans leur historique ;
+     *                 aucun statut ne change, aucune expédition n'est créée.
+     *
+     * Refus de l'export entier : demande non validée ou hors droits, ligne en défaut
+     * (contrôles avant export), et à l'envoi, verrou anti-double-envoi bloquant.
+     *
+     * @return array ['ok' => bool, 'errors' => string[], 'warnings' => string[],
+     *                'documents_id' => int, 'lines' => int]
+     */
+    public static function exportDemandes(array $demandes_ids, bool $send): array {
+        $out = ['ok' => false, 'errors' => [], 'warnings' => [], 'documents_id' => 0, 'lines' => 0];
+
+        $demandes = [];
+        $lines    = [];
+        $data     = []; // clé de ligne => ['demande' => self, 'line' => ligne de getLines()]
+        foreach (array_unique(array_map('intval', $demandes_ids)) as $id) {
+            $demande = new self();
+            if ($id <= 0 || !$demande->getFromDB($id) || !$demande->can($id, UPDATE)) {
+                $out['errors'][] = sprintf(__('Demande #%d introuvable ou hors de vos droits.', 'printgestion'), $id);
+                continue;
+            }
+            $statut = (string) $demande->fields['statut'];
+            if ($statut !== self::STATUS_VALIDATED) {
+                $out['errors'][] = sprintf(
+                    __('Demande #%1$d au statut « %2$s » : seules les demandes validées s\'exportent.', 'printgestion'),
+                    $id,
+                    self::getStatusLabels()[$statut] ?? $statut
+                );
+                continue;
+            }
+            $rows   = $demande->getLines();
+            $export = $demande->buildExportLines($rows, [self::STATUS_VALIDATED]);
+            if (empty($export)) {
+                $out['errors'][] = sprintf(__('Demande #%d : aucune ligne validée.', 'printgestion'), $id);
+                continue;
+            }
+
+            if ($send) {
+                // Verrous revérifiés à l'envoi (hors lignes de la demande elle-même) : une pose,
+                // un ticket ou un envoi a pu survenir depuis la validation.
+                $locks = PluginPrintgestionGuard::evaluateLive(array_map(static fn(array $l) => [
+                    'printers_id' => (int) $rows[(int) $l['key']]['printers_id'],
+                    'property'    => (string) $rows[(int) $l['key']]['toner_property'],
+                ], $export), ['exclude_demandes_id' => $id]);
+                foreach ($export as $l) {
+                    $line = $rows[(int) $l['key']];
+                    $lock = $locks[(int) $line['printers_id'] . '|' . $line['toner_property']] ?? null;
+                    if ($lock !== null && $lock['blocking']) {
+                        $out['errors'][] = $l['label'] . ' : ' . $lock['message'];
+                    }
+                }
+            }
+
+            foreach ($export as $l) {
+                $lines[]           = $l;
+                $data[$l['key']]   = ['demande' => $demande, 'line' => $rows[(int) $l['key']]];
+            }
+            $demandes[$id] = $demande;
+        }
+        if (empty($demandes) && empty($out['errors'])) {
+            $out['errors'][] = __('Aucune demande sélectionnée.', 'printgestion');
+        }
+        if (!empty($out['errors'])) {
+            return $out;
+        }
+
+        $gesconso = PluginPrintgestionGesconso::prepare($lines);
+        $out['warnings'] = $gesconso['warnings'];
+        if (!empty($gesconso['errors'])) {
+            $out['errors'] = array_merge(...array_values($gesconso['errors']));
+            return $out;
+        }
+        $out['lines'] = count($lines);
+
+        try {
+            $file = PluginPrintgestionGesconso::write($gesconso['rows']);
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::error('export', 'Fichier Gesconso des demandes non généré.', $e);
+            $out['errors'][] = __('Le fichier Gesconso n\'a pas pu être généré (détail dans le journal printgestion).', 'printgestion');
+            return $out;
+        }
+
+        $numbers = implode(', ', array_map(static fn(int $id) => '#' . $id, array_keys($demandes)));
+        $author  = getUserName((int) Session::getLoginUserID());
+        $now     = Html::convDateTime(date('Y-m-d H:i:s'));
+        $archive = null;
+
+        try {
+            if (!$send) {
+                $out['documents_id'] = self::transactional(function () use ($file, $demandes, $numbers, $author, $now, &$archive) {
+                    $documents_id = PluginPrintgestionGesconso::archive(
+                        $file,
+                        sprintf(__('Téléchargement de test du %1$s par %2$s, NON transmis aux Achats — demandes %3$s non exportées.', 'printgestion'), $now, $author, $numbers),
+                        array_map(static fn(int $id) => [self::class, $id], array_keys($demandes))
+                    );
+                    $archive = new Document();
+                    $archive->getFromDB($documents_id);
+                    foreach (array_keys($demandes) as $id) {
+                        Log::history($id, self::class, [0, '', sprintf(
+                            __('Fichier Gesconso de test téléchargé (document #%d), non transmis aux Achats.', 'printgestion'),
+                            $documents_id
+                        )], '', Log::HISTORY_LOG_SIMPLE_MESSAGE);
+                    }
+                    return $documents_id;
+                });
+            } else {
+                $out['documents_id'] = self::transactional(function () use ($file, $demandes, $data, $numbers, $author, $now, &$archive) {
+                    $group_id    = Rule::getUuid();
+                    $line_object = new PluginPrintgestionDemandeline();
+                    $expeditions = [];
+                    $mail_rows   = [];
+
+                    foreach ($data as $key => $item) {
+                        $line = $item['line'];
+                        // La ligne cède son verrou avant la création de l'expédition qui le reprend.
+                        if (!$line_object->update(['id' => (int) $key, 'statut' => self::STATUS_EXPORTED])) {
+                            throw new RuntimeException(sprintf('Export de la ligne #%d refusé par GLPI.', $key));
+                        }
+                        $stock          = PluginPrintgestionExpedition::getCartridgeStock((int) $line['cartridgeitems_id']);
+                        $expeditions_id = PluginPrintgestionExpedition::createFromAlert(
+                            (int) $line['printers_id'],
+                            (string) $line['toner_property'],
+                            (int) ($line['level_at_proposal'] ?? 0),
+                            $line['estimated_days'] !== null ? (int) $line['estimated_days'] : null,
+                            $stock > 0 ? 'normal' : 'stock_empty',
+                            $group_id
+                        );
+                        if ($expeditions_id <= 0
+                            || !$line_object->update(['id' => (int) $key, 'expeditions_id' => $expeditions_id])) {
+                            throw new RuntimeException(sprintf('Expédition de la ligne #%d non enregistrée.', $key));
+                        }
+                        $expeditions[] = $expeditions_id;
+
+                        $row          = PluginPrintgestionExpedition::buildPurchaseRowData(
+                            (int) $line['printers_id'],
+                            (string) $line['toner_property'],
+                            (int) $line['cartridgeitems_id']
+                        );
+                        $row['level'] = (int) ($line['level_at_proposal'] ?? 0);
+                        $row['days']  = $line['estimated_days'] !== null ? (int) $line['estimated_days'] : null;
+                        $mail_rows[]  = $row;
+                    }
+
+                    foreach ($demandes as $id => $demande) {
+                        if (!$demande->update(['id' => $id, 'statut' => self::STATUS_EXPORTED])) {
+                            throw new RuntimeException(sprintf('Export de la demande #%d refusé par GLPI.', $id));
+                        }
+                    }
+
+                    $documents_id = PluginPrintgestionGesconso::archive(
+                        $file,
+                        sprintf(__('Export des demandes %1$s envoyé aux Achats le %2$s par %3$s (%4$d ligne(s)).', 'printgestion'), $numbers, $now, $author, count($data)),
+                        array_merge(
+                            array_map(static fn(int $id) => [self::class, $id], array_keys($demandes)),
+                            array_map(static fn(int $id) => [PluginPrintgestionExpedition::class, $id], $expeditions)
+                        )
+                    );
+                    $archive = new Document();
+                    $archive->getFromDB($documents_id);
+
+                    $mail = PluginPrintgestionExpedition::sendPurchaseOrderMail($mail_rows, $file['path']);
+                    if (!$mail['ok']) {
+                        throw new RuntimeException($mail['error'], self::EXPORT_MAIL_FAILURE);
+                    }
+                    return $documents_id;
+                });
+                PluginPrintgestionAlert::invalidateCache();
+            }
+        } catch (Throwable $e) {
+            if ($archive !== null) {
+                PluginPrintgestionGesconso::removeOrphanArchive($archive->fields);
+            }
+            if ($e->getCode() === self::EXPORT_MAIL_FAILURE) {
+                $out['errors'][] = $e->getMessage();
+            } elseif (PluginPrintgestionExpedition::isDuplicateActiveError($e)) {
+                $out['errors'][] = __('Un envoi vient d\'être enregistré pour une de ces cartouches (commande simultanée) : rechargez l\'écran.', 'printgestion');
+            } else {
+                PluginPrintgestionLogger::error('export', sprintf('Export Gesconso des demandes %s annulé.', $numbers), $e);
+                $out['errors'][] = __('Erreur technique pendant l\'export (détail dans le journal printgestion).', 'printgestion');
+            }
+            $out['documents_id'] = 0;
+            return $out;
+        } finally {
+            // Fichier temporaire supprimé dans tous les cas (la copie archivée reste).
+            if (is_file($file['path'])) {
+                @unlink($file['path']);
+            }
+        }
+
+        $out['ok'] = true;
+        return $out;
+    }
+
     // ── Proposition automatique ───────────────────────────────────────────────
 
     /**
@@ -1176,6 +1381,11 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         } else {
             echo "<div class='text-success mb-2'><i class='ti ti-check me-1'></i>"
                 . $esc(__('Toutes les lignes peuvent être écrites dans le fichier Gesconso.', 'printgestion')) . "</div>";
+            if ($statut === self::STATUS_VALIDATED && self::canUpdate() && $this->canUpdateItem()) {
+                echo "<a class='btn btn-sm btn-primary mb-2' href='"
+                    . $esc(PLUGIN_PRINTGESTION_WEBDIR . '/front/demande.export.php?' . http_build_query(['id' => [(int) $this->getID()]])) . "'>"
+                    . "<i class='ti ti-file-export me-1'></i>" . $esc(__('Exporter vers les Achats…', 'printgestion')) . "</a>";
+            }
         }
         foreach ($check['warnings'] as $message) {
             echo "<div class='text-warning small'><i class='ti ti-alert-triangle me-1'></i>" . $esc($message) . "</div>";

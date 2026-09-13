@@ -190,6 +190,16 @@ Le motif s'affiche au survol du badge (écran Alertes) et dans « Voir stock » 
 - **plusieurs cartouches possibles** (standard et XL, par exemple) : ne lier qu'une cartouche à la propriété
   pour ce modèle, ou n'en garder qu'une dans l'entité de l'imprimante.
 
+### Tester l'import dans Gesconso avant de brancher l'envoi
+
+1. Demandes d'envoi → « Exporter les demandes validées » → cocher plusieurs demandes.
+2. « Télécharger le fichier (test, sans envoi) » : fichier `Gesconso_JJMMAAAA_HHMM.xlsx`, archivé sur les
+   demandes avec la mention « non transmis » ; aucun statut ne change.
+3. Faire importer ce fichier multi-lignes dans Gesconso par les Achats ; en cas de rejet, comparer au fichier
+   réel de référence (en-têtes, 9 colonnes, date Excel, longueur de désignation — réglable en configuration).
+4. Une fois l'import validé, utiliser « Envoyer aux Achats ». Attention : un fichier de test importé pour de
+   bon dans Sage n'est pas tracé comme exporté — ne pas le renvoyer ensuite.
+
 ### Commande refusée : « ne peuvent pas être écrites dans le fichier Gesconso »
 
 Chaque ligne en défaut est listée avec son motif (`Gesconso::prepare()`) :

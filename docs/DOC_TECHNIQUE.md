@@ -241,6 +241,15 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   fiche) : lignes validées passées dans `Gesconso::prepare()` — code client Sage, adresse de livraison,
   référence article, prix. Une seule ligne en défaut empêche d'exporter la demande, avec la liste des lignes.
   Affichés dès la proposition, à titre indicatif.
+- **Export** (`front/demande.export.php`, `Demande::exportDemandes()`, droit validation UPDATE) : un fichier
+  Gesconso pour la sélection de demandes validées. **Envoyer aux Achats** : verrous revérifiés, puis en
+  transaction une expédition par ligne (la ligne `exported` cède son verrou à l'expédition), demandes
+  `exported`, fichier archivé sur les demandes et les expéditions, mail Achats ; échec d'archivage ou de mail
+  = rien n'est enregistré. **Télécharger (test, sans envoi)** : même fichier, archivé sur les demandes avec la
+  mention « non transmis », noté dans leur historique, sans mail, sans changement de statut ni expédition.
+  Une seule ligne en défaut refuse l'export entier.
+- **Pas encore fait** : statuts `shipped` / `delivered` / `installed` de la demande à partir de ses
+  expéditions (la demande reste `exported`, le suivi se lit sur les expéditions).
 - **Droits** : `plugin_printgestion_validation` (READ voir, UPDATE modifier / valider / annuler). La file
   est aussi visible avec la lecture des alertes toner, sans pouvoir agir. Pas de création manuelle.
 

@@ -484,7 +484,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      * livraison) et couverture contrat. Le contenu du fichier est construit par
      * PluginPrintgestionGesconso::prepare().
      */
-    protected static function buildPurchaseRowData(int $printers_id, string $property, int $cartridgeitems_id): array {
+    public static function buildPurchaseRowData(int $printers_id, string $property, int $cartridgeitems_id): array {
         global $DB;
 
         $entity_name = $loc_comment = $printer_name = '';
@@ -860,7 +860,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      * @param ?int $requester_user_id User GLPI à mettre en copie (défaut : user connecté).
      * @return array ['ok' => bool, 'error' => string] — error renseigné quand ok = false.
      */
-    protected static function sendPurchaseOrderMail(array $rows, string $xlsx, ?int $requester_user_id = null): array {
+    public static function sendPurchaseOrderMail(array $rows, string $xlsx, ?int $requester_user_id = null): array {
         if (empty($rows)) {
             return ['ok' => false, 'error' => __('Aucune ligne à commander.', 'printgestion')];
         }
