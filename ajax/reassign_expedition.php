@@ -47,4 +47,5 @@ if (PluginPrintgestionExpedition::reassignToPrinter($expedition_id, $new_printer
     );
 }
 
-Html::redirect(PLUGIN_PRINTGESTION_WEBDIR . '/front/dashboard_alerts.php');
+// Retour sur l'écran Expéditions, où sont listées les alertes prioritaires.
+Html::redirect(PLUGIN_PRINTGESTION_WEBDIR . '/front/dashboard_expeditions.php');

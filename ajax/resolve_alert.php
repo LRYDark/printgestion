@@ -32,4 +32,5 @@ if (PluginPrintgestionAlert::resolveAlert($alert_id)) {
     Session::addMessageAfterRedirect(__('Erreur lors de la résolution', 'printgestion'), true, ERROR);
 }
 
-Html::redirect(PLUGIN_PRINTGESTION_WEBDIR . '/front/dashboard_alerts.php');
+// Retour sur l'écran Expéditions, où sont listées les alertes prioritaires.
+Html::redirect(PLUGIN_PRINTGESTION_WEBDIR . '/front/dashboard_expeditions.php');

@@ -59,4 +59,5 @@ if ($action === 'ship') {
     Session::addMessageAfterRedirect(__('Action inconnue', 'printgestion'), true, ERROR);
 }
 
-Html::redirect(PLUGIN_PRINTGESTION_WEBDIR . '/front/dashboard_alerts.php');
+// Retour sur la fiche de l'expédition, d'où part le formulaire.
+Html::redirect(PluginPrintgestionExpedition::getFormURLWithID($expedition_id));
