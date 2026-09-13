@@ -71,6 +71,11 @@ class PluginPrintgestionReminder extends CommonDBTM {
         $reassigned     = PluginPrintgestionExpedition::autoReassignStaleWrongPrinterAlerts();
         // Avancement des expéditions (poses détectées, réattributions) → demandes d'envoi.
         PluginPrintgestionDemande::syncFromExpeditions();
+        // Relance native des demandes qui traînent (proposées ou validées non exportées).
+        $demande_reminders = PluginPrintgestionDemande::sendReminders();
+        if ($task !== null && $demande_reminders > 0) {
+            $task->log("Relances de demandes d'envoi : {$demande_reminders}");
+        }
 
         // Invalide le cache dashboard alerts — force un recalcul frais au prochain fetch
         PluginPrintgestionAlert::invalidateCache();

@@ -11,7 +11,22 @@ Session::checkRight('plugin_printgestion_config', UPDATE);
 
 global $DB, $CFG_GLPI;
 
-if (isset($_POST['update'])) {
+if (isset($_POST['activate_contract_alerts'])) {
+    // Réglages natifs GLPI (action automatique, entité racine, notifications) : droit GLPI.
+    if (!Session::haveRight('config', UPDATE)) {
+        throw new \Glpi\Exception\Http\AccessDeniedHttpException();
+    }
+    $result = PluginPrintgestionContractalert::activate();
+    foreach ($result['done'] as $message) {
+        Session::addMessageAfterRedirect(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'), false, INFO);
+    }
+    foreach ($result['errors'] as $message) {
+        Session::addMessageAfterRedirect(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'), false, WARNING);
+    }
+    if (empty($result['done']) && empty($result['errors'])) {
+        Session::addMessageAfterRedirect(__('Les alertes de contrat natives étaient déjà actives.', 'printgestion'), false, INFO);
+    }
+} elseif (isset($_POST['update'])) {
     // Validation CSRF faite par CheckCsrfListener (kernel Symfony) avant ce fichier.
 
     $config = PluginPrintgestionConfig::getInstance();
@@ -73,6 +88,7 @@ if (isset($_POST['update'])) {
         'guard_bypass_level'     => max(0, min(100, (int)($_POST['guard_bypass_level'] ?? 10))),
         'guard_ticket_days'      => max(0, min(365, (int)($_POST['guard_ticket_days'] ?? 10))),
         'silent_days'            => max(1, min(365, (int)($_POST['silent_days'] ?? PluginPrintgestionCollect::DEFAULT_SILENT_DAYS))),
+        'demande_reminder_days'  => max(0, min(90, (int)($_POST['demande_reminder_days'] ?? 2))),
         // Types de contrat « consommables inclus » (IDs ContractType, CSV). Liste vide
         // si aucun type n'est sélectionné (le sélecteur multiple ne poste alors rien).
         'consumables_contracttypes' => $normalize_user_ids($_POST['consumables_contracttypes'] ?? ''),

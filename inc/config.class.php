@@ -870,6 +870,24 @@ class PluginPrintgestionConfig extends CommonDBTM {
         // ── Lecture des niveaux SNMP : règles par constructeur ────
         PluginPrintgestionSnmpadapter::showConfigCard();
 
+        // ── Notifications natives des demandes d'envoi ───────────
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
+            . __('Notifications natives des demandes d\'envoi', 'printgestion') . "</h3></div><div class='card-body'>";
+        echo "<p class='text-muted small mb-3'>"
+            . __("Événements GLPI « Demande d'envoi proposée », « en attente (relance) » et « exportée vers les Achats » (Configuration → Notifications, type Demande d'envoi) : créés inactifs, à activer après avoir choisi les destinataires (profil ou groupe des valideurs, Achats…).", 'printgestion')
+            . " <a href='" . htmlspecialchars(Notification::getSearchURL(), ENT_QUOTES, 'UTF-8') . "'>" . __('Ouvrir les notifications', 'printgestion') . "</a></p>";
+        echo "<div class='row g-3'><div class='col-md-4'>"
+            . $label_with_tip(
+                __('Relance d\'une demande en attente (jours)', 'printgestion'),
+                __("Une demande proposée non validée, ou validée non exportée, depuis ce nombre de jours déclenche l'événement de relance, au plus une fois par période. 0 = relance désactivée.", 'printgestion')
+            );
+        echo "<input type='number' min='0' max='90' class='form-control' name='demande_reminder_days' value='"
+            . (int)($config->fields['demande_reminder_days'] ?? 2) . "'></div></div>";
+        echo "</div></div>";
+
+        // ── Alertes de contrat natives GLPI ──────────────────────
+        PluginPrintgestionContractalert::showConfigCard();
+
         // Active les tooltips Bootstrap sur les icônes d'info
         echo "<script>
 (function() {

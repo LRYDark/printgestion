@@ -7,7 +7,7 @@
 // À incrémenter à chaque nouvelle étape de schéma (inc/schema.class.php) ou nouvelle
 // tâche automatique : GLPI ne rejoue l'installation (migrations, enregistrement des
 // tâches) que si cette version change.
-define('PLUGIN_PRINTGESTION_VERSION', '1.5.2');
+define('PLUGIN_PRINTGESTION_VERSION', '1.5.3');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');
@@ -48,15 +48,19 @@ function plugin_init_printgestion() {
         $CFG_GLPI['glpiitemtypetables']['glpi_plugin_printgestion_billing_view'] = 'PluginPrintgestionBillingview';
         $CFG_GLPI['glpitablesitemtype']['PluginPrintgestionBillingview']        = 'glpi_plugin_printgestion_billing_view';
 
+        // Fichiers Gesconso archivés en Documents natifs (expéditions, demandes) et
+        // notifications natives des demandes : déclarés hors session aussi, pour les tâches
+        // automatiques qui émettent ces notifications.
+        Plugin::registerClass('PluginPrintgestionExpedition', ['document_types' => true]);
+        Plugin::registerClass('PluginPrintgestionDemande', [
+            'document_types'              => true,
+            'notificationtemplates_types' => true,
+        ]);
+
         if (Session::getLoginUserID()) {
             // Onglets toujours présents (admin).
             Plugin::registerClass('PluginPrintgestionProfile', ['addtabon' => 'Profile']);
             Plugin::registerClass('PluginPrintgestionConfig',  ['addtabon' => 'Config']);
-
-            // Fichiers Gesconso archivés en Documents natifs, rattachés aux expéditions et
-            // aux demandes d'envoi (onglet Documents).
-            Plugin::registerClass('PluginPrintgestionExpedition', ['document_types' => true]);
-            Plugin::registerClass('PluginPrintgestionDemande',    ['document_types' => true]);
 
             // Onglets natifs gated par interrupteur de module (désactivé = non chargé).
             if (PluginPrintgestionConfig::isFeatureEnabled('contrats')) {

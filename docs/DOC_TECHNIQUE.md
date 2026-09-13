@@ -323,6 +323,25 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
 - La commande directe (fenêtre de commande des alertes) utilise ce générateur : plus de colonne « Stock
   GLPI », plus de nom d'entité en code client.
 
+### Notifications natives (`inc/notificationtargetdemande.class.php`, `inc/contractalert.class.php`)
+
+- **Demandes d'envoi** : `NotificationTarget` natif (`notificationtemplates_types`), événements
+  `demande_proposed` (proposition automatique), `demande_stale` (relance), `demande_exported` (envoi aux
+  Achats), émis par `NotificationEvent::raiseEvent()` → file d'attente GLPI `QueuedNotification`. Balises
+  `##demande.*##` et boucle `##FOREACHlines##` (`##line.printer##`, `toner`, `cartridge`, `quantity`,
+  `contract`, `status`). Gabarits et notifications créés à l'installation **inactifs** (destinataire par
+  défaut : administrateur de l'entité) : choisir les destinataires (profil, groupe) puis activer.
+- **Relance** (`Demande::sendReminders()`, tâche `CheckAlerts`) : proposée non validée, ou validée non
+  exportée, depuis `demande_reminder_days` jours (2 par défaut, 0 = désactivé) ; au plus une relance par
+  période (`date_last_reminder`).
+- Un échec d'émission est journalisé (contexte `notifications`) et n'interrompt jamais le traitement.
+- **Alertes de contrat natives** (Configuration → « Alertes de contrat natives ») : état de chaque maillon
+  et bouton d'activation (droit GLPI `config` UPDATE) — action automatique `contract`, alertes de l'entité
+  racine (délai 30 jours s'il n'y en a pas), notifications de contrat. La configuration globale des
+  notifications GLPI n'est jamais modifiée : si elle est désactivée, c'est signalé.
+- Les mails historiques du plugin (Achats, planification, courtoisie, digests) restent sur leurs gabarits
+  (§6) : pas de refonte globale.
+
 ### Collecte SNMP (`inc/collect.class.php`, onglet « Collecte SNMP »)
 
 L'absence de remontée est un **état à signaler**, jamais une absence d'alerte : une imprimante dont on ne

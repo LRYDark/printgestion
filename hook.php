@@ -7,7 +7,7 @@
 function plugin_printgestion_install() {
     // Chargement explicite des classes utiles à l'installation : l'ordre
     // d'exécution ne dépend plus de l'ordre alphabétique des fichiers de inc/.
-    foreach (['schema', 'config', 'snmpmapping', 'reminder', 'profile'] as $name) {
+    foreach (['schema', 'config', 'snmpmapping', 'reminder', 'profile', 'notificationtargetdemande'] as $name) {
         if (!class_exists('PluginPrintgestion' . ucfirst($name), false)) {
             include_once(dirname(__FILE__) . '/inc/' . $name . '.class.php');
         }
@@ -32,6 +32,9 @@ function plugin_printgestion_install() {
 
     // Création des gabarits de notifications par défaut
     plugin_printgestion_create_templates();
+
+    // Notifications natives des demandes d'envoi (créées inactives, idempotent).
+    PluginPrintgestionNotificationTargetDemande::install();
 
     return true;
 }

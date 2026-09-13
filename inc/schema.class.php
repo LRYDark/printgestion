@@ -40,6 +40,7 @@ class PluginPrintgestionSchema {
         '1.5.0' => 'migrateTo150',
         '1.5.1' => 'migrateTo151',
         '1.5.2' => 'migrateTo152',
+        '1.5.3' => 'migrateTo153',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -515,5 +516,19 @@ class PluginPrintgestionSchema {
         $config = 'glpi_plugin_printgestion_configs';
         $migration->addField($config, 'silent_days', "int NOT NULL DEFAULT '3'");
         $migration->migrationOneTable($config);
+    }
+
+    /**
+     * 1.5.3 — notifications natives des demandes d'envoi : délai de relance (jours, 0 =
+     * désactivé) et date de la dernière relance de chaque demande.
+     */
+    private static function migrateTo153(Migration $migration): void {
+        $config = 'glpi_plugin_printgestion_configs';
+        $migration->addField($config, 'demande_reminder_days', "int NOT NULL DEFAULT '2'");
+        $migration->migrationOneTable($config);
+
+        $demandes = 'glpi_plugin_printgestion_demandes';
+        $migration->addField($demandes, 'date_last_reminder', 'timestamp NULL DEFAULT NULL');
+        $migration->migrationOneTable($demandes);
     }
 }

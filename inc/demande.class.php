@@ -991,6 +991,62 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         }
     }
 
+    // ── Notifications natives ─────────────────────────────────────────────────
+
+    /**
+     * Déclenche une notification native (PluginPrintgestionNotificationTargetDemande) : mise
+     * en file d'attente GLPI si une notification active existe pour l'événement. Un échec
+     * est journalisé et n'interrompt jamais le traitement appelant.
+     */
+    public static function raiseEventFor(string $event, int $demandes_id): void {
+        try {
+            $demande = new self();
+            if ($demandes_id > 0 && $demande->getFromDB($demandes_id)) {
+                NotificationEvent::raiseEvent($event, $demande);
+            }
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::error('notifications', sprintf('Notification %s de la demande #%d non émise.', $event, $demandes_id), $e);
+        }
+    }
+
+    /**
+     * Relance des demandes qui traînent (événement demande_stale) : proposée sans validation,
+     * ou validée sans export, depuis plus de demande_reminder_days jours ; au plus une relance
+     * par période. 0 jour = relance désactivée.
+     *
+     * @return int Relances émises.
+     */
+    public static function sendReminders(): int {
+        global $DB;
+
+        $days = (int) (PluginPrintgestionConfig::getInstance()->fields['demande_reminder_days'] ?? 0);
+        if ($days <= 0) {
+            return 0;
+        }
+        $cutoff = date('Y-m-d H:i:s', time() - $days * DAY_TIMESTAMP);
+
+        $sent = 0;
+        foreach ($DB->request([
+            'SELECT' => ['id'],
+            'FROM'   => self::getTable(),
+            'WHERE'  => [
+                'OR' => [
+                    ['statut' => self::STATUS_PROPOSED, 'date_creation' => ['<=', $cutoff]],
+                    ['statut' => self::STATUS_VALIDATED, 'date_validate' => ['<=', $cutoff]],
+                ],
+                ['OR' => [
+                    ['date_last_reminder' => null],
+                    ['date_last_reminder' => ['<=', $cutoff]],
+                ]],
+            ],
+        ]) as $row) {
+            self::raiseEventFor('demande_stale', (int) $row['id']);
+            $DB->update(self::getTable(), ['date_last_reminder' => $_SESSION['glpi_currenttime']], ['id' => (int) $row['id']]);
+            $sent++;
+        }
+        return $sent;
+    }
+
     /** Code d'exception : échec du mail aux Achats pendant l'export (message affichable). */
     const EXPORT_MAIL_FAILURE = 4301;
 
@@ -1170,6 +1226,9 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                     return $documents_id;
                 });
                 PluginPrintgestionAlert::invalidateCache();
+                foreach (array_keys($demandes) as $id) {
+                    self::raiseEventFor('demande_exported', $id);
+                }
             }
         } catch (Throwable $e) {
             if ($archive !== null) {
@@ -1266,6 +1325,9 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 $stats['demandes_created'] += $result['created'];
                 $stats['lines_added']      += $result['lines'];
                 $stats['unresolved']       += $result['unresolved'];
+                if ($result['lines'] > 0) {
+                    self::raiseEventFor('demande_proposed', (int) $result['demandes_id']);
+                }
             } catch (Throwable $e) {
                 $stats['failed_groups']++;
                 PluginPrintgestionLogger::error(
@@ -1296,7 +1358,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
     private static function proposeGroup(array $group): array {
         global $DB;
 
-        $result = ['created' => 0, 'lines' => 0, 'unresolved' => 0];
+        $result = ['created' => 0, 'lines' => 0, 'unresolved' => 0, 'demandes_id' => 0];
 
         $locks = PluginPrintgestionGuard::evaluate(array_map(static fn(array $row) => [
             'printers_id' => (int) $row['printers_id'],
@@ -1347,6 +1409,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             }
             $result['created'] = 1;
         }
+        $result['demandes_id'] = $demandes_id;
 
         foreach ($rows as $row) {
             $printers_id = (int) $row['printers_id'];
