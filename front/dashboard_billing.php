@@ -17,11 +17,11 @@ include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 Session::checkRight('plugin_printgestion_billing', READ);
-if (!PluginPrintgestionConfig::isFeatureEnabled('cout')) { Html::displayNotFoundError(); }
+if (!PluginPrintgestionConfig::isFeatureEnabled('cout')) { throw new \Glpi\Exception\Http\NotFoundHttpException(); }
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
 Html::header(

@@ -8,11 +8,11 @@ include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 Session::checkRight('plugin_printgestion_contrats', READ);
-if (!PluginPrintgestionConfig::isFeatureEnabled('contrats')) { Html::displayNotFoundError(); }
+if (!PluginPrintgestionConfig::isFeatureEnabled('contrats')) { throw new \Glpi\Exception\Http\NotFoundHttpException(); }
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
 // Charge la lib de graphiques (ECharts) bundlée par GLPI, pour les camemberts/barres.

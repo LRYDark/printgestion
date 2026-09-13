@@ -6,7 +6,7 @@ Session::checkRight('contract', UPDATE);
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
 // Validation CSRF faite par CheckCsrfListener (kernel Symfony) avant ce fichier.
@@ -20,7 +20,7 @@ if ($contracts_id <= 0) {
 
 $contract = new Contract();
 if (!$contract->getFromDB($contracts_id) || !$contract->can($contracts_id, UPDATE)) {
-    Html::displayRightError();
+    throw new \Glpi\Exception\Http\AccessDeniedHttpException();
 }
 
 if (isset($_POST['add_rate'])) {

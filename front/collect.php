@@ -11,7 +11,7 @@ Session::checkRight('plugin_printgestion_dashboard', READ);
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')
     || !PluginPrintgestionConfig::isFeatureEnabled('toner')) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
 $state = (string) ($_GET['state'] ?? '');

@@ -5,11 +5,11 @@ global $DB; // fichier front chargé hors portée globale (LegacyFileLoadControl
 
 Session::checkLoginUser();
 Session::checkRight('plugin_printgestion_expedition', READ);
-if (!PluginPrintgestionConfig::isFeatureEnabled('toner')) { Html::displayNotFoundError(); }
+if (!PluginPrintgestionConfig::isFeatureEnabled('toner')) { throw new \Glpi\Exception\Http\NotFoundHttpException(); }
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
 Html::header(

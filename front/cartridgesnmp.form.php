@@ -6,7 +6,7 @@ Session::checkRight('cartridge', UPDATE);
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
 // CSRF géré par CheckCsrfListener (kernel Symfony) avant ce fichier.
@@ -21,7 +21,7 @@ if ($cartridgeitems_id <= 0) {
 // Vérifie que la cartouche existe et que l'utilisateur peut l'éditer
 $item = new CartridgeItem();
 if (!$item->getFromDB($cartridgeitems_id) || !$item->can($cartridgeitems_id, UPDATE)) {
-    Html::displayRightError();
+    throw new \Glpi\Exception\Http\AccessDeniedHttpException();
 }
 
 if (isset($_POST['save_bindings'])) {

@@ -6,7 +6,7 @@ Session::checkRight('plugin_printgestion_expedition', UPDATE);
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
 global $DB;
@@ -20,7 +20,7 @@ if ($id <= 0) {
 // divulgation de l'existence d'une expédition d'un autre client).
 $exp = PluginPrintgestionSecurity::getAccessibleExpedition($id);
 if ($exp === null) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
 Html::header(

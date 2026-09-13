@@ -10,7 +10,7 @@ Session::checkLoginUser();
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')
     || !PluginPrintgestionConfig::isFeatureEnabled('toner')) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 Session::checkRight('plugin_printgestion_config', UPDATE);
 
@@ -18,7 +18,7 @@ if (isset($_POST['save_entity_client'])) {
     // Jeton CSRF déjà validé par CheckCsrfListener avant ce fichier.
     $entities_id = (int) ($_POST['entities_id'] ?? -1);
     if ($entities_id < 0 || !Session::haveAccessToEntity($entities_id)) {
-        Html::displayNotFoundError();
+        throw new \Glpi\Exception\Http\NotFoundHttpException();
     }
 
     $error = PluginPrintgestionSage::setEntityClient(

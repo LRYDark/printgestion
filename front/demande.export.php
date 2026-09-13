@@ -18,7 +18,7 @@ Session::checkLoginUser();
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')
     || !PluginPrintgestionConfig::isFeatureEnabled('toner')) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 if (!Session::haveRight('plugin_printgestion_validation', UPDATE)) {
     throw new \Glpi\Exception\Http\AccessDeniedHttpException();

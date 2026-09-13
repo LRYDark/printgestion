@@ -6,7 +6,7 @@ Session::checkRight('plugin_printgestion_expedition', UPDATE);
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
 // Validation CSRF faite par CheckCsrfListener (kernel Symfony) avant ce fichier.

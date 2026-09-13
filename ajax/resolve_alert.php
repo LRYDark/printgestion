@@ -5,12 +5,12 @@ Session::checkLoginUser();
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
 if (!Session::haveRight('plugin_printgestion_dashboard', UPDATE)
     && !Session::haveRight('plugin_printgestion_expedition', UPDATE)) {
-    Html::displayRightError();
+    throw new \Glpi\Exception\Http\AccessDeniedHttpException();
 }
 
 // Validation CSRF faite par CheckCsrfListener (kernel Symfony) avant ce fichier.

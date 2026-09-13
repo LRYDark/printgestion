@@ -14,7 +14,7 @@ Session::checkLoginUser();
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')
     || !PluginPrintgestionConfig::isFeatureEnabled('toner')) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
 $demande = new PluginPrintgestionDemande();
@@ -25,7 +25,7 @@ if (isset($_POST['update']) || isset($_POST['validate']) || isset($_POST['cancel
     // Droit de validation ET entité de la demande ; sinon même réponse qu'une demande
     // inexistante.
     if ($id <= 0 || !$demande->getFromDB($id) || !$demande->can($id, UPDATE)) {
-        Html::displayNotFoundError();
+        throw new \Glpi\Exception\Http\NotFoundHttpException();
     }
 
     // Messages en texte brut (noms d'imprimantes issus de l'inventaire) : échappés.
@@ -81,7 +81,7 @@ if ($id <= 0) {
 // Demande inexistante OU hors des entités de l'utilisateur : même réponse (pas de
 // divulgation de l'existence d'une demande d'un autre client).
 if (!$demande->getFromDB($id) || !$demande->can($id, READ)) {
-    Html::displayNotFoundError();
+    throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
 // Statuts à jour de l'avancement des expéditions (expédiée, livrée, posée) avant affichage.
