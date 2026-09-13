@@ -477,16 +477,37 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 $report(2, [['error', sprintf(__('Adresses refusées, rien n\'est enregistré : %s', 'printgestion'), implode(' ', $errors))]]);
                 return $back;
             }
+            $kept = PluginPrintgestionRaccordementdetail::snapshot($racc);
             if (!$racc->replaceIps($parsed['ips'])) {
                 $report(2, [['error', __('Adresses non enregistrées : erreur de base de données (voir le journal PHP de GLPI).', 'printgestion')]]);
                 return $back;
             }
+            // Lieu, commentaire et contrat déjà déclarés : gardés pour les adresses qui restent.
+            PluginPrintgestionRaccordementdetail::restore($racc, $kept);
             $count = count($parsed['ips']);
             $report(2, [['success', sprintf(
                 _n('Étape 2 validée : %1$d adresse déclarée (%2$s), en attente jusqu\'à la configuration.', 'Étape 2 validée : %1$d adresses déclarées (%2$s), en attente jusqu\'à la configuration.', $count, 'printgestion'),
                 $count,
                 self::summarizeIps(array_keys($parsed['ips']))
             )]]);
+            return $back;
+        }
+
+        if (isset($post['save_details'])) {
+            if ($status === self::STATUS_ABANDONED) {
+                $flash('error', __('Raccordement abandonné : plus rien n\'y est enregistré.', 'printgestion'));
+                return $back;
+            }
+            $report(2, PluginPrintgestionRaccordementdetail::save($racc, $post)['events']);
+            return $back;
+        }
+
+        if (isset($post['apply_details'])) {
+            if (!in_array($status, [self::STATUS_TRIGGERED, self::STATUS_CLOSED], true)) {
+                $flash('error', __('Étape 5 impossible : la découverte n\'est pas encore lancée et vérifiée.', 'printgestion'));
+                return $back;
+            }
+            $report(5, PluginPrintgestionRaccordementdetail::apply($racc)['events']);
             return $back;
         }
 
@@ -609,12 +630,17 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         echo "<a class='btn btn-outline-secondary' href='" . $esc(self::getPageURL()) . "'><i class='ti ti-list me-1'></i>" . $esc(__('Tous les raccordements', 'printgestion')) . "</a>";
         echo "</div></div></div>";
 
+        // Étape 5 (lieu, commentaire, contrat) dès que la découverte est lancée.
+        if ($racc !== null && in_array($racc->fields['status'], [self::STATUS_TRIGGERED, self::STATUS_CLOSED], true)) {
+            $step = 5;
+        }
         echo "<ul class='steps steps-counter steps-blue mb-3'>";
         foreach ([
             1 => __('Sonde présente', 'printgestion'),
             2 => __('Imprimantes', 'printgestion'),
             3 => __('Configuration de la collecte', 'printgestion'),
             4 => __('Déclenchement et vérification', 'printgestion'),
+            5 => __('Lieu, commentaire, contrat', 'printgestion'),
         ] as $number => $label) {
             echo "<li class='step-item" . ($number === $step ? ' active' : '') . "'>" . $esc($label) . "</li>";
         }
@@ -625,11 +651,15 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             return;
         }
         $racc->showStep2($can_edit);
+        PluginPrintgestionRaccordementdetail::showDetails($racc, $can_edit);
         if ($step >= 3) {
             $racc->showStep3($can_edit);
         }
         if ($step >= 4) {
             $racc->showStep4($can_edit);
+        }
+        if ($step >= 5) {
+            PluginPrintgestionRaccordementdetail::showStep5($racc, $can_edit);
         }
         if ($can_edit && in_array($racc->fields['status'], [self::STATUS_OPEN, self::STATUS_CONFIGURED, self::STATUS_TRIGGERED], true)) {
             $confirm = __('Abandonner ce raccordement ? Rien n\'est supprimé : le journal est gardé et les objets créés dans GLPI Inventory restent en place.', 'printgestion');

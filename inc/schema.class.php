@@ -49,6 +49,7 @@ class PluginPrintgestionSchema {
         '1.5.9' => 'migrateTo159',
         '1.6.0' => 'migrateTo160',
         '1.6.1' => 'migrateTo161',
+        '1.6.2' => 'migrateTo162',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -873,5 +874,23 @@ class PluginPrintgestionSchema {
                 KEY `users_id` (`users_id`)
             ) {$options}");
         }
+    }
+
+    /**
+     * 1.6.2 — Déploiement Agent, étape 5 du raccordement : lieu, commentaire et contrat déclarés pour
+     * chaque adresse, gardés en attente, puis appliqués seulement à l'imprimante réellement remontée
+     * dans l'entité (imprimante et date de l'application).
+     */
+    private static function migrateTo162(Migration $migration): void {
+        $table = 'glpi_plugin_printgestion_raccordementips';
+        $sign  = DBConnection::getDefaultPrimaryKeySignOption();
+        $migration->addField($table, 'locations_id', "int {$sign} NOT NULL DEFAULT '0'", ['after' => 'ip_num']);
+        $migration->addField($table, 'comment', 'text', ['after' => 'locations_id']);
+        $migration->addField($table, 'contracts_id', "int {$sign} NOT NULL DEFAULT '0'", ['after' => 'comment']);
+        $migration->addField($table, 'applied_items_id', "int {$sign} NOT NULL DEFAULT '0'");
+        $migration->addField($table, 'date_applied', 'timestamp NULL DEFAULT NULL');
+        $migration->addKey($table, 'locations_id');
+        $migration->addKey($table, 'contracts_id');
+        $migration->migrationOneTable($table);
     }
 }

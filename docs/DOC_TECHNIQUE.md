@@ -69,6 +69,7 @@ printgestion/
 | `Agentdeploy` | Déploiement Agent : onglet de l'entité (TAG, règle d'affectation, agents), installeur GLPI Agent servi et vérifié, paquet Windows pré-paramétré |
 | `Raccordement` | Assistant de raccordement des imprimantes (4 étapes, journal horodaté), page « Raccordements », bloc 3 de l'onglet Déploiement Agent de l'entité |
 | `Collectsetup` | Service (sans table) : configuration de collecte créée dans GLPI Inventory (plage, identifiants SNMP, modules de la sonde, tâches), déclenchement, vérification adresse par adresse |
+| `Raccordementdetail` | Lieu (hiérarchie créée dans l'entité), commentaire et contrat des imprimantes d'un raccordement : saisie en attente (carte 2 bis), application aux imprimantes remontées avec verrou natif (étape 5) |
 | `NotificationTargetDemande` | Notifications natives GLPI des demandes d'envoi (proposée, relance, exportée) |
 | `Contractalert` | État et activation des alertes de contrat natives GLPI |
 | `Snmpmapping` | Mapping constructeur + propriété SNMP → modèle de cartouche + couleur |
@@ -114,7 +115,7 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_historical_yields` | Rendements historiques (pages/cartouche) |
 | `glpi_plugin_printgestion_printer_thresholds` | Seuils d'alerte personnalisés par imprimante |
 | `glpi_plugin_printgestion_raccordements` | Raccordements d'imprimantes (étape 1.6.1) : entité, sonde, statut, identifiants SNMP, plages et tâches GLPI Inventory utilisées, objets créés, dates des étapes |
-| `glpi_plugin_printgestion_raccordementips` | Adresses déclarées d'un raccordement et leur résultat (équipement trouvé, son entité) |
+| `glpi_plugin_printgestion_raccordementips` | Adresses déclarées d'un raccordement et leur résultat (équipement trouvé, son entité) ; depuis 1.6.2, lieu, commentaire et contrat en attente, imprimante et date de leur application |
 | `glpi_plugin_printgestion_raccordementlogs` | Journal horodaté d'un raccordement : étape, niveau, auteur, message |
 | `glpi_plugin_printgestion_table_prefs` | Préférences d'affichage des tableaux par utilisateur |
 
@@ -490,7 +491,40 @@ revérifiée à chaque requête (hors périmètre : 404). Lieu, commentaire et c
 - **Constats sur échanges simulés** (formats XML de l'agent, à confirmer au pilote) : la découverte applique la
   règle TAG de la sonde aux imprimantes ; le paramètre `ENTITY` de la plage est ignoré par le cœur ; la découverte
   crée le lieu SNMP (sysLocation) dans l'entité et le rattache à l'imprimante, même avec « Lieu » désactivé dans
-  la configuration de l'inventaire (à verrouiller en phase 3).
+  la configuration de l'inventaire (verrouillé en phase 3).
+
+### Déploiement Agent — phase 3 : lieu, commentaire et contrat (`inc/raccordementdetail.class.php`)
+
+- **Carte 2 bis** (lecture : droit `deploiement` READ ; saisie : UPDATE, tout statut sauf abandonné) : pour chaque
+  adresse, lieu, commentaire et contrat **en attente** (`raccordementips.locations_id`, `comment`, `contracts_id`,
+  étape 1.6.2). Valeurs par défaut qui complètent les adresses sans valeur ; jusqu'à 64 adresses ligne à ligne,
+  au-delà seulement celles qui ont une imprimante ou des valeurs. Remplacer la liste d'adresses garde les valeurs
+  des adresses restantes.
+  - Lieu : chemin « FC Metz > Bâtiment B > Étage 4 > Bureau 3 » ou nom simple, autocomplétion sur les lieux de
+    l'entité. Niveaux manquants créés dans l'entité, non récursifs, cherchés par nom + parent + entité (la clé
+    unique de `glpi_locations`), comme le formulaire natif ; 10 niveaux et 255 caractères par niveau au plus.
+  - Contrat : ceux de l'entité et, récursifs, de ses entités parentes (ni supprimés ni modèles).
+  - Enregistrement tout ou rien (transaction, lieux compris). Une adresse déjà appliquée qu'on modifie repasse en
+    attente.
+- **Étape 5** (`apply_details`, UPDATE, statuts `triggered` et `closed`) : seulement aux adresses où la vérification
+  a trouvé une imprimante dans l'entité (trouvée, sans niveaux, niveaux en attente) ; jamais à une adresse sans
+  imprimante ni à une imprimante d'une autre entité (raison affichée). Une transaction par imprimante :
+  1. `Printer::update()` du lieu et du commentaire : historique GLPI avec l'auteur, et le cœur verrouille lui-même
+     les champs modifiés d'un actif dynamique (`CommonDBTM::manageLocks()`) ;
+  2. verrou natif (`glpi_lockedfields` : `Printer`, imprimante, `locations_id` / `comment`) ajouté s'il manque, par
+     exemple quand la valeur était déjà la bonne ;
+  3. rattachement au contrat (`Contract_Item`, sans doublon). `Contract_Item::add()` ne contrôle ni l'entité ni le
+     nombre maximal d'éléments (seul `can()` le fait) : l'entité est garantie par la liste des contrats,
+     `max_links_allowed` est vérifié ;
+  4. adresse marquée appliquée (`applied_items_id`, `date_applied`).
+
+  Un échec annule tout pour cette imprimante (message sans détail technique, détail dans le journal PHP).
+- **Vérifié sur le GLPI de test** (échanges simulés) : sans verrou, l'inventaire réseau d'une imprimante remplace son
+  lieu par le lieu SNMP (sysLocation), et aussi son contact ; il ne touche pas au commentaire (aucune correspondance
+  dans le cœur, hors règle métier) ; la découverte d'une imprimante déjà connue ne change ni l'un ni l'autre. Avec
+  le verrou, l'inventaire garde le lieu déclaré. Au premier import, rien n'empêche la découverte de créer et
+  d'attacher le lieu SNMP : il est remplacé à l'étape 5.
+- **Réglage « Lieu » de la configuration d'inventaire** : lu nulle part par le cœur de GLPI 11.0.8, il n'empêche rien.
 
 ### Contrôle de la remontée (`inc/collect.class.php`, onglet « Contrôle de la remontée »)
 

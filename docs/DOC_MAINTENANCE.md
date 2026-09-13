@@ -202,10 +202,11 @@ Pour chaque client :
 3. Sur place : suivre `LISEZMOI.txt` (extraire, double-clic sur le `.bat`, assistant), puis vérifier dans l'onglet
    que l'agent apparaît avec un contact récent et la collecte réseau installée.
 4. Toujours sur place : bloc 3 de l'onglet, « Nouveau raccordement » (droit Déploiement en modification). Choisir la
-   sonde, saisir les adresses des imprimantes, créer la configuration de collecte, lancer la découverte. Si GLPI ne
-   joint pas la sonde (cas normal derrière la box) : sur le PC sonde, ouvrir `http://127.0.0.1:62354` et cliquer
-   « Force an Inventory », puis refaire ce geste quand l'assistant annonce le relevé des niveaux. Ne pas partir
-   avant d'avoir le résultat adresse par adresse, puis « Terminer le raccordement ».
+   sonde, saisir les adresses des imprimantes et, carte 2 bis, leur lieu, commentaire et contrat ; créer la
+   configuration de collecte, lancer la découverte. Si GLPI ne joint pas la sonde (cas normal derrière la box) : sur
+   le PC sonde, ouvrir `http://127.0.0.1:62354` et cliquer « Force an Inventory », puis refaire ce geste quand
+   l'assistant annonce le relevé des niveaux. Ne pas partir avant d'avoir le résultat adresse par adresse ; appliquer
+   lieu, commentaire et contrat (étape 5), puis « Terminer le raccordement ».
 
 Échec d'installation : journal `%TEMP%\GLPI-Agent-install.log` sur le PC. Agent absent de l'onglet : il est
 peut-être rattaché à une autre entité (TAG, règle) — voir Administration → Inventaire → Agents.
@@ -223,6 +224,13 @@ Raccordement :
   géré » à l'adresse répond sur le réseau mais pas en SNMP avec ces identifiants.
 - **Abandon** : rien n'est supprimé ; le journal le liste. Désactiver la tâche dans GLPI Inventory si la collecte
   ne doit pas avoir lieu.
+- **Étape 5 : « rien n'est appliqué »** : la raison est affichée par adresse. Pas d'imprimante remontée : relancer
+  la découverte ; imprimante dans une autre entité : transfert manuel d'abord ; contrat plein : augmenter son nombre
+  maximal d'éléments ou choisir un autre contrat (carte 2 bis), puis appliquer à nouveau.
+- **Lieu d'une imprimante remplacé par un nom venu de l'imprimante** : sans verrou, l'inventaire SNMP remplace le
+  lieu par celui configuré dans l'imprimante (sysLocation). L'étape 5 pose le verrou ; pour une imprimante raccordée
+  autrement, modifier son lieu dans GLPI suffit (GLPI verrouille alors le champ). Verrous : Administration →
+  Inventaire → Champs verrouillés.
 - Historique : page « Raccordements » du module ; chaque raccordement garde son journal horodaté.
 
 ### Cartouche « Réf. non résolue » (non commandable)
