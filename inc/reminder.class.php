@@ -14,7 +14,7 @@ if (!defined('GLPI_ROOT')) {
     die("Sorry. You can't access this file directly");
 }
 
-class PluginPrintgestionReminder extends CommonDBTM {
+class PluginPrintgestionReminder extends CommonGLPI {
 
     static $rightname = 'plugin_printgestion_dashboard';
 
