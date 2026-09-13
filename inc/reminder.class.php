@@ -59,8 +59,8 @@ class PluginPrintgestionReminder extends CommonGLPI {
     }
 
     /**
-     * Cron 2 : calcul alertes + envoi mails + rappels installation +
-     * auto-réassignation des alertes wrong_printer anciennes.
+     * Cron 2 : calcul alertes + envoi mails + rappels installation. Aucune réattribution
+     * automatique « mauvaise imprimante » : elle reste une décision humaine.
      */
     static function cronPrintgestionCheckAlerts(CronTask $task = null) {
         if (!PluginPrintgestionConfig::isFeatureEnabled('toner')) {
@@ -68,7 +68,6 @@ class PluginPrintgestionReminder extends CommonGLPI {
         }
         $alerts_sent    = PluginPrintgestionAlert::sendPendingAlerts();
         $reminders_sent = PluginPrintgestionExpedition::sendInstallReminders();
-        $reassigned     = PluginPrintgestionExpedition::autoReassignStaleWrongPrinterAlerts();
         // Avancement des expéditions (poses détectées, réattributions) → demandes d'envoi.
         PluginPrintgestionDemande::syncFromExpeditions();
         // Relance native des demandes qui traînent (proposées ou validées non exportées).
@@ -83,12 +82,11 @@ class PluginPrintgestionReminder extends CommonGLPI {
         $materialized = PluginPrintgestionAlertview::rebuild();
 
         if ($task !== null) {
-            $task->addVolume($alerts_sent + $reminders_sent + $reassigned);
-            $task->log("Alertes: {$alerts_sent} — Rappels: {$reminders_sent} — "
-                . "Réassignations auto: {$reassigned}");
+            $task->addVolume($alerts_sent + $reminders_sent);
+            $task->log("Alertes: {$alerts_sent} — Rappels: {$reminders_sent}");
         }
 
-        return ($alerts_sent > 0 || $reminders_sent > 0 || $reassigned > 0) ? 1 : 0;
+        return ($alerts_sent > 0 || $reminders_sent > 0) ? 1 : 0;
     }
 
     /**

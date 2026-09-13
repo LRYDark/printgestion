@@ -61,7 +61,6 @@ if (isset($_POST['activate_contract_alerts'])) {
         'reminder_days'          => max(0, (int)($_POST['reminder_days']   ?? 7)),
         'detection_delta'        => max(1, min(100, (int)($_POST['detection_delta'] ?? 20))),
         'wrong_printer_lookback_days'      => max(1, (int)($_POST['wrong_printer_lookback_days'] ?? 30)),
-        'wrong_printer_auto_reassign_days' => max(1, (int)($_POST['wrong_printer_auto_reassign_days'] ?? 7)),
         'group_planif'           => (int)($_POST['group_planif']     ?? 0) ?: null,
         'group_achat'            => (int)($_POST['group_achat']      ?? 0) ?: null,
         'group_commercial'       => (int)($_POST['group_commercial'] ?? 0) ?: null,

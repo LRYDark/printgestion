@@ -763,14 +763,6 @@ class PluginPrintgestionConfig extends CommonDBTM {
 
         echo "<div class='col-md-3'>"
             . $label_with_tip(
-                __("Auto-réassignation mauvaise imprimante (jours)", 'printgestion'),
-                __("Si une alerte wrong_printer reste non résolue pendant N jours, le plugin réattribue automatiquement l'expédition à l'imprimante où la cartouche a physiquement été posée. Évite de laisser des alertes orphelines indéfiniment.", 'printgestion')
-            );
-        echo "<input type='number' min='1' class='form-control' name='wrong_printer_auto_reassign_days' value='"
-            . (int)($config->fields['wrong_printer_auto_reassign_days'] ?? 7) . "'></div>";
-
-        echo "<div class='col-md-3'>"
-            . $label_with_tip(
                 __('Rendement par défaut (pages/cartouche)', 'printgestion'),
                 __("Yield par défaut en pages imprimables par cartouche. Utilisé pour estimer les jours restants quand l'historique de consommation du toner est insuffisant pour mesurer le yield réel. Un yield réel est calculé automatiquement dès qu'une baisse ≥ 3 points est observée.", 'printgestion')
             );

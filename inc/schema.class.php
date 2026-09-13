@@ -43,6 +43,7 @@ class PluginPrintgestionSchema {
         '1.5.3' => 'migrateTo153',
         '1.5.4' => 'migrateTo154',
         '1.5.5' => 'migrateTo155',
+        '1.5.6' => 'migrateTo156',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -584,5 +585,15 @@ class PluginPrintgestionSchema {
             PRIMARY KEY (`id`),
             KEY `manufacturers_id` (`manufacturers_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
+    }
+
+    /**
+     * 1.5.6 — réattribution « mauvaise imprimante » manuelle uniquement : le délai de
+     * réattribution automatique n'existe plus.
+     */
+    private static function migrateTo156(Migration $migration): void {
+        $config = 'glpi_plugin_printgestion_configs';
+        $migration->dropField($config, 'wrong_printer_auto_reassign_days');
+        $migration->migrationOneTable($config);
     }
 }

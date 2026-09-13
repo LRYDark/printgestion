@@ -449,7 +449,7 @@ courtoisie), `count`, `glpi_url`. Toute balise non fournie est remplacée par un
 | Tâche | Fréquence par défaut | Contenu |
 |---|---|---|
 | `PrintgestionSnapshotReadings` | quotidienne | Snapshot toner + bootstrap cartouches natives + détection changements + purge relevés > 160 j |
-| `PrintgestionCheckAlerts` | horaire | Calcul alertes + **digest mail commercial** + **digest rappels installation** + réassignation auto wrong_printer + rebuild `alertview` |
+| `PrintgestionCheckAlerts` | horaire | Calcul alertes + **digest mail commercial** + **digest rappels installation** + rebuild `alertview` |
 | `PrintgestionTrackingUpdate` | 4 h | BL signés plugin Gestion → delivered + APIs transporteurs (UPS/GLS/Chronopost) |
 | `PrintgestionProposeDemandes` | horaire, **enregistrée désactivée** | Demandes d'envoi proposées à partir des alertes, regroupées par client et site (`Demande::proposeFromAlerts()`) |
 

@@ -1552,42 +1552,6 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         return true;
     }
 
-    /**
-     * Cron : pour chaque alerte wrong_printer non résolue dont l'âge dépasse
-     * wrong_printer_auto_reassign_days, réassigne automatiquement l'expédition
-     * vers l'imprimante où la cartouche a été détectée physiquement.
-     */
-    public static function autoReassignStaleWrongPrinterAlerts(): int {
-        global $DB;
-
-        $config = PluginPrintgestionConfig::getInstance();
-        $days   = max(1, (int)($config->fields['wrong_printer_auto_reassign_days'] ?? 7));
-        $cutoff = date('Y-m-d H:i:s', strtotime("-{$days} days"));
-
-        $stale = $DB->request([
-            'FROM'  => 'glpi_plugin_printgestion_alerts',
-            'WHERE' => [
-                'alert_type'  => 'wrong_printer',
-                'is_resolved' => 0,
-                'date_alert'  => ['<=', $cutoff],
-            ],
-        ]);
-
-        $count = 0;
-        foreach ($stale as $alert) {
-            $exp_id  = (int)($alert['expeditions_id'] ?? 0);
-            $new_pid = (int)($alert['detected_printers_id'] ?? 0);
-            if ($exp_id <= 0 || $new_pid <= 0) {
-                continue;
-            }
-            if (self::reassignToPrinter($exp_id, $new_pid)) {
-                $count++;
-            }
-        }
-
-        return $count;
-    }
-
     static function install(Migration $migration) { return true; }
     static function uninstall(Migration $migration) { return true; }
 }
