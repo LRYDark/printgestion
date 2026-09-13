@@ -75,6 +75,7 @@ function plugin_init_printgestion() {
             }
             if (PluginPrintgestionConfig::isFeatureEnabled('toner')) {
                 Plugin::registerClass('PluginPrintgestionCartridgesnmp', ['addtabon' => 'CartridgeItem']); // binding SNMP
+                Plugin::registerClass('PluginPrintgestionPrinterThresholdsTab', ['addtabon' => 'Printer']); // seuils d'alerte
             }
             if (PluginPrintgestionConfig::isFeatureEnabled('sage')) {
                 Plugin::registerClass('PluginPrintgestionSage', ['addtabon' => 'Entity']); // code client Sage

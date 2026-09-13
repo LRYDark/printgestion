@@ -2,6 +2,8 @@
 /**
  * PluginPrintgestionPrinterCostsTab — Point 2 : onglet "Coût à la page" sur fiche imprimante.
  * Lit glpi_printerlogs (itemtype='Printer', items_id=printer_id).
+ * Prix et coûts : droit du module Coût à la page (facturation, commerciaux), jamais le seul droit
+ * de lecture des imprimantes. Les seuils d'alerte ont leur propre onglet (PrinterThresholdsTab).
  */
 
 if (!defined('GLPI_ROOT')) {
@@ -10,24 +12,33 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
 
-    static $rightname = 'printer';
+    static $rightname = 'plugin_printgestion_billing';
 
     static function getTypeName($nb = 0) {
         return __('Coût à la page', 'printgestion');
     }
 
     function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
-        if ($item->getType() == 'Printer' && Session::haveRight('printer', READ)) {
+        if ($item instanceof Printer && self::canViewCosts($item)) {
             return __('Coût à la page', 'printgestion');
         }
         return '';
     }
 
     static function displayTabContentForItem(CommonGLPI $item, $tabnum = 1, $withtemplate = 0) {
-        if ($item->getType() == 'Printer') {
-            self::showCostTab($item);
+        // Contenu joignable par l'URL de l'onglet : module, droit et accès à l'imprimante revérifiés.
+        if (!$item instanceof Printer || !self::canViewCosts($item)) {
+            return false;
         }
+        self::showCostTab($item);
         return true;
+    }
+
+    /** Module Coût à la page actif, droit Facturation en lecture, imprimante visible. */
+    public static function canViewCosts(Printer $printer): bool {
+        return PluginPrintgestionConfig::isFeatureEnabled('cout')
+            && Session::haveRight(self::$rightname, READ)
+            && $printer->canViewItem();
     }
 
     static function showCostTab(Printer $printer) {
@@ -136,71 +147,11 @@ class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
         echo "</table>";
         echo "</div></div>";
 
-        // ── Seuils personnalisés par imprimante (card dédiée) ─────────────
-        global $DB;
-        $th_row = $DB->request([
-            'FROM'  => 'glpi_plugin_printgestion_printer_thresholds',
-            'WHERE' => ['printers_id' => $printers_id],
-            'LIMIT' => 1,
-        ])->current();
-        $config_plugin = PluginPrintgestionConfig::getInstance();
-        $def_level     = (int)($config_plugin->fields['threshold_level'] ?? 15);
-        $def_days      = (int)($config_plugin->fields['threshold_days']  ?? 30);
-        $def_yield     = (int)($config_plugin->fields['default_pages_per_cartridge'] ?? 5000);
-        $cur_level     = is_array($th_row) ? $th_row['threshold_level']     : null;
-        $cur_days      = is_array($th_row) ? $th_row['threshold_days']      : null;
-        $cur_yield     = is_array($th_row) ? $th_row['pages_per_cartridge'] : null;
-
-        echo "<div class='card mt-3'>";
-        echo "<div class='card-header'><h3 class='card-title mb-0'>"
-            . "<i class='fa-solid fa-sliders me-2'></i>"
-            . __('Seuils d\'alerte personnalisés', 'printgestion') . "</h3></div>";
-        echo "<div class='card-body'>";
-        echo "<p class='text-muted small mb-3'>"
-            . __("Ces valeurs surchargent la configuration globale du plugin pour cette imprimante uniquement. "
-                . "Laisse un champ vide pour utiliser la valeur par défaut (affichée en placeholder).", 'printgestion')
-            . "</p>";
-        echo "<form class='row g-3 align-items-start' id='{$uid}-th-form' onsubmit='return false;'>";
-
-        echo "<div class='col-md-3'><label class='form-label mb-1'>"
-            . __('Seuil niveau (%)', 'printgestion') . "</label>";
-        echo "<input type='number' min='0' max='100' class='form-control' name='threshold_level' "
-            . "value='" . htmlspecialchars((string)($cur_level ?? ''), ENT_QUOTES, 'UTF-8') . "' "
-            . "placeholder='" . $def_level . "'>";
-        echo "<small class='text-muted'>" . sprintf(__('Défaut global : %d', 'printgestion'), $def_level) . "</small></div>";
-
-        echo "<div class='col-md-3'><label class='form-label mb-1'>"
-            . __('Seuil jours estimés', 'printgestion') . "</label>";
-        echo "<input type='number' min='0' class='form-control' name='threshold_days' "
-            . "value='" . htmlspecialchars((string)($cur_days ?? ''), ENT_QUOTES, 'UTF-8') . "' "
-            . "placeholder='" . $def_days . "'>";
-        echo "<small class='text-muted'>" . sprintf(__('Défaut global : %d', 'printgestion'), $def_days) . "</small></div>";
-
-        echo "<div class='col-md-3'><label class='form-label mb-1'>"
-            . __('Yield (pages/cartouche)', 'printgestion') . "</label>";
-        echo "<input type='number' min='100' class='form-control' name='pages_per_cartridge' "
-            . "value='" . htmlspecialchars((string)($cur_yield ?? ''), ENT_QUOTES, 'UTF-8') . "' "
-            . "placeholder='" . $def_yield . "'>";
-        echo "<small class='text-muted'>" . sprintf(__('Défaut global : %d', 'printgestion'), $def_yield) . "</small></div>";
-
-        // Bouton aligné sur la ligne des inputs via un label fantôme de même hauteur
-        echo "<div class='col-md-3'>"
-            . "<label class='form-label mb-1' style='visibility:hidden'>&nbsp;</label>"
-            . "<button type='submit' class='btn btn-primary w-100' id='{$uid}-th-submit'>"
-            . "<i class='fa-solid fa-save me-1'></i>" . _sx('button', 'Save') . "</button>"
-            . "</div>";
-
-        echo "</form>";
-        echo "</div></div>";
-
         // JS : toggle dates selon période + submit AJAX + restauration sessionStorage
         $js_config = json_encode([
             'uid'            => $uid,
             'printers_id'    => $printers_id,
             'ajaxUrl'        => $ajax_url,
-            'thresholdsUrl'  => PLUGIN_PRINTGESTION_WEBDIR . '/ajax/printer_thresholds.php',
-            // Jeton CSRF envoyé en en-tête X-Glpi-Csrf-Token (requête AJAX POST).
-            'csrf'           => Session::getNewCSRFToken(),
             'initPeriod'     => $period,
             'initStart'      => $start,
             'initEnd'        => $end,
@@ -328,40 +279,6 @@ class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
     fetchAndRender();
   });
   toggleDates();
-
-  // ── Seuils personnalisés : submit AJAX silencieux + reload (GLPI flash message) ──
-  const thForm = document.getElementById(cfg.uid + '-th-form');
-  if (thForm) {
-    thForm.addEventListener('submit', function(e) {
-      e.preventDefault();
-      const fd = new FormData(thForm);
-      fd.append('printers_id', cfg.printers_id);
-      const btn = document.getElementById(cfg.uid + '-th-submit');
-      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>'; }
-
-      // POST + jeton CSRF en en-tête : écriture protégée par le contrôle du cœur GLPI 11.
-      fetch(cfg.thresholdsUrl, {
-        method: 'POST',
-        body: fd,
-        credentials: 'same-origin',
-        headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-Glpi-Csrf-Token': cfg.csrf },
-      })
-        .then(r => r.json())
-        .then(d => {
-          if (d && d.ok) {
-            // Reload immédiat : GLPI affichera la popup flash depuis la session
-            window.location.reload();
-          } else {
-            alert('Erreur lors de la sauvegarde');
-            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save me-1"></i>Sauvegarder'; }
-          }
-        })
-        .catch(function() {
-          alert('Erreur réseau');
-          if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save me-1"></i>Sauvegarder'; }
-        });
-    });
-  }
 })();
 </script>
 HTML;

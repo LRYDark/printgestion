@@ -33,8 +33,12 @@ if ($printers_id <= 0) {
     exit;
 }
 
+// Seuils d'alerte : module toner et droit Alertes toner en modification, sur une imprimante du
+// périmètre de l'utilisateur (réglage du plugin, pas une modification de la fiche imprimante).
 $printer = new Printer();
-if (!$printer->getFromDB($printers_id) || !$printer->canUpdateItem()) {
+if (!PluginPrintgestionConfig::isFeatureEnabled('toner')
+    || !Session::haveRight('plugin_printgestion_dashboard', UPDATE)
+    || !$printer->getFromDB($printers_id) || !$printer->canViewItem()) {
     http_response_code(403);
     echo json_encode(['ok' => false, 'error' => 'Forbidden']);
     exit;

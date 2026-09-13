@@ -12,6 +12,18 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
 
 header('Content-Type: application/json; charset=utf-8');
 
+// Prix et coûts : module Coût à la page et droit Facturation, jamais le seul droit sur l'imprimante.
+if (!PluginPrintgestionConfig::isFeatureEnabled('cout')) {
+    http_response_code(404);
+    echo json_encode(['ok' => false, 'error' => 'Module disabled']);
+    exit;
+}
+if (!Session::haveRight('plugin_printgestion_billing', READ)) {
+    http_response_code(403);
+    echo json_encode(['ok' => false, 'error' => 'Forbidden']);
+    exit;
+}
+
 $printers_id = (int)($_GET['printers_id'] ?? 0);
 $start       = (string)($_GET['start'] ?? '');
 $end         = (string)($_GET['end']   ?? '');

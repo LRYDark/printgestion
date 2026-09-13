@@ -32,7 +32,7 @@ class PluginPrintgestionProfile extends Profile {
                 'itemtype' => 'PluginPrintgestionMenu',
                 'label'    => __('Alertes toner', 'printgestion'),
                 'field'    => 'plugin_printgestion_dashboard',
-                'rights'   => [READ => __('Voir', 'printgestion'), UPDATE => __('Agir (ne plus alerter, réactiver, recalculer)', 'printgestion')],
+                'rights'   => [READ => __('Voir', 'printgestion'), UPDATE => __('Agir (ne plus alerter, réactiver, recalculer, seuils par imprimante)', 'printgestion')],
             ],
             [
                 'itemtype' => 'PluginPrintgestionExpedition',
@@ -67,7 +67,7 @@ class PluginPrintgestionProfile extends Profile {
                 'itemtype' => 'PluginPrintgestionBilling',
                 'label'    => __('Coût à la page', 'printgestion'),
                 'field'    => 'plugin_printgestion_billing',
-                'rights'   => [READ => __('Voir', 'printgestion'), CREATE => __('Exporter', 'printgestion')],
+                'rights'   => [READ => __('Voir (dont l\'onglet des imprimantes)', 'printgestion'), CREATE => __('Exporter', 'printgestion')],
             ],
             [
                 'itemtype' => 'PluginPrintgestionConfig',

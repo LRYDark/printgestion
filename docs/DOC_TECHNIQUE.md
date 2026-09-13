@@ -72,7 +72,8 @@ printgestion/
 | `Snmpmapping` | Mapping constructeur + propriété SNMP → modèle de cartouche + couleur |
 | `Cartridgesnmp` | Onglet sur fiche CartridgeItem : binding direct cartouche ↔ propriétés SNMP |
 | `Billing` / `Billingview` | Coût à la page + table matérialisée **par utilisateur** (le calcul dépend de la période choisie) |
-| `PrinterCostsTab` | Onglet « Coût à la page » sur la fiche imprimante |
+| `PrinterCostsTab` | Onglet « Coût à la page » sur la fiche imprimante : prix et coûts (droit `billing` READ) |
+| `PrinterThresholdsTab` | Onglet « Seuils d'alerte » sur la fiche imprimante : seuils et rendement propres (droit `dashboard` READ, UPDATE pour enregistrer) |
 | `Tracking` | Intégrations externes : BL signés du plugin Gestion + APIs transporteurs (UPS/GLS/Chronopost) |
 | `Reminder` | Les 3 tâches cron GLPI (voir §7) |
 | `Dashboardactions` | Menu contextuel et modales des écrans Expéditions et Coût à la page (modifier l'expédition, BL) |
@@ -553,12 +554,12 @@ demandes validées est en service. Une mise à jour du plugin ne change pas l'é
 | Droit | Protège |
 |---|---|
 | `plugin_printgestion_contrats` | Dashboard contrats / Liste / Créer Print (CREATE pour créer) |
-| `plugin_printgestion_dashboard` | Alertes toner (dashboard + actions) |
+| `plugin_printgestion_dashboard` | Alertes toner (dashboard + actions) ; onglet « Seuils d'alerte » des imprimantes (UPDATE pour enregistrer) |
 | `plugin_printgestion_expedition` | Expéditions (UPDATE pour agir) |
 | `plugin_printgestion_validation` | Demandes d'envoi : READ voir, UPDATE modifier / valider / annuler (file aussi visible avec `dashboard` READ, sans agir) |
 | `plugin_printgestion_deploiement` | Collecte SNMP / Déploiement Agent : READ voir et télécharger l'installeur, UPDATE raccorder des imprimantes ; « Contrôle de la remontée » |
 | `plugin_printgestion_sage` | Référentiel Sage : READ onglet Sage de l'entité, UPDATE import et correspondances |
-| `plugin_printgestion_billing` | Coût à la page |
+| `plugin_printgestion_billing` | Coût à la page : écrans et onglet de la fiche imprimante (prix et coûts ; jamais le seul droit sur l'imprimante) |
 | `plugin_printgestion_config` | Configuration du plugin + mappings SNMP |
 
 Migration 1.5.9 : `sage` repris de `config` (lecture → lecture, modification → lecture et modification),

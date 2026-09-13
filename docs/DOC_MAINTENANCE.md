@@ -153,7 +153,9 @@ nouvelle interception passe par `PluginPrintgestionLogger`.
   en-deçà, le calcul utilise la fenêtre disponible).
 - Écran des alertes : bouton « Recalculer maintenant » (`Alertview::rebuild()`) ; un bandeau signale les
   actions (commandes, annulations…) pas encore reflétées depuis le dernier calcul complet.
-- Seuils : config globale + seuils par imprimante (`printer_thresholds`).
+- Seuils : config globale + seuils par imprimante (`printer_thresholds`), réglés dans l'onglet « Seuils d'alerte »
+  de la fiche imprimante (droit Alertes toner : lecture pour voir, modification pour enregistrer). L'onglet
+  « Coût à la page » de la fiche imprimante exige le droit Coût à la page : le droit sur les imprimantes ne suffit pas.
 
 ### Aucune demande d'envoi proposée
 
