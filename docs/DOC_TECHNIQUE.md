@@ -54,19 +54,24 @@ printgestion/
 | `Tonerreading` | Snapshot horodaté des niveaux toner (lit `glpi_printers_cartridgeinfos` SNMP GLPI 11) |
 | `Cartridgehistory` | Détection automatique des changements de cartouche (hausse de niveau ≥ `detection_delta` %) |
 | `Alert` | Calcul intelligent des alertes toner (vitesse de conso sur fenêtre 30 j) + **digest mail commercial** |
-| `Alertview` | Table **matérialisée** des alertes pour le moteur Search natif (rebuild par cron + bouton) |
+| `Alertview` | Table **matérialisée** des alertes et écran natif (recherche, colonnes verrou / référence / stock, actions de masse Commander, Ne plus alerter, Réactiver) |
 | `Expedition` | Cycle d'expédition des cartouches, **tous les circuits mail** (planif/achats/courtoisie/rappels) |
 | `Demande` / `Demandeline` | Demande d'envoi (en-tête client + site, lignes) : statuts, contrôles avant validation, historique natif |
 | `Guard` | Verrous anti-double-envoi (envoi en cours, demande ouverte, garde après pose, ticket récent) |
 | `Sageimport` | Import du référentiel Sage par fichier : analyse, prévisualisation, rapport d'écarts, validation |
 | `Sage` | Correspondances Sage (code client d'une entité, hérité du parent) + onglet « Print Gestion — Sage » de l'entité |
+| `Gesconso` | Fichier de commande Gesconso (9 colonnes), contrôles bloquants avant écriture, archivage en Document |
+| `Snmpadapter` | Lecture fiable des niveaux SNMP : sentinelles, états bruts max/used/remaining, règles par constructeur |
+| `Collect` | Collecte SNMP : imprimantes jamais remontées, muettes ou sans niveau lisible, agents qui ne remontent plus |
+| `NotificationTargetDemande` | Notifications natives GLPI des demandes d'envoi (proposée, relance, exportée) |
+| `Contractalert` | État et activation des alertes de contrat natives GLPI |
 | `Snmpmapping` | Mapping constructeur + propriété SNMP → modèle de cartouche + couleur |
 | `Cartridgesnmp` | Onglet sur fiche CartridgeItem : binding direct cartouche ↔ propriétés SNMP |
 | `Billing` / `Billingview` | Coût à la page + table matérialisée **par utilisateur** (le calcul dépend de la période choisie) |
 | `PrinterCostsTab` | Onglet « Coût à la page » sur la fiche imprimante |
 | `Tracking` | Intégrations externes : BL signés du plugin Gestion + APIs transporteurs (UPS/GLS/Chronopost) |
 | `Reminder` | Les 3 tâches cron GLPI (voir §7) |
-| `Dashboardactions` | Assets partagés du menu contextuel des dashboards (modals + JS) |
+| `Dashboardactions` | Menu contextuel et modales des écrans Expéditions et Coût à la page (stock, modifier l'expédition, BL) |
 
 ---
 
@@ -92,6 +97,7 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_sagedeliveries` | Adresses de livraison Sage (plusieurs par client), clé rapprochée de `Location.code` |
 | `glpi_plugin_printgestion_sagearticles` | Articles Sage (référence rapprochée de `CartridgeItem.ref`) |
 | `glpi_plugin_printgestion_sageimports` | Trace des imports (référentiel, fichier, auteur, volumes) |
+| `glpi_plugin_printgestion_snmpadapters` | Règles de lecture SNMP par constructeur (ignorer / inverser une propriété) |
 | `glpi_plugin_printgestion_expedition_bls` | Liaison expéditions ↔ BL du plugin Gestion |
 | `glpi_plugin_printgestion_snmp_mapping` | Mapping constructeur/propriété SNMP → cartouche |
 | `glpi_plugin_printgestion_cartridge_snmp` | Bindings directs cartouche ↔ propriété SNMP |

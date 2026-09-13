@@ -75,6 +75,11 @@ Trois modules indépendants, activables par interrupteur dans la configuration :
 5. Vérifier les actions automatiques (`PrintgestionSnapshotReadings`, `PrintgestionCheckAlerts`,
    `PrintgestionTrackingUpdate`). `PrintgestionProposeDemandes` (demandes d'envoi proposées) est installée
    désactivée : ne l'activer qu'avec l'export des demandes validées vers les Achats.
+6. Configuration → Notifications : choisir les destinataires des notifications « Demande d'envoi »
+   (créées inactives), puis les activer. Alertes de fin de contrat : bouton « Activer les alertes de
+   contrat natives » dans la configuration du plugin.
+7. Importer le référentiel Sage (Print Gestion → Référentiel Sage) avant la première commande : sans code
+   client, adresse de livraison et référence article, aucun fichier Gesconso n'est produit.
 
 La mise à jour se fait en remplaçant les fichiers puis « Mettre à jour » dans la liste des
 plugins (installation idempotente — les données sont conservées).
