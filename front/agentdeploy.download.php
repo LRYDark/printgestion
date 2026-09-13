@@ -1,8 +1,8 @@
 <?php
 /**
- * Paquet d'installation GLPI Agent d'une entité (onglet « Déploiement Agent »).
- * Droit Déploiement en lecture et accès à l'entité. Le paquet ne contient que l'URL du serveur
- * GLPI et le TAG de l'entité ; chaque téléchargement est tracé dans l'historique de l'entité.
+ * Paquet d'installation GLPI Agent d'une entité (onglet « Déploiement Agent ») : Windows (ZIP), Linux (.tar.gz),
+ * macOS (ZIP). Droit Déploiement en lecture et accès à l'entité. Le paquet ne contient que l'URL du serveur GLPI et
+ * le TAG de l'entité ; chaque téléchargement est tracé dans l'historique de l'entité.
  */
 include('../../../inc/includes.php');
 
@@ -20,12 +20,17 @@ $entity      = new Entity();
 if ($entities_id < 0 || !Session::haveAccessToEntity($entities_id) || !$entity->getFromDB($entities_id)) {
     throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
-if ((string) ($_GET['os'] ?? '') !== 'windows') {
-    // Linux et macOS : phase 6.
+$builders = [
+    'windows' => [PluginPrintgestionAgentdeploy::class, 'buildWindowsPackage'],
+    'linux'   => [PluginPrintgestionAgentdeploy::class, 'buildLinuxPackage'],
+    'macos'   => [PluginPrintgestionAgentdeploy::class, 'buildMacosPackage'],
+];
+$os = (string) ($_GET['os'] ?? '');
+if (!isset($builders[$os])) {
     throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
-$package = PluginPrintgestionAgentdeploy::buildWindowsPackage($entity);
+$package = call_user_func($builders[$os], $entity);
 if (!$package['ok']) {
     Session::addMessageAfterRedirect(implode('<br>', array_map(
         static fn(string $error) => htmlspecialchars($error, ENT_QUOTES, 'UTF-8'),
@@ -35,8 +40,9 @@ if (!$package['ok']) {
 }
 
 Log::history($entities_id, Entity::class, [0, '', sprintf(
-    __('Installeur GLPI Agent %1$s pour Windows téléchargé (TAG « %2$s »).', 'printgestion'),
+    __('Installeur GLPI Agent %1$s pour %2$s téléchargé (TAG « %3$s »).', 'printgestion'),
     $package['version'],
+    PluginPrintgestionAgentdeploy::getPlatforms()[$os],
     $package['tag']
 )], '', Log::HISTORY_LOG_SIMPLE_MESSAGE);
 
@@ -63,7 +69,7 @@ return new \Symfony\Component\HttpFoundation\StreamedResponse(
     },
     200,
     [
-        'Content-Type'        => 'application/zip',
+        'Content-Type'        => $os === 'linux' ? 'application/gzip' : 'application/zip',
         'Content-Length'      => (string) filesize($path),
         'Content-Disposition' => 'attachment; filename="' . $package['filename'] . '"',
         'Cache-Control'       => 'private, no-store',

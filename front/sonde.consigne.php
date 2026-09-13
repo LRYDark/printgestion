@@ -23,8 +23,12 @@ $agent = new Agent();
 if (!$agent->getFromDB((int) ($_GET['agents_id'] ?? 0)) || !Session::haveAccessToEntity((int) $agent->fields['entities_id'])) {
     throw new NotFoundHttpException();
 }
+$os = (string) ($_GET['os'] ?? 'windows');
+if (!in_array($os, ['windows', 'linux'], true)) {
+    throw new NotFoundHttpException();
+}
 
-$package = PluginPrintgestionAgentsetting::buildConsignePackage($agent);
+$package = PluginPrintgestionAgentsetting::buildConsignePackage($agent, $os);
 if (!$package['ok']) {
     Session::addMessageAfterRedirect(htmlspecialchars(implode(' ', $package['errors']), ENT_QUOTES, 'UTF-8'), false, ERROR);
     Html::redirect(PluginPrintgestionAgentsetting::getPageURL((int) $agent->getID()));
@@ -49,7 +53,7 @@ return new StreamedResponse(static function () use ($path): void {
     }
     fclose($handle);
 }, 200, [
-    'Content-Type'        => 'application/zip',
+    'Content-Type'        => $package['content_type'],
     'Content-Length'      => (string) filesize($path),
     'Content-Disposition' => 'attachment; filename="' . $package['filename'] . '"',
     'Cache-Control'       => 'private, no-store',

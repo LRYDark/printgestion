@@ -44,9 +44,12 @@ if (isset($_POST['fetch_github']) || isset($_POST['verify_deposit']) || isset($_
             )), false, ERROR);
         }
     } else {
+        // Fichier officiel visé : valeur du bouton « Récupérer » ou liste du dépôt (MSI par défaut).
+        $asset  = isset($_POST['fetch_github']) ? (string) $_POST['fetch_github'] : (string) ($_POST['asset'] ?? 'windows');
+        $asset  = $asset === '1' ? 'windows' : $asset;
         $result = isset($_POST['fetch_github'])
-            ? PluginPrintgestionAgentdeploy::fetchFromGitHub()
-            : PluginPrintgestionAgentdeploy::verifyDeposited((string) ($_POST['sha256'] ?? ''));
+            ? PluginPrintgestionAgentdeploy::fetchFromGitHub($asset)
+            : PluginPrintgestionAgentdeploy::verifyDeposited((string) ($_POST['sha256'] ?? ''), $asset);
         Session::addMessageAfterRedirect(
             htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'),
             false,

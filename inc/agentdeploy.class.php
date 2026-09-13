@@ -85,6 +85,32 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         return sprintf('GLPI-Agent-%s-x64.msi', $version);
     }
 
+    /** Systèmes servis : clé => libellé. */
+    public static function getPlatforms(): array {
+        return ['windows' => __('Windows', 'printgestion'), 'linux' => __('Linux', 'printgestion'), 'macos' => __('macOS', 'printgestion')];
+    }
+
+    /** Fichiers officiels nécessaires au paquet de chaque système. */
+    const PLATFORM_ASSETS = [
+        'windows' => ['windows'],
+        'linux'   => ['linux'],
+        'macos'   => ['macos-arm64', 'macos-x86_64'],
+    ];
+
+    /**
+     * Fichiers officiels de GLPI Agent servis par le plugin : nom dans la release, début de fichier attendu,
+     * description gardée à côté, motif des fichiers d'autres versions à retirer, libellé.
+     */
+    public static function getAssets(?string $version = null): array {
+        $version ??= self::getServedVersion();
+        return [
+            'windows'      => ['file' => self::getMsiName($version), 'magic' => self::MSI_MAGIC, 'meta' => self::METADATA_FILE, 'glob' => 'GLPI-Agent-*-x64.msi', 'label' => __('Windows (MSI)', 'printgestion')],
+            'linux'        => ['file' => sprintf('glpi-agent-%s-linux-installer.pl', $version), 'magic' => '#!', 'meta' => 'installer-linux.json', 'glob' => 'glpi-agent-*-linux-installer.pl', 'label' => __('Linux (installeur Perl)', 'printgestion')],
+            'macos-arm64'  => ['file' => sprintf('GLPI-Agent-%s_arm64.pkg', $version), 'magic' => 'xar!', 'meta' => 'installer-macos-arm64.json', 'glob' => 'GLPI-Agent-*_arm64.pkg', 'label' => __('macOS Apple Silicon (pkg)', 'printgestion')],
+            'macos-x86_64' => ['file' => sprintf('GLPI-Agent-%s_x86_64.pkg', $version), 'magic' => 'xar!', 'meta' => 'installer-macos-x86_64.json', 'glob' => 'GLPI-Agent-*_x86_64.pkg', 'label' => __('macOS Intel (pkg)', 'printgestion')],
+        ];
+    }
+
     public static function getCacheDir(): string {
         return GLPI_PLUGIN_DOC_DIR . '/printgestion/agent';
     }
@@ -186,16 +212,20 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     // ── Installeur en cache ───────────────────────────────────────────────────
 
     /**
-     * Installeur vérifié de la version servie, ou null. $verify : empreinte recalculée (avant de
-     * servir un paquet) ; sinon contrôle de la taille seulement (affichage).
+     * Fichier officiel vérifié de la version servie ($asset : clé de getAssets()), ou null. $verify : empreinte
+     * recalculée (avant de servir un paquet) ; sinon contrôle de la taille seulement (affichage).
      *
      * @return ?array ['path', 'file', 'version', 'size', 'sha256', 'source', 'date', 'users_id']
      */
-    public static function getCachedInstaller(bool $verify = false): ?array {
+    public static function getCachedInstaller(bool $verify = false, string $asset = 'windows'): ?array {
         $version = self::getServedVersion();
-        $meta    = self::readMetadata();
-        $path    = self::getCacheDir() . '/' . self::getMsiName($version);
-        if ($meta === null || ($meta['version'] ?? '') !== $version || !is_file($path)
+        $spec    = self::getAssets($version)[$asset] ?? null;
+        if ($spec === null) {
+            return null;
+        }
+        $meta = self::readMetadata($spec['meta']);
+        $path = self::getCacheDir() . '/' . $spec['file'];
+        if ($meta === null || ($meta['version'] ?? '') !== $version || ($meta['file'] ?? '') !== $spec['file'] || !is_file($path)
             || (int) ($meta['size'] ?? -1) !== (int) filesize($path)) {
             return null;
         }
@@ -206,8 +236,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         return $meta + ['path' => $path];
     }
 
-    private static function readMetadata(): ?array {
-        $file = self::getCacheDir() . '/' . self::METADATA_FILE;
+    private static function readMetadata(string $meta_file): ?array {
+        $file = self::getCacheDir() . '/' . $meta_file;
         if (!is_file($file)) {
             return null;
         }
@@ -216,14 +246,18 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     }
 
     /**
-     * Récupère le MSI de la version servie sur GitHub, par le serveur GLPI (proxy GLPI respecté),
-     * et ne le garde que si son empreinte est celle publiée par GitHub pour ce fichier.
+     * Récupère un fichier officiel de la version servie sur GitHub (MSI, installeur Linux, paquet macOS), par le
+     * serveur GLPI (proxy GLPI respecté), et ne le garde que si son empreinte est celle publiée par GitHub.
      *
      * @return array ['ok' => bool, 'message' => string]
      */
-    public static function fetchFromGitHub(): array {
+    public static function fetchFromGitHub(string $asset_key = 'windows'): array {
         $version = self::getServedVersion();
-        $name    = self::getMsiName($version);
+        $spec    = self::getAssets($version)[$asset_key] ?? null;
+        if ($spec === null) {
+            return ['ok' => false, 'message' => __('Fichier d\'installation inconnu.', 'printgestion')];
+        }
+        $name    = $spec['file'];
         $client  = Toolbox::getGuzzleClient(['timeout' => 600, 'connect_timeout' => 20]);
         $headers = ['User-Agent' => 'GLPI-printgestion', 'Accept' => 'application/vnd.github+json'];
 
@@ -279,30 +313,35 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             return ['ok' => false, 'message' => __('Téléchargement depuis GitHub interrompu (détail dans le journal printgestion).', 'printgestion')];
         }
 
-        return self::installCandidate($part, $version, $digest[1], 'github', true);
+        return self::installCandidate($part, $version, $digest[1], 'github', true, $asset_key);
     }
 
     /**
-     * Vérifie un MSI déposé à la main dans le dossier de l'installeur (serveur sans accès Internet),
+     * Vérifie un fichier officiel déposé à la main dans le dossier de l'installeur (serveur sans accès Internet),
      * contre l'empreinte SHA-256 publiée avec la release. Un fichier refusé n'est pas supprimé.
      *
      * @return array ['ok' => bool, 'message' => string]
      */
-    public static function verifyDeposited(string $expected_sha256): array {
+    public static function verifyDeposited(string $expected_sha256, string $asset = 'windows'): array {
         $expected = strtolower(trim($expected_sha256));
         if (!preg_match('/^[0-9a-f]{64}$/', $expected)) {
             return ['ok' => false, 'message' => __('Empreinte SHA-256 invalide : 64 caractères hexadécimaux.', 'printgestion')];
         }
         $version = self::getServedVersion();
-        $path    = self::getCacheDir() . '/' . self::getMsiName($version);
-        if (!is_file($path)) {
-            return ['ok' => false, 'message' => sprintf(__('Fichier %1$s absent du dossier %2$s.', 'printgestion'), self::getMsiName($version), self::getCacheDir())];
+        $spec    = self::getAssets($version)[$asset] ?? null;
+        if ($spec === null) {
+            return ['ok' => false, 'message' => __('Fichier d\'installation inconnu.', 'printgestion')];
         }
-        return self::installCandidate($path, $version, $expected, 'depot', false);
+        $path = self::getCacheDir() . '/' . $spec['file'];
+        if (!is_file($path)) {
+            return ['ok' => false, 'message' => sprintf(__('Fichier %1$s absent du dossier %2$s.', 'printgestion'), $spec['file'], self::getCacheDir())];
+        }
+        return self::installCandidate($path, $version, $expected, 'depot', false, $asset);
     }
 
-    /** Contrôle un fichier candidat (en-tête MSI, empreinte) puis l'enregistre comme installeur servi. */
-    private static function installCandidate(string $path, string $version, string $sha256, string $source, bool $delete_if_refused): array {
+    /** Contrôle un fichier candidat (début de fichier, empreinte) puis l'enregistre comme fichier servi. */
+    private static function installCandidate(string $path, string $version, string $sha256, string $source, bool $delete_if_refused, string $asset = 'windows'): array {
+        $spec   = self::getAssets($version)[$asset];
         $refuse = static function (string $message) use ($path, $delete_if_refused): array {
             if ($delete_if_refused && is_file($path)) {
                 unlink($path);
@@ -315,8 +354,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         if ($handle !== false) {
             fclose($handle);
         }
-        if ($magic !== self::MSI_MAGIC) {
-            return $refuse(__('Le fichier n\'est pas un installeur MSI : refusé.', 'printgestion'));
+        if (!str_starts_with($magic, $spec['magic'])) {
+            return $refuse(sprintf(__('Le fichier n\'est pas un fichier %s : refusé.', 'printgestion'), $spec['label']));
         }
         $actual = (string) hash_file('sha256', $path);
         if (!hash_equals($sha256, $actual)) {
@@ -325,13 +364,13 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         }
 
         $dir   = self::getCacheDir();
-        $final = $dir . '/' . self::getMsiName($version);
+        $final = $dir . '/' . $spec['file'];
         if ($path !== $final && !rename($path, $final)) {
             PluginPrintgestionLogger::error('agentdeploy', sprintf('Installeur %s non déplacé vers %s.', $path, $final));
             return $refuse(__('Installeur vérifié mais non enregistré sur le serveur (détail dans le journal printgestion).', 'printgestion'));
         }
         $meta = [
-            'file'     => self::getMsiName($version),
+            'file'     => $spec['file'],
             'version'  => $version,
             'size'     => (int) filesize($final),
             'sha256'   => $actual,
@@ -339,18 +378,19 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'date'     => date('Y-m-d H:i:s'),
             'users_id' => (int) Session::getLoginUserID(),
         ];
-        if (file_put_contents($dir . '/' . self::METADATA_FILE, json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)) === false) {
+        if (file_put_contents($dir . '/' . $spec['meta'], json_encode($meta, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)) === false) {
             PluginPrintgestionLogger::error('agentdeploy', sprintf('Description de l\'installeur non écrite dans %s.', $dir));
             return ['ok' => false, 'message' => __('Installeur vérifié mais sa description n\'a pas pu être écrite (détail dans le journal printgestion).', 'printgestion')];
         }
-        // Une seule version servie : les installeurs des autres versions sont retirés.
-        foreach (glob($dir . '/GLPI-Agent-*-x64.msi') ?: [] as $other) {
+        // Une seule version servie : les fichiers des autres versions sont retirés.
+        foreach (glob($dir . '/' . $spec['glob']) ?: [] as $other) {
             if ($other !== $final && !unlink($other)) {
                 PluginPrintgestionLogger::warning('agentdeploy', sprintf('Ancien installeur %s non supprimé.', $other));
             }
         }
         return ['ok' => true, 'message' => sprintf(
-            __('Installeur GLPI Agent %1$s vérifié (SHA-256 %2$s) et prêt à être servi.', 'printgestion'),
+            __('%1$s de GLPI Agent %2$s vérifié (SHA-256 %3$s) et prêt à être servi.', 'printgestion'),
+            $spec['label'],
             $version,
             $actual
         )];
@@ -358,8 +398,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
 
     // ── Paquet Windows ────────────────────────────────────────────────────────
 
-    /** Motifs empêchant de produire le paquet d'une entité ; vide si prêt. */
-    public static function getPackageBlockers(Entity $entity): array {
+    /** Motifs empêchant de produire le paquet d'une entité pour un système ; vide si prêt. */
+    public static function getPackageBlockers(Entity $entity, string $platform = 'windows'): array {
         $blockers = [];
         $tag      = trim((string) ($entity->fields['tag'] ?? ''));
         if ($tag === '') {
@@ -379,11 +419,15 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         if (!self::isValidTrustList(self::getHttpdTrust())) {
             $blockers[] = __('Adresses autorisées sur l\'interface de l\'agent invalides (page « Installeur GLPI Agent »).', 'printgestion');
         }
-        if (self::getCachedInstaller() === null) {
-            $blockers[] = sprintf(
-                __('Installeur GLPI Agent %s pas encore disponible sur le serveur : page « Installeur GLPI Agent » (droit de configuration du plugin).', 'printgestion'),
-                self::getServedVersion()
-            );
+        $assets = self::getAssets();
+        foreach (self::PLATFORM_ASSETS[$platform] ?? [] as $asset) {
+            if (self::getCachedInstaller(false, $asset) === null) {
+                $blockers[] = sprintf(
+                    __('%1$s de GLPI Agent %2$s pas encore disponible sur le serveur : page « Installeur GLPI Agent » (droit de configuration du plugin).', 'printgestion'),
+                    $assets[$asset]['label'],
+                    self::getServedVersion()
+                );
+            }
         }
         return $blockers;
     }
@@ -522,6 +566,235 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'version'  => $version,
             'tag'      => $tag,
         ];
+    }
+
+    // ── Paquets Linux et macOS ────────────────────────────────────────────────
+
+    /**
+     * Configuration de GLPI Agent au format agent.cfg : mêmes réglages que les propriétés MSI (valeurs contrôlées en
+     * amont). $full : serveur, TAG, adresses autorisées et tâches réseau en plus des réessais SNMP (macOS, dont le
+     * paquet ne règle que la tâche d'inventaire du poste).
+     */
+    public static function buildAgentConfig(string $tag, bool $full): string {
+        $lines = ['# GLPI Agent : configuration posee par Print Gestion pour le TAG ' . $tag . '. Aucun identifiant ni secret.'];
+        if ($full) {
+            $lines[] = 'server = ' . self::getServerUrl()['url'];
+            $lines[] = 'tag = ' . $tag;
+            $lines[] = 'tasks = inventory,netdiscovery,netinventory';
+            $lines[] = 'httpd-trust = ' . self::getHttpdTrust();
+        }
+        $lines[] = '# Un paquet SNMP perdu ne fait plus disparaitre les consommables d un releve (0 par defaut).';
+        $lines[] = 'snmp-retries = ' . self::SNMP_RETRIES;
+        return implode("\n", $lines) . "\n";
+    }
+
+    /** Commande de l'installeur Linux officiel, sans question : réglages passés en options (valeurs contrôlées en amont). */
+    public static function buildLinuxCommand(string $installer, string $tag): string {
+        return sprintf(
+            'perl %s --install --type=network --server="%s" --tag="%s" --httpd-trust="%s" --runnow',
+            $installer,
+            self::getServerUrl()['url'],
+            $tag,
+            self::getHttpdTrust()
+        );
+    }
+
+    /**
+     * Script lancé en root sur le PC sonde Linux (LF) : réessais SNMP dans conf.d (option absente de l'installeur,
+     * gardée aux mises à jour), installeur officiel avec l'inventaire réseau, puis tâche cron mensuelle de mise à jour
+     * si elle est activée.
+     */
+    public static function buildLinuxInstallScript(string $installer, string $tag, string $version, bool $update, string $target): string {
+        return implode("\n", array_merge(
+            [
+                '#!/bin/sh',
+                '# GLPI Agent ' . $version . ' - installation pre-parametree pour le TAG ' . $tag . ' (Print Gestion).',
+                '# Aucun identifiant ni secret : adresse du serveur GLPI et TAG uniquement.',
+                '# A lancer en root depuis le dossier extrait : sudo sh installer-glpi-agent.sh',
+                'cd "$(dirname "$0")" || exit 1',
+                'if [ "$(id -u)" -ne 0 ]; then',
+                '  echo "A lancer en root : sudo sh installer-glpi-agent.sh"',
+                '  exit 1',
+                'fi',
+                'mkdir -p /etc/glpi-agent/conf.d',
+                "cat > /etc/glpi-agent/conf.d/90-printgestion.cfg <<'PRINTGESTION_EOF'",
+                rtrim(self::buildAgentConfig($tag, false), "\n"),
+                'PRINTGESTION_EOF',
+                self::buildLinuxCommand($installer, $tag),
+                'RC=$?',
+                'if [ "$RC" -ne 0 ]; then',
+                '  echo "Installation non terminee, code $RC : relancer avec --verbose pour le detail."',
+                '  exit "$RC"',
+                'fi',
+            ],
+            ['echo "GLPI Agent installe."'],
+            $update ? PluginPrintgestionAgentsetting::buildLinuxScheduleLines(true, $target) : ['echo "Aucune mise a jour automatique posee."'],
+            ['']
+        ));
+    }
+
+    /**
+     * Paquet Linux d'une entité (.tar.gz, dossier unique), fichier temporaire que l'appelant supprime : installeur
+     * Perl officiel vérifié, script d'installation, commande seule, note d'une page.
+     *
+     * @return array ['ok' => bool, 'errors' => string[], 'path', 'filename', 'version', 'tag']
+     */
+    public static function buildLinuxPackage(Entity $entity): array {
+        $blockers = self::getPackageBlockers($entity, 'linux');
+        if (!empty($blockers)) {
+            return ['ok' => false, 'errors' => $blockers];
+        }
+        $installer = self::getCachedInstaller(true, 'linux');
+        if ($installer === null) {
+            return ['ok' => false, 'errors' => [__('Installeur Linux absent ou modifié depuis sa vérification : refaites la vérification (page « Installeur GLPI Agent »).', 'printgestion')]];
+        }
+        if (!class_exists(PharData::class)) {
+            return ['ok' => false, 'errors' => [__('Extension PHP Phar absente du serveur : archive Linux impossible à produire.', 'printgestion')]];
+        }
+
+        $tag     = trim((string) $entity->fields['tag']);
+        $version = (string) $installer['version'];
+        $folder  = sprintf('GLPI-Agent-%s-linux-%s', $version, $tag);
+        $config  = PluginPrintgestionConfig::getInstance()->fields;
+        $update  = (int) ($config['agent_update_default'] ?? 1) === 1;
+        $target  = trim((string) ($config['agent_update_target'] ?? ''));
+        $readme  = implode("\n", [
+            sprintf(__('Installation de GLPI Agent %1$s pour Linux — %2$s (TAG : %3$s)', 'printgestion'), $version, (string) $entity->fields['completename'], $tag),
+            sprintf(__('Paquet généré par Print Gestion le %1$s par %2$s.', 'printgestion'), Html::convDateTime(date('Y-m-d H:i:s')), getUserName((int) Session::getLoginUserID())),
+            __('Ce dossier ne contient aucun identifiant, mot de passe ni jeton : seulement l\'adresse du serveur GLPI et le TAG du client.', 'printgestion'),
+            __('Distributions prises en charge par l\'installeur officiel : Debian, Ubuntu, Red Hat, CentOS, Fedora, openSUSE, AlmaLinux, Rocky Linux, Oracle Linux.', 'printgestion'),
+            '',
+            __('Les 3 gestes', 'printgestion'),
+            sprintf(__('1. Sur le PC qui servira de sonde (allumé en permanence, sur le réseau des imprimantes), dans un terminal : tar -xzf %s.tar.gz', 'printgestion'), $folder),
+            sprintf(__('2. cd %s puis sudo sh installer-glpi-agent.sh — l\'installeur officiel installe l\'agent avec la découverte et l\'inventaire réseau ; l\'adresse du serveur et le TAG sont déjà réglés, aucune question n\'est posée.', 'printgestion'), $folder),
+            __('3. Dans GLPI (fiche de l\'entité, onglet « Déploiement Agent ») : vérifier que l\'agent apparaît avec un contact récent, puis raccorder les imprimantes avec l\'assistant (bloc 3), avant de partir.', 'printgestion'),
+            '',
+            $update
+                ? sprintf(
+                    __('Mise à jour automatique : le script pose la tâche cron mensuelle %1$s (%2$s ; installeur officiel téléchargé sur GitHub, empreinte vérifiée ; seulement si l\'agent est en attente ; journal /var/log/glpi-agent-printgestion-update.log ; curl nécessaire). Pour la changer ou la retirer : régler la sonde dans GLPI, puis lancer son paquet de consigne sur ce PC ; le réglage de GLPI seul ne change rien sur le PC.', 'printgestion'),
+                    PluginPrintgestionAgentsetting::LINUX_CRON,
+                    $target !== '' ? sprintf(__('version cible %s', 'printgestion'), $target) : __('dernière version publiée', 'printgestion')
+                )
+                : __('Mise à jour automatique : non posée par ce paquet. Pour la poser plus tard : paquet de consigne de la sonde dans GLPI.', 'printgestion'),
+            '',
+            __('Commande seule (commande.txt, en root) : elle installe l\'agent sans le réglage des réessais SNMP ni la mise à jour automatique.', 'printgestion'),
+            __('En cas d\'échec : relancer la commande avec --verbose pour le détail.', 'printgestion'),
+            '',
+        ]);
+
+        $base = GLPI_TMP_DIR . '/printgestion-agent-' . bin2hex(random_bytes(8));
+        try {
+            $archive = new PharData($base . '.tar');
+            $archive->addFile($installer['path'], $folder . '/' . $installer['file']);
+            $archive->addFromString($folder . '/installer-glpi-agent.sh', self::buildLinuxInstallScript($installer['file'], $tag, $version, $update, $target));
+            $archive[$folder . '/installer-glpi-agent.sh']->chmod(0755);
+            $archive->addFromString($folder . '/commande.txt', self::buildLinuxCommand($installer['file'], $tag) . "\n");
+            $archive->addFromString($folder . '/LISEZMOI.txt', $readme);
+            $archive->compress(Phar::GZ);
+            unset($archive);
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::error('agentdeploy', sprintf('Paquet Linux %s non créé.', $base), $e);
+            foreach (['.tar', '.tar.gz'] as $extension) {
+                if (is_file($base . $extension)) {
+                    unlink($base . $extension);
+                }
+            }
+            return ['ok' => false, 'errors' => [__('Paquet non généré (détail dans le journal printgestion).', 'printgestion')]];
+        }
+        if (is_file($base . '.tar')) {
+            unlink($base . '.tar');
+        }
+        return ['ok' => true, 'errors' => [], 'path' => $base . '.tar.gz', 'filename' => $folder . '.tar.gz', 'version' => $version, 'tag' => $tag];
+    }
+
+    public static function getMacosFolder(string $version, string $tag): string {
+        return sprintf('GLPI-Agent-%s-macos-%s', $version, $tag);
+    }
+
+    /** Commandes à coller dans le Terminal du Mac sonde (ZIP extrait dans Téléchargements), macOS 13 ou plus. */
+    public static function getMacosCommands(string $version, string $tag): array {
+        return [
+            'sudo cp ~/Downloads/' . self::getMacosFolder($version, $tag) . '/local.cfg /Applications/GLPI-Agent/etc/conf.d/local.cfg',
+            'sudo launchctl bootout system /Library/LaunchDaemons/com.teclib.glpi-agent.plist',
+            'sudo launchctl bootstrap system /Library/LaunchDaemons/com.teclib.glpi-agent.plist',
+        ];
+    }
+
+    /** Gestes sur le Mac sonde, pour la note du paquet et l'onglet de l'entité. */
+    public static function getMacosSteps(string $version, string $tag): array {
+        $assets = self::getAssets($version);
+        return [
+            sprintf(__('1. Sur le Mac qui servira de sonde : double-clic sur le fichier ZIP téléchargé (dossier %s dans Téléchargements).', 'printgestion'), self::getMacosFolder($version, $tag)),
+            sprintf(
+                __('2. Double-clic sur le paquet de ce Mac et suivre l\'installeur : %1$s si « À propos de ce Mac » indique une puce Apple, %2$s pour un processeur Intel. Paquets signés et notarisés par Teclib ; le mauvais paquet est refusé.', 'printgestion'),
+                $assets['macos-arm64']['file'],
+                $assets['macos-x86_64']['file']
+            ),
+            __('3. Ouvrir Terminal (Applications > Utilitaires), coller les trois commandes ci-dessous une par une (mot de passe administrateur demandé) : dépôt de local.cfg, arrêt puis redémarrage de l\'agent. Si le dossier n\'est pas dans Téléchargements, glisser le fichier local.cfg dans la fenêtre du Terminal à la place du chemin.', 'printgestion'),
+            __('4. Dans GLPI (fiche de l\'entité, onglet « Déploiement Agent ») : vérifier que l\'agent apparaît avec un contact récent, puis raccorder les imprimantes avec l\'assistant (bloc 3), avant de partir.', 'printgestion'),
+        ];
+    }
+
+    /**
+     * Paquet macOS d'une entité (ZIP), fichier temporaire que l'appelant supprime : les deux paquets officiels
+     * vérifiés (Apple Silicon, Intel), local.cfg à déposer dans /Applications/GLPI-Agent/etc/conf.d, note avec la
+     * procédure. Pas de fichier .command ; mise à jour manuelle (réinstaller le paquet, local.cfg est gardé).
+     *
+     * @return array ['ok' => bool, 'errors' => string[], 'path', 'filename', 'version', 'tag']
+     */
+    public static function buildMacosPackage(Entity $entity): array {
+        $blockers = self::getPackageBlockers($entity, 'macos');
+        if (!empty($blockers)) {
+            return ['ok' => false, 'errors' => $blockers];
+        }
+        $installers = [];
+        foreach (self::PLATFORM_ASSETS['macos'] as $asset) {
+            $installers[$asset] = self::getCachedInstaller(true, $asset);
+            if ($installers[$asset] === null) {
+                return ['ok' => false, 'errors' => [__('Paquet macOS absent ou modifié depuis sa vérification : refaites la vérification (page « Installeur GLPI Agent »).', 'printgestion')]];
+            }
+        }
+
+        $tag     = trim((string) $entity->fields['tag']);
+        $version = (string) $installers['macos-arm64']['version'];
+        $readme  = implode("\r\n", array_merge(
+            [
+                sprintf(__('Installation de GLPI Agent %1$s pour macOS — %2$s (TAG : %3$s)', 'printgestion'), $version, (string) $entity->fields['completename'], $tag),
+                sprintf(__('Paquet généré par Print Gestion le %1$s par %2$s.', 'printgestion'), Html::convDateTime(date('Y-m-d H:i:s')), getUserName((int) Session::getLoginUserID())),
+                __('Ce dossier ne contient aucun identifiant, mot de passe ni jeton : seulement l\'adresse du serveur GLPI et le TAG du client.', 'printgestion'),
+                '',
+            ],
+            self::getMacosSteps($version, $tag),
+            [''],
+            self::getMacosCommands($version, $tag),
+            [
+                '',
+                __('macOS 12 ou antérieur : remplacer les deux dernières commandes par « sudo launchctl unload » puis « sudo launchctl load » suivis du même chemin.', 'printgestion'),
+                __('Mise à jour : manuelle, en réinstallant le paquet d\'une version plus récente (onglet « Déploiement Agent » de l\'entité) ; local.cfg est gardé.', 'printgestion'),
+                '',
+            ]
+        ));
+
+        $path = GLPI_TMP_DIR . '/printgestion-agent-' . bin2hex(random_bytes(8)) . '.zip';
+        $zip  = new ZipArchive();
+        if ($zip->open($path, ZipArchive::CREATE | ZipArchive::EXCL) !== true) {
+            PluginPrintgestionLogger::error('agentdeploy', sprintf('Paquet macOS %s non créé.', $path));
+            return ['ok' => false, 'errors' => [__('Paquet non généré (détail dans le journal printgestion).', 'printgestion')]];
+        }
+        foreach ($installers as $installer) {
+            $zip->addFile($installer['path'], $installer['file']);
+            $zip->setCompressionName($installer['file'], ZipArchive::CM_STORE); // paquets déjà compressés
+        }
+        $zip->addFromString('local.cfg', self::buildAgentConfig($tag, true));
+        $zip->addFromString('LISEZMOI.txt', "\xEF\xBB\xBF" . $readme);
+        if (!$zip->close()) {
+            if (is_file($path)) {
+                unlink($path);
+            }
+            PluginPrintgestionLogger::error('agentdeploy', sprintf('Paquet macOS %s non finalisé.', $path));
+            return ['ok' => false, 'errors' => [__('Paquet non généré (détail dans le journal printgestion).', 'printgestion')]];
+        }
+        return ['ok' => true, 'errors' => [], 'path' => $path, 'filename' => self::getMacosFolder($version, $tag) . '.zip', 'version' => $version, 'tag' => $tag];
     }
 
     // ── Vérifications ─────────────────────────────────────────────────────────
@@ -712,29 +985,35 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
 
         // ── 2. Installeur ──
         $version  = self::getServedVersion();
-        $blockers = self::getPackageBlockers($entity);
+        $platforms = self::getPlatforms();
+        $icons     = ['windows' => 'ti-brand-windows', 'linux' => 'ti-brand-ubuntu', 'macos' => 'ti-brand-apple'];
+        $blockers  = [];
+        foreach (array_keys($platforms) as $platform) {
+            $blockers[$platform] = self::getPackageBlockers($entity, $platform);
+        }
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(sprintf(__('2. Télécharger l\'installeur (GLPI Agent %s)', 'printgestion'), $version)) . "</h3></div><div class='card-body'>";
-        if (!empty($blockers)) {
+        $all_blockers = array_values(array_unique(array_merge(...array_values($blockers))));
+        if (!empty($all_blockers)) {
             echo "<div class='alert alert-warning'><strong>" . $esc(__('Paquet indisponible :', 'printgestion')) . "</strong><ul class='mb-0'>";
-            foreach ($blockers as $blocker) {
+            foreach ($all_blockers as $blocker) {
                 echo "<li>" . $esc($blocker) . "</li>";
             }
             echo "</ul></div>";
         }
         echo "<div class='d-flex flex-wrap gap-2 mb-3'>";
-        if (empty($blockers)) {
-            echo "<a class='btn btn-primary' href='" . $esc(self::getDownloadURL($id, 'windows')) . "'><i class='ti ti-brand-windows me-1'></i>" . $esc(__('Windows', 'printgestion')) . "</a>";
-        } else {
-            echo "<button type='button' class='btn btn-primary' disabled><i class='ti ti-brand-windows me-1'></i>" . $esc(__('Windows', 'printgestion')) . "</button>";
-        }
-        foreach ([['ti-brand-ubuntu', __('Linux', 'printgestion')], ['ti-brand-apple', __('macOS', 'printgestion')]] as [$icon, $label]) {
-            echo "<button type='button' class='btn btn-outline-secondary' disabled title='" . $esc(__('Prévu en phase 6', 'printgestion')) . "'><i class='ti {$icon} me-1'></i>" . $esc($label) . "</button>";
+        foreach ($platforms as $platform => $label) {
+            $class = $platform === 'windows' ? 'btn-primary' : 'btn-outline-primary';
+            if (empty($blockers[$platform])) {
+                echo "<a class='btn {$class}' href='" . $esc(self::getDownloadURL($id, $platform)) . "'><i class='ti {$icons[$platform]} me-1'></i>" . $esc($label) . "</a>";
+            } else {
+                echo "<button type='button' class='btn {$class}' disabled><i class='ti {$icons[$platform]} me-1'></i>" . $esc($label) . "</button>";
+            }
         }
         echo "</div>";
-        echo "<p class='text-muted small'>" . $esc(__('Paquet ZIP : MSI officiel servi par ce serveur, lanceur installer-glpi-agent.bat à lancer en administrateur (assistant d\'installation, puis tâche planifiée de mise à jour si elle est activée sur la page « Installeur GLPI Agent »), la commande d\'installation seule à copier dans cmd, et une note d\'une page pour le technicien. Linux et macOS : phase 6.', 'printgestion')) . "</p>";
+        echo "<p class='text-muted small'>" . $esc(__('Windows : ZIP avec le MSI officiel servi par ce serveur, le lanceur installer-glpi-agent.bat à lancer en administrateur (assistant, puis tâche planifiée de mise à jour si elle est activée sur la page « Installeur GLPI Agent »), la commande seule et une note d\'une page. Linux : archive .tar.gz avec l\'installeur Perl officiel et le script installer-glpi-agent.sh à lancer avec sudo (réglages déjà remplis, tâche cron de mise à jour si elle est activée). macOS : ZIP avec les deux paquets officiels signés (Apple Silicon et Intel) et le fichier local.cfg à déposer, procédure ci-dessous ; mise à jour manuelle.', 'printgestion')) . "</p>";
 
         if ($tag !== '' && self::isValidTag($tag)) {
-            echo "<div class='mb-2 fw-bold'>" . $esc(__('Commande lancée par le paquet', 'printgestion')) . "</div>";
+            echo "<div class='mb-2 fw-bold'>" . $esc(__('Windows : commande lancée par le paquet', 'printgestion')) . "</div>";
             echo "<pre class='mb-3' style='white-space:pre-wrap'>" . $esc(self::buildWindowsCommand(self::getMsiName($version), $tag)) . "</pre>";
         }
         $reasons = [
@@ -752,6 +1031,19 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             echo "<tr><td><code>" . $esc($name) . "</code></td><td><code>" . $esc($value !== '' ? $value : '—') . "</code></td><td class='small'>" . $esc($reasons[$name] ?? '') . "</td></tr>";
         }
         echo "</tbody></table></div>";
+        if ($tag !== '' && self::isValidTag($tag)) {
+            echo "<div class='mt-3 mb-2 fw-bold'>" . $esc(__('Linux : commande lancée par installer-glpi-agent.sh, en root', 'printgestion')) . "</div>";
+            echo "<pre class='mb-1' style='white-space:pre-wrap'>" . $esc(self::buildLinuxCommand(self::getAssets($version)['linux']['file'], $tag)) . "</pre>";
+            echo "<p class='text-muted small'>" . $esc(__('Avant la commande, le script pose /etc/glpi-agent/conf.d/90-printgestion.cfg (snmp-retries = 2, option absente de l\'installeur, gardée aux mises à jour) ; après, la tâche cron mensuelle de mise à jour si elle est activée.', 'printgestion')) . "</p>";
+            echo "<div class='mt-3 mb-2 fw-bold'>" . $esc(__('macOS : procédure sur le Mac sonde', 'printgestion')) . "</div>";
+            echo "<ol class='small ps-3'>";
+            foreach (self::getMacosSteps($version, $tag) as $step) {
+                echo "<li>" . $esc((string) preg_replace('/^\d+\.\s*/', '', $step)) . "</li>";
+            }
+            echo "</ol>";
+            echo "<pre class='mb-2' style='white-space:pre-wrap'>" . $esc(implode("\n", self::getMacosCommands($version, $tag))) . "</pre>";
+            echo "<div class='small fw-bold'>local.cfg</div><pre class='mb-0' style='white-space:pre-wrap'>" . $esc(self::buildAgentConfig($tag, true)) . "</pre>";
+        }
         echo "</div></div>";
 
         // ── 3. Raccordement des imprimantes ──
@@ -767,40 +1059,53 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $can_edit  = Session::haveRight('plugin_printgestion_config', UPDATE);
         $page      = self::getPageURL();
         $version   = self::getServedVersion();
-        $installer = self::getCachedInstaller();
         $config    = PluginPrintgestionConfig::getInstance();
 
-        echo "<p class='text-muted small'>" . $esc(__('Installeur GLPI Agent servi aux techniciens depuis l\'onglet « Déploiement Agent » des entités. Le fichier est récupéré par ce serveur et vérifié : les postes des clients ne téléchargent jamais rien depuis GitHub.', 'printgestion')) . "</p>";
+        echo "<p class='text-muted small'>" . $esc(__('Fichiers officiels de GLPI Agent servis aux techniciens depuis l\'onglet « Déploiement Agent » des entités, récupérés par ce serveur et vérifiés : l\'installation ne télécharge rien depuis GitHub sur les postes des clients. Seule la mise à jour automatique, si elle est posée, passe par winget (Windows) ou GitHub (Linux).', 'printgestion')) . "</p>";
 
-        // Installeur servi.
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(sprintf(__('Installeur servi : GLPI Agent %s pour Windows', 'printgestion'), $version)) . "</h3></div><div class='card-body'>";
-        if ($installer !== null) {
-            echo "<div class='alert alert-success'><i class='ti ti-circle-check me-1'></i>" . $esc(sprintf(
-                __('%1$s vérifié : %2$s octets, SHA-256 %3$s, %4$s le %5$s.', 'printgestion'),
-                $installer['file'],
-                number_format((int) $installer['size'], 0, ',', ' '),
-                $installer['sha256'],
-                $installer['source'] === 'github' ? __('récupéré sur GitHub', 'printgestion') : __('déposé à la main', 'printgestion'),
-                Html::convDateTime((string) $installer['date'])
-            )) . "</div>";
-        } else {
-            echo "<div class='alert alert-warning'><i class='ti ti-alert-triangle me-1'></i>" . $esc(sprintf(__('%s pas encore disponible sur ce serveur : aucun paquet ne peut être téléchargé.', 'printgestion'), self::getMsiName($version))) . "</div>";
+        // Installeurs servis.
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(sprintf(__('Installeurs servis : GLPI Agent %s', 'printgestion'), $version)) . "</h3></div><div class='card-body'>";
+        echo "<div class='table-responsive'><table class='table table-sm align-middle'><thead><tr>"
+            . "<th>" . $esc(__('Fichier officiel', 'printgestion')) . "</th><th>" . $esc(__('Nom', 'printgestion')) . "</th><th>" . $esc(__('État', 'printgestion')) . "</th>"
+            . ($can_edit ? "<th></th>" : '') . "</tr></thead><tbody>";
+        foreach (self::getAssets($version) as $asset => $spec) {
+            $installer = self::getCachedInstaller(false, $asset);
+            echo "<tr><td>" . $esc($spec['label']) . "</td><td><code>" . $esc($spec['file']) . "</code></td><td>";
+            if ($installer !== null) {
+                echo "<span class='badge bg-green text-green-fg'>" . $esc(__('Vérifié', 'printgestion')) . "</span> <span class='small text-muted'>" . $esc(sprintf(
+                    __('%1$s octets, SHA-256 %2$s, %3$s le %4$s', 'printgestion'),
+                    number_format((int) $installer['size'], 0, ',', ' '),
+                    $installer['sha256'],
+                    $installer['source'] === 'github' ? __('récupéré sur GitHub', 'printgestion') : __('déposé à la main', 'printgestion'),
+                    Html::convDateTime((string) $installer['date'])
+                )) . "</span>";
+            } else {
+                echo "<span class='badge bg-orange text-orange-fg'>" . $esc(__('Pas encore sur ce serveur', 'printgestion')) . "</span>";
+            }
+            echo "</td>";
+            if ($can_edit) {
+                echo "<td class='text-end'><form method='post' action='" . $esc($page) . "' class='d-inline'>"
+                    . "<button type='submit' name='fetch_github' value='" . $esc($asset) . "' class='btn btn-sm btn-outline-primary'><i class='ti ti-cloud-download me-1'></i>" . $esc(__('Récupérer depuis GitHub', 'printgestion')) . "</button>"
+                    . Html::closeForm(false) . "</td>";
+            }
+            echo "</tr>";
         }
+        echo "</tbody></table></div>";
+        echo "<p class='text-muted small'>" . $esc(__('Paquet de l\'entité disponible dès que ses fichiers sont vérifiés : le MSI pour Windows, l\'installeur Perl pour Linux, les deux paquets (Apple Silicon et Intel) pour macOS. Empreinte comparée à celle que GitHub publie pour chaque fichier.', 'printgestion')) . "</p>";
         if ($can_edit) {
-            echo "<form method='post' action='" . $esc($page) . "' class='mb-3'>";
-            echo "<button type='submit' name='fetch_github' value='1' class='btn btn-primary'><i class='ti ti-cloud-download me-1'></i>"
-                . $esc(sprintf(__('Récupérer GLPI Agent %s depuis GitHub (empreinte vérifiée)', 'printgestion'), $version)) . "</button>";
-            Html::closeForm();
-
             echo "<p class='small mb-1'>" . $esc(sprintf(
-                __('Serveur sans accès à GitHub : déposer %1$s dans le dossier %2$s, puis coller l\'empreinte SHA-256 publiée avec la release (fichier glpi-agent-%3$s.sha256).', 'printgestion'),
-                self::getMsiName($version),
+                __('Serveur sans accès à GitHub : déposer le fichier dans le dossier %1$s, puis coller son empreinte SHA-256 publiée avec la release (fichier glpi-agent-%2$s.sha256).', 'printgestion'),
                 self::getCacheDir(),
                 $version
             )) . "</p>";
             echo "<form method='post' action='" . $esc($page) . "' class='row g-2 align-items-end'>";
-            echo "<div class='col-md-8'><input type='text' class='form-control' name='sha256' maxlength='64' pattern='[0-9a-fA-F]{64}' placeholder='" . $esc(__('Empreinte SHA-256 (64 caractères)', 'printgestion')) . "' required></div>";
-            echo "<div class='col-md-4'><button type='submit' name='verify_deposit' value='1' class='btn btn-outline-primary'><i class='ti ti-file-check me-1'></i>" . $esc(__('Vérifier le fichier déposé', 'printgestion')) . "</button></div>";
+            echo "<div class='col-md-3'><select class='form-select' name='asset'>";
+            foreach (self::getAssets($version) as $asset => $spec) {
+                echo "<option value='" . $esc($asset) . "'>" . $esc($spec['label']) . "</option>";
+            }
+            echo "</select></div>";
+            echo "<div class='col-md-6'><input type='text' class='form-control' name='sha256' maxlength='64' pattern='[0-9a-fA-F]{64}' placeholder='" . $esc(__('Empreinte SHA-256 (64 caractères)', 'printgestion')) . "' required></div>";
+            echo "<div class='col-md-3'><button type='submit' name='verify_deposit' value='1' class='btn btn-outline-primary'><i class='ti ti-file-check me-1'></i>" . $esc(__('Vérifier le fichier déposé', 'printgestion')) . "</button></div>";
             Html::closeForm();
         } else {
             echo "<p class='text-muted small mb-0'>" . $esc(__('Récupération et vérification de l\'installeur : droit de configuration du plugin.', 'printgestion')) . "</p>";
@@ -822,6 +1127,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             . ($server['error'] !== '' ? " <span class='text-danger'>" . $esc($server['error']) . "</span>" : '') . "</li>";
         echo "<li>" . $esc(__('Adresses autorisées sur l\'interface de l\'agent (HTTPD_TRUST) :', 'printgestion')) . " <code>" . $esc(self::getHttpdTrust()) . "</code></li>";
         echo "<li>" . $esc(__('Fonctions (ADDLOCAL), réessais SNMP, mode :', 'printgestion')) . " <code>" . $esc(self::ADDLOCAL) . "</code>, <code>SNMP_RETRIES=" . (int) self::SNMP_RETRIES . "</code>, <code>RUNNOW=1 EXECMODE=1 QUICKINSTALL=1</code></li>";
+        echo "<li>" . $esc(__('Linux et macOS : mêmes réglages, en options de l\'installeur Linux (--type=network) et dans conf.d, ou dans local.cfg sur macOS (tasks = inventory,netdiscovery,netinventory ; snmp-retries = 2).', 'printgestion')) . "</li>";
         echo "</ul>";
         echo "<p class='text-muted small'>" . $esc(__('Le serveur GLPI ne peut réveiller une sonde (statut, inventaire à la demande) que s\'il la joint sur son port 62354 : impossible derrière le NAT d\'un client, sauf VPN. L\'accès depuis le poste lui-même (127.0.0.1) reste toujours ouvert.', 'printgestion'))
             . ($resolved !== '' && $resolved !== $host ? ' ' . $esc(sprintf(__('Adresse du serveur GLPI selon le DNS : %s.', 'printgestion'), $resolved)) : '') . "</p>";

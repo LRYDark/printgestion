@@ -7,10 +7,11 @@
  *   serveur y accède, ou saisie à la main ; à défaut, version de l'installeur servi par le plugin.
  * - Réglages par sonde : « Mise à jour automatique » (cochée par défaut) et « Version cible » (vide : dernière
  *   connue ; une valeur : épinglage, qui couvre le retour arrière).
- * - Le plugin ne pousse aucune mise à jour. La tâche planifiée qui la fait (winget, mensuelle, compte SYSTEM)
- *   est posée sur le PC par le paquet d'installation Windows selon les réglages par défaut, puis changée par le
- *   « paquet de consigne » de la sonde, lancé sur le PC. Sans la tâche Deploy (exclue) ni jeton (exclu), GLPI ne
- *   peut pas changer cette tâche à distance : décocher la case ne retire pas une tâche déjà posée.
+ * - Le plugin ne pousse aucune mise à jour. La tâche qui la fait (Windows : tâche planifiée winget, compte
+ *   SYSTEM ; Linux : tâche cron, installeur officiel vérifié) est posée sur le PC par le paquet d'installation
+ *   selon les réglages par défaut, puis changée par la consigne de la sonde, lancée sur le PC. Sans la tâche Deploy
+ *   (exclue) ni jeton (exclu), GLPI ne peut pas la changer à distance : décocher la case ne retire pas une tâche
+ *   déjà posée. macOS : mise à jour manuelle, aucun mécanisme officiel.
  * - Statut GLPI du PC sonde, choisi par l'administrateur, pour distinguer la sonde du parc du client.
  * - Onglet sur la fiche Agent native (seulement ce qui y manque) et page « Sondes » du module, pour les
  *   techniciens qui n'ont pas le droit Agent.
@@ -35,6 +36,10 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
     /** Script de mise à jour posé sur le PC sonde, dans %ProgramData%\PrintGestion. */
     const UPDATE_SCRIPT = 'glpi-agent-update.cmd';
 
+    /** Tâche cron mensuelle posée sur le PC sonde Linux, et son journal. */
+    const LINUX_CRON = '/etc/cron.monthly/glpi-agent-printgestion';
+    const LINUX_LOG  = '/var/log/glpi-agent-printgestion-update.log';
+
     static function getTypeName($nb = 0) {
         return _n('Sonde', 'Sondes', $nb, 'printgestion');
     }
@@ -43,8 +48,8 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         return PLUGIN_PRINTGESTION_WEBDIR . '/front/sondes.php' . ($agents_id !== null ? '?id=' . $agents_id : '');
     }
 
-    public static function getConsigneURL(int $agents_id): string {
-        return PLUGIN_PRINTGESTION_WEBDIR . '/front/sonde.consigne.php?agents_id=' . $agents_id;
+    public static function getConsigneURL(int $agents_id, string $os = 'windows'): string {
+        return PLUGIN_PRINTGESTION_WEBDIR . '/front/sonde.consigne.php?agents_id=' . $agents_id . '&os=' . rawurlencode($os);
     }
 
     private static function now(): string {
@@ -275,6 +280,31 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         $itemtype = (string) ($agent['itemtype'] ?? '');
         $items_id = (int) ($agent['items_id'] ?? 0);
         return is_a($itemtype, CommonDBTM::class, true) && $items_id > 0 ? (string) $itemtype::getFriendlyNameById($items_id) : '';
+    }
+
+    /** Système du PC de la sonde, lu dans son inventaire : windows, linux ou macos ; null si inconnu. */
+    public static function getHostPlatform(array $agent): ?string {
+        global $DB;
+
+        if ((string) ($agent['itemtype'] ?? '') !== Computer::class || (int) ($agent['items_id'] ?? 0) <= 0) {
+            return null;
+        }
+        $row  = $DB->request([
+            'SELECT'     => ['os.name'],
+            'FROM'       => 'glpi_items_operatingsystems AS io',
+            'INNER JOIN' => ['glpi_operatingsystems AS os' => ['ON' => ['io' => 'operatingsystems_id', 'os' => 'id']]],
+            'WHERE'      => ['io.itemtype' => Computer::class, 'io.items_id' => (int) $agent['items_id'], 'io.is_deleted' => 0],
+            'ORDER'      => ['io.date_mod DESC', 'io.id DESC'],
+            'LIMIT'      => 1,
+        ])->current();
+        $name = strtolower(trim((string) ($row['name'] ?? '')));
+        if ($name === '') {
+            return null;
+        }
+        if (str_contains($name, 'windows')) {
+            return 'windows';
+        }
+        return str_contains($name, 'mac') || str_contains($name, 'darwin') ? 'macos' : 'linux';
     }
 
     /** Statut GLPI donné aux PC sondes (0 : aucun choisi). */
@@ -535,16 +565,124 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
     }
 
     /**
-     * Paquet de consigne d'une sonde (Windows) : applique sur le PC le réglage « Mise à jour automatique » de
-     * GLPI (pose, change ou retire la tâche planifiée). Fichier temporaire que l'appelant supprime.
-     *
-     * @return array ['ok' => bool, 'errors' => string[], 'path', 'filename']
+     * Script de la tâche cron mensuelle Linux (LF, root) : rien si l'agent n'est pas en attente ; release publiée
+     * (dernière ou version cible) lue sur GitHub, installeur Perl officiel téléchargé et vérifié contre l'empreinte
+     * SHA-256 publiée, puis relancé sans option de configuration, ce qui garde /etc/glpi-agent/conf.d.
      */
-    public static function buildConsignePackage(Agent $agent): array {
+    public static function buildLinuxUpdateScript(string $target): string {
+        $repository = PluginPrintgestionAgentdeploy::REPOSITORY;
+        return implode("\n", [
+            '#!/bin/sh',
+            '# Mise a jour de GLPI Agent posee par Print Gestion : tache cron mensuelle, compte root.',
+            '# ' . ($target !== '' ? 'Version cible : ' . $target . '.' : 'Derniere version publiee.') . ' Aucun identifiant ni secret.',
+            'TARGET="' . $target . '"',
+            'exec >>' . self::LINUX_LOG . ' 2>&1',
+            'echo "[$(date "+%Y-%m-%d %H:%M:%S")] Debut"',
+            '# Pas de mise a jour pendant une tache de l agent : il doit etre en attente.',
+            'if ! curl -s --max-time 10 http://127.0.0.1:' . Agent::DEFAULT_PORT . '/status | grep -q waiting; then',
+            '  echo "Agent occupe ou injoignable : mise a jour reportee"',
+            '  exit 0',
+            'fi',
+            'WORK=$(mktemp -d) || exit 1',
+            'trap \'rm -rf "$WORK"\' EXIT',
+            'API="https://api.github.com/repos/' . $repository . '/releases"',
+            'if [ -n "$TARGET" ]; then URL="$API/tags/$TARGET"; else URL="$API/latest"; fi',
+            'if ! curl -fsSL --max-time 60 -H "Accept: application/vnd.github+json" -o "$WORK/release.json" "$URL"; then',
+            '  echo "GitHub injoignable ou version inconnue : mise a jour reportee"',
+            '  exit 1',
+            'fi',
+            '# Version, adresse et empreinte SHA-256 de l installeur Linux officiel, publiees par GitHub.',
+            'set -- $(perl -MJSON::PP -e \'local $/; my $r = decode_json(<STDIN>); for my $a (@{$r->{assets}}) { next unless $a->{name} =~ /^glpi-agent-([0-9.]+)-linux-installer[.]pl$/; my $v = $1; my ($d) = ($a->{digest} // "") =~ /^sha256:([0-9a-f]{64})$/; print "$v $a->{browser_download_url} ", ($d // ""), "\\n"; last }\' < "$WORK/release.json")',
+            'VERSION="$1"; ASSET="$2"; SHA="$3"',
+            'if [ -z "$VERSION" ] || [ -z "$SHA" ]; then',
+            '  echo "Installeur Linux ou empreinte absents de la release : rien n est fait"',
+            '  exit 1',
+            'fi',
+            'INSTALLED=$(glpi-agent --version 2>/dev/null | head -n 1 | sed -n "s/.*(\\([0-9.]*\\)).*/\\1/p")',
+            'if [ "$INSTALLED" = "$VERSION" ]; then',
+            '  echo "Deja en version $VERSION"',
+            '  exit 0',
+            'fi',
+            'case "$ASSET" in',
+            '  https://github.com/' . $repository . '/releases/download/*) ;;',
+            '  *) echo "Adresse de telechargement inattendue : $ASSET"; exit 1 ;;',
+            'esac',
+            'if ! curl -fsSL --max-time 900 -o "$WORK/installer.pl" "$ASSET"; then',
+            '  echo "Telechargement interrompu"',
+            '  exit 1',
+            'fi',
+            'if ! echo "$SHA  $WORK/installer.pl" | sha256sum -c - >/dev/null 2>&1; then',
+            '  echo "Empreinte differente de celle publiee : installeur refuse"',
+            '  exit 1',
+            'fi',
+            '# Sans option de configuration, l installeur garde /etc/glpi-agent/conf.d (00-install.cfg compris).',
+            'perl "$WORK/installer.pl" --install --type=network --silent' . ($target !== '' ? ' --force' : ''),
+            'echo "[$(date "+%Y-%m-%d %H:%M:%S")] Fin, version $VERSION, code $?"',
+            'exit 0',
+            '',
+        ]);
+    }
+
+    /** Lignes sh qui posent la tâche cron mensuelle Linux (curl nécessaire) ou la retirent. */
+    public static function buildLinuxScheduleLines(bool $enabled, string $target): array {
+        if (!$enabled) {
+            return ['rm -f ' . self::LINUX_CRON];
+        }
+        return array_merge(
+            [
+                'if command -v curl >/dev/null 2>&1; then',
+                "  cat > " . self::LINUX_CRON . " <<'PRINTGESTION_CRON'",
+            ],
+            explode("\n", rtrim(self::buildLinuxUpdateScript($target), "\n")),
+            [
+                'PRINTGESTION_CRON',
+                '  chmod 755 ' . self::LINUX_CRON,
+                '  echo "Mise a jour automatique mensuelle posee : ' . ($target !== '' ? 'version cible ' . $target : 'derniere version publiee') . ' (' . self::LINUX_CRON . ')."',
+                'else',
+                '  echo "curl absent : mise a jour automatique non posee (installer curl puis relancer ce script)."',
+                'fi',
+            ]
+        );
+    }
+
+    /**
+     * Consigne de mise à jour d'une sonde : applique sur le PC le réglage « Mise à jour automatique » de GLPI (pose,
+     * change ou retire la tâche). Windows : ZIP (lanceur, script de la tâche planifiée, note) ; Linux : script sh
+     * seul. Fichier temporaire que l'appelant supprime.
+     *
+     * @return array ['ok' => bool, 'errors' => string[], 'path', 'filename', 'content_type']
+     */
+    public static function buildConsignePackage(Agent $agent, string $os = 'windows'): array {
         $settings = self::getSettings((int) $agent->getID());
         $target   = $settings['target_version'];
         $name     = trim((string) preg_replace('/[^A-Za-z0-9._-]+/', '-', (string) $agent->fields['name']), '-');
         $name     = $name !== '' ? $name : 'sonde-' . (int) $agent->getID();
+
+        if ($os === 'linux') {
+            $filename = 'consigne-glpi-agent-' . $name . '.sh';
+            $script   = implode("\n", array_merge(
+                [
+                    '#!/bin/sh',
+                    '# Consigne de mise a jour de GLPI Agent pour la sonde ' . $name . ' (Print Gestion), generee le ' . date('Y-m-d H:i') . '.',
+                    '# Aucun identifiant ni secret. A lancer sur le PC sonde : sudo sh ' . $filename,
+                    'if [ "$(id -u)" -ne 0 ]; then',
+                    '  echo "A lancer en root : sudo sh ' . $filename . '"',
+                    '  exit 1',
+                    'fi',
+                ],
+                self::buildLinuxScheduleLines($settings['auto_update'], $target),
+                [$settings['auto_update'] ? '' : 'echo "Consigne appliquee : mise a jour automatique retiree de ce PC."', '']
+            ));
+            $path = GLPI_TMP_DIR . '/printgestion-consigne-' . bin2hex(random_bytes(8)) . '.sh';
+            if (file_put_contents($path, $script) === false) {
+                PluginPrintgestionLogger::error('agentsetting', sprintf('Script de consigne %s non écrit.', $path));
+                return ['ok' => false, 'errors' => [__('Paquet de consigne non généré (détail dans le journal printgestion).', 'printgestion')]];
+            }
+            return ['ok' => true, 'errors' => [], 'path' => $path, 'filename' => $filename, 'content_type' => 'text/x-shellscript'];
+        }
+        if ($os !== 'windows') {
+            return ['ok' => false, 'errors' => [__('Système inconnu : paquet de consigne non généré.', 'printgestion')]];
+        }
 
         $bat = implode("\r\n", array_merge(
             [
@@ -598,7 +736,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             PluginPrintgestionLogger::error('agentsetting', sprintf('Paquet de consigne %s non finalisé.', $path));
             return ['ok' => false, 'errors' => [__('Paquet de consigne non généré (détail dans le journal printgestion).', 'printgestion')]];
         }
-        return ['ok' => true, 'errors' => [], 'path' => $path, 'filename' => 'consigne-glpi-agent-' . $name . '.zip'];
+        return ['ok' => true, 'errors' => [], 'path' => $path, 'filename' => 'consigne-glpi-agent-' . $name . '.zip', 'content_type' => 'application/zip'];
     }
 
     // ── Affichage ─────────────────────────────────────────────────────────────
@@ -642,7 +780,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             echo "<div class='col-md-6 col-xl-3'><div class='form-check'>"
                 . "<input type='hidden' name='agent_update_default' value='0'>"
                 . "<input class='form-check-input' type='checkbox' id='pg-update-default' name='agent_update_default' value='1'" . ((int) ($fields['agent_update_default'] ?? 1) === 1 ? ' checked' : '') . ">"
-                . "<label class='form-check-label' for='pg-update-default'>" . $esc(__('Nouveaux paquets Windows : poser la mise à jour automatique', 'printgestion')) . "</label></div></div>";
+                . "<label class='form-check-label' for='pg-update-default'>" . $esc(__('Nouveaux paquets Windows et Linux : poser la mise à jour automatique', 'printgestion')) . "</label></div></div>";
             echo "<div class='col-md-6 col-xl-3'><label class='form-label'>" . $esc(__('Version cible des nouveaux paquets (vide : dernière)', 'printgestion')) . "</label>"
                 . "<input type='text' class='form-control' name='agent_update_target' maxlength='20' value='" . $esc($fields['agent_update_target'] ?? '') . "'></div>";
             echo "<div class='col-md-6 col-xl-3'><label class='form-label'>" . $esc(__('Statut GLPI des PC sondes', 'printgestion')) . "</label>"
@@ -651,12 +789,12 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             echo Html::closeForm(false);
         } else {
             echo "<p class='mb-0'>" . $esc(sprintf(
-                __('Nouveaux paquets Windows : %1$s. Statut des PC sondes : %2$s.', 'printgestion'),
+                __('Nouveaux paquets Windows et Linux : %1$s. Statut des PC sondes : %2$s.', 'printgestion'),
                 (int) ($fields['agent_update_default'] ?? 1) === 1 ? __('mise à jour automatique posée', 'printgestion') : __('sans mise à jour automatique', 'printgestion'),
                 self::getProbeStateId() > 0 ? Dropdown::getDropdownName(State::getTable(), self::getProbeStateId()) : __('aucun', 'printgestion')
             )) . "</p>";
         }
-        echo "<p class='text-muted small mt-3 mb-0'>" . $esc(__('Le plugin ne pousse aucune mise à jour. Le paquet Windows pose sur le PC une tâche planifiée mensuelle (winget, compte SYSTEM, seulement si l\'agent est en attente) selon ces réglages ; chaque sonde se règle ensuite depuis sa fiche, et le changement n\'est appliqué qu\'en lançant son paquet de consigne sur le PC. Microsoft ne prend pas officiellement en charge winget sous le compte SYSTEM : à vérifier au pilote. Statut des PC sondes : créez-le à la racine (récursif) dans Configuration > Intitulés > Statuts des éléments, puis marquez chaque PC depuis la page « Sondes ».', 'printgestion')) . "</p>";
+        echo "<p class='text-muted small mt-3 mb-0'>" . $esc(__('Le plugin ne pousse aucune mise à jour. Selon ces réglages, le paquet Windows pose sur le PC une tâche planifiée mensuelle (winget, compte SYSTEM) et le paquet Linux une tâche cron mensuelle (installeur officiel téléchargé sur GitHub, empreinte vérifiée), toutes deux seulement si l\'agent est en attente ; macOS : mise à jour manuelle. Chaque sonde se règle ensuite depuis sa fiche, et le changement n\'est appliqué qu\'en lançant sa consigne sur le PC. Microsoft ne prend pas officiellement en charge winget sous le compte SYSTEM : à vérifier au pilote. Statut des PC sondes : créez-le à la racine (récursif) dans Configuration > Intitulés > Statuts des éléments, puis marquez chaque PC depuis la page « Sondes ».', 'printgestion')) . "</p>";
         echo "</div></div>";
     }
 
@@ -699,8 +837,25 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         if ($settings['exists']) {
             echo "<p class='text-muted small mt-2 mb-0'>" . $esc(sprintf(__('Réglé le %1$s par %2$s.', 'printgestion'), Html::convDateTime((string) $settings['date_mod']), getUserName($settings['users_id']))) . "</p>";
         }
-        echo "<div class='alert alert-warning mt-3'><i class='ti ti-alert-triangle me-1'></i>" . $esc(__('Ce réglage ne change rien tout seul sur le PC. La tâche planifiée de mise à jour y est posée par le paquet d\'installation ; pour appliquer un changement (désactiver, épingler une version, revenir en arrière), téléchargez le paquet de consigne et lancez-le sur la sonde. Décocher la case ici ne désactive pas une tâche déjà posée. Retour à une version plus ancienne : l\'installeur Windows peut refuser de rétrograder (signalé dans le journal de la tâche) ; il faut alors désinstaller puis réinstaller avec le paquet de l\'entité.', 'printgestion')) . "</div>";
-        echo "<a class='btn btn-outline-secondary' href='" . $esc(self::getConsigneURL($agents_id)) . "'><i class='ti ti-brand-windows me-1'></i>" . $esc(__('Paquet de consigne pour ce PC (Windows)', 'printgestion')) . "</a>";
+        echo "<div class='alert alert-warning mt-3'><i class='ti ti-alert-triangle me-1'></i>" . $esc(__('Ce réglage ne change rien tout seul sur le PC. La tâche de mise à jour (tâche planifiée sous Windows, tâche cron sous Linux) y est posée par le paquet d\'installation ; pour appliquer un changement (désactiver, épingler une version, revenir en arrière), téléchargez la consigne et lancez-la sur la sonde. Décocher la case ici ne désactive pas une tâche déjà posée. Retour à une version plus ancienne : l\'installeur peut refuser de rétrograder (signalé dans le journal de la tâche) ; il faut alors désinstaller puis réinstaller avec le paquet de l\'entité.', 'printgestion')) . "</div>";
+        $platform = self::getHostPlatform($agent->fields);
+        if ($platform === 'macos') {
+            echo "<p class='mb-0'>" . $esc(__('PC sonde sous macOS : pas de mise à jour automatique (aucun mécanisme officiel). Réinstaller le paquet d\'une version plus récente depuis l\'onglet « Déploiement Agent » de l\'entité ; local.cfg est gardé.', 'printgestion')) . "</p>";
+        } else {
+            echo "<div class='d-flex flex-wrap gap-2'>";
+            foreach ([
+                'windows' => ['ti-brand-windows', __('Paquet de consigne pour ce PC (Windows)', 'printgestion')],
+                'linux'   => ['ti-brand-ubuntu', __('Script de consigne pour ce PC (Linux)', 'printgestion')],
+            ] as $os => [$icon, $label]) {
+                if ($platform === null || $platform === $os) {
+                    echo "<a class='btn btn-outline-secondary' href='" . $esc(self::getConsigneURL($agents_id, $os)) . "'><i class='ti {$icon} me-1'></i>" . $esc($label) . "</a>";
+                }
+            }
+            echo "</div>";
+            if ($platform === null) {
+                echo "<p class='text-muted small mt-2 mb-0'>" . $esc(__('Système du PC sonde inconnu (pas encore inventorié) : prendre la consigne de son système. macOS : mise à jour manuelle.', 'printgestion')) . "</p>";
+            }
+        }
         echo "</div></div>";
 
         $coverage = array_keys(self::getCoverage()[$agents_id] ?? []);

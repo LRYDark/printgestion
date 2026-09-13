@@ -182,7 +182,7 @@ nouvelle interception passe par `PluginPrintgestionLogger`.
 
 Une ligne « absente du dernier import » n'est pas perdue : elle redevient active si elle réapparaît.
 
-### Déployer GLPI Agent chez un client (Windows)
+### Déployer GLPI Agent chez un client (Windows, Linux, macOS)
 
 Une fois pour tout le parc :
 
@@ -191,8 +191,9 @@ Une fois pour tout le parc :
 2. Créer la règle d'affectation d'entité par TAG (Administration → Règles → Règles d'affectation d'un élément
    à une entité) : critère « Tag d'inventaire » vérifie l'expression régulière `/^(.*)$/`, action « Entité depuis
    TAG » = `#0`. Le plugin vérifie qu'elle existe, il ne la crée pas.
-3. Print Gestion → Collecte SNMP / Déploiement Agent → Installeur GLPI Agent : « Récupérer depuis GitHub ». Sans
-   accès Internet sur le serveur : déposer le MSI dans le dossier indiqué, puis vérifier son empreinte.
+3. Print Gestion → Collecte SNMP / Déploiement Agent → Installeur GLPI Agent : « Récupérer depuis GitHub » pour
+   chaque fichier utile (MSI Windows ; installeur Perl Linux ; les deux paquets macOS). Sans accès Internet sur le
+   serveur : déposer le fichier dans le dossier indiqué, choisir lequel, puis vérifier son empreinte.
 4. Même page : vérifier « Dernière version connue » (GitHub, sinon saisie), choisir si les nouveaux paquets posent la
    mise à jour automatique, et le statut GLPI des PC sondes (à créer d'abord : Configuration → Intitulés → Statuts des
    éléments, à la racine, récursif).
@@ -206,9 +207,14 @@ Pour chaque client :
 1. Fiche de l'entité → Informations avancées : renseigner le TAG (lettres, chiffres, point, tiret, soulignement ;
    unique), **avant le premier inventaire** : les règles d'entité ne jouent qu'au premier import.
 2. Onglet « Déploiement Agent » de l'entité : corriger ce qui n'est pas vert, puis « Windows » télécharge le paquet.
-3. Sur place : suivre `LISEZMOI.txt` (extraire, clic droit sur le `.bat` → Exécuter en tant qu'administrateur,
-   assistant, attendre le message final), puis vérifier dans l'onglet que l'agent apparaît avec un contact récent et
-   la collecte réseau installée. Page « Sondes » : « Marquer ce PC comme sonde ».
+3. Sur place : suivre `LISEZMOI.txt`, puis vérifier dans l'onglet que l'agent apparaît avec un contact récent et la
+   collecte réseau installée. Page « Sondes » : « Marquer ce PC comme sonde ».
+   - Windows : extraire, clic droit sur le `.bat` → Exécuter en tant qu'administrateur, assistant, attendre le
+     message final.
+   - Linux : `tar -xzf GLPI-Agent-…-linux-<TAG>.tar.gz`, `cd` dans le dossier, `sudo sh installer-glpi-agent.sh`.
+   - macOS : double-clic sur le ZIP, installer le paquet de ce Mac (puce Apple : `_arm64`, Intel : `_x86_64`), puis
+     coller dans Terminal les trois commandes affichées dans l'onglet (dépôt de `local.cfg`, arrêt et redémarrage de
+     l'agent).
 4. Toujours sur place : bloc 3 de l'onglet, « Nouveau raccordement » (droit Déploiement en modification). Choisir la
    sonde, saisir les adresses des imprimantes et, carte 2 bis, leur lieu, commentaire et contrat ; créer la
    configuration de collecte, lancer la découverte. Si GLPI ne joint pas la sonde (cas normal derrière la box) : sur
@@ -216,8 +222,12 @@ Pour chaque client :
    l'assistant annonce le relevé des niveaux. Ne pas partir avant d'avoir le résultat adresse par adresse ; appliquer
    lieu, commentaire et contrat (étape 5), puis « Terminer le raccordement ».
 
-Échec d'installation : journal `%TEMP%\GLPI-Agent-install.log` sur le PC. Agent absent de l'onglet : il est
-peut-être rattaché à une autre entité (TAG, règle) — voir Administration → Inventaire → Agents.
+Échec d'installation : Windows, journal `%TEMP%\GLPI-Agent-install.log` sur le PC ; Linux, relancer la commande de
+`commande.txt` avec `--verbose` (distribution non prise en charge : message de l'installeur) ; macOS, journal
+`/var/log/install.log`, puis `/var/log/glpi-agent.log`. Agent absent de l'onglet : il est peut-être rattaché à une
+autre entité (TAG, règle) — voir Administration → Inventaire → Agents. Mac qui ne découvre aucune imprimante :
+`local.cfg` absent de `/Applications/GLPI-Agent/etc/conf.d/` ou agent pas redémarré (le paquet seul ne fait que
+l'inventaire du poste).
 
 Raccordement :
 - **Configuration refusée** : le message dit pourquoi, rien n'est créé. « Chevaucherait la plage » : adresses de
@@ -261,6 +271,12 @@ Raccordement :
   `C:\ProgramData\PrintGestion\glpi-agent-update.cmd` en administrateur.
 - **Retour à une version plus ancienne refusé** (journal) : désinstaller GLPI Agent sur le PC, réinstaller avec le
   paquet de l'entité (même TAG), puis relancer la consigne si la version reste épinglée.
+- **Linux** : tâche `/etc/cron.monthly/glpi-agent-printgestion`, journal `/var/log/glpi-agent-printgestion-update.log`
+  (« Agent occupé », « GitHub injoignable », « Empreinte différente », « Déjà en version »). Le PC sonde doit joindre
+  api.github.com et github.com, et avoir curl. Pour ne pas attendre le mois suivant :
+  `sudo /etc/cron.monthly/glpi-agent-printgestion`.
+- **macOS** : pas de mise à jour automatique ; réinstaller le paquet d'une version plus récente (paquet de l'entité),
+  `local.cfg` est gardé.
 - **Pas de notification** : réglages « Print Gestion » de Configuration → Inventaire → « Agent cleanup » ;
   notifications actives avec des destinataires (Configuration → Notifications) ; journal de la tâche
   `PrintgestionSilentProbes` (alertes ouvertes, fermées, notifiées). Une alerte n'est notifiée qu'une fois par

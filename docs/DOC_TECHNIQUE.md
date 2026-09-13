@@ -407,7 +407,8 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
      la première qui correspond ; jamais créée par le plugin) ; plugin GLPI Inventory ; agents de l'entité
      (`glpi_agents.entities_id`) : version et conformité, dernier contact et « muet », TAG différent de celui de
      l'entité, modules découverte et inventaire réseau ;
-  2. installeur : bouton Windows (Linux et macOS : phase 6), commande exacte et propriétés MSI expliquées.
+  2. installeur : boutons Windows, Linux et macOS (actifs dès que leurs fichiers officiels sont vérifiés), commande
+     Windows et propriétés MSI expliquées, commande Linux, procédure macOS et son `local.cfg` (phase 6).
 - **Paquet Windows** (`front/agentdeploy.download.php`, droit `deploiement` READ et accès à l'entité) : ZIP généré
   à la demande dans `GLPI_TMP_DIR` et supprimé en fin de requête : MSI officiel (stocké, empreinte recalculée
   avant envoi), `installer-glpi-agent.bat` (ASCII, CRLF, à lancer en administrateur : contrôle administrateur,
@@ -420,12 +421,15 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
   (assistant standard prérempli), jamais lancée par PowerShell. `SERVER` : réglage, sinon
   `<url_base>/plugins/glpiinventory/` si GLPI Inventory est actif, sinon `<url_base>/` (inventaire du poste
   seulement). `HTTPD_TRUST` garde toujours `127.0.0.1/32` (interface locale de l'agent).
-- **Installeur servi** (page « Installeur GLPI Agent », `front/agentdeploy.php` ; lecture `deploiement`, actions
-  `config` UPDATE) : version servie (`DEFAULT_VERSION` = 1.19, épinglable) ; MSI récupéré par le serveur sur
-  GitHub (API des releases, proxy GLPI) et gardé seulement si son SHA-256 est l'empreinte `digest` publiée ; sans
-  accès Internet, fichier déposé dans `GLPI_PLUGIN_DOC_DIR/printgestion/agent/` puis vérifié contre l'empreinte
-  saisie (fichier `glpi-agent-<version>.sha256` de la release). Description `installer.json`, une seule version
-  en cache, dossier supprimé à la désinstallation.
+- **Installeurs servis** (page « Installeur GLPI Agent », `front/agentdeploy.php` ; lecture `deploiement`, actions
+  `config` UPDATE) : version servie (`DEFAULT_VERSION` = 1.19, épinglable) ; quatre fichiers officiels
+  (`Agentdeploy::getAssets()`) : MSI Windows, installeur Perl Linux, paquets macOS Apple Silicon et Intel. Chacun
+  est récupéré par le serveur sur GitHub (API des releases, proxy GLPI) et gardé seulement si son début de fichier
+  est le bon (en-tête MSI, `#!`, `xar!`) et si son SHA-256 est l'empreinte `digest` publiée ; sans accès Internet,
+  fichier déposé dans `GLPI_PLUGIN_DOC_DIR/printgestion/agent/` puis vérifié contre l'empreinte saisie (fichier
+  `glpi-agent-<version>.sha256` de la release). Une description par fichier (`installer.json` pour le MSI,
+  `installer-linux.json`, `installer-macos-arm64.json`, `installer-macos-x86_64.json`), une seule version en cache,
+  dossier supprimé à la désinstallation.
 - **Réglages** (`glpi_plugin_printgestion_configs`, étape 1.6.0) : `agent_version`, `agent_server_url`,
   `agent_httpd_trust` ; vides : automatiques.
 - **Limites vérifiées** : « Demander le statut » et « Demander un inventaire » (natifs) sont des requêtes du
@@ -628,6 +632,51 @@ contact par entité, sondes à mettre à jour, imprimantes qui ne remontent plus
 contacte GLPI). Droits vérifiés par chaque fournisseur, GLPI gardant la liste des cartes en cache ; couverture des
 sondes gardée 10 minutes en cache. Page « Sondes » du module : mêmes compteurs, sondes sans contact groupées par
 entité, tableau des sondes (PC hôte et marquage, version, conformité, dernier contact, réglage, imprimantes).
+
+### Déploiement Agent — phase 6 : Linux et macOS (`inc/agentdeploy.class.php`, `inc/agentsetting.class.php`)
+
+Même principe que Windows : fichiers officiels servis par le serveur GLPI et vérifiés, réglages déjà remplis, aucun
+identifiant ni secret, aucune interface maison. Téléchargement : `front/agentdeploy.download.php?os=linux|macos`
+(droit `deploiement` READ, accès à l'entité, tracé dans l'historique de l'entité).
+
+**Linux** (`buildLinuxPackage()`, archive `GLPI-Agent-<version>-linux-<TAG>.tar.gz` produite par `PharData`, un
+seul dossier) : installeur Perl officiel, `installer-glpi-agent.sh` (LF, exécutable, à lancer avec `sudo sh`),
+`commande.txt`, `LISEZMOI.txt`. Le script refuse de tourner hors root, pose
+`/etc/glpi-agent/conf.d/90-printgestion.cfg` (`snmp-retries = 2`, option absente de l'installeur), puis lance
+`perl glpi-agent-<version>-linux-installer.pl --install --type=network --server="…" --tag="…" --httpd-trust="…"
+--runnow`. Vérifié dans le code de l'installeur 1.19 : `--type=network` ajoute les tâches de découverte et
+d'inventaire réseau ; avec `--server` il ne pose aucune question (son mode interactif ne sert que sans serveur, il ne
+peut pas être prérempli) ; il écrit `00-install.cfg` dans `conf.d`, que nos réglages complètent. Distributions de
+l'installeur : Debian, Ubuntu, Red Hat, CentOS, Fedora, openSUSE, AlmaLinux, Rocky, Oracle.
+
+**Mise à jour Linux** : si « Nouveaux paquets Windows et Linux : poser la mise à jour automatique » est coché, le
+script pose `/etc/cron.monthly/glpi-agent-printgestion` (curl nécessaire, sinon message et rien de posé). La tâche
+ne fait rien si l'agent n'est pas en attente (`/status`), lit la release sur l'API GitHub (dernière ou version
+cible), en extrait avec `JSON::PP` (cœur de Perl) l'adresse et l'empreinte SHA-256 de l'installeur Linux, s'arrête
+si la version installée (`glpi-agent --version`) est déjà celle-là, n'accepte qu'une adresse
+`https://github.com/glpi-project/glpi-agent/releases/download/`, vérifie l'empreinte (`sha256sum -c`) puis relance
+l'installeur **sans option de configuration** : vérifié dans son code, il garde alors `00-install.cfg` et le reste de
+`conf.d` (`--force` en plus pour une version cible, qui autorise la rétrogradation). Journal
+`/var/log/glpi-agent-printgestion-update.log`. Écart à la spécification, qui prévoyait l'`--upgrade` de l'AppImage :
+l'AppImage exige FUSE (absent par défaut des distributions récentes) et coexisterait avec l'installation faite par
+l'installeur Perl ; la même voie officielle sert donc à installer et à mettre à jour. Consigne Linux d'une sonde
+(`front/sonde.consigne.php?os=linux`) : script sh seul qui pose, change ou retire la tâche cron.
+
+**macOS** (`buildMacosPackage()`, ZIP `GLPI-Agent-<version>-macos-<TAG>.zip`) : les deux paquets officiels (Apple
+Silicon et Intel, stockés sans recompression), `local.cfg`, `LISEZMOI.txt` ; pas de fichier `.command`. Vérifié sur
+le paquet 1.19 : signé « Developer ID Installer: Teclib » et notarisé (accepté par Gatekeeper, macOS 26), réservé à
+son architecture (`hostArchitectures`), macOS 11 minimum ; son `agent.cfg` règle `tasks = inventory` et
+`httpd-trust = 127.0.0.1` puis inclut `conf.d` ; son script d'installation démarre le service. `local.cfg` donne
+donc `server`, `tag`, `tasks = inventory,netdiscovery,netinventory`, `httpd-trust` et `snmp-retries = 2`. Procédure
+affichée dans l'onglet et la note : installer le bon paquet, puis dans Terminal
+`sudo cp ~/Downloads/<dossier>/local.cfg /Applications/GLPI-Agent/etc/conf.d/local.cfg`,
+`sudo launchctl bootout system /Library/LaunchDaemons/com.teclib.glpi-agent.plist` et
+`sudo launchctl bootstrap system …` (macOS 13 et plus ; `unload`/`load` avant). Mise à jour : manuelle
+(réinstaller le paquet, `local.cfg` gardé), aucun mécanisme officiel.
+
+**Onglet de la fiche Agent / page « Sondes »** : consigne proposée selon le système du PC sonde lu dans son
+inventaire (`Agentsetting::getHostPlatform()` : Windows, macOS, sinon Linux) ; les deux consignes Windows et Linux
+si le système est inconnu ; note de mise à jour manuelle pour macOS.
 
 ### Contrôle de la remontée (`inc/collect.class.php`, onglet « Contrôle de la remontée »)
 
