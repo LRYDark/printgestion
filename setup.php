@@ -13,10 +13,14 @@ $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');
 define('PLUGIN_PRINTGESTION_MAX_GLPI', '11.1.0');
 
-define('PLUGIN_PRINTGESTION_WEBDIR',         Plugin::getWebDir('printgestion'));
+// Chemins web : en GLPI 11, les ressources d'un plugin sont toutes servies sous /plugins/
+// (Plugin::getWebDir() est déprécié). Fichier inclus depuis une méthode de GLPI :
+// $CFG_GLPI n'est accessible qu'avec « global ».
+global $CFG_GLPI;
+define('PLUGIN_PRINTGESTION_WEBDIR',         ($CFG_GLPI['root_doc'] ?? '') . '/plugins/printgestion');
 define('PLUGIN_PRINTGESTION_DIR',            Plugin::getPhpDir('printgestion'));
 define('PLUGIN_PRINTGESTION_NOTFULL_DIR',    Plugin::getPhpDir('printgestion', false));
-define('PLUGIN_PRINTGESTION_NOTFULL_WEBDIR', Plugin::getWebDir('printgestion', false));
+define('PLUGIN_PRINTGESTION_NOTFULL_WEBDIR', 'plugins/printgestion');
 
 function plugin_init_printgestion() {
     global $PLUGIN_HOOKS, $CFG_GLPI, $DB;
