@@ -217,9 +217,14 @@ class PluginPrintgestionSage extends CommonGLPI {
     }
 
     static function displayTabContentForItem(CommonGLPI $item, $tabnum = 1, $withtemplate = 0) {
-        if ($item instanceof Entity) {
-            self::showForEntity($item);
+        // Contenu joignable par l'URL de l'onglet : module, droit et accès à l'entité revérifiés.
+        if (!$item instanceof Entity
+            || !PluginPrintgestionConfig::isFeatureEnabled('sage')
+            || !Session::haveRight(self::$rightname, READ)
+            || !Session::haveAccessToEntity((int) $item->getID())) {
+            return false;
         }
+        self::showForEntity($item);
         return true;
     }
 
