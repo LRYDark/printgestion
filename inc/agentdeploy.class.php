@@ -971,12 +971,17 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $checks[] = self::checkItem($rule['active'] !== null && empty($rule['earlier']), __('Règle d\'affectation par TAG', 'printgestion'), $rule_detail);
 
         $inventory_plugin = Plugin::isPluginActive('glpiinventory');
+        $inventory_check  = PluginPrintgestionCollectsetup::getPrerequisites();
         $checks[] = self::checkItem(
-            $inventory_plugin,
+            $inventory_plugin && empty($inventory_check['blocking']),
             __('Plugin GLPI Inventory', 'printgestion'),
-            $esc($inventory_plugin
-                ? __('Actif : l\'agent recevra les tâches de découverte et d\'inventaire réseau.', 'printgestion')
-                : __('Absent ou inactif : l\'agent inventoriera son PC mais ne recevra aucune tâche réseau. Installez-le AVANT de déployer : l\'adresse du serveur donnée à l\'agent change, un agent déjà installé serait à réinstaller.', 'printgestion'))
+            $esc(implode(' ', array_merge(
+                [$inventory_plugin
+                    ? sprintf(__('Actif (version %s) : l\'agent recevra les tâches de découverte et d\'inventaire réseau.', 'printgestion'), $inventory_check['version'])
+                    : __('Absent ou inactif : l\'agent inventoriera son PC mais ne recevra aucune tâche réseau. Installez-le AVANT de déployer : l\'adresse du serveur donnée à l\'agent change, un agent déjà installé serait à réinstaller.', 'printgestion')],
+                $inventory_check['blocking'],
+                $inventory_check['warnings']
+            )))
         );
         echo "<div class='row g-3 mb-3'>" . implode('', $checks) . "</div>";
 
@@ -1189,13 +1194,18 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $rule          = self::getTagRuleStatus();
         $inventory_on  = (int) Config::getConfigurationValue('inventory', 'enabled_inventory') === 1;
         $with_tag      = countElementsInTable(Entity::getTable(), ['NOT' => ['tag' => null], ['tag' => ['<>', '']]]);
+        $inventory     = PluginPrintgestionCollectsetup::getPrerequisites();
         $checks        = [
             self::checkItem($inventory_on, __('Inventaire GLPI', 'printgestion'), $esc($inventory_on
                 ? __('Activé.', 'printgestion')
                 : __('Désactivé (Administration → Inventaire) : aucun inventaire ne peut être reçu.', 'printgestion'))),
-            self::checkItem(Plugin::isPluginActive('glpiinventory'), __('Plugin GLPI Inventory', 'printgestion'), $esc(Plugin::isPluginActive('glpiinventory')
-                ? __('Actif : tâches de découverte et d\'inventaire réseau disponibles.', 'printgestion')
-                : __('Absent ou inactif : à installer avant de déployer les sondes (adresse du serveur des agents).', 'printgestion'))),
+            self::checkItem(empty($inventory['blocking']), __('Plugin GLPI Inventory', 'printgestion'), $esc(implode(' ', array_merge(
+                [Plugin::isPluginActive('glpiinventory')
+                    ? sprintf(__('Actif (version %s) : tâches de découverte et d\'inventaire réseau disponibles.', 'printgestion'), $inventory['version'])
+                    : __('Absent ou inactif : à installer avant de déployer les sondes (adresse du serveur des agents).', 'printgestion')],
+                $inventory['blocking'],
+                $inventory['warnings']
+            )))),
             self::checkItem($rule['active'] !== null, __('Règle d\'affectation par TAG', 'printgestion'), $esc($rule['active'] !== null
                 ? sprintf(__('Règle « %1$s » active (position %2$d).', 'printgestion'), $rule['active']['name'], (int) $rule['active']['ranking'])
                 : sprintf(__('Aucune règle active : critère « %1$s » expression régulière /^(.*)$/, action « %2$s » = #0, à créer à la main.', 'printgestion'), __('Inventory tag'), __('Entity from TAG')))),

@@ -456,8 +456,21 @@ revérifiée à chaque requête (hors périmètre : 404). Lieu, commentaire et c
 - **Statuts** : `open` → `configured` → `triggered` → `closed`, ou `abandoned` depuis tout statut non clos. Chaque
   action revérifie le statut : on ne passe jamais à l'étape suivante si la précédente a échoué. Une sonde n'a
   qu'un raccordement en cours : « Raccorder avec cette sonde » reprend celui qui existe.
-- **Étape 1, sonde présente** : prérequis bloquants (GLPI Inventory actif, inventaire GLPI activé, TAG de l'entité
-  valide et unique, règle d'affectation par TAG active) ; sonde de l'entité (`glpi_agents.entities_id`) : dernier
+- **Prérequis de GLPI Inventory, en tête de l'assistant** (`Collectsetup::getPrerequisites()`, calculés une fois par
+  requête) : tous vérifiés avant la première étape, pour un nouveau raccordement comme pour un raccordement en
+  cours. Bloquants : plugin installé (`Plugin::getFromDBbyDir`), activé (un message par état : désactivé, à
+  configurer, mise à jour non lancée, fichiers absents, remplacé) et chargé ; version dans
+  `[GLPIINVENTORY_MIN_VERSION, GLPIINVENTORY_MAX_VERSION[` = `[1.6.0, 1.7.0[` (série GLPI 11, validée avec 1.6.10) ;
+  classes présentes ; tâche automatique `taskscheduler` présente et non désactivée (sans elle, seule la découverte
+  forcée par l'assistant partirait). Avertissement seulement : `taskscheduler` sans exécution depuis plus de
+  max(2 h, 10 × sa fréquence). Chaque message dit où agir dans GLPI (Configuration → Plugins, Configuration →
+  Actions automatiques). Un prérequis manque : l'assistant n'affiche que les prérequis, puis, pour un raccordement
+  en cours, « Abandonner » et le journal ; toute action POST autre que l'abandon est refusée (message, et ligne au
+  journal du raccordement) ; bloc 3 de l'onglet de l'entité : « Nouveau raccordement » désactivé, raisons
+  affichées. Les contrôles « Plugin GLPI Inventory » du bloc 1 et de la page « Installeur GLPI Agent » reprennent
+  les mêmes messages.
+- **Étape 1, sonde présente** : prérequis bloquants (ceux de GLPI Inventory ci-dessus, inventaire GLPI activé, TAG
+  de l'entité valide et unique, règle d'affectation par TAG active) ; sonde de l'entité (`glpi_agents.entities_id`) : dernier
   contact de moins de deux fois la fréquence d'inventaire (sinon bloquant ; « récent » sous une heure), modules
   `use_module_network_discovery` et `use_module_network_inventory` déclarés par l'agent (sinon : réinstaller avec
   `feat_NETINV`), TAG de l'agent égal à celui de l'entité. « Demander le statut » : `Agent::requestStatus()` natif.

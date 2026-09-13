@@ -38,6 +38,18 @@ class PluginPrintgestionCollectsetup {
     /** Équipements cités par les journaux de découverte et d'inventaire réseau. */
     const DEVICE_TYPES = ['Printer', 'NetworkEquipment', 'Unmanaged', 'Computer', 'Phone'];
 
+    /**
+     * Versions de GLPI Inventory prises en charge : série 1.6, celle de GLPI 11 (1.6.0 : « GLPI v11
+     * compatibility »), borne haute exclue ; validée avec 1.6.10. L'assistant écrit dans ses tâches, jobs et
+     * plages IP : une autre série est refusée tant qu'elle n'a pas été vérifiée et ces bornes relevées.
+     */
+    const GLPIINVENTORY_MIN_VERSION    = '1.6.0';
+    const GLPIINVENTORY_MAX_VERSION    = '1.7.0';
+    const GLPIINVENTORY_TESTED_VERSION = '1.6.10';
+
+    /** Prérequis de GLPI Inventory, calculés une fois par requête. */
+    private static ?array $prerequisites = null;
+
     /** Plugin GLPI Inventory actif, avec les classes utilisées ici. */
     public static function isAvailable(): bool {
         if (!Plugin::isPluginActive('glpiinventory')) {
@@ -53,6 +65,80 @@ class PluginPrintgestionCollectsetup {
             }
         }
         return true;
+    }
+
+    /**
+     * Prérequis de GLPI Inventory pour l'assistant de raccordement, tous vérifiés avant sa première étape :
+     * plugin installé, activé et chargé, version prise en charge, classes présentes, tâche automatique
+     * « taskscheduler » (préparation des relevés périodiques) programmée. Chaque message dit où agir dans GLPI.
+     * Tâche automatique qui n'a pas tourné récemment : avertissement seulement, la découverte lancée par
+     * l'assistant partant quand même.
+     *
+     * @return array ['blocking' => string[], 'warnings' => string[], 'version' => string]
+     */
+    public static function getPrerequisites(): array {
+        if (self::$prerequisites !== null) {
+            return self::$prerequisites;
+        }
+        $out    = ['blocking' => [], 'warnings' => [], 'version' => ''];
+        $range  = sprintf(
+            __('%1$s et suivantes, avant %2$s ; validé avec %3$s', 'printgestion'),
+            self::GLPIINVENTORY_MIN_VERSION,
+            self::GLPIINVENTORY_MAX_VERSION,
+            self::GLPIINVENTORY_TESTED_VERSION
+        );
+        $plugin = new Plugin();
+        if (!$plugin->getFromDBbyDir('glpiinventory') || (int) $plugin->fields['state'] === Plugin::NOTINSTALLED) {
+            $out['blocking'][] = sprintf(
+                __('GLPI Inventory n\'est pas installé. Le récupérer (Configuration → Plugins → Marketplace, ou archive officielle décompressée dans le dossier plugins/glpiinventory de GLPI), puis Configuration → Plugins : « Installer », puis « Activer ». Versions prises en charge : %s.', 'printgestion'),
+                $range
+            );
+            return self::$prerequisites = $out;
+        }
+        $out['version'] = (string) $plugin->fields['version'];
+        $state          = (int) $plugin->fields['state'];
+        if ($state !== Plugin::ACTIVATED) {
+            $by_state = [
+                Plugin::NOTACTIVATED   => __('GLPI Inventory est installé mais désactivé : Configuration → Plugins, « Activer ».', 'printgestion'),
+                Plugin::TOBECONFIGURED => __('GLPI Inventory est installé mais pas configuré : Configuration → Plugins, terminer sa configuration, puis « Activer ».', 'printgestion'),
+                Plugin::NOTUPDATED     => __('Les fichiers de GLPI Inventory ont changé de version mais sa mise à jour n\'est pas lancée : Configuration → Plugins, « Mettre à jour », puis « Activer ».', 'printgestion'),
+                Plugin::TOBECLEANED    => __('GLPI Inventory est enregistré mais ses fichiers sont absents du dossier plugins/glpiinventory : remettre les fichiers de la version installée, ou le « Nettoyer » dans Configuration → Plugins puis le réinstaller.', 'printgestion'),
+                Plugin::REPLACED       => __('GLPI Inventory est marqué comme remplacé par un autre plugin : Configuration → Plugins.', 'printgestion'),
+            ];
+            $out['blocking'][] = $by_state[$state] ?? sprintf(__('GLPI Inventory n\'est pas actif (état « %s ») : Configuration → Plugins.', 'printgestion'), Plugin::getState($state));
+            return self::$prerequisites = $out;
+        }
+        if (!Plugin::isPluginActive('glpiinventory')) {
+            $out['blocking'][] = __('GLPI Inventory est activé mais GLPI ne le charge pas (fichiers absents, ou version incompatible avec ce GLPI) : Configuration → Plugins.', 'printgestion');
+            return self::$prerequisites = $out;
+        }
+
+        if (version_compare($out['version'], self::GLPIINVENTORY_MIN_VERSION, '<') || version_compare($out['version'], self::GLPIINVENTORY_MAX_VERSION, '>=')) {
+            $out['blocking'][] = sprintf(
+                __('GLPI Inventory %1$s n\'est pas une version prise en charge par Print Gestion (%2$s) : l\'assistant écrit dans ses tâches et ses plages IP, dont le format peut changer d\'une série à l\'autre. Installer une version prise en charge (Configuration → Plugins), ou faire vérifier cette version avant de raccorder.', 'printgestion'),
+                $out['version'],
+                $range
+            );
+        }
+        if (!self::isAvailable()) {
+            $out['blocking'][] = __('GLPI Inventory est actif mais ses classes sont introuvables (fichiers incomplets dans plugins/glpiinventory) : remettre les fichiers de la version installée.', 'printgestion');
+        }
+        $cron = new CronTask();
+        if (!$cron->getFromDBbyName('PluginGlpiinventoryTask', 'taskscheduler')) {
+            $out['blocking'][] = __('Tâche automatique « taskscheduler » de GLPI Inventory introuvable : c\'est elle qui prépare les relevés périodiques. Relancer la mise à jour de GLPI Inventory (Configuration → Plugins).', 'printgestion');
+        } elseif ((int) $cron->fields['state'] === CronTask::STATE_DISABLE) {
+            $out['blocking'][] = __('Tâche automatique « taskscheduler » de GLPI Inventory désactivée : la première découverte partirait, mais aucun relevé suivant. Configuration → Actions automatiques → taskscheduler : statut « Programmée ».', 'printgestion');
+        } else {
+            $lastrun = (string) ($cron->fields['lastrun'] ?? '');
+            $delay   = max(2 * HOUR_TIMESTAMP, 10 * (int) $cron->fields['frequency']);
+            if ($lastrun === '' || (int) strtotime($lastrun) < time() - $delay) {
+                $out['warnings'][] = sprintf(
+                    __('La tâche automatique « taskscheduler » de GLPI Inventory %s : vérifier que le cron de GLPI tourne (Configuration → Actions automatiques). La découverte lancée par l\'assistant part quand même, pas les relevés suivants.', 'printgestion'),
+                    $lastrun === '' ? __('n\'a encore jamais tourné', 'printgestion') : sprintf(__('n\'a pas tourné depuis le %s', 'printgestion'), Html::convDateTime($lastrun))
+                );
+            }
+        }
+        return self::$prerequisites = $out;
     }
 
     public static function getMethodLabel(string $method): string {

@@ -251,10 +251,8 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
 
     /** Prérequis de GLPI et de l'entité : sans eux, aucun raccordement ne peut aboutir. */
     public static function getBlockers(Entity $entity): array {
-        $blockers = [];
-        if (!PluginPrintgestionCollectsetup::isAvailable()) {
-            $blockers[] = __('Plugin GLPI Inventory absent ou inactif : la sonde ne recevrait aucune tâche réseau.', 'printgestion');
-        }
+        // GLPI Inventory installé, activé, en version prise en charge, tâche automatique programmée.
+        $blockers = PluginPrintgestionCollectsetup::getPrerequisites()['blocking'];
         if ((int) (new \Glpi\Inventory\Conf())->enabled_inventory !== 1) {
             $blockers[] = __('Inventaire désactivé dans GLPI (Administration → Inventaire → Activer l\'inventaire) : GLPI refuse tout ce que la sonde envoie.', 'printgestion');
         }
@@ -439,6 +437,18 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 $flash($level, $message);
             }
         };
+
+        // Prérequis de GLPI Inventory manquants : l'assistant est arrêté, seul l'abandon reste possible.
+        $prerequisites = PluginPrintgestionCollectsetup::getPrerequisites()['blocking'];
+        if (!empty($prerequisites) && !isset($post['abandon'])) {
+            $message = sprintf(__('Action refusée, rien n\'est fait : %s', 'printgestion'), implode(' ', $prerequisites));
+            if ($racc !== null) {
+                $report($racc->getCurrentStep(), [['error', $message]]);
+            } else {
+                $flash('error', $message);
+            }
+            return $back;
+        }
 
         if (isset($post['request_status'])) {
             $agent = self::findEntityAgent($entities_id, $racc !== null ? (int) $racc->fields['agents_id'] : (int) ($post['agents_id'] ?? 0));
@@ -631,6 +641,18 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         echo "<a class='btn btn-outline-secondary' href='" . $esc(self::getPageURL()) . "'><i class='ti ti-list me-1'></i>" . $esc(__('Tous les raccordements', 'printgestion')) . "</a>";
         echo "</div></div></div>";
 
+        // Prérequis de GLPI Inventory, tous vérifiés avant la première étape : s'il en manque un, l'assistant
+        // s'arrête ici ; un raccordement existant garde son journal et son abandon.
+        $prerequisites = PluginPrintgestionCollectsetup::getPrerequisites();
+        self::showPrerequisites($prerequisites, true);
+        if (!empty($prerequisites['blocking'])) {
+            if ($racc !== null) {
+                $racc->showAbandonForm($can_edit);
+                $racc->showLogs();
+            }
+            return;
+        }
+
         // Étape 5 (lieu, commentaire, contrat) dès que la découverte est lancée.
         if ($racc !== null && in_array($racc->fields['status'], [self::STATUS_TRIGGERED, self::STATUS_CLOSED], true)) {
             $step = 5;
@@ -662,15 +684,47 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         if ($step >= 5) {
             PluginPrintgestionRaccordementdetail::showStep5($racc, $can_edit);
         }
-        if ($can_edit && in_array($racc->fields['status'], [self::STATUS_OPEN, self::STATUS_CONFIGURED, self::STATUS_TRIGGERED], true)) {
-            $confirm = __('Abandonner ce raccordement ? Rien n\'est supprimé : le journal est gardé et les objets créés dans GLPI Inventory restent en place.', 'printgestion');
-            echo "<form method='post' action='" . $esc(self::getPageURL()) . "' class='mb-3 text-end'>"
-                . Html::hidden('id', ['value' => (int) $racc->getID()])
-                . "<button type='submit' name='abandon' value='1' class='btn btn-outline-danger' onclick=\"return confirm(" . $esc(json_encode($confirm)) . ");\">"
-                . "<i class='ti ti-player-stop me-1'></i>" . $esc(__('Abandonner le raccordement', 'printgestion')) . "</button>"
-                . Html::closeForm(false);
-        }
+        $racc->showAbandonForm($can_edit);
         $racc->showLogs();
+    }
+
+    /**
+     * Prérequis de GLPI Inventory : ce qui arrête l'assistant, ce qui est à vérifier ; $show_ok : une ligne
+     * discrète quand tout est réglé (en tête de l'assistant).
+     */
+    public static function showPrerequisites(array $prerequisites, bool $show_ok): void {
+        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        if (!empty($prerequisites['blocking'])) {
+            echo "<div class='alert alert-danger'><strong>" . $esc(__('Assistant arrêté : prérequis de GLPI Inventory manquants. Rien ne peut être fait tant qu\'ils ne sont pas réglés :', 'printgestion')) . "</strong><ul class='mb-0'>";
+            foreach ($prerequisites['blocking'] as $message) {
+                echo "<li>" . $esc($message) . "</li>";
+            }
+            echo "</ul></div>";
+        }
+        if (!empty($prerequisites['warnings'])) {
+            echo "<div class='alert alert-warning'><strong>" . $esc(__('À vérifier :', 'printgestion')) . "</strong><ul class='mb-0'>";
+            foreach ($prerequisites['warnings'] as $message) {
+                echo "<li>" . $esc($message) . "</li>";
+            }
+            echo "</ul></div>";
+        }
+        if ($show_ok && empty($prerequisites['blocking'])) {
+            echo "<p class='text-muted small'><i class='ti ti-circle-check text-success me-1'></i>" . $esc(sprintf(__('Prérequis de GLPI Inventory vérifiés : version %s, prise en charge ; tâche automatique « taskscheduler » programmée.', 'printgestion'), $prerequisites['version'])) . "</p>";
+        }
+    }
+
+    /** « Abandonner le raccordement » : raccordement en cours, droit en modification. */
+    private function showAbandonForm(bool $can_edit): void {
+        if (!$can_edit || !in_array($this->fields['status'], [self::STATUS_OPEN, self::STATUS_CONFIGURED, self::STATUS_TRIGGERED], true)) {
+            return;
+        }
+        $esc     = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $confirm = __('Abandonner ce raccordement ? Rien n\'est supprimé : le journal est gardé et les objets créés dans GLPI Inventory restent en place.', 'printgestion');
+        echo "<form method='post' action='" . $esc(self::getPageURL()) . "' class='mb-3 text-end'>"
+            . Html::hidden('id', ['value' => (int) $this->getID()])
+            . "<button type='submit' name='abandon' value='1' class='btn btn-outline-danger' onclick=\"return confirm(" . $esc(json_encode($confirm)) . ");\">"
+            . "<i class='ti ti-player-stop me-1'></i>" . $esc(__('Abandonner le raccordement', 'printgestion')) . "</button>"
+            . Html::closeForm(false);
     }
 
     private static function showStep1(Entity $entity, ?self $racc, bool $can_edit): void {
@@ -1118,11 +1172,18 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
 
         $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $id  = (int) $entity->getID();
+        // Prérequis de GLPI Inventory manquants : pas d'accès à un nouveau raccordement, raison affichée.
+        $prerequisites = PluginPrintgestionCollectsetup::getPrerequisites();
         echo "<div class='card mb-3'><div class='card-header d-flex align-items-center'><h3 class='card-title mb-0'>" . $esc(__('3. Raccorder les imprimantes', 'printgestion')) . "</h3>";
         if (Session::haveRight(self::$rightname, UPDATE)) {
-            echo "<a class='btn btn-primary ms-auto' href='" . $esc(self::getPageURL(null, $id)) . "'><i class='ti ti-plug-connected me-1'></i>" . $esc(__('Nouveau raccordement', 'printgestion')) . "</a>";
+            if (empty($prerequisites['blocking'])) {
+                echo "<a class='btn btn-primary ms-auto' href='" . $esc(self::getPageURL(null, $id)) . "'><i class='ti ti-plug-connected me-1'></i>" . $esc(__('Nouveau raccordement', 'printgestion')) . "</a>";
+            } else {
+                echo "<button type='button' class='btn btn-primary ms-auto' disabled title='" . $esc(__('Prérequis de GLPI Inventory manquants : voir ci-dessous.', 'printgestion')) . "'><i class='ti ti-plug-connected me-1'></i>" . $esc(__('Nouveau raccordement', 'printgestion')) . "</button>";
+            }
         }
         echo "</div><div class='card-body'>";
+        self::showPrerequisites($prerequisites, false);
         echo "<p class='text-muted small'>" . $esc(__('Assistant pas à pas, sur place : sonde présente, adresses des imprimantes, configuration de la collecte dans GLPI Inventory, puis vérification adresse par adresse avant de partir.', 'printgestion')) . "</p>";
         $rows = iterator_to_array($DB->request([
             'FROM'  => self::getTable(),
