@@ -10,7 +10,8 @@
  * Page en lecture seule (tables natives GLPI, aucune écriture) :
  *   1. prérequis : inventaire GLPI activé, plugin GLPI Inventory, inventaires reçus sur 24 h
  *      et 7 jours, agents (version, dernier contact) ;
- *   2. état de chaque imprimante, daté par le journal d'import GLPI (glpi_rulematchedlogs) :
+ *   2. état de chaque imprimante, daté par le journal d'import GLPI (glpi_rulematchedlogs) et, avec
+ *      GLPI Inventory, par le journal de ses tâches d'inventaire réseau (voir getImportDates()) :
  *      seul un inventaire réseau compte, une découverte réseau fait avancer
  *      glpi_printers.last_inventory_update sans relire niveaux ni compteurs ;
  *   3. valeurs de consommables reçues, par fabricant et modèle ;
@@ -83,7 +84,14 @@ class PluginPrintgestionCollect extends CommonGLPI {
     }
 
     /**
-     * Derniers passages de chaque imprimante dans le journal d'import GLPI.
+     * Derniers passages de chaque imprimante : inventaire réseau (SNMP) et découverte.
+     *
+     * Journal d'import GLPI (glpi_rulematchedlogs) : snmp / snmpquery / netinventory prouvent un
+     * inventaire réseau, netdiscovery une découverte. Avec GLPI Inventory, le cœur y note l'inventaire
+     * réseau « inventory » (le chemin du plugin ne lui transmet pas la requête), comme le premier import
+     * par une découverte ou une imprimante déclarée dans l'inventaire d'un PC : cette méthode ne prouve
+     * rien. L'inventaire réseau est alors lu dans le journal des tâches d'inventaire réseau de GLPI
+     * Inventory, avec la sonde qui l'a fait.
      *
      * @return array printers_id => ['snmp' => ?string, 'discovery' => ?string, 'agents_id' => int]
      */
@@ -113,6 +121,52 @@ class PluginPrintgestionCollect extends CommonGLPI {
                     if ($out[$pid]['snmp'] === null && $agent > 0) {
                         $out[$pid]['agents_id'] = $agent;
                     }
+                }
+            }
+        }
+        foreach (self::getGlpiInventoryNetworkInventories($printer_ids) as $pid => $run) {
+            $out[$pid] ??= ['snmp' => null, 'discovery' => null, 'agents_id' => 0];
+            if ($out[$pid]['snmp'] === null || $run['date'] > $out[$pid]['snmp']) {
+                $out[$pid]['snmp'] = $run['date'];
+                if ($run['agents_id'] > 0) {
+                    $out[$pid]['agents_id'] = $run['agents_id'];
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Inventaires réseau réussis par GLPI Inventory : dernière mise à jour de chaque imprimante par une
+     * tâche d'inventaire réseau (« ==updatetheitem== … [[Printer::id]] »), avec la sonde qui l'a faite.
+     * Vide si GLPI Inventory est absent ; limité à ce que GLPI Inventory garde de ses tâches.
+     *
+     * @return array printers_id => ['date' => string, 'agents_id' => int]
+     */
+    public static function getGlpiInventoryNetworkInventories(array $printer_ids): array {
+        global $DB;
+
+        if (empty($printer_ids) || !Plugin::isPluginActive('glpiinventory') || !$DB->tableExists('glpi_plugin_glpiinventory_taskjoblogs')) {
+            return [];
+        }
+        $wanted = array_flip(array_map('intval', $printer_ids));
+        $out    = [];
+        foreach ($DB->request([
+            'SELECT'     => ['l.date', 'l.comment', 's.agents_id'],
+            'FROM'       => 'glpi_plugin_glpiinventory_taskjoblogs AS l',
+            'INNER JOIN' => [
+                'glpi_plugin_glpiinventory_taskjobstates AS s' => ['ON' => ['l' => 'plugin_glpiinventory_taskjobstates_id', 's' => 'id']],
+                'glpi_plugin_glpiinventory_taskjobs AS j'      => ['ON' => ['s' => 'plugin_glpiinventory_taskjobs_id', 'j' => 'id']],
+            ],
+            'WHERE'      => ['j.method' => 'networkinventory', 'l.comment' => ['LIKE', '%==updatetheitem==%']],
+            'ORDER'      => ['l.date ASC', 'l.id ASC'],
+        ]) as $row) {
+            if (!preg_match_all('/\[\[Printer::(\d+)\]\]/', (string) $row['comment'], $matches)) {
+                continue;
+            }
+            foreach ($matches[1] as $id) {
+                if (isset($wanted[(int) $id])) {
+                    $out[(int) $id] = ['date' => (string) $row['date'], 'agents_id' => (int) $row['agents_id']];
                 }
             }
         }

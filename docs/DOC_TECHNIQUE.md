@@ -502,10 +502,15 @@ supposée.
 1. **Prérequis** : inventaire GLPI activé (`inventory.enabled_inventory`), plugin GLPI Inventory installé et
    actif, imprimantes inventoriées sur 24 h et 7 jours, agents muets, versions d'agent (avant 1.15 : une
    valeur de compteur invalide fait rejeter tout l'inventaire ; 1.19 conseillée).
-2. **États** datés par le journal d'import GLPI (`glpi_rulematchedlogs`) : seul un inventaire réseau compte
-   (méthodes `snmp`, `snmpquery`, `netinventory`). Une découverte réseau (`netdiscovery`) fait avancer
-   `glpi_printers.last_inventory_update` sans relire niveaux ni compteurs : elle est affichée à part.
-   Le journal ne garde que les 30 derniers passages par équipement.
+2. **États** datés par le journal d'import GLPI (`glpi_rulematchedlogs`) et par le journal des tâches de GLPI
+   Inventory : seul un inventaire réseau compte. Journal d'import : méthodes `snmp`, `snmpquery`, `netinventory`.
+   Avec GLPI Inventory, le cœur y note l'inventaire réseau `inventory` (le chemin du plugin ne lui transmet pas
+   la requête), comme le premier import par une découverte ou une imprimante déclarée dans l'inventaire d'un
+   PC : cette méthode ne prouve rien. L'inventaire réseau est alors lu dans les journaux des tâches
+   `networkinventory` (`==updatetheitem== … [[Printer::id]]`, avec la sonde), conservés le temps que GLPI
+   Inventory garde ses tâches (réglage « nettoyage des tâches »). Une découverte réseau (`netdiscovery`) fait
+   avancer `glpi_printers.last_inventory_update` sans relire niveaux ni compteurs : elle est affichée à part.
+   Le journal d'import ne garde que les 30 derniers passages par équipement.
 
    | État | Condition |
    |---|---|
