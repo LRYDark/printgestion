@@ -71,6 +71,9 @@ printgestion/
 | `Collectsetup` | Service (sans table) : configuration de collecte créée dans GLPI Inventory (plage, identifiants SNMP, modules de la sonde, tâches), déclenchement, vérification adresse par adresse |
 | `Raccordementdetail` | Lieu (hiérarchie créée dans l'entité), commentaire et contrat des imprimantes d'un raccordement : saisie en attente (carte 2 bis), application aux imprimantes remontées avec verrou natif (étape 5) |
 | `Printeragent` | Fiche imprimante : sonde responsable (plage et tâche GLPI Inventory), version, dernier contact, dernier inventaire réseau réussi ; dans la carte native « Informations d'inventaire », sinon sous le formulaire |
+| `Agentsetting` | Sondes : dernière version connue de GLPI Agent (GitHub, saisie), conformité, réglages de mise à jour par sonde, paquet de consigne, imprimantes collectées, statut du PC sonde ; onglet de la fiche Agent et page « Sondes » |
+| `Agentalert` | Alertes « sonde sans contact » et « imprimante qui ne remonte plus » (tâche quotidienne), réglages et action dans « Agent cleanup », cartes du tableau de bord |
+| `NotificationTargetAgentalert` | Notifications natives des alertes de sondes (sonde sans contact, imprimantes qui ne remontent plus) |
 | `NotificationTargetDemande` | Notifications natives GLPI des demandes d'envoi (proposée, relance, exportée) |
 | `Contractalert` | État et activation des alertes de contrat natives GLPI |
 | `Snmpmapping` | Mapping constructeur + propriété SNMP → modèle de cartouche + couleur |
@@ -92,7 +95,7 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 
 | Table | Contenu |
 |---|---|
-| `glpi_plugin_printgestion_configs` | Configuration singleton (id=1) : features, seuils, rôles mail, IDs gabarits, installeur GLPI Agent (étape 1.6.0) |
+| `glpi_plugin_printgestion_configs` | Configuration singleton (id=1) : features, seuils, rôles mail, IDs gabarits, installeur GLPI Agent (étape 1.6.0) ; dernière version connue de GLPI Agent, mise à jour automatique des nouveaux paquets, statut des PC sondes (1.6.3) |
 | `glpi_plugin_printgestion_toner_readings` | Snapshots horodatés des niveaux toner (purge > 160 j) |
 | `glpi_plugin_printgestion_cartridge_history` | Changements de cartouche détectés |
 | `glpi_plugin_printgestion_alerts` | Alertes émises (traçabilité + anti-doublon mail 24 h) |
@@ -118,6 +121,8 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_raccordements` | Raccordements d'imprimantes (étape 1.6.1) : entité, sonde, statut, identifiants SNMP, plages et tâches GLPI Inventory utilisées, objets créés, dates des étapes |
 | `glpi_plugin_printgestion_raccordementips` | Adresses déclarées d'un raccordement et leur résultat (équipement trouvé, son entité) ; depuis 1.6.2, lieu, commentaire et contrat en attente, imprimante et date de leur application |
 | `glpi_plugin_printgestion_raccordementlogs` | Journal horodaté d'un raccordement : étape, niveau, auteur, message |
+| `glpi_plugin_printgestion_agentsettings` | Réglages de mise à jour par sonde (étape 1.6.3) : agent (unique), mise à jour automatique, version cible, auteur, dates |
+| `glpi_plugin_printgestion_agentalerts` | Alertes de sondes (étape 1.6.3) : type (sonde sans contact, imprimante qui ne remonte plus), entité, sonde, imprimante, motif, début, notification, fin ; une seule alerte ouverte par sonde ou par imprimante (colonne générée `open_lock`) |
 | `glpi_plugin_printgestion_table_prefs` | Préférences d'affichage des tableaux par utilisateur |
 
 ---
@@ -405,9 +410,11 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
   2. installeur : bouton Windows (Linux et macOS : phase 6), commande exacte et propriétés MSI expliquées.
 - **Paquet Windows** (`front/agentdeploy.download.php`, droit `deploiement` READ et accès à l'entité) : ZIP généré
   à la demande dans `GLPI_TMP_DIR` et supprimé en fin de requête : MSI officiel (stocké, empreinte recalculée
-  avant envoi), `installer-glpi-agent.bat` (ASCII, CRLF, une commande), `commande-cmd.txt` (la même commande, à
-  coller dans cmd), `LISEZMOI.txt` (les 3 gestes). Chaque téléchargement est tracé dans l'historique de
-  l'entité. Aucun identifiant, jeton ni secret : URL du serveur et TAG seulement.
+  avant envoi), `installer-glpi-agent.bat` (ASCII, CRLF, à lancer en administrateur : contrôle administrateur,
+  commande d'installation attendue par `start /wait`, puis tâche planifiée de mise à jour si elle est activée, voir
+  phase 5), `glpi-agent-update.cmd` (script de cette tâche, s'il y a lieu), `commande-cmd.txt` (la commande
+  d'installation seule, à coller dans cmd), `LISEZMOI.txt` (les 3 gestes). Chaque téléchargement est tracé dans
+  l'historique de l'entité. Aucun identifiant, jeton ni secret : URL du serveur et TAG seulement.
 - **Commande** : `msiexec /i "<MSI>" SERVER="…" TAG="…" ADDLOCAL="feat_AGENT,feat_NETINV" HTTPD_TRUST="127.0.0.1/32[,…]"
   SNMP_RETRIES="2" RUNNOW="1" EXECMODE="1" QUICKINSTALL="1" /l*v "%TEMP%\GLPI-Agent-install.log"`, sans `/quiet`
   (assistant standard prérempli), jamais lancée par PowerShell. `SERVER` : réglage, sinon
@@ -545,6 +552,83 @@ Emplacement : hook `AUTOINVENTORY_INFORMATION` (Printer), dans la carte native, 
 Inventaire en lecture, imprimante dynamique) ; sinon hook `POST_ITEM_FORM`, sous le formulaire : le profil Technicien
 n'a pas le droit Inventaire par défaut. Aucun champ de saisie, le bloc étant rendu dans le formulaire de l'imprimante.
 
+### Déploiement Agent — phase 5 : conformité, mise à jour automatique, sondes muettes (`inc/agentsetting.class.php`, `inc/agentalert.class.php`, `inc/notificationtargetagentalert.class.php`)
+
+**Dernière version connue** : vérifiée chaque semaine sur GitHub (`releases/latest`, ni brouillon ni préversion ;
+tâche `PrintgestionCheckAgentVersion`, bouton « Vérifier sur GitHub maintenant » de la page « Installeur GLPI Agent »)
+ou saisie à la main, qui prime sur GitHub tant qu'elle n'est pas effacée ; à défaut, version de l'installeur servi.
+Champs `agent_latest_version`, `agent_latest_source` (`github` | `manual`), `agent_latest_checked`.
+
+**Conformité** (`Agentsetting::getCompliance()`) : version installée (texte simple ou versions par module de
+`glpi_agents.version`) comparée à la version cible de la sonde si elle est épinglée, sinon à la dernière version
+connue : « À jour », « À mettre à jour (X) », « Épinglée sur X », « Version cible X non atteinte ». Même règle dans
+« Contrôle de la remontée » et l'onglet de l'entité (`Collect::getAgentVersionStatus()`), qui gardent « Trop
+ancienne » avant 1.15.
+
+**Réglages par sonde** (`glpi_plugin_printgestion_agentsettings`, ligne créée au premier enregistrement) : « Mise à
+jour automatique » (cochée par défaut) et « Version cible » (vide : dernière connue ; une valeur : épinglage, retour
+arrière compris). Onglet « Sonde Print Gestion » de la fiche Agent native (droit Déploiement en lecture, agent
+visible) : conformité, réglages, imprimantes collectées, rien de ce que la fiche native affiche déjà. Même contenu
+dans la page « Sondes » du module (`front/sondes.php`), pour les profils sans droit Agent. Enregistrement : droit
+Déploiement en modification, sonde dans les entités de l'utilisateur.
+
+**Mise à jour réelle, posée sur le PC** : le plugin ne pousse rien (jamais la tâche Deploy de GLPI Inventory, ni
+jeton, ni API). Le lanceur du paquet Windows de l'entité (`installer-glpi-agent.bat`, à lancer en administrateur)
+installe l'agent (`start /wait msiexec`, codes 0, 3010 et 1641 acceptés) puis, si « Nouveaux paquets Windows : poser
+la mise à jour automatique » est coché (défaut), copie `glpi-agent-update.cmd` dans `%ProgramData%\PrintGestion` et
+pose la tâche planifiée « GLPI Agent - mise a jour (Print Gestion) » : le 1er du mois à 3 h, compte SYSTEM. Le script
+ne fait rien si l'agent n'est pas en attente (`http://127.0.0.1:62354/status`), cherche `winget.exe` dans
+`%ProgramFiles%\WindowsApps\Microsoft.DesktopAppInstaller_*` (absent du PATH de SYSTEM) et lance
+`winget upgrade --id GLPI-Project.GLPI-Agent` ou, version épinglée, `winget install --version X --force`, toujours avec
+`--custom "ADDLOCAL=feat_AGENT,feat_NETINV"` pour garder l'inventaire réseau ; journal
+`%ProgramData%\PrintGestion\glpi-agent-update.log`. Un changement de réglage n'est appliqué qu'en lançant sur le PC le
+**paquet de consigne** de la sonde (`front/sonde.consigne.php`, droit Déploiement en lecture), qui pose, change ou
+retire la tâche. Décocher la case dans GLPI ne retire pas une tâche déjà posée : sans la tâche Deploy ni jeton, tous
+deux exclus, GLPI n'a aucun moyen de changer cette tâche au contact de l'agent. Limites : winget sous SYSTEM n'est pas
+pris en charge officiellement par Microsoft (à vérifier au pilote) ; l'installeur Windows peut refuser une
+rétrogradation (journal) : désinstaller, puis réinstaller avec le paquet de l'entité.
+
+**PC sonde** : statut GLPI choisi sur la page « Installeur GLPI Agent » (`agent_probe_states_id`), donné à
+l'ordinateur de la sonde par « Marquer ce PC comme sonde » (page « Sondes », droit Déploiement en modification) :
+modification ordinaire, que GLPI verrouille contre les inventaires suivants comme une saisie à la main. La page
+« Sondes » signale les PC non marqués.
+
+**Sondes et alertes** (`Agentalert`) :
+- sonde : agent qui gère l'inventaire réseau (`use_module_network_inventory`) ou qui collecte au moins une
+  imprimante ; les agents des postes de travail ne sont jamais signalés ;
+- imprimantes collectées (`Agentsetting::getCoverage()`) : cibles des jobs GLPI Inventory de la sonde (plage IP
+  contenant une adresse de l'imprimante, qui est dans l'entité de la plage ou une sous-entité ; ou imprimante
+  ciblée), plus celles dont elle a fait le dernier inventaire réseau ;
+- `agent_silent` : sonde sans contact depuis `silent_days` jours. `printer_silent` : imprimante collectée par une
+  sonde qui contacte GLPI, et « Muette », « Sans niveau lisible » ou « Jamais inventoriée en SNMP » (connue depuis plus
+  de `silent_days` jours) au sens du contrôle de la remontée (`Collect::getState()`). Date de référence : dernier
+  inventaire réseau des journaux, jamais `last_inventory_update`, qu'une découverte fait avancer. Les lignes de
+  niveaux ne changent de date que si leur valeur change et ne prouvent donc pas une lecture récente ; un inventaire
+  réseau reçu sans bloc consommables laisse les anciennes valeurs (limite, à mesurer au pilote) ;
+- tâche quotidienne `PrintgestionSilentProbes` : une alerte ouverte par épisode (index unique sur `type`,
+  `agents_id`, `printers_id`, `open_lock`, colonne générée à 1 tant que `date_end` est vide), motif ou sonde mis à
+  jour sans nouvelle notification, fermée au retour, jamais supprimée. Tant que toutes les sondes d'une imprimante
+  sont muettes, son alerte n'est ni ouverte ni fermée : l'alerte de sonde suffit, et le retour de la sonde ne
+  renotifie pas une imprimante toujours muette ;
+- délai : `silent_days` (Configuration > Print Gestion), pas le délai natif « Agent cleanup », partagé avec des
+  actions destructrices : l'action native par défaut supprime l'agent (donc l'acteur de ses tâches GLPI Inventory),
+  et le cœur la réenregistre quand aucune action n'est choisie.
+
+**Notifications** : hook `STALE_AGENT_CONFIG` → Configuration > Inventaire > « Agent cleanup », « Print Gestion :
+notifications des sondes » (sondes sans contact ; imprimantes qui ne remontent plus), enregistrés par le cœur dans la
+configuration `inventory` (`_printgestion_notify_silent_agents`, `_printgestion_notify_silent_printers`). La tâche
+native `Cleanoldagents` appelle aussi l'action du plugin pour chaque agent au-delà du délai natif : elle ouvre et
+notifie son alerte s'il est une sonde muette. Événements de `NotificationTargetAgentalert` : `agent_silent` (une
+notification par sonde) et `printer_silent` (une par entité, avec la liste) ; gabarits éditables, notifications
+créées **inactives**, destinataire par défaut l'administrateur GLPI, jamais l'administrateur de l'entité, qui peut
+être le client. Une alerte non notifiée (réglage ou notifications désactivés) l'est au premier passage qui le permet.
+
+**Tableau de bord** : hook `DASHBOARD_CARDS`, groupe « Print Gestion — Sondes » : sondes sans contact, sondes sans
+contact par entité, sondes à mettre à jour, imprimantes qui ne remontent plus (alertes ouvertes dont la sonde
+contacte GLPI). Droits vérifiés par chaque fournisseur, GLPI gardant la liste des cartes en cache ; couverture des
+sondes gardée 10 minutes en cache. Page « Sondes » du module : mêmes compteurs, sondes sans contact groupées par
+entité, tableau des sondes (PC hôte et marquage, version, conformité, dernier contact, réglage, imprimantes).
+
 ### Contrôle de la remontée (`inc/collect.class.php`, onglet « Contrôle de la remontée »)
 
 Ce que l'inventaire GLPI reçoit **réellement** des imprimantes, avant tout calcul d'alerte. Page en lecture
@@ -554,7 +638,8 @@ supposée.
 
 1. **Prérequis** : inventaire GLPI activé (`inventory.enabled_inventory`), plugin GLPI Inventory installé et
    actif, imprimantes inventoriées sur 24 h et 7 jours, agents muets, versions d'agent (avant 1.15 : une
-   valeur de compteur invalide fait rejeter tout l'inventaire ; 1.19 conseillée).
+   valeur de compteur invalide fait rejeter tout l'inventaire ; au-delà, version visée : dernière version connue ou
+   version cible de la sonde, voir phase 5).
 2. **États** datés par le journal d'import GLPI (`glpi_rulematchedlogs`) et par le journal des tâches de GLPI
    Inventory : seul un inventaire réseau compte. Journal d'import : méthodes `snmp`, `snmpquery`, `netinventory`.
    Avec GLPI Inventory, le cœur y note l'inventaire réseau `inventory` (le chemin du plugin ne lui transmet pas
@@ -669,8 +754,11 @@ courtoisie), `count`, `glpi_url`. Toute balise non fournie est remplacée par un
 | `PrintgestionCheckAlerts` | horaire | Calcul alertes + **digest mail commercial** + **digest rappels installation** + rebuild `alertview` |
 | `PrintgestionTrackingUpdate` | 4 h | BL signés plugin Gestion → delivered + APIs transporteurs (UPS/GLS/Chronopost) |
 | `PrintgestionProposeDemandes` | horaire, **enregistrée désactivée** | Demandes d'envoi proposées à partir des alertes, regroupées par client et site (`Demande::proposeFromAlerts()`) |
+| `PrintgestionCheckAgentVersion` (classe `Agentsetting`) | hebdomadaire | Dernière version publiée de GLPI Agent sur GitHub (une saisie à la main est gardée) |
+| `PrintgestionSilentProbes` (classe `Agentalert`) | quotidienne | Alertes « sonde sans contact » et « imprimante qui ne remonte plus » : ouverture, fermeture, notifications |
 
-Les 4 tâches sortent immédiatement (`return 0`) si la feature `toner` est désactivée.
+Les 4 premières tâches sortent immédiatement (`return 0`) si la feature `toner` est désactivée, les 2 du module
+Déploiement Agent si la feature `deploiement` l'est. Toutes sont enregistrées par `Reminder::install()`.
 `PrintgestionProposeDemandes` est enregistrée désactivée : une ligne proposée bloque la commande de sa
 cartouche depuis l'écran des alertes jusqu'à son export ou son annulation. L'activer quand l'export des
 demandes validées est en service. Une mise à jour du plugin ne change pas l'état choisi.
@@ -687,7 +775,7 @@ demandes validées est en service. Une mise à jour du plugin ne change pas l'é
 | `plugin_printgestion_dashboard` | Alertes toner (dashboard + actions) ; onglet « Seuils d'alerte » des imprimantes (UPDATE pour enregistrer) |
 | `plugin_printgestion_expedition` | Expéditions (UPDATE pour agir) |
 | `plugin_printgestion_validation` | Demandes d'envoi : READ voir, UPDATE modifier / valider / annuler (file aussi visible avec `dashboard` READ, sans agir) |
-| `plugin_printgestion_deploiement` | Collecte SNMP / Déploiement Agent : READ voir et télécharger l'installeur, UPDATE raccorder des imprimantes ; « Contrôle de la remontée » |
+| `plugin_printgestion_deploiement` | Collecte SNMP / Déploiement Agent : READ voir et télécharger l'installeur et les paquets de consigne, page « Sondes », onglet de la fiche Agent, cartes du tableau de bord ; UPDATE raccorder des imprimantes, régler la mise à jour des sondes, marquer le PC sonde ; « Contrôle de la remontée » |
 | `plugin_printgestion_sage` | Référentiel Sage : READ onglet Sage de l'entité, UPDATE import et correspondances |
 | `plugin_printgestion_billing` | Coût à la page : écrans et onglet de la fiche imprimante (prix et coûts ; jamais le seul droit sur l'imprimante) |
 | `plugin_printgestion_config` | Configuration du plugin + mappings SNMP |

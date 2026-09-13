@@ -178,6 +178,20 @@ class PluginPrintgestionReminder extends CommonGLPI {
             HOUR_TIMESTAMP,
             ['state' => CronTask::STATE_DISABLE]
         );
+        // Déploiement Agent : dernière version de GLPI Agent publiée sur GitHub.
+        CronTask::Register(
+            'PluginPrintgestionAgentsetting',
+            'PrintgestionCheckAgentVersion',
+            WEEK_TIMESTAMP,
+            ['state' => CronTask::STATE_WAITING]
+        );
+        // Déploiement Agent : sondes sans contact et imprimantes qui ne remontent plus.
+        CronTask::Register(
+            'PluginPrintgestionAgentalert',
+            'PrintgestionSilentProbes',
+            DAY_TIMESTAMP,
+            ['state' => CronTask::STATE_WAITING]
+        );
         return true;
     }
 

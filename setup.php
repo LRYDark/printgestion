@@ -7,7 +7,7 @@
 // À incrémenter à chaque nouvelle étape de schéma (inc/schema.class.php) ou nouvelle
 // tâche automatique : GLPI ne rejoue l'installation (migrations, enregistrement des
 // tâches) que si cette version change.
-define('PLUGIN_PRINTGESTION_VERSION', '1.6.2');
+define('PLUGIN_PRINTGESTION_VERSION', '1.6.3');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');
@@ -60,6 +60,13 @@ function plugin_init_printgestion() {
             'document_types'              => true,
             'notificationtemplates_types' => true,
         ]);
+        // Déploiement Agent : notifications des alertes de sondes, réglages et action dans « Agent cleanup »
+        // (lus par la tâche native Cleanoldagents, hors session) et cartes du tableau de bord.
+        Plugin::registerClass('PluginPrintgestionAgentalert', ['notificationtemplates_types' => true]);
+        if (PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
+            $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::STALE_AGENT_CONFIG]['printgestion'] = PluginPrintgestionAgentalert::getStaleAgentHook();
+            $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::DASHBOARD_CARDS]['printgestion']    = [PluginPrintgestionAgentalert::class, 'getDashboardCards'];
+        }
 
         if (Session::getLoginUserID()) {
             // Onglets toujours présents (admin).
@@ -82,6 +89,7 @@ function plugin_init_printgestion() {
             }
             if (PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
                 Plugin::registerClass('PluginPrintgestionAgentdeploy', ['addtabon' => 'Entity']); // Déploiement Agent
+                Plugin::registerClass('PluginPrintgestionAgentsetting', ['addtabon' => 'Agent']); // conformité, mise à jour
                 // Sonde responsable sur la fiche imprimante : dans la carte native « Informations d'inventaire »
                 // quand l'utilisateur la voit, sinon sous le formulaire (droits revérifiés à l'affichage).
                 $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::AUTOINVENTORY_INFORMATION]['printgestion'] = ['Printer' => 'plugin_printgestion_printer_probe_card'];

@@ -418,7 +418,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
 
     /**
      * Paquet Windows d'une entité, écrit dans un fichier temporaire que l'appelant supprime après
-     * envoi : MSI officiel vérifié, lanceur .bat d'une ligne, commande à copier, note d'une page.
+     * envoi : MSI officiel vérifié, lanceur .bat (contrôle administrateur, assistant MSI, tâche planifiée de
+     * mise à jour selon les réglages par défaut), script de mise à jour, commande à copier, note d'une page.
      *
      * @return array ['ok' => bool, 'errors' => string[], 'path', 'filename', 'version', 'tag']
      */
@@ -435,15 +436,38 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $tag     = trim((string) $entity->fields['tag']);
         $version = (string) $installer['version'];
         $msi     = self::getMsiName($version);
+        $config  = PluginPrintgestionConfig::getInstance()->fields;
+        $update  = (int) ($config['agent_update_default'] ?? 1) === 1;
+        $target  = trim((string) ($config['agent_update_target'] ?? ''));
 
-        $bat = implode("\r\n", [
-            '@echo off',
-            'rem GLPI Agent ' . $version . ' - installation pre-parametree pour le TAG ' . $tag,
-            'rem Aucun identifiant ni secret : adresse du serveur GLPI et TAG uniquement.',
-            'rem A lancer par double-clic depuis le dossier extrait du ZIP.',
-            self::buildWindowsCommand('%~dp0' . $msi, $tag),
-            '',
-        ]);
+        // Lanceur : contrôle administrateur, assistant MSI attendu (start /wait ; codes 0, 3010 et 1641 :
+        // installé, redémarrage demandé ou lancé), puis tâche planifiée de mise à jour si elle est activée.
+        $bat = implode("\r\n", array_merge(
+            [
+                '@echo off',
+                'rem GLPI Agent ' . $version . ' - installation pre-parametree pour le TAG ' . $tag,
+                'rem Aucun identifiant ni secret : adresse du serveur GLPI et TAG uniquement.',
+                'rem A lancer en administrateur depuis le dossier extrait du ZIP.',
+            ],
+            PluginPrintgestionAgentsetting::buildAdminCheckLines(),
+            [
+                'start "" /wait ' . self::buildWindowsCommand('%~dp0' . $msi, $tag),
+                'set "RC=%ERRORLEVEL%"',
+                'if not "%RC%"=="0" if not "%RC%"=="3010" if not "%RC%"=="1641" (',
+                '  echo Installation non terminee, code %RC% : journal %TEMP%\\GLPI-Agent-install.log',
+                '  pause',
+                '  exit /b %RC%',
+                ')',
+            ],
+            $update ? PluginPrintgestionAgentsetting::buildScheduleLines(true) : [],
+            [
+                $update
+                    ? 'echo GLPI Agent installe. Mise a jour automatique mensuelle posee : ' . ($target !== '' ? 'version cible ' . $target . '.' : 'derniere version publiee.')
+                    : 'echo GLPI Agent installe. Aucune mise a jour automatique posee.',
+                'pause',
+                '',
+            ]
+        ));
         $command = self::buildWindowsCommand($msi, $tag) . "\r\n";
         $readme  = implode("\r\n", [
             sprintf(__('Installation de GLPI Agent %1$s — %2$s (TAG : %3$s)', 'printgestion'), $version, (string) $entity->fields['completename'], $tag),
@@ -452,10 +476,18 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '',
             __('Les 3 gestes', 'printgestion'),
             __('1. Sur le PC qui servira de sonde (allumé en permanence, sur le réseau des imprimantes) : clic droit sur le fichier ZIP > Extraire tout.', 'printgestion'),
-            __('2. Dans le dossier extrait : double-clic sur installer-glpi-agent.bat, accepter la demande d\'administrateur et suivre l\'assistant. L\'adresse du serveur et le TAG sont déjà remplis : ne pas les modifier.', 'printgestion'),
+            __('2. Dans le dossier extrait : clic droit sur installer-glpi-agent.bat > Exécuter en tant qu\'administrateur, puis suivre l\'assistant. L\'adresse du serveur et le TAG sont déjà remplis : ne pas les modifier. Attendre le message final avant de fermer la fenêtre.', 'printgestion'),
             __('3. Dans GLPI (fiche de l\'entité, onglet « Déploiement Agent ») : vérifier que l\'agent apparaît avec un contact récent, puis raccorder les imprimantes avec l\'assistant (bloc 3), avant de partir.', 'printgestion'),
             '',
-            __('Si Windows refuse de lancer le fichier .bat : ouvrir l\'invite de commandes (cmd, pas PowerShell) dans le dossier extrait et coller la commande du fichier commande-cmd.txt.', 'printgestion'),
+            $update
+                ? sprintf(
+                    __('Mise à jour automatique : le lanceur pose la tâche planifiée « %1$s » (le 1er du mois à 3 h, compte SYSTEM, winget, %2$s, seulement si l\'agent est en attente ; journal C:\\ProgramData\\PrintGestion\\glpi-agent-update.log). Pour la changer ou la retirer : régler la sonde dans GLPI, puis lancer son paquet de consigne sur ce PC ; le réglage de GLPI seul ne change rien sur le PC.', 'printgestion'),
+                    PluginPrintgestionAgentsetting::TASK_NAME,
+                    $target !== '' ? sprintf(__('version cible %s', 'printgestion'), $target) : __('dernière version publiée', 'printgestion')
+                )
+                : __('Mise à jour automatique : non posée par ce paquet. Pour la poser plus tard : paquet de consigne de la sonde dans GLPI.', 'printgestion'),
+            '',
+            __('Si Windows refuse de lancer le fichier .bat : ouvrir l\'invite de commandes en administrateur (cmd, pas PowerShell) dans le dossier extrait et coller la commande du fichier commande-cmd.txt ; elle installe l\'agent sans poser la mise à jour automatique.', 'printgestion'),
             __('En cas d\'échec de l\'installation : journal %TEMP%\\GLPI-Agent-install.log sur le PC.', 'printgestion'),
             '',
         ]);
@@ -469,6 +501,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $zip->addFile($installer['path'], $msi);
         $zip->setCompressionName($msi, ZipArchive::CM_STORE); // MSI déjà compressé
         $zip->addFromString('installer-glpi-agent.bat', $bat);
+        if ($update) {
+            $zip->addFromString(PluginPrintgestionAgentsetting::UPDATE_SCRIPT, PluginPrintgestionAgentsetting::buildUpdateScript($target));
+        }
         $zip->addFromString('commande-cmd.txt', $command);
         $zip->addFromString('LISEZMOI.txt', "\xEF\xBB\xBF" . $readme);
         if (!$zip->close()) {
@@ -653,7 +688,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 . "<th>" . $esc(__('Version', 'printgestion')) . "</th><th>" . $esc(__('Dernier contact', 'printgestion')) . "</th>"
                 . "<th>" . $esc(__('TAG', 'printgestion')) . "</th><th>" . $esc(__('Collecte réseau', 'printgestion')) . "</th></tr></thead><tbody>";
             foreach ($agents as $agent) {
-                [$badge_class, $badge_label] = $badges[PluginPrintgestionCollect::getAgentVersionStatus($agent['version_value'])];
+                [$badge_class, $badge_label] = $badges[PluginPrintgestionCollect::getAgentVersionStatus($agent['version_value'], PluginPrintgestionAgentsetting::getSettings((int) $agent['id']))];
                 $is_silent = $agent['last_contact'] === null || strtotime((string) $agent['last_contact']) < time() - $silent * DAY_TIMESTAMP;
                 $host      = '—';
                 if (is_a((string) $agent['itemtype'], CommonDBTM::class, true) && (int) $agent['items_id'] > 0) {
@@ -696,7 +731,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             echo "<button type='button' class='btn btn-outline-secondary' disabled title='" . $esc(__('Prévu en phase 6', 'printgestion')) . "'><i class='ti {$icon} me-1'></i>" . $esc($label) . "</button>";
         }
         echo "</div>";
-        echo "<p class='text-muted small'>" . $esc(__('Paquet ZIP : MSI officiel servi par ce serveur, lanceur installer-glpi-agent.bat (commande d\'une ligne), la même commande à copier dans cmd, et une note d\'une page pour le technicien. Linux et macOS : phase 6.', 'printgestion')) . "</p>";
+        echo "<p class='text-muted small'>" . $esc(__('Paquet ZIP : MSI officiel servi par ce serveur, lanceur installer-glpi-agent.bat à lancer en administrateur (assistant d\'installation, puis tâche planifiée de mise à jour si elle est activée sur la page « Installeur GLPI Agent »), la commande d\'installation seule à copier dans cmd, et une note d\'une page pour le technicien. Linux et macOS : phase 6.', 'printgestion')) . "</p>";
 
         if ($tag !== '' && self::isValidTag($tag)) {
             echo "<div class='mb-2 fw-bold'>" . $esc(__('Commande lancée par le paquet', 'printgestion')) . "</div>";
@@ -802,6 +837,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             Html::closeForm();
         }
         echo "</div></div>";
+
+        // Dernière version de GLPI Agent et mise à jour automatique des nouveaux paquets.
+        PluginPrintgestionAgentsetting::showDefaultsCard($can_edit, $page);
 
         // Prérequis communs à tous les clients.
         $rule          = self::getTagRuleStatus();

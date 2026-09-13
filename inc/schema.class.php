@@ -50,6 +50,7 @@ class PluginPrintgestionSchema {
         '1.6.0' => 'migrateTo160',
         '1.6.1' => 'migrateTo161',
         '1.6.2' => 'migrateTo162',
+        '1.6.3' => 'migrateTo163',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -892,5 +893,73 @@ class PluginPrintgestionSchema {
         $migration->addKey($table, 'locations_id');
         $migration->addKey($table, 'contracts_id');
         $migration->migrationOneTable($table);
+    }
+
+    /**
+     * 1.6.3 — Déploiement Agent, conformité et alertes : dernière version connue de GLPI Agent et réglages de
+     * mise à jour par défaut des paquets ; réglages par sonde (mise à jour automatique, version cible) ; alertes
+     * « sonde muette » et « imprimante muette », un seul épisode ouvert par sonde ou imprimante (colonne générée
+     * open_lock, comme les demandes proposées), notifié une fois, clos au retour à la normale.
+     */
+    private static function migrateTo163(Migration $migration): void {
+        global $DB;
+
+        $charset   = DBConnection::getDefaultCharset();
+        $collation = DBConnection::getDefaultCollation();
+        $sign      = DBConnection::getDefaultPrimaryKeySignOption();
+        $options   = "ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC";
+
+        $config = 'glpi_plugin_printgestion_configs';
+        $migration->addField($config, 'agent_latest_version', 'varchar(20) DEFAULT NULL');
+        $migration->addField($config, 'agent_latest_source', 'varchar(10) DEFAULT NULL');
+        $migration->addField($config, 'agent_latest_checked', 'timestamp NULL DEFAULT NULL');
+        $migration->addField($config, 'agent_update_default', "tinyint NOT NULL DEFAULT '1'");
+        $migration->addField($config, 'agent_update_target', 'varchar(20) DEFAULT NULL');
+        $migration->addField($config, 'agent_probe_states_id', "int {$sign} NOT NULL DEFAULT '0'");
+        $migration->migrationOneTable($config);
+
+        if (!$DB->tableExists('glpi_plugin_printgestion_agentsettings')) {
+            $migration->displayMessage('Print Gestion — création de la table des réglages de sonde');
+            $DB->doQuery("CREATE TABLE `glpi_plugin_printgestion_agentsettings` (
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `agents_id` int {$sign} NOT NULL DEFAULT '0',
+                `auto_update` tinyint NOT NULL DEFAULT '1',
+                `target_version` varchar(20) DEFAULT NULL,
+                `users_id` int {$sign} NOT NULL DEFAULT '0',
+                `date_creation` timestamp NULL DEFAULT NULL,
+                `date_mod` timestamp NULL DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `agents_id` (`agents_id`),
+                KEY `users_id` (`users_id`),
+                KEY `date_creation` (`date_creation`),
+                KEY `date_mod` (`date_mod`)
+            ) {$options}");
+        }
+
+        if (!$DB->tableExists('glpi_plugin_printgestion_agentalerts')) {
+            $migration->displayMessage('Print Gestion — création de la table des alertes de sondes');
+            $DB->doQuery("CREATE TABLE `glpi_plugin_printgestion_agentalerts` (
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `entities_id` int {$sign} NOT NULL DEFAULT '0',
+                `type` enum('agent_silent','printer_silent') NOT NULL,
+                `agents_id` int {$sign} NOT NULL DEFAULT '0',
+                `printers_id` int {$sign} NOT NULL DEFAULT '0',
+                `reason` varchar(30) DEFAULT NULL,
+                `date_begin` timestamp NULL DEFAULT NULL,
+                `date_notified` timestamp NULL DEFAULT NULL,
+                `date_end` timestamp NULL DEFAULT NULL,
+                `date_creation` timestamp NULL DEFAULT NULL,
+                `date_mod` timestamp NULL DEFAULT NULL,
+                `open_lock` tinyint GENERATED ALWAYS AS (IF(`date_end` IS NULL, 1, NULL)) STORED,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `uniq_open_alert` (`type`, `agents_id`, `printers_id`, `open_lock`),
+                KEY `entities_id` (`entities_id`),
+                KEY `agents_id` (`agents_id`),
+                KEY `printers_id` (`printers_id`),
+                KEY `date_end` (`date_end`),
+                KEY `date_creation` (`date_creation`),
+                KEY `date_mod` (`date_mod`)
+            ) {$options}");
+        }
     }
 }

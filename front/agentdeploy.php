@@ -16,11 +16,24 @@ Session::checkRight('plugin_printgestion_deploiement', READ);
 
 $page = PluginPrintgestionAgentdeploy::getPageURL();
 
-if (isset($_POST['fetch_github']) || isset($_POST['verify_deposit']) || isset($_POST['save_settings'])) {
+if (isset($_POST['fetch_github']) || isset($_POST['verify_deposit']) || isset($_POST['save_settings'])
+    || isset($_POST['check_latest']) || isset($_POST['save_update_defaults'])) {
     // Jeton CSRF déjà validé par CheckCsrfListener avant ce fichier.
     Session::checkRight('plugin_printgestion_config', UPDATE);
 
-    if (isset($_POST['save_settings'])) {
+    if (isset($_POST['check_latest'])) {
+        $result = PluginPrintgestionAgentsetting::checkLatestFromGitHub();
+        Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : ERROR);
+    } elseif (isset($_POST['save_update_defaults'])) {
+        $errors = PluginPrintgestionAgentsetting::saveDefaults($_POST);
+        Session::addMessageAfterRedirect(
+            empty($errors)
+                ? __('Dernière version et mise à jour automatique des nouveaux paquets enregistrées.', 'printgestion')
+                : implode('<br>', array_map(static fn(string $error) => htmlspecialchars($error, ENT_QUOTES, 'UTF-8'), $errors)),
+            false,
+            empty($errors) ? INFO : ERROR
+        );
+    } elseif (isset($_POST['save_settings'])) {
         $errors = PluginPrintgestionAgentdeploy::saveSettings($_POST);
         if (empty($errors)) {
             Session::addMessageAfterRedirect(__('Paramètres de l\'installeur enregistrés.', 'printgestion'), false, INFO);

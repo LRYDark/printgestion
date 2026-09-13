@@ -193,14 +193,22 @@ Une fois pour tout le parc :
    TAG » = `#0`. Le plugin vérifie qu'elle existe, il ne la crée pas.
 3. Print Gestion → Collecte SNMP / Déploiement Agent → Installeur GLPI Agent : « Récupérer depuis GitHub ». Sans
    accès Internet sur le serveur : déposer le MSI dans le dossier indiqué, puis vérifier son empreinte.
+4. Même page : vérifier « Dernière version connue » (GitHub, sinon saisie), choisir si les nouveaux paquets posent la
+   mise à jour automatique, et le statut GLPI des PC sondes (à créer d'abord : Configuration → Intitulés → Statuts des
+   éléments, à la racine, récursif).
+5. Notifications des sondes : Configuration → Inventaire → « Agent cleanup », réglages « Print Gestion » ; puis
+   Configuration → Notifications → « Print Gestion - Sonde GLPI Agent sans contact » et « Print Gestion - Imprimantes
+   qui ne remontent plus » : choisir les destinataires, activer. Ne pas choisir l'action native « Supprimer » avec un
+   délai court : un agent supprimé perd ses tâches GLPI Inventory.
 
 Pour chaque client :
 
 1. Fiche de l'entité → Informations avancées : renseigner le TAG (lettres, chiffres, point, tiret, soulignement ;
    unique), **avant le premier inventaire** : les règles d'entité ne jouent qu'au premier import.
 2. Onglet « Déploiement Agent » de l'entité : corriger ce qui n'est pas vert, puis « Windows » télécharge le paquet.
-3. Sur place : suivre `LISEZMOI.txt` (extraire, double-clic sur le `.bat`, assistant), puis vérifier dans l'onglet
-   que l'agent apparaît avec un contact récent et la collecte réseau installée.
+3. Sur place : suivre `LISEZMOI.txt` (extraire, clic droit sur le `.bat` → Exécuter en tant qu'administrateur,
+   assistant, attendre le message final), puis vérifier dans l'onglet que l'agent apparaît avec un contact récent et
+   la collecte réseau installée. Page « Sondes » : « Marquer ce PC comme sonde ».
 4. Toujours sur place : bloc 3 de l'onglet, « Nouveau raccordement » (droit Déploiement en modification). Choisir la
    sonde, saisir les adresses des imprimantes et, carte 2 bis, leur lieu, commentaire et contrat ; créer la
    configuration de collecte, lancer la découverte. Si GLPI ne joint pas la sonde (cas normal derrière la box) : sur
@@ -236,6 +244,34 @@ Raccordement :
   parente) ne contient l'adresse de l'imprimante, ou aucune tâche ne vise cette plage ; la raccorder avec
   l'assistant. Le bloc de la sonde est dans la carte « Informations d'inventaire » pour les profils qui ont le droit
   Inventaire, sinon sous le formulaire ; le lien vers la fiche de l'agent demande le droit Agent.
+
+### Sondes : mise à jour automatique et alertes
+
+- **Où regarder** : Print Gestion → Collecte SNMP / Déploiement Agent → « Sondes » (compteurs, sondes sans contact par
+  entité, conformité) ; le détail d'une sonde donne ses réglages, son paquet de consigne et ses imprimantes. Même
+  contenu dans l'onglet « Sonde Print Gestion » de la fiche Agent (droit Agent).
+- **Changer la mise à jour d'une sonde** (désactiver, épingler une version, revenir en arrière) : régler la sonde,
+  télécharger son **paquet de consigne** et le lancer sur le PC, en administrateur. Sans ce geste rien ne change sur
+  le PC : la tâche planifiée déjà posée continue.
+- **La mise à jour ne se fait pas** : sur le PC, `C:\ProgramData\PrintGestion\glpi-agent-update.log`. « Agent occupé
+  ou injoignable » : l'agent exécutait une tâche le 1er du mois à 3 h, mise à jour reportée au mois suivant ;
+  « winget introuvable » : App Installer absent (Windows Server, Windows 10 ancien) ; code d'erreur de winget : winget
+  sous le compte SYSTEM n'est pas pris en charge officiellement par Microsoft. Tâche : Planificateur de tâches →
+  « GLPI Agent - mise a jour (Print Gestion) ». Pour ne pas attendre le mois suivant : lancer
+  `C:\ProgramData\PrintGestion\glpi-agent-update.cmd` en administrateur.
+- **Retour à une version plus ancienne refusé** (journal) : désinstaller GLPI Agent sur le PC, réinstaller avec le
+  paquet de l'entité (même TAG), puis relancer la consigne si la version reste épinglée.
+- **Pas de notification** : réglages « Print Gestion » de Configuration → Inventaire → « Agent cleanup » ;
+  notifications actives avec des destinataires (Configuration → Notifications) ; journal de la tâche
+  `PrintgestionSilentProbes` (alertes ouvertes, fermées, notifiées). Une alerte n'est notifiée qu'une fois par
+  épisode ; celle qui n'a pas pu l'être l'est au passage suivant.
+- **Délai « sans contact »** : « Imprimante muette après (jours) » de Configuration → Print Gestion. Le délai natif
+  « Agent cleanup » ne sert qu'aux actions natives.
+- **Imprimante qui ne remonte plus alors que la sonde contacte GLPI** : motif dans la notification et dans « Contrôle
+  de la remontée » (aucun inventaire réseau récent, jamais inventoriée, aucun niveau lisible). Causes : imprimante
+  éteinte ou remplacée, adresse IP changée, SNMP coupé ou communauté modifiée. L'alerte se ferme au premier inventaire
+  réseau réussi avec un niveau lisible ; tant que la sonde elle-même est sans contact, elle reste ouverte sans
+  nouvelle notification.
 
 ### Cartouche « Réf. non résolue » (non commandable)
 

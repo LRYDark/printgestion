@@ -48,10 +48,11 @@ class PluginPrintgestionCollect extends CommonGLPI {
 
     const DEFAULT_SILENT_DAYS = 3;
 
-    /** glpi-agent : en dessous, une valeur de compteur invalide fait rejeter tout l'inventaire. */
+    /**
+     * glpi-agent : en dessous, une valeur de compteur invalide fait rejeter tout l'inventaire. Au-dessus, la
+     * version visée est la dernière version connue ou la version cible de la sonde (PluginPrintgestionAgentsetting).
+     */
     const AGENT_MIN_VERSION = '1.15';
-    /** glpi-agent : version conseillée (SNMPv3 SHA-2/AES et contexte, compteurs constructeurs). */
-    const AGENT_RECOMMENDED_VERSION = '1.19';
 
     /** Fenêtre de recherche des baisses du compteur total (jours). */
     const COUNTER_WINDOW_DAYS = 90;
@@ -173,16 +174,52 @@ class PluginPrintgestionCollect extends CommonGLPI {
         return $out;
     }
 
-    /** État d'une version de glpi-agent : old (< 1.15), update (< 1.19), ok, unknown. */
-    public static function getAgentVersionStatus(string $version): string {
-        if (!preg_match('/(\d+)\.(\d+)/', $version, $matches)) {
+    /**
+     * État d'une version de glpi-agent : old (avant AGENT_MIN_VERSION), update (sous la version visée), ok,
+     * unknown. Version visée : version cible de la sonde si elle est épinglée, sinon dernière version connue
+     * (même règle que la page « Sondes » : PluginPrintgestionAgentsetting::getCompliance()).
+     *
+     * @param ?array $settings réglages de la sonde (PluginPrintgestionAgentsetting::getSettingsFor()) ; null : par défaut
+     */
+    public static function getAgentVersionStatus(string $version, ?array $settings = null): string {
+        $installed = PluginPrintgestionAgentsetting::normalizeVersion($version);
+        if (!preg_match('/^\d+(\.\d+)+$/', $installed)) {
             return 'unknown';
         }
-        $current = $matches[1] . '.' . $matches[2];
-        if (version_compare($current, self::AGENT_MIN_VERSION, '<')) {
+        if (version_compare($installed, self::AGENT_MIN_VERSION, '<')) {
             return 'old';
         }
-        return version_compare($current, self::AGENT_RECOMMENDED_VERSION, '<') ? 'update' : 'ok';
+        $compliance = PluginPrintgestionAgentsetting::getCompliance(
+            $installed,
+            $settings ?? PluginPrintgestionAgentsetting::getDefaultSettings(),
+            PluginPrintgestionAgentsetting::getLatestVersion()
+        );
+        return match ($compliance['state']) {
+            'ok', 'pinned' => 'ok',
+            'update'       => 'update',
+            default        => 'unknown',
+        };
+    }
+
+    /** État de collecte d'une imprimante (voir l'en-tête de la classe) ; $cutoff : limite de silent_days. */
+    public static function getState(?string $last_inventory, bool $readable, string $cutoff): string {
+        if ($last_inventory === null) {
+            return self::STATE_NO_INVENTORY;
+        }
+        if ($last_inventory < $cutoff) {
+            return self::STATE_STALE;
+        }
+        return $readable ? self::STATE_OK : self::STATE_NO_LEVEL;
+    }
+
+    /** Au moins un niveau lisible parmi les valeurs d'une imprimante (PluginPrintgestionSnmpadapter::getLevels()). */
+    public static function hasReadableLevel(array $levels): bool {
+        foreach ($levels as $parsed) {
+            if (!empty($parsed['usable'])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -227,18 +264,19 @@ class PluginPrintgestionCollect extends CommonGLPI {
         $agents    = [];
         $agent_ids = array_values(array_unique(array_filter(array_column($dates, 'agents_id'))));
         if (!empty($agent_ids)) {
+            $settings = PluginPrintgestionAgentsetting::getSettingsFor($agent_ids);
             foreach ($DB->request([
                 'SELECT' => ['id', 'name', 'last_contact', 'version'],
                 'FROM'   => 'glpi_agents',
                 'WHERE'  => ['id' => $agent_ids],
             ]) as $agent) {
-                $version = (string) ($agent['version'] ?? '');
+                $version = PluginPrintgestionAgentsetting::getAgentVersion($agent);
                 $agents[(int) $agent['id']] = [
                     'id'             => (int) $agent['id'],
                     'name'           => (string) $agent['name'],
                     'last_contact'   => $agent['last_contact'],
                     'version'        => $version,
-                    'version_status' => self::getAgentVersionStatus($version),
+                    'version_status' => self::getAgentVersionStatus($version, $settings[(int) $agent['id']] ?? null),
                     'is_silent'      => empty($agent['last_contact']) || (string) $agent['last_contact'] < $cutoff,
                     'printers'       => 0,
                 ];
@@ -251,23 +289,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
             $pid  = (int) $printer['id'];
             $snmp = $dates[$pid]['snmp'] ?? null;
 
-            $readable = false;
-            foreach ($levels[$pid] ?? [] as $parsed) {
-                if ($parsed['usable']) {
-                    $readable = true;
-                    break;
-                }
-            }
-
-            if ($snmp === null) {
-                $state = self::STATE_NO_INVENTORY;
-            } elseif ($snmp < $cutoff) {
-                $state = self::STATE_STALE;
-            } elseif (!$readable) {
-                $state = self::STATE_NO_LEVEL;
-            } else {
-                $state = self::STATE_OK;
-            }
+            $state = self::getState($snmp, self::hasReadableLevel($levels[$pid] ?? []), $cutoff);
 
             $agents_id = (int) ($dates[$pid]['agents_id'] ?? 0);
             if (isset($agents[$agents_id])) {
@@ -691,11 +713,11 @@ class PluginPrintgestionCollect extends CommonGLPI {
             $pre['agents'] > 0 && $pre['agents_old'] === 0 && $pre['agents_update'] === 0,
             __('Versions des agents', 'printgestion'),
             sprintf(
-                __('%1$d trop ancienne(s) (avant %2$s : une valeur invalide fait rejeter tout l\'inventaire), %3$d à mettre à jour (%4$s conseillée).', 'printgestion'),
+                __('%1$d trop ancienne(s) (avant %2$s : une valeur invalide fait rejeter tout l\'inventaire), %3$d à mettre à jour (dernière version connue : %4$s, ou version cible de la sonde).', 'printgestion'),
                 $pre['agents_old'],
                 self::AGENT_MIN_VERSION,
                 $pre['agents_update'],
-                self::AGENT_RECOMMENDED_VERSION
+                PluginPrintgestionAgentsetting::getLatestVersion()['version']
             )
         );
         echo "</div></div></div>";
@@ -738,7 +760,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
                 . "<th class='text-end'>" . $esc(__('Imprimantes', 'printgestion')) . "</th><th>" . $esc(__('État', 'printgestion')) . "</th></tr></thead><tbody>";
             foreach ($analysis['agents'] as $agent) {
                 [$badge_class, $badge_label] = $version_badges[$agent['version_status']];
-                echo "<tr><td><a href='" . $esc(Agent::getFormURLWithID($agent['id'])) . "'>" . $esc($agent['name']) . "</a></td>"
+                echo "<tr><td><a href='" . $esc(PluginPrintgestionAgentsetting::getPageURL($agent['id'])) . "'>" . $esc($agent['name']) . "</a></td>"
                     . "<td>" . $esc($agent['version'] !== '' ? $agent['version'] : '—') . " <span class='badge {$badge_class}'>" . $esc($badge_label) . "</span></td>"
                     . "<td>" . $esc($date($agent['last_contact'])) . "</td>"
                     . "<td class='text-end'>" . (int) $agent['printers'] . "</td>"

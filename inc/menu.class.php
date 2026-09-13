@@ -71,6 +71,8 @@ class PluginPrintgestionMenu extends CommonGLPI {
                     ['key' => 'dp_agent', 'label' => __('Installeur GLPI Agent', 'printgestion'), 'icon' => 'ti ti-download', 'path' => '/front/agentdeploy.php', 'right' => ['plugin_printgestion_deploiement', READ]],
                     // Assistant de raccordement des imprimantes : lancé depuis l'entité, suivi ici.
                     ['key' => 'dp_raccord', 'label' => __('Raccordements', 'printgestion'), 'icon' => 'ti ti-plug-connected', 'path' => '/front/raccordement.php', 'right' => ['plugin_printgestion_deploiement', READ]],
+                    // Sondes : muettes par entité, conformité de version, mise à jour automatique.
+                    ['key' => 'dp_probes', 'label' => __('Sondes', 'printgestion'), 'icon' => 'ti ti-robot', 'path' => '/front/sondes.php', 'right' => ['plugin_printgestion_deploiement', READ]],
                     ['key' => 'dp_collect', 'label' => __('Contrôle de la remontée', 'printgestion'), 'icon' => 'ti ti-activity', 'path' => '/front/collect.php', 'right' => ['plugin_printgestion_deploiement', READ]],
                 ],
             ],
