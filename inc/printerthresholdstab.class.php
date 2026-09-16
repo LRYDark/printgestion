@@ -110,15 +110,13 @@ class PluginPrintgestionPrinterThresholdsTab extends CommonGLPI {
             return;
         }
 
-        $js_config = json_encode([
+        echo PluginPrintgestionUi::jsonData($uid . '-init', [
             'uid'           => $uid,
             'printers_id'   => $printers_id,
             'thresholdsUrl' => PLUGIN_PRINTGESTION_WEBDIR . '/ajax/printer_thresholds.php',
             // Jeton CSRF envoyé en en-tête X-Glpi-Csrf-Token (requête AJAX POST).
             'csrf'          => Session::getNewCSRFToken(),
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-        echo "<script>window.PC_THRESHOLDS_INIT = {$js_config};</script>";
+        ], 'PC_THRESHOLDS_INIT');
         echo <<<'HTML'
 <script>
 (function() {

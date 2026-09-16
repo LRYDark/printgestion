@@ -117,6 +117,7 @@ Décisions projet (à ne pas régresser) :
 | Table « doesn't exist » juste après réinstallation | Bloc cleanup d'install qui droppe une table vivante | Ne jamais lister `_alertview` / `_billing_view` dans un drop (§2) |
 | `AccessDeniedHttpException` sur un POST ajax | Double validation CSRF : le `CheckCsrfListener` de GLPI 11 valide et CONSOMME le token avant le fichier ajax | Ne PAS appeler `Session::checkCSRF()` dans les fichiers `ajax/` (commentaire en tête des endpoints `ajax/` qui écrivent) |
 | Formulaire qui casse après `showFormButtons()` | `Html::closeForm()` ajouté après `showFormButtons()` (qui ferme déjà le form) | Ne pas doubler la fermeture |
+| XSS : un nom d'imprimante ou un n° de suivi contenant `</script>` exécute du code | Données PHP écrites dans un `<script>` avec `json_encode()` sans `JSON_HEX_TAG` : `</script` ferme la balise (même dans un `<script type="application/json">`) | Toute donnée PHP destinée au JavaScript passe par `PluginPrintgestionUi::jsonData($id, $data, $globale)` : bloc JSON non exécuté, encodé avec les quatre drapeaux `JSON_HEX_*`, relu par `JSON.parse()`. Jamais `window.X = <?= json_encode() ?>` ni un `{$json}` dans un script |
 
 ---
 
@@ -400,3 +401,5 @@ reconduction tacite (un contrat terminé ne couvre plus rien).
 - [ ] Test d'un envoi de chaque circuit modifié (unitaire, groupé, commande, crons).
 - [ ] « Qui est notifié ? » cohérent avec l'attendu.
 - [ ] Pas de nouvelle table/colonne oubliée pour les instances existantes (§2).
+- [ ] Aucune donnée PHP écrite dans un `<script>` exécuté : `PluginPrintgestionUi::jsonData()` (§5).
+- [ ] Toute nouvelle table de données client porte `entities_id` / `is_recursive`, posés à l'écriture par `PluginPrintgestionEntityscope`.

@@ -148,16 +148,14 @@ class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
         echo "</div></div>";
 
         // JS : toggle dates selon période + submit AJAX + restauration sessionStorage
-        $js_config = json_encode([
+        echo PluginPrintgestionUi::jsonData($uid . '-init', [
             'uid'            => $uid,
             'printers_id'    => $printers_id,
             'ajaxUrl'        => $ajax_url,
             'initPeriod'     => $period,
             'initStart'      => $start,
             'initEnd'        => $end,
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-        echo "<script>window.PC_COST_INIT = {$js_config};</script>";
+        ], 'PC_COST_INIT');
         echo <<<'HTML'
 <script>
 (function() {

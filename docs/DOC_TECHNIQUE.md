@@ -54,6 +54,7 @@ printgestion/
 | `Contractrate` | Tarifs N&B / Couleur par contrat (onglet sur fiche Contract) |
 | `Print` | Création/association imprimante ↔ contrat (4 scénarios, transactionnel) |
 | `Tonerreading` | Snapshot horodaté des niveaux toner (lit `glpi_printers_cartridgeinfos` SNMP GLPI 11) |
+| `Ui` | Fragments d'interface partagés : barre de statistiques ; `jsonData()`, seul passage des données PHP vers le JavaScript (bloc JSON non exécuté, drapeaux `JSON_HEX_*`) |
 | `Entityscope` | Entité des données client (1.6.5) : entité à écrire sur une ligne rattachée à une imprimante, une expédition ou un contrat ; suivi des changements d'entité ; tâche de contrôle `PrintgestionEntityScope` |
 | `Cartridgehistory` | Détection automatique des changements de cartouche (hausse de niveau ≥ `detection_delta` %) |
 | `Alert` | Calcul intelligent des alertes toner (vitesse de conso sur fenêtre 30 j) + **digest mail commercial** |

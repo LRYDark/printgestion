@@ -257,7 +257,8 @@ PluginPrintgestionDashboardactions::renderSharedAssets('expeditions');
 // 3) Pont : recopie les data-pc-* sur chaque ligne native (via le marqueur caché
 //    .pg-exp-bridge rendu dans la cellule Statut), puis ré-applique après chaque
 //    rechargement AJAX du tableau natif (tri / pagination / recherche).
-echo "<script>window.PG_EXP_DATA = " . json_encode($exp_map, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ";</script>\n";
+// Noms d'imprimante (SNMP), clients, n° de suivi : données, jamais écrites dans un script exécuté.
+echo PluginPrintgestionUi::jsonData('pg-exp-data', $exp_map, 'PG_EXP_DATA') . "\n";
 echo <<<'JS'
 <script>
 (function() {

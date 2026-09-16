@@ -237,7 +237,7 @@ HTML;
         $label   = __('Tape le numéro de document (ex : BL154869), puis Entrée', 'printgestion');
         $placeholder = __('Tape au moins 2 caractères — ex: BL203...', 'printgestion');
 
-        $labels = json_encode([
+        $labels = [
             'title'       => $title,
             'intro'       => $intro,
             'label'       => $label,
@@ -248,7 +248,7 @@ HTML;
             'verified'    => __('Document "%s" vérifié et ajouté.', 'printgestion'),
             'not_found'   => __('Document "%s" non trouvé dans l\'API SAGE ni en local. Il a été retiré de la sélection.', 'printgestion'),
             'verify_err'  => __('Erreur lors de la vérification du document "%s". Il a été retiré de la sélection.', 'printgestion'),
-        ], JSON_UNESCAPED_UNICODE);
+        ];
 
         echo <<<'HTML'
 <div class="modal fade" id="pc-modal-linkbl" tabindex="-1">
@@ -303,9 +303,10 @@ HTML;
 </div>
 HTML;
 
+        echo PluginPrintgestionUi::jsonData('pc-linkbl-labels', $labels);
         echo "<script>
 document.addEventListener('DOMContentLoaded', function() {
-    var l = {$labels};
+    var l = JSON.parse(document.getElementById('pc-linkbl-labels').textContent);
     function setTxt(id, t) { var e = document.getElementById(id); if (e) e.textContent = t; }
     setTxt('pc-linkbl-title',  l.title);
     setTxt('pc-linkbl-intro',  l.intro);
@@ -443,12 +444,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     protected static function renderJs(string $ajax_base, bool $can_update, bool $bl_enabled = false): void {
-        // Toutes les valeurs injectées dans le JS passent par json_encode() pour
-        // gérer correctement les apostrophes, accents et caractères spéciaux.
+        // Toutes les valeurs passées au JS passent par PluginPrintgestionUi::jsonData().
         global $CFG_GLPI;
         $root_doc = rtrim((string)($CFG_GLPI['root_doc'] ?? ''), '/');
 
-        $js_config = json_encode([
+        $js_config = [
             'canUpdate'  => (bool)$can_update,
             'blEnabled'  => (bool)$bl_enabled,
             'ajaxBase'   => $ajax_base,
@@ -470,11 +470,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 'exp_transit'       => __('En transit', 'printgestion'),
                 'exp_delivered'     => __('Livrée', 'printgestion'),
             ],
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        ];
 
-        // Script JS : une seule interpolation via json_encode = pas de risque d'apostrophe
-        // On place PC_CONFIG en global, le reste du JS est statique et lit cette config.
-        echo "<script>window.PC_CONFIG = {$js_config};</script>\n";
+        // Configuration lue par le JS statique ci-dessous : bloc de données, jamais un script exécuté.
+        echo PluginPrintgestionUi::jsonData('pc-config', $js_config, 'PC_CONFIG') . "\n";
         echo <<<'HTML'
 <script>
 (function() {
