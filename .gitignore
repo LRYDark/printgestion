@@ -1,3 +1,4 @@
 # Métadonnées macOS : fichiers AppleDouble créés sur les partages réseau (SMB) et Finder
 ._*
 .DS_Store
+__pycache__/

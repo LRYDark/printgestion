@@ -407,6 +407,7 @@ reconduction tacite (un contrat terminé ne couvre plus rien).
 ## 8. Checklist avant mise en production
 
 - [ ] `php -l` sur tous les fichiers modifiés.
+- [ ] Harnais de sécurité rejoué sur une instance jetable (`tests/README.md`) : aucun KO nouveau.
 - [ ] « Mettre à jour » le plugin sur un environnement de test (install idempotente, pas d'erreur).
 - [ ] Jeton anti-cache incrémenté si JS/CSS modifié.
 - [ ] `php tools/generate_apercu.php` exécuté si gabarits modifiés ; aperçu relu.
