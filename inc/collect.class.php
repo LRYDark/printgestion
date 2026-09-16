@@ -649,16 +649,17 @@ class PluginPrintgestionCollect extends CommonGLPI {
 
         $out = [];
         foreach ($DB->request([
-            'SELECT'    => ['p.id', 'p.name', 'p.serial', 'e.completename AS entity'],
+            'SELECT'    => ['p.id', 'p.name', 'p.serial', 'p.entities_id', 'e.completename AS entity'],
             'FROM'      => 'glpi_printers AS p',
             'LEFT JOIN' => ['glpi_entities AS e' => ['ON' => ['p' => 'entities_id', 'e' => 'id']]],
             'WHERE'     => array_merge($where, ['p.serial' => $serials]),
             'ORDER'     => ['p.serial', 'p.name'],
         ]) as $row) {
             $out[(string) $row['serial']][] = [
-                'id'     => (int) $row['id'],
-                'name'   => (string) $row['name'],
-                'entity' => (string) ($row['entity'] ?? ''),
+                'id'          => (int) $row['id'],
+                'name'        => (string) $row['name'],
+                'entities_id' => (int) $row['entities_id'],
+                'entity'      => (string) ($row['entity'] ?? ''),
             ];
         }
         return $out;
@@ -921,7 +922,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
         if (empty($duplicates)) {
             echo "<div class='card-body text-muted'>" . $esc(__('Aucun : chaque numéro de série correspond à une seule imprimante active.', 'printgestion')) . "</div></div>";
         } else {
-            echo "<div class='card-body pb-0'><p class='text-muted small'>" . $esc(__('Plusieurs imprimantes actives pour un même numéro de série : l\'historique des niveaux et des compteurs est scindé entre elles (règles d\'import GLPI, inventaire local d\'un poste, import par nom ou par adresse IP). À fusionner ou corriger dans GLPI.', 'printgestion')) . "</p></div>";
+            echo "<div class='card-body pb-0'><p class='text-muted small'>" . $esc(__('Plusieurs imprimantes actives pour un même numéro de série : l\'historique des niveaux et des compteurs est scindé entre elles (règles d\'import GLPI, inventaire local d\'un poste, import par nom ou par adresse IP). À fusionner ou corriger dans GLPI. Dans des entités différentes, elles ne partagent pas les verrous anti-double-envoi.', 'printgestion')) . "</p></div>";
             echo "<div class='table-responsive'><table class='table table-sm card-table'><thead><tr>"
                 . "<th>" . $esc(__('Numéro de série', 'printgestion')) . "</th><th>" . $esc(_n('Imprimante', 'Imprimantes', 2, 'printgestion')) . "</th></tr></thead><tbody>";
             foreach ($duplicates as $serial => $printers) {
@@ -929,7 +930,11 @@ class PluginPrintgestionCollect extends CommonGLPI {
                     static fn(array $p) => "<a href='" . $esc(Printer::getFormURLWithID($p['id'])) . "'>" . $esc($p['name']) . "</a>" . ($p['entity'] !== '' ? " <span class='text-muted small'>(" . $esc($p['entity']) . ")</span>" : ''),
                     $printers
                 );
-                echo "<tr><td><code>" . $esc($serial) . "</code></td><td>" . implode('<br>', $links) . "</td></tr>";
+                // Entités différentes : verrous anti-double-envoi non partagés (Guard::resolveMachines()), à vérifier.
+                $cross = count(array_unique(array_column($printers, 'entities_id'))) > 1
+                    ? "<br><span class='badge bg-warning text-warning-fg'>" . $esc(__('Entités différentes : verrous anti-double-envoi non partagés, à vérifier', 'printgestion')) . "</span>"
+                    : '';
+                echo "<tr><td><code>" . $esc($serial) . "</code>{$cross}</td><td>" . implode('<br>', $links) . "</td></tr>";
             }
             echo "</tbody></table></div></div>";
         }

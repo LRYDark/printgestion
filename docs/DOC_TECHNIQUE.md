@@ -253,7 +253,8 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
 
 ### Anti-double-envoi : les trois verrous (`inc/guard.class.php`)
 
-Évalués pour une **machine** (l'imprimante et toute imprimante portant le même n° de série) et un
+Évalués pour une **machine** (l'imprimante et toute imprimante de la même entité portant le même n° de série ; dans
+une autre entité, jamais la même machine : un envoi d'un client ne bloque pas un autre client) et un
 **emplacement toner** (propriété SNMP), en requêtes groupées (`Guard::evaluate()`), par ordre de priorité :
 
 | Verrou | Condition | Durée | Contournable |
@@ -844,7 +845,8 @@ supposée.
 4. **Compteurs disponibles, par modèle** (dernier relevé `glpi_printerlogs`) : relevé ancien, N&B et
    couleur, total seul, compteurs à 0, imprimantes couleur sans compteur couleur, compteur couleur
    supérieur au total, baisses du compteur total sur 90 jours ; listes détaillées (200 lignes au plus).
-5. **Numéros de série en double** parmi les imprimantes actives.
+5. **Numéros de série en double** parmi les imprimantes actives ; doublon entre entités différentes signalé (« verrous
+   anti-double-envoi non partagés, à vérifier »).
 
 ### Points d'entrée (ajax/)
 

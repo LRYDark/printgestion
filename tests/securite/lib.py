@@ -97,6 +97,15 @@ def tache(nom):
                   f"WHERE t.name = '{nom}' AND l.content NOT LIKE 'Action%' AND l.content <> '' ORDER BY l.id DESC LIMIT 1") or ""
 
 
+def php_glpi(code):
+    """Exécute du PHP dans GLPI démarré (sans session) et renvoie ce qu'il affiche."""
+    amorce = "chdir(getenv('PG_GLPI')); require 'vendor/autoload.php'; (new \\Glpi\\Kernel\\Kernel())->boot(); "
+    res = subprocess.run([config.PHP, "-r", amorce + code], capture_output=True, text=True, env=dict(os.environ, PG_GLPI=config.GLPI_DIR))
+    if res.returncode != 0:
+        raise RuntimeError(f"PHP en échec : {(res.stderr or res.stdout)[-400:]}")
+    return res.stdout
+
+
 def vider_cache():
     subprocess.run([config.PHP, "bin/console", "cache:clear", "-n"], cwd=config.GLPI_DIR, capture_output=True)
 

@@ -2,7 +2,7 @@
 /**
  * PluginPrintgestionGuard — verrous anti-double-envoi.
  *
- * Pour une machine (l'imprimante, et toute imprimante portant le même n° de série)
+ * Pour une machine (l'imprimante, et toute imprimante de la même entité portant le même n° de série)
  * et un emplacement toner (propriété SNMP), trois verrous empêchent de proposer ou
  * de passer une nouvelle commande :
  *
@@ -70,7 +70,7 @@ class PluginPrintgestionGuard {
         $bypass_level = max(0, min(100, (int) ($config->fields['guard_bypass_level'] ?? 10)));
         $ticket_days  = max(0, (int) ($config->fields['guard_ticket_days'] ?? 10));
 
-        // Machine = l'imprimante + les imprimantes portant le même n° de série.
+        // Machine = l'imprimante + les imprimantes de la même entité portant le même n° de série.
         $machines = self::resolveMachines(array_values($printer_ids));
         $all_ids  = array_values(array_unique(array_merge(...array_values($machines))));
 
@@ -344,21 +344,27 @@ class PluginPrintgestionGuard {
     }
 
     /**
-     * Imprimante => [elle-même + imprimantes actives portant le même n° de série].
+     * Imprimante => [elle-même + imprimantes actives de la même entité portant le même n° de série].
      * Sert aussi à la proposition automatique (lignes de demande annulées récemment).
+     *
+     * Même n° de série dans deux entités : jamais la même machine pour les verrous (un envoi d'un client
+     * ne bloque pas la commande d'un autre, et ses références ne sont pas affichées chez l'autre). Signalé
+     * à l'administrateur dans « Contrôle de la remontée » (numéros de série en double).
      */
     public static function resolveMachines(array $printer_ids): array {
         global $DB;
 
         $machines  = [];
         $serial_of = [];
+        $entity_of = [];
         foreach ($DB->request([
-            'SELECT' => ['id', 'serial'],
+            'SELECT' => ['id', 'serial', 'entities_id'],
             'FROM'   => 'glpi_printers',
             'WHERE'  => ['id' => $printer_ids],
         ]) as $printer) {
-            $pid            = (int) $printer['id'];
-            $machines[$pid] = [$pid];
+            $pid             = (int) $printer['id'];
+            $machines[$pid]  = [$pid];
+            $entity_of[$pid] = (int) $printer['entities_id'];
             if (trim((string) $printer['serial']) !== '') {
                 $serial_of[$pid] = (string) $printer['serial'];
             }
@@ -367,7 +373,7 @@ class PluginPrintgestionGuard {
         if (!empty($serial_of)) {
             $by_serial = [];
             foreach ($DB->request([
-                'SELECT' => ['id', 'serial'],
+                'SELECT' => ['id', 'serial', 'entities_id'],
                 'FROM'   => 'glpi_printers',
                 'WHERE'  => [
                     'serial'      => array_values(array_unique($serial_of)),
@@ -375,10 +381,10 @@ class PluginPrintgestionGuard {
                     'is_template' => 0,
                 ],
             ]) as $printer) {
-                $by_serial[(string) $printer['serial']][] = (int) $printer['id'];
+                $by_serial[(string) $printer['serial'] . '|' . (int) $printer['entities_id']][] = (int) $printer['id'];
             }
             foreach ($serial_of as $pid => $serial) {
-                $machines[$pid] = array_values(array_unique(array_merge([$pid], $by_serial[$serial] ?? [])));
+                $machines[$pid] = array_values(array_unique(array_merge([$pid], $by_serial[$serial . '|' . $entity_of[$pid]] ?? [])));
             }
         }
 

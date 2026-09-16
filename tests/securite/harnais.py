@@ -10,6 +10,7 @@ Constats OK / KO / À NOTER / NON CONCLUANT ; tout ce qui est créé ou modifié
 5. Échappement du mail « expédiée » envoyé au commercial.
 6. Clés API transporteurs : chiffrées en base, jamais réaffichées.
 7. Dossier tests/ du plugin : jamais servi par le serveur web.
+8. Verrou anti-double-envoi : un n° de série partagé avec un autre client ne bloque rien et ne révèle rien.
 """
 import hashlib
 import json
@@ -401,6 +402,38 @@ def scenario_cles_api():
             sql(f"UPDATE glpi_plugin_printgestion_configs SET {remise} WHERE id = 1;")
 
 
+# ── 8. Verrou anti-double-envoi ──────────────────────────────────────────────
+
+def verrou(imprimante):
+    sortie = lib.php_glpi(f"echo json_encode(PluginPrintgestionGuard::evaluate([['printers_id' => {imprimante}, 'property' => 'tonerblack', 'level' => null]]));")
+    return json.loads(sortie).get(f"{imprimante}|tonerblack")
+
+
+def scenario_verrou():
+    section("8. Verrou anti-double-envoi : n° de série restreint à l'entité")
+    lib.connecter_admin()
+    serie_b = valeur(f"SELECT serial FROM glpi_printers WHERE id = {d.IMP_B}")
+    serie_a2 = valeur(f"SELECT serial FROM glpi_printers WHERE id = {d.IMP_A2}")
+    serie_a1 = valeur(f"SELECT serial FROM glpi_printers WHERE id = {d.IMP_A1}")
+    try:
+        sql(f"UPDATE glpi_printers SET serial = '{serie_a1}' WHERE id = {d.IMP_B};")
+        exp_b = CTX.expedition(d.IMP_B, "tonerblack", "SUIVI-VERROU-B", statut="shipped")
+        lock = verrou(d.IMP_A1)
+        constat("même n° de série chez Client test B avec un envoi en cours : aucune commande de Client test A bloquée, aucune référence de B",
+                ok_ko(lock is None or f"#{exp_b}" not in (lock.get("message") or "")), str(lock)[:200] if lock else "")
+        sql(f"UPDATE glpi_printers SET serial = '{serie_a1}' WHERE id = {d.IMP_A2};")
+        exp_a = CTX.expedition(d.IMP_A2, "tonerblack", "SUIVI-VERROU-A", statut="shipped")
+        lock = verrou(d.IMP_A1)
+        constat("témoin : même n° de série dans la même entité, envoi en cours sur le doublon : commande bloquée",
+                ok_ko(lock is not None and lock.get("reason") == "in_progress" and lock.get("expeditions_id") == exp_a), str(lock)[:200])
+        _, page, _ = WEB.get(config.FRONT + "/collect.php")
+        carte = page[page.find("Numéros de série en double"):][:4000]
+        constat("signal administrateur : doublon entre entités signalé dans « Contrôle de la remontée »",
+                ok_ko(serie_a1 in carte and "Entités différentes" in carte))
+    finally:
+        sql(f"UPDATE glpi_printers SET serial = '{serie_b}' WHERE id = {d.IMP_B}; UPDATE glpi_printers SET serial = '{serie_a2}' WHERE id = {d.IMP_A2};")
+
+
 # ── 7. Dossier tests/ non servi ──────────────────────────────────────────────
 
 def scenario_tests_non_servis():
@@ -433,7 +466,7 @@ def main():
     d.verifier_instance()
     try:
         mise_en_place()
-        for scenario in (scenario_xss, scenario_cloisonnement, scenario_sans_droit, scenario_ecritures_get, scenario_mail, scenario_cles_api, scenario_tests_non_servis):
+        for scenario in (scenario_xss, scenario_cloisonnement, scenario_sans_droit, scenario_ecritures_get, scenario_mail, scenario_cles_api, scenario_tests_non_servis, scenario_verrou):
             try:
                 scenario()
             except Exception as erreur:  # constat du test, la suite continue
