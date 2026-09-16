@@ -1234,6 +1234,9 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             }
             if ($e->getCode() === self::EXPORT_MAIL_FAILURE) {
                 $out['errors'][] = $e->getMessage();
+            } elseif ($e->getCode() === PluginPrintgestionGesconso::ARCHIVE_FAILURE) {
+                PluginPrintgestionLogger::error('export', sprintf('Export Gesconso des demandes %s annulé : fichier non archivé.', $numbers), $e);
+                $out['errors'][] = $e->getMessage();
             } elseif (PluginPrintgestionExpedition::isDuplicateActiveError($e)) {
                 $out['errors'][] = __('Un envoi vient d\'être enregistré pour une de ces cartouches (commande simultanée) : rechargez l\'écran.', 'printgestion');
             } else {

@@ -398,7 +398,15 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
   `Gesconso_…xlsx`, commentaire date / auteur / volume), rattaché aux expéditions créées (commande directe)
   ou aux demandes exportées. Entité racine, **non récursif** : invisible des comptes clients. L'archivage est
   dans la transaction de la commande : échec d'archivage = commande non passée ; transaction annulée = copie
-  du fichier retirée du dossier des documents.
+  du fichier retirée du dossier des documents. Contrôles (P0.4) : type de document `.xlsx` autorisé à l'import
+  (`Document::isValidDoc()`, sinon GLPI supprime le fichier et le plugin refusait trop tard), document créé avec
+  `_only_if_upload_succeed` (jamais de document sans fichier), copie présente dans le dossier des documents et
+  fichier temporaire toujours lisible. Tout échec lève une exception de code `Gesconso::ARCHIVE_FAILURE` dont le
+  message, affichable, dit la cause : commande directe et export de demandes l'affichent tel quel.
+- **Pièce jointe obligatoire** : quand un fichier est attendu, `Config::sendMail()` et `Expedition::sendRawMail()`
+  refusent d'envoyer si le fichier est absent, vide ou n'est pas attaché au message (`Email::getAttachments()`) :
+  mail non envoyé, cause journalisée, et pour les Achats la commande est annulée. Le mail de planification d'une
+  seule cartouche n'a jamais de pièce jointe (inchangé) ; le mail groupé garde la sienne.
 - La commande directe (action de masse « Commander » de l'écran des alertes) utilise ce générateur : plus de colonne « Stock
   GLPI », plus de nom d'entité en code client.
 

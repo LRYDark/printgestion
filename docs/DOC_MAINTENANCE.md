@@ -356,6 +356,18 @@ Le motif figure dans la colonne « Référence non résolue » de l'écran Alert
 4. Une fois l'import validé, utiliser « Envoyer aux Achats ». Attention : un fichier de test importé pour de
    bon dans Sage n'est pas tracé comme exporté — ne pas le renvoyer ensuite.
 
+### Commande refusée : « Fichier Gesconso non archivé »
+
+Rien n'a été enregistré ni envoyé aux Achats. Deux causes :
+
+- **« le type de document .xlsx n'est pas autorisé dans GLPI »** : Configuration → Intitulés → Types de document,
+  ligne `xlsx`, cocher « Autoriser l'import ». GLPI refuse sinon le fichier et le supprime ; avant la correction
+  P0.4, le mail partait aux Achats sans pièce jointe ;
+- **« copie dans le dossier des documents en échec »** : droits d'écriture ou place disque sur `files/_documents`
+  (détail dans `printgestion.log`).
+
+Relancer la commande une fois la cause réglée : aucune expédition n'est restée en attente.
+
 ### Commande refusée : « ne peuvent pas être écrites dans le fichier Gesconso »
 
 Chaque ligne en défaut est listée avec son motif (`Gesconso::prepare()`) :

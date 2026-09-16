@@ -771,9 +771,11 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                     }
                 }
                 $result['created'] = 0;
-                $result['error']   = self::isDuplicateActiveError($e)
+                $result['error']   = $e->getCode() === PluginPrintgestionGesconso::ARCHIVE_FAILURE
+                    ? $e->getMessage()
+                    : (self::isDuplicateActiveError($e)
                     ? __('Commande non passée : un autre envoi vient d\'être enregistré pour une de ces cartouches (commande simultanée). Rechargez l\'écran. Aucune expédition n\'a été enregistrée.', 'printgestion')
-                    : __('Commande non passée : erreur technique pendant l\'enregistrement ou l\'envoi (détail dans le journal d\'erreurs GLPI). Aucune expédition n\'a été enregistrée.', 'printgestion');
+                    : __('Commande non passée : erreur technique pendant l\'enregistrement ou l\'envoi (détail dans le journal d\'erreurs GLPI). Aucune expédition n\'a été enregistrée.', 'printgestion'));
                 return $result;
             }
             $result['ok']   = true;
@@ -947,8 +949,19 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         if (!empty($cc)) {
             $emailObj->cc(...$cc);
         }
-        if ($attachment && is_file($attachment)) {
+        // Pièce jointe attendue (fichier Gesconso) : jamais de mail sans elle.
+        if ($attachment !== null && $attachment !== '') {
+            if (!is_file($attachment) || !is_readable($attachment) || filesize($attachment) === 0) {
+                $error = __('pièce jointe introuvable ou vide, mail non envoyé', 'printgestion');
+                PluginPrintgestionLogger::error('Expedition::sendRawMail', sprintf('Mail « %s » non envoyé : pièce jointe %s introuvable ou vide.', $subject, basename($attachment)));
+                return false;
+            }
             $emailObj->attachFromPath($attachment);
+            if (count($emailObj->getAttachments()) === 0) {
+                $error = __('pièce jointe non attachée au message, mail non envoyé', 'printgestion');
+                PluginPrintgestionLogger::error('Expedition::sendRawMail', sprintf('Mail « %s » non envoyé : pièce jointe %s non attachée.', $subject, basename($attachment)));
+                return false;
+            }
         }
 
         $mmail->Subject = $subject;

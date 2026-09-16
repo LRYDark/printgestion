@@ -45,6 +45,8 @@ class PluginPrintgestionGesconso {
         'I' => 'Complement livraison',
     ];
 
+    /** Code des exceptions d'archivage : leur message est la cause à afficher. */
+    const ARCHIVE_FAILURE         = 4302;
     const SHEET_TITLE             = 'Export';
     const DEFAULT_SEPARATOR       = ' # ';
     const DEFAULT_DESIGNATION_MAX = 69;
@@ -273,20 +275,38 @@ class PluginPrintgestionGesconso {
      * @param array  $file    Résultat de write().
      * @param array  $items   [[itemtype, items_id], ...]
      * @return int documents_id
-     * @throws RuntimeException si le document ou un rattachement est refusé par GLPI.
+     * Bloquant, comme l'échec d'envoi : GLPI qui refuse le fichier le supprime et, sans
+     * _only_if_upload_succeed, créerait un document vide ; le mail partait alors aux Achats sans
+     * pièce jointe. Une commande n'est jamais passée sans le fichier archivé et relisible.
+     *
+     * @throws RuntimeException code ARCHIVE_FAILURE (message affichable) si le fichier n'est pas archivé ;
+     *                          autre code si un rattachement est refusé par GLPI.
      */
     public static function archive(array $file, string $comment, array $items): int {
+        if (!Document::isValidDoc($file['filename'])) {
+            throw new RuntimeException(
+                __('Fichier Gesconso non archivé : le type de document .xlsx n\'est pas autorisé dans GLPI (Configuration → Intitulés → Types de document, « Autoriser l\'import »). Rien n\'a été enregistré ni envoyé aux Achats.', 'printgestion'),
+                self::ARCHIVE_FAILURE
+            );
+        }
         $document     = new Document();
         $documents_id = (int) $document->add([
-            'name'              => $file['filename'],
-            'entities_id'       => 0,
-            'is_recursive'      => 0,
-            'comment'           => $comment,
-            '_filename'         => [$file['tmpname']],
-            '_prefix_filename'  => [$file['prefix']],
+            'name'                    => $file['filename'],
+            'entities_id'             => 0,
+            'is_recursive'            => 0,
+            'comment'                 => $comment,
+            '_filename'               => [$file['tmpname']],
+            '_prefix_filename'        => [$file['prefix']],
+            '_only_if_upload_succeed' => 1,
         ]);
-        if ($documents_id <= 0) {
-            throw new RuntimeException(sprintf('Archivage du fichier %s refusé par GLPI.', $file['filename']));
+        $stored = GLPI_DOC_DIR . '/' . (string) ($document->fields['filepath'] ?? '');
+        if ($documents_id <= 0 || (string) ($document->fields['filepath'] ?? '') === '' || !is_file($stored) || !is_readable($file['path'])) {
+            PluginPrintgestionLogger::error('gesconso', sprintf('Fichier %s non archivé (document %d, copie %s, fichier temporaire %s).',
+                $file['filename'], $documents_id, is_file($stored) ? 'présente' : 'absente', is_readable($file['path']) ? 'présent' : 'absent'));
+            throw new RuntimeException(
+                sprintf(__('Fichier Gesconso %s non archivé par GLPI (copie dans le dossier des documents en échec, détail dans le journal printgestion). Rien n\'a été enregistré ni envoyé aux Achats.', 'printgestion'), $file['filename']),
+                self::ARCHIVE_FAILURE
+            );
         }
 
         foreach ($items as [$itemtype, $items_id]) {

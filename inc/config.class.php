@@ -1606,8 +1606,19 @@ HTML;
         if (!empty($cc)) {
             $emailObj->cc(...$cc);
         }
-        if ($attachment && file_exists($attachment)) {
+        // Pièce jointe attendue (fichier Gesconso) : jamais de mail sans elle.
+        if ($attachment !== null && $attachment !== '') {
+            if (!is_file($attachment) || !is_readable($attachment) || filesize($attachment) === 0) {
+                self::$last_mail_error = __('pièce jointe introuvable ou vide, mail non envoyé', 'printgestion');
+                PluginPrintgestionLogger::error('Config::sendMail', sprintf('Mail non envoyé (modèle %d) : pièce jointe %s introuvable ou vide.', $gabarit_id, basename($attachment)));
+                return false;
+            }
             $emailObj->attachFromPath($attachment);
+            if (count($emailObj->getAttachments()) === 0) {
+                self::$last_mail_error = __('pièce jointe non attachée au message, mail non envoyé', 'printgestion');
+                PluginPrintgestionLogger::error('Config::sendMail', sprintf('Mail non envoyé (modèle %d) : pièce jointe %s non attachée.', $gabarit_id, basename($attachment)));
+                return false;
+            }
         }
 
         if ($subject !== '') {
