@@ -828,6 +828,15 @@ supposée.
 | `update_expedition.php` | Marquer expédié (transporteur + tracking) → `markShipped()` |
 | `edit_expedition.php`, `reassign_expedition.php` | Édition / réassignation vers une autre imprimante |
 | `resolve_alert.php` | Ignorer une alerte « mauvaise imprimante » (suspendre / réactiver : actions de masse de l'écran des alertes) |
+| `link_bls.php`, `expedition_bls.php` | Lier des BL du plugin Gestion à une expédition (identifiant local ou « sage:<n°> » préparé dans l'entité de l'imprimante) ; lister les BL liés |
+
+**BL du plugin Gestion** (`Security::getBlForExpedition()`) : un BL n'est utilisable pour une expédition que s'il existe et
+si son entité est celle de l'imprimante ou une entité parente (BL d'un groupe couvrant ses sites), dans le périmètre de
+l'utilisateur (`Security::getBlEntities()`). Appliqué à `update_expedition.php` (BL posté avec « expédiée » : refus, rien
+d'écrit), à `link_bls.php` (identifiant posté ou BL Sage déjà présent localement dans une autre entité : refusé et
+signalé dans `errors`) et à `expedition_bls.php` (un lien antérieur vers le BL d'un autre client n'est jamais relu). BL
+inexistant et BL d'un autre client reçoivent le même refus : l'existence d'un document d'un autre client n'est pas
+révélée.
 
 CSRF : la validation est faite par le `CheckCsrfListener` de GLPI 11 **avant** le chargement
 des fichiers ajax (token `X-Glpi-Csrf-Token`). Ne PAS rajouter de `Session::checkCSRF()` dedans

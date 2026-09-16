@@ -37,9 +37,13 @@ if ($expedition_id <= 0) {
 }
 
 // Cloisonnement client : l'expédition doit viser une imprimante du périmètre.
-if (PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id) === null) {
+$accessible = PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id);
+if ($accessible === null) {
     PluginPrintgestionSecurity::denyJson();
 }
+// BL affichables : ceux de l'entité de l'imprimante ou d'une parente, dans le périmètre de l'utilisateur.
+// Un lien vers le BL d'un autre client, posé avant ce contrôle, n'est jamais relu.
+$bl_entities = PluginPrintgestionSecurity::getBlEntities((int) $accessible['printers_id']);
 
 if (!$DB->tableExists('glpi_plugin_gestion_surveys')) {
     echo json_encode(['ok' => true, 'bls' => []]);
@@ -69,7 +73,7 @@ if (is_array($exp) && (int)($exp['bl_surveys_id'] ?? 0) > 0) {
     $linked_ids[(int)$exp['bl_surveys_id']] = true;
 }
 
-if (empty($linked_ids)) {
+if (empty($linked_ids) || empty($bl_entities)) {
     echo json_encode(['ok' => true, 'bls' => []]);
     exit;
 }
@@ -83,7 +87,7 @@ foreach ($DB->request([
             'ON' => ['s' => 'entities_id', 'e' => 'id'],
         ],
     ],
-    'WHERE'     => ['s.id' => array_keys($linked_ids)],
+    'WHERE'     => ['s.id' => array_keys($linked_ids), 's.entities_id' => $bl_entities],
     'ORDER'     => ['s.id DESC'],
 ]) as $row) {
     $bls[] = [

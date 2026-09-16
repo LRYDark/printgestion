@@ -114,18 +114,11 @@ foreach ($bls as $raw) {
         continue;
     }
 
-    // Vérifier que le BL existe dans gestion_surveys
-    if ($DB->tableExists('glpi_plugin_gestion_surveys')) {
-        $bl_row = $DB->request([
-            'SELECT' => ['id'],
-            'FROM'   => 'glpi_plugin_gestion_surveys',
-            'WHERE'  => ['id' => $bl_surveys_id],
-            'LIMIT'  => 1,
-        ])->current();
-        if (!is_array($bl_row)) {
-            $errors[] = ['bl' => $raw, 'error' => 'BL introuvable en base'];
-            continue;
-        }
+    // BL existant et du même client (entité de l'imprimante ou parente, dans le périmètre de l'utilisateur) :
+    // un identifiant posté, ou un BL Sage déjà présent localement dans une autre entité, est refusé.
+    if (PluginPrintgestionSecurity::getBlForExpedition($bl_surveys_id, $exp) === null) {
+        $errors[] = ['bl' => $raw, 'error' => 'BL introuvable ou rattaché à un autre client'];
+        continue;
     }
 
     $target_ids[$bl_surveys_id] = true;

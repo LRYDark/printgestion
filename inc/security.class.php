@@ -71,6 +71,46 @@ class PluginPrintgestionSecurity {
     }
 
     /**
+     * Entités où peut se trouver un BL (plugin Gestion) lié à une expédition de cette imprimante : l'entité de
+     * l'imprimante et ses entités parentes (BL d'un groupe couvrant ses sites), limitées au périmètre de
+     * l'utilisateur. Vide si l'imprimante n'existe pas.
+     *
+     * @return int[]
+     */
+    public static function getBlEntities(int $printers_id): array {
+        $printer = new Printer();
+        if ($printers_id <= 0 || !$printer->getFromDB($printers_id)) {
+            return [];
+        }
+        $entities_id = (int) $printer->fields['entities_id'];
+        $entities    = array_merge([$entities_id], array_map('intval', array_values(getAncestorsOf(Entity::getTable(), $entities_id))));
+        return array_values(array_filter($entities, static fn(int $id): bool => Session::haveAccessToEntity($id)));
+    }
+
+    /**
+     * BL du plugin Gestion utilisable pour une expédition : il existe et son entité est dans getBlEntities().
+     * Null si le BL n'existe pas OU s'il est d'un autre client : les deux cas sont indiscernables pour l'appelant,
+     * pour ne pas révéler l'existence d'un document d'un autre client.
+     */
+    public static function getBlForExpedition(int $bl_surveys_id, array $expedition): ?array {
+        global $DB;
+
+        if ($bl_surveys_id <= 0 || !$DB->tableExists('glpi_plugin_gestion_surveys')) {
+            return null;
+        }
+        $entities = self::getBlEntities((int) ($expedition['printers_id'] ?? 0));
+        if (empty($entities)) {
+            return null;
+        }
+        $bl = $DB->request([
+            'FROM'  => 'glpi_plugin_gestion_surveys',
+            'WHERE' => ['id' => $bl_surveys_id, 'entities_id' => $entities],
+            'LIMIT' => 1,
+        ])->current();
+        return is_array($bl) ? $bl : null;
+    }
+
+    /**
      * Alerte dont l'imprimante concernée est accessible à l'utilisateur.
      * Pour une alerte « mauvaise imprimante », printers_id est l'imprimante sur
      * laquelle la cartouche a été détectée. Null si inexistante OU hors périmètre.
