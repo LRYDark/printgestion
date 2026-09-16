@@ -192,7 +192,9 @@ concernent aucun client. Ne jamais supprimer une expédition ni une demande.
 - Un site dont les toners sont seulement « à surveiller » n'est pas proposé : il faut un toner critique sur le
   site, ou une demande déjà proposée à compléter. Un toner à surveiller sans cartouche résolue n'est jamais
   ajouté. Compteur « À surveiller en attente » du journal de la tâche.
-- « Groupes en échec » dans le journal de la tâche : détail dans `files/_log/printgestion.log`
+- Tâche en « Erreur d'exécution » (Configuration → Actions automatiques) : au moins un groupe client/site a échoué ;
+  « Groupes en échec » dans le journal de la tâche, cause de chaque groupe dans `files/_log/printgestion.log`. Les
+  autres groupes ont bien été proposés ; le groupe en échec est retenté au passage suivant.
   (contexte `demandes`) ; le groupe est annulé en entier et retenté au passage suivant.
 
 ### Importer ou mettre à jour le référentiel Sage

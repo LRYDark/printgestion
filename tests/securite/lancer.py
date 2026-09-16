@@ -12,7 +12,7 @@ import donnees
 import lib
 
 ICI = os.path.dirname(os.path.abspath(__file__))
-TESTS = ["harnais", "entites", "bl", "gesconso", "parcours"]
+TESTS = ["harnais", "entites", "bl", "gesconso", "commandes", "parcours"]
 
 
 def main():
@@ -30,7 +30,7 @@ def main():
         modifiees = [cle for cle in avant if avant[cle] != apres[cle]]
         resume.append(f"{nom:10} code {res.returncode if not modifiees else 1} — {ligne[-1] if ligne else 'pas de bilan (voir la sortie)'}"
                       + (f" — DONNÉES DE RÉFÉRENCE MODIFIÉES : {', '.join(modifiees)}" if modifiees else ""))
-    erreurs = lib.erreurs_php_depuis(tailles, attendues=("Fichier Gesconso non archivé", "panne simulee"))
+    erreurs = lib.erreurs_php_depuis(tailles, attendues=("Fichier Gesconso non archivé", "panne simulee", "Proposition des demandes d'envoi"))
     print("======== Synthèse")
     print("\n".join(resume))
     print(f"journaux GLPI : {len(erreurs)} erreur(s) PHP ou SQL inattendue(s)" + ("".join(f"\n    {e}" for e in erreurs[:10])))

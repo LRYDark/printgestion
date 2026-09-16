@@ -123,6 +123,7 @@ class PluginPrintgestionReminder extends CommonGLPI {
      * Enregistrée désactivée : une ligne proposée bloque la commande de sa cartouche
      * depuis l'écran des alertes jusqu'à son export ou son annulation — à activer une
      * fois l'export des demandes validées en service.
+     * Un groupe en échec termine la tâche en erreur (exception), jamais en succès.
      */
     static function cronPrintgestionProposeDemandes(?CronTask $task = null) {
         if (!PluginPrintgestionConfig::isFeatureEnabled('toner')) {
@@ -141,6 +142,17 @@ class PluginPrintgestionReminder extends CommonGLPI {
                 $stats['recently_cancelled'],
                 $stats['deferred'],
                 $stats['failed_groups']
+            ));
+        }
+
+        // Un groupe en échec n'est jamais un passage normal : les groupes réussis restent enregistrés (une
+        // transaction par groupe), mais la tâche se termine en « Erreur d'exécution », avec la notification
+        // native d'erreur de tâche. Détail de chaque groupe dans le journal printgestion.
+        if ($stats['failed_groups'] > 0) {
+            throw new RuntimeException(sprintf(
+                'Proposition des demandes d\'envoi : %d groupe(s) client/site en échec, aucune ligne créée pour eux (détail : journal printgestion). %d ligne(s) proposée(s) pour les autres groupes.',
+                $stats['failed_groups'],
+                $stats['lines_added']
             ));
         }
 

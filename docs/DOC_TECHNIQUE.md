@@ -953,7 +953,8 @@ courtoisie), `count`, `glpi_url`. Toute balise non fournie est remplacée par un
 Les 4 premières tâches sortent immédiatement (`return 0`) si la feature `toner` est désactivée, les 3 du module
 Déploiement Agent si la feature `deploiement` l'est. Toutes sont enregistrées par `Reminder::install()`, sauf `PrintgestionEntityScope` (`Entityscope::install()`), qui
 tourne quels que soient les modules actifs.
-`PrintgestionProposeDemandes` est enregistrée désactivée : une ligne proposée bloque la commande de sa
+Un groupe client/site en échec termine `PrintgestionProposeDemandes` en erreur d'exécution (exception après le
+bilan), jamais en succès. `PrintgestionProposeDemandes` est enregistrée désactivée : une ligne proposée bloque la commande de sa
 cartouche depuis l'écran des alertes jusqu'à son export ou son annulation. L'activer quand l'export des
 demandes validées est en service. Une mise à jour du plugin ne change pas l'état choisi.
 
