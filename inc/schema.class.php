@@ -52,6 +52,7 @@ class PluginPrintgestionSchema {
         '1.6.2' => 'migrateTo162',
         '1.6.3' => 'migrateTo163',
         '1.6.4' => 'migrateTo164',
+        '1.6.5' => 'migrateTo165',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -990,5 +991,34 @@ class PluginPrintgestionSchema {
                 KEY `date_mod` (`date_mod`)
             ) {$options}");
         }
+    }
+
+    /**
+     * 1.6.5 — cloisonnement natif des données client : entities_id et is_recursive sur les tables
+     * rattachées à une imprimante, une expédition, une demande ou un contrat, remplis depuis cet objet
+     * (PluginPrintgestionEntityscope). GLPI restreint ensuite ces objets lui-même (droits sur un objet,
+     * recherche, actions de masse). is_recursive est aussi ajouté aux demandes (0 : visibilité inchangée),
+     * dont les lignes héritent.
+     */
+    private static function migrateTo165(Migration $migration): void {
+        global $DB;
+
+        $sign   = DBConnection::getDefaultPrimaryKeySignOption();
+        $tables = array_merge(PluginPrintgestionEntityscope::getTables(), ['glpi_plugin_printgestion_demandes']);
+        foreach ($tables as $table) {
+            if (!$DB->tableExists($table)) {
+                continue;
+            }
+            $migration->addField($table, 'entities_id', "int {$sign} NOT NULL DEFAULT '0'");
+            $migration->addField($table, 'is_recursive', "tinyint NOT NULL DEFAULT '0'");
+            $migration->addKey($table, 'entities_id');
+            $migration->addKey($table, 'is_recursive');
+            $migration->migrationOneTable($table);
+        }
+
+        $fixed = PluginPrintgestionEntityscope::reconcile();
+        $migration->displayMessage('Print Gestion — entité des données client remplie : ' . (empty($fixed)
+            ? 'aucune ligne à recaler'
+            : implode(', ', array_map(static fn($t, $n) => "{$t} : {$n}", array_keys($fixed), $fixed))));
     }
 }

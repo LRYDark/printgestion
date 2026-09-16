@@ -454,7 +454,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         $mapping = PluginPrintgestionSnmpmapping::resolveForPrinter($printers_id, $property);
         $color   = is_array($mapping) ? (string)($mapping['toner_color'] ?? 'other') : 'other';
 
-        $DB->insert(self::getTable(), [
+        $DB->insert(self::getTable(), PluginPrintgestionEntityscope::forPrinter($printers_id) + [
             'printers_id'    => $printers_id,
             'toner_property' => $property,
             'toner_color'    => $color,
@@ -1515,7 +1515,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
 
         // 1. Met à jour l'expédition : constatée posée sur la nouvelle imprimante.
         $now_date = date('Y-m-d H:i:s');
-        $DB->update(self::getTable(), [
+        // L'envoi prend l'entité de sa nouvelle imprimante, et ses liaisons BL avec lui.
+        $DB->update(self::getTable(), PluginPrintgestionEntityscope::forPrinter($new_printers_id) + [
             'printers_id'    => $new_printers_id,
             'statut'         => self::STATUS_INSTALLED,
             'date_installed' => $now_date,
@@ -1524,6 +1525,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 . "\n[" . date('Y-m-d H:i') . "] Réassignée depuis l'imprimante #"
                 . (int)$exp['printers_id'] . " vers #{$new_printers_id}"),
         ], ['id' => $expedition_id]);
+
+        PluginPrintgestionEntityscope::reconcile('glpi_printers', $new_printers_id);
 
         // 2. Crée rétroactivement la ligne glpi_cartridges sur la nouvelle imprimante
         //    et ferme la précédente si active pour ce couple.

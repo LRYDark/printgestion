@@ -7,7 +7,7 @@
 // À incrémenter à chaque nouvelle étape de schéma (inc/schema.class.php) ou nouvelle
 // tâche automatique : GLPI ne rejoue l'installation (migrations, enregistrement des
 // tâches) que si cette version change.
-define('PLUGIN_PRINTGESTION_VERSION', '1.6.4');
+define('PLUGIN_PRINTGESTION_VERSION', '1.6.5');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');
@@ -38,6 +38,12 @@ function plugin_init_printgestion() {
 
     $plugin = new Plugin();
     if ($plugin->isInstalled('printgestion') && $plugin->isActivated('printgestion')) {
+        // Entité des données client : suit l'imprimante ou le contrat quand il change d'entité
+        // (fiche ou transfert), quels que soient les modules actifs.
+        $PLUGIN_HOOKS['item_update']['printgestion'] = [
+            'Printer'  => [PluginPrintgestionEntityscope::class, 'onPrinterUpdate'],
+            'Contract' => [PluginPrintgestionEntityscope::class, 'onContractUpdate'],
+        ];
 
         // Schéma versionné (inc/schema.class.php) : les migrations sont jouées par
         // plugin_printgestion_install(), lors de l'installation ou du « Mettre à
@@ -147,8 +153,8 @@ function plugin_printgestion_addDefaultWhere($itemtype) {
             . " AND `glpi_plugin_printgestion_billing_view`.`view_mode` = '" . $view . "'";
     }
 
-    // Expéditions : pas d'entities_id propre → on restreint par l'entité de
-    // l'imprimante liée (le moteur Search ne sait pas le faire seul).
+    // Expéditions : le moteur de recherche restreint nativement sur leur entities_id (1.6.5) ;
+    // seconde barrière, l'entité actuelle de l'imprimante liée.
     if ($itemtype === 'PluginPrintgestionExpedition') {
         $entity_where = getEntitiesRestrictRequest('', 'glpi_printers', '', '', true);
         if (trim((string) $entity_where) === '') {

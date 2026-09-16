@@ -7,7 +7,7 @@
 function plugin_printgestion_install() {
     // Chargement explicite des classes utiles à l'installation : l'ordre
     // d'exécution ne dépend plus de l'ordre alphabétique des fichiers de inc/.
-    foreach (['schema', 'config', 'snmpmapping', 'reminder', 'profile', 'notificationtargetdemande', 'agentsetting', 'agentalert', 'notificationtargetagentalert'] as $name) {
+    foreach (['schema', 'config', 'snmpmapping', 'reminder', 'profile', 'notificationtargetdemande', 'agentsetting', 'agentalert', 'notificationtargetagentalert', 'logger', 'entityscope', 'alertview'] as $name) {
         if (!class_exists('PluginPrintgestion' . ucfirst($name), false)) {
             include_once(dirname(__FILE__) . '/inc/' . $name . '.class.php');
         }
@@ -22,6 +22,7 @@ function plugin_printgestion_install() {
 
     // Hors schéma, idempotent : enregistrement des tâches automatiques.
     PluginPrintgestionReminder::install($migration);
+    PluginPrintgestionEntityscope::install($migration);
 
     $migration->executeMigration();
 

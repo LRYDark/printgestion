@@ -30,7 +30,7 @@ if (isset($_POST['add_rate'])) {
     $rate    = max(0.0, min(9999.999999, $rate));
     $actif   = ((int)($_POST['actif'] ?? 1) === 1) ? 1 : 0;
 
-    $DB->insert('glpi_plugin_printgestion_contractrates', [
+    $DB->insert('glpi_plugin_printgestion_contractrates', PluginPrintgestionEntityscope::forContract($contracts_id) + [
         'contracts_id'  => $contracts_id,
         'type_cout'     => $type,
         'rate'          => $rate,

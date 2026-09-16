@@ -132,6 +132,15 @@ Les erreurs techniques d'une commande (transaction annulée) figurent en plus da
 d'erreurs GLPI (`files/_log/php-errors.log`). **Aucun `catch` ne doit rester muet** : toute
 nouvelle interception passe par `PluginPrintgestionLogger`.
 
+### « Entité de lignes corrigée » dans le journal (tâche `PrintgestionEntityScope`)
+
+Chaque donnée client (envoi, alerte, relevé, pose, seuil, tarif, ligne de demande, liaison BL) porte l'entité de son
+imprimante, de son contrat ou de sa demande, et GLPI s'en sert pour cloisonner les clients. La tâche quotidienne
+recale les écarts et les journalise en `[ERREUR]` avec les tables et le nombre de lignes. Hors reprise de données à
+la main en base, un écart signale un bug : un chemin d'écriture du plugin qui ne pose pas l'entité. Noter la table,
+chercher son insertion dans le code (elle doit passer par `PluginPrintgestionEntityscope`), corriger. Un transfert
+d'imprimante ou de contrat ne produit pas d'écart : les lignes suivent au moment du transfert.
+
 ### Les mails ne partent pas
 
 1. Config GLPI → Notifications : mode mail activé + serveur SMTP fonctionnel (tester avec une

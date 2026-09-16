@@ -74,7 +74,7 @@ if (is_array($existing)) {
     if ($values['threshold_level'] !== null
         || $values['threshold_days'] !== null
         || $values['pages_per_cartridge'] !== null) {
-        $DB->insert($table, array_merge(['printers_id' => $printers_id], $values));
+        $DB->insert($table, PluginPrintgestionEntityscope::forPrinter($printers_id) + array_merge(['printers_id' => $printers_id], $values));
     }
 }
 

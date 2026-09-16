@@ -171,6 +171,17 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
                 $slots[] = [(int)$pid, (string)$prop, $parsed];
             }
         }
+        // Entité et récursivité des imprimantes, portées par chaque relevé (cloisonnement natif, 1.6.5).
+        $scopes = [];
+        if (!empty($slots)) {
+            foreach ($DB->request([
+                'SELECT' => ['id', 'entities_id', 'is_recursive'],
+                'FROM'   => 'glpi_printers',
+                'WHERE'  => ['id' => array_values(array_unique(array_column($slots, 0)))],
+            ]) as $printer) {
+                $scopes[(int) $printer['id']] = [(int) $printer['entities_id'], (int) $printer['is_recursive']];
+            }
+        }
         foreach ($slots as [$pid, $prop, $parsed]) {
             if (!$parsed['usable']) {
                 continue;
@@ -208,6 +219,8 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
                 'color_pages'   => $pc['color'],
                 'is_suspect'    => $is_suspect,
                 'reading_date'  => $now,
+                'entities_id'   => $scopes[$pid][0] ?? 0,
+                'is_recursive'  => $scopes[$pid][1] ?? 0,
             ];
         }
 
@@ -224,7 +237,7 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
             $values_sql = [];
             foreach ($chunk as $ins) {
                 $values_sql[] = sprintf(
-                    "(%d, %s, %d, %d, %d, %d, %d, %s)",
+                    "(%d, %s, %d, %d, %d, %d, %d, %s, %d, %d)",
                     $ins['printers_id'],
                     $DB->quote($ins['property_name']),
                     $ins['level_percent'],
@@ -232,11 +245,13 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
                     $ins['bw_pages'],
                     $ins['color_pages'],
                     $ins['is_suspect'],
-                    $DB->quote($ins['reading_date'])
+                    $DB->quote($ins['reading_date']),
+                    $ins['entities_id'],
+                    $ins['is_recursive']
                 );
             }
             $sql = "INSERT INTO `{$table}` "
-                 . "(`printers_id`, `property_name`, `level_percent`, `total_pages`, `bw_pages`, `color_pages`, `is_suspect`, `reading_date`) "
+                 . "(`printers_id`, `property_name`, `level_percent`, `total_pages`, `bw_pages`, `color_pages`, `is_suspect`, `reading_date`, `entities_id`, `is_recursive`) "
                  . "VALUES " . implode(', ', $values_sql)
                  . " ON DUPLICATE KEY UPDATE "
                  . "`level_percent` = VALUES(`level_percent`), "
@@ -244,6 +259,8 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
                  . "`bw_pages`      = VALUES(`bw_pages`), "
                  . "`color_pages`   = VALUES(`color_pages`), "
                  . "`is_suspect`    = VALUES(`is_suspect`), "
+                 . "`entities_id`   = VALUES(`entities_id`), "
+                 . "`is_recursive`  = VALUES(`is_recursive`), "
                  . "`reading_date`  = VALUES(`reading_date`)";
             try {
                 $DB->doQuery($sql);

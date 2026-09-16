@@ -153,7 +153,7 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
                 $delta_pct   = $lvl_install - $lvl_removal;
                 if ($delta_pct >= 10 && is_int($pagesPrinted) && $pagesPrinted > 0) {
                     $yield_per_pct = round($pagesPrinted / $delta_pct, 2);
-                    $DB->insert('glpi_plugin_printgestion_historical_yields', [
+                    $DB->insert('glpi_plugin_printgestion_historical_yields', PluginPrintgestionEntityscope::forPrinter($printers_id) + [
                         'printers_id'       => $printers_id,
                         'property_name'     => $property,
                         'yield_per_percent' => $yield_per_pct,
@@ -166,7 +166,7 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
 
             // Nouvelle entrée d'installation : pose réellement détectée (is_detected = 1,
             // contrairement aux lignes d'amorçage) — point de départ de la garde.
-            $DB->insert(self::getTable(), [
+            $DB->insert(self::getTable(), PluginPrintgestionEntityscope::forPrinter($printers_id) + [
                 'printers_id'                => $printers_id,
                 'toner_property'             => $property,
                 'toner_color'                => $color,
@@ -309,7 +309,7 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
             return (int)$existing['id'];
         }
 
-        $DB->insert('glpi_plugin_printgestion_alerts', [
+        $DB->insert('glpi_plugin_printgestion_alerts', PluginPrintgestionEntityscope::forPrinter($detected_printers_id) + [
             'alert_type'           => 'wrong_printer',
             'printers_id'          => $detected_printers_id,
             'detected_printers_id' => $detected_printers_id,
@@ -482,7 +482,7 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
                 $parsed_live = PluginPrintgestionTonerreading::parseTonerValue((string)$r['value'], $property, $printers_id);
                 $level_at_install = $parsed_live['usable'] ? (int)$parsed_live['value'] : 100;
 
-                $DB->insert(self::getTable(), [
+                $DB->insert(self::getTable(), PluginPrintgestionEntityscope::forPrinter($printers_id) + [
                     'printers_id'                => $printers_id,
                     'toner_property'             => $property,
                     'toner_color'                => PluginPrintgestionSnmpmapping::detectColor($property),

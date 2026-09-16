@@ -54,6 +54,7 @@ printgestion/
 | `Contractrate` | Tarifs N&B / Couleur par contrat (onglet sur fiche Contract) |
 | `Print` | Création/association imprimante ↔ contrat (4 scénarios, transactionnel) |
 | `Tonerreading` | Snapshot horodaté des niveaux toner (lit `glpi_printers_cartridgeinfos` SNMP GLPI 11) |
+| `Entityscope` | Entité des données client (1.6.5) : entité à écrire sur une ligne rattachée à une imprimante, une expédition ou un contrat ; suivi des changements d'entité ; tâche de contrôle `PrintgestionEntityScope` |
 | `Cartridgehistory` | Détection automatique des changements de cartouche (hausse de niveau ≥ `detection_delta` %) |
 | `Alert` | Calcul intelligent des alertes toner (vitesse de conso sur fenêtre 30 j) + **digest mail commercial** |
 | `Alertview` | Table **matérialisée** des alertes et écran natif (recherche, colonnes verrou / référence, actions de masse Commander, Ne plus alerter, Réactiver) |
@@ -126,6 +127,30 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_agentalerts` | Alertes de sondes (étape 1.6.3) : type (sonde sans contact, imprimante qui ne remonte plus), entité, sonde, imprimante, motif, début, notification, fin ; une seule alerte ouverte par sonde ou par imprimante (colonne générée `open_lock`) |
 | `glpi_plugin_printgestion_collectfrequencies` | Fréquence des relevés d'imprimantes par entité (étape 1.6.4) : entité (unique), unité (`hourly`, `daily`), nombre, auteur, dates ; sans ligne, l'entité hérite de sa parente, sinon quotidienne |
 | `glpi_plugin_printgestion_table_prefs` | Préférences d'affichage des tableaux par utilisateur |
+
+**Entité des données client (étape 1.6.5).** `entities_id` et `is_recursive` sont portés par les tables rattachées à une
+imprimante (`expeditions`, `alerts`, `alert_snoozes`, `cartridge_history`, `toner_readings`, `historical_yields`,
+`printer_thresholds` : entité et récursivité de l'imprimante), par `expedition_bls` (celles de l'expédition), par
+`demandelines` (celles de la demande, héritage natif de `CommonDBChild`) et par `contractrates` (celles du contrat) ;
+`demandes` a son entité depuis 1.3.1 et reçoit `is_recursive` (0). GLPI traite alors ces objets comme rattachés à une
+entité (`isEntityAssign()`) : droits sur un objet (`canViewItem`, `canUpdateItem`), moteur de recherche et actions de
+masse natives restreignent d'eux-mêmes. Les contrôles du plugin sur l'imprimante (`PluginPrintgestionSecurity`) restent
+une seconde barrière. Règles :
+- **écriture** : chaque insertion pose l'entité de l'objet de rattachement (`Entityscope::forPrinter()`,
+  `forExpedition()`, `forContract()` ; relevés toner : entités chargées en une requête) ; une réattribution d'envoi
+  prend l'entité de la nouvelle imprimante, liaisons BL comprises ;
+- **changement d'entité** : l'entité suit l'objet. Hook `item_update` sur `Printer` et `Contract` : quand
+  `entities_id` ou `is_recursive` change (fiche ou transfert natif, qui passe par la mise à jour), les lignes
+  rattachées sont recalées aussitôt. Choix assumé : l'historique d'une imprimante transférée (envois, relevés,
+  alertes) suit l'imprimante chez son nouveau client, comme les contrôles applicatifs, qui lisent déjà l'entité
+  actuelle de l'imprimante ;
+- **contrôle** : tâche quotidienne `PrintgestionEntityScope` (`Entityscope::reconcile()`), qui recale toute ligne en
+  écart et journalise chaque correction en `[ERREUR]` : un écart révèle un chemin d'écriture qui a oublié l'entité ;
+- imprimante ou contrat introuvable à l'écriture : entité racine, non récursive (visible des seuls comptes de la
+  racine), avec un avertissement au journal.
+Hors périmètre : tables globales (référentiel Sage, mappings et règles SNMP, liaisons cartouche) et tables déjà
+rattachées à une entité (raccordements et leurs adresses et journaux via le raccordement, fréquences, alertes de
+sondes, réglages de sonde via l'agent natif).
 
 ---
 
@@ -884,9 +909,11 @@ courtoisie), `count`, `glpi_url`. Toute balise non fournie est remplacée par un
 | `PrintgestionCheckAgentVersion` (classe `Agentsetting`) | hebdomadaire | Dernière version publiée de GLPI Agent sur GitHub (une saisie à la main est gardée) |
 | `PrintgestionSilentProbes` (classe `Agentalert`) | quotidienne | Alertes « sonde sans contact » et « imprimante qui ne remonte plus » : ouverture, fermeture, notifications |
 | `PrintgestionCollectSchedule` (classe `Collectfrequency`) | 15 minutes | Fréquence des relevés de chaque entité appliquée aux tâches GLPI Inventory des raccordements (date de début) |
+| `PrintgestionEntityScope` (classe `Entityscope`) | quotidienne | Entité des données client recalée sur celle de l'imprimante, de l'expédition, de la demande ou du contrat ; chaque écart corrigé est journalisé en erreur |
 
 Les 4 premières tâches sortent immédiatement (`return 0`) si la feature `toner` est désactivée, les 3 du module
-Déploiement Agent si la feature `deploiement` l'est. Toutes sont enregistrées par `Reminder::install()`.
+Déploiement Agent si la feature `deploiement` l'est. Toutes sont enregistrées par `Reminder::install()`, sauf `PrintgestionEntityScope` (`Entityscope::install()`), qui
+tourne quels que soient les modules actifs.
 `PrintgestionProposeDemandes` est enregistrée désactivée : une ligne proposée bloque la commande de sa
 cartouche depuis l'écran des alertes jusqu'à son export ou son annulation. L'activer quand l'export des
 demandes validées est en service. Une mise à jour du plugin ne change pas l'état choisi.
@@ -926,7 +953,8 @@ Migration 1.5.9 : `sage` repris de `config` (lecture → lecture, modification �
    pour toute nouvelle table dont le nom ne se re-déduit pas par split sur `_`.
 3. **`plugin_printgestion_addDefaultWhere()`** (setup.php) : périmètres natifs pour
    `PluginPrintgestionContract` (contrats liés à ≥1 imprimante), `Billingview` (lignes du user
-   courant + vue courante) et `Expedition` (restriction d'entité via l'imprimante liée).
+   courant + vue courante) et `Expedition` (depuis 1.6.5, seconde barrière : la restriction native porte sur
+   l'`entities_id` de l'expédition, le plugin ajoute celle de l'imprimante liée).
 4. **Itemtype dédié `PluginPrintgestionContract`** : sous-classe de Contract sans table propre,
    pour isoler session de recherche/colonnes/exports et porter l'autorisation par le droit plugin.
 

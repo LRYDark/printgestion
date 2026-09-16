@@ -495,7 +495,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
     public static function logAlert(int $printers_id, string $property, int $level, ?int $days, string $type): int {
         global $DB;
 
-        $DB->insert(self::getTable(), [
+        $DB->insert(self::getTable(), PluginPrintgestionEntityscope::forPrinter($printers_id) + [
             'printers_id'    => $printers_id,
             'toner_property' => $property,
             'level_percent'  => $level,
@@ -909,7 +909,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
             ], ['id' => (int)$existing['id']]);
         }
 
-        return (bool)$DB->insert('glpi_plugin_printgestion_alert_snoozes', [
+        return (bool)$DB->insert('glpi_plugin_printgestion_alert_snoozes', PluginPrintgestionEntityscope::forPrinter($printers_id) + [
             'printers_id'    => $printers_id,
             'toner_property' => $property,
             'snooze_until'   => $until,

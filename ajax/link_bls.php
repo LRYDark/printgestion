@@ -169,7 +169,7 @@ foreach (array_keys($to_remove) as $rid) {
 $to_add = array_diff_key($target_ids, $current_ids);
 foreach (array_keys($to_add) as $aid) {
     try {
-        $DB->insert('glpi_plugin_printgestion_expedition_bls', [
+        $DB->insert('glpi_plugin_printgestion_expedition_bls', PluginPrintgestionEntityscope::forExpedition($expedition_id) + [
             'expeditions_id' => $expedition_id,
             'bl_surveys_id'  => $aid,
             'date_creation'  => date('Y-m-d H:i:s'),
