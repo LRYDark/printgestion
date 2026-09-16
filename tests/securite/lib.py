@@ -168,6 +168,23 @@ class Session:
             champs.append(("_glpi_csrf_token", jeton))
         return self.brut("POST", chemin, champs, entetes)
 
+    def envoyer_fichier(self, chemin, champs, nom_champ, nom_fichier, contenu):
+        """POST multipart (dépôt de fichier) avec un jeton CSRF neuf ; renvoie statut, page, en-têtes (redirection non suivie)."""
+        limite = "----pgtest" + secrets.token_hex(12)
+        parties = []
+        for nom, val in list(champs) + [("_glpi_csrf_token", self.jeton())]:
+            parties.append(f'--{limite}\r\nContent-Disposition: form-data; name="{nom}"\r\n\r\n{val}\r\n'.encode())
+        parties.append(f'--{limite}\r\nContent-Disposition: form-data; name="{nom_champ}"; filename="{nom_fichier}"\r\n'
+                       f'Content-Type: application/octet-stream\r\n\r\n'.encode() + contenu + b"\r\n")
+        parties.append(f"--{limite}--\r\n".encode())
+        req = urllib.request.Request(config.URL + chemin, data=b"".join(parties), method="POST",
+                                     headers={"Content-Type": f"multipart/form-data; boundary={limite}"})
+        try:
+            rep = self.rester.open(req, timeout=180)
+            return rep.status, rep.read().decode("utf-8", "replace"), rep.headers
+        except urllib.error.HTTPError as err:
+            return err.code, err.read().decode("utf-8", "replace"), err.headers
+
     def telecharger(self, chemin):
         statut, contenu, _ = self.brut("GET", chemin, octets=True)
         return statut, contenu

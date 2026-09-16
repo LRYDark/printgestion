@@ -11,6 +11,7 @@ Constats OK / KO / À NOTER / NON CONCLUANT ; tout ce qui est créé ou modifié
 6. Clés API transporteurs : chiffrées en base, jamais réaffichées.
 7. Dossier tests/ du plugin : jamais servi par le serveur web.
 """
+import hashlib
 import json
 import os
 import re
@@ -57,7 +58,8 @@ def mise_en_place():
     IDS["ALB"] = CTX.alerte_mauvaise_imprimante(d.IMP_B, d.IMP_B, IDS["EB"])
     droits_a = dict.fromkeys(DROITS_PLUGIN, 0)
     droits_a.update({"plugin_printgestion_expedition": 3, "plugin_printgestion_dashboard": 3, "plugin_printgestion_contrats": 7,
-                     "plugin_printgestion_billing": 5, "plugin_printgestion_validation": 3, "plugin_printgestion_deploiement": 3})
+                     "plugin_printgestion_billing": 5, "plugin_printgestion_validation": 3, "plugin_printgestion_deploiement": 3,
+                     "plugin_printgestion_sage": 3})
     profil_a = CTX.profil(PROFIL_ADMIN, "Profil test client A (droits du plugin)", droits_a)
     profil_sans = CTX.profil(PROFIL_SUPER_ADMIN, "Profil test sans droit du plugin", dict.fromkeys(DROITS_PLUGIN, 0))
     CTX.utilisateur("test-client-a", profil_a, d.CLIENT_A)
@@ -197,6 +199,33 @@ def scenario_cloisonnement():
     constat("témoin « Créer Print » : contrat et imprimante créés et liés dans une sous-entité du compte (Site test A1)",
             ok_ko(sorted(r[2] for r in crees) == [str(d.SITE_A1)] * 2), str(crees))
     sql(f"DELETE FROM glpi_locations WHERE id = {lieu_b};")
+
+    # Import Sage (compte de Client test A avec le droit « Référentiel Sage ») : jamais de lien vers une entité hors périmètre.
+    fichier = "Code client;Intitulé\nTSTCLI01;CLIENT TEST RACINE\nTSTCLI98;SITE TEST A2\nTSTCLI99;CLIENT TEST B\n".encode("utf-8")
+    statut, _, entetes = WEB.envoyer_fichier(config.FRONT + "/sageimport.php", [("analyze", "1"), ("type", "clients")], "file", "clients-test.csv", fichier)
+    jeton = re.search(r"preview=([0-9a-f]+)", (entetes.get("Location") if entetes else "") or "")
+    if jeton is None:
+        constat("import Sage : fichier de test analysé", "NON CONCLUANT", f"HTTP {statut}")
+    else:
+        _, apercu, _ = WEB.get(config.FRONT + f"/sageimport.php?preview={jeton.group(1)}")
+        constat("import Sage, prévisualisation : aucune entité de Client test B proposée ni nommée", ok_ko("Client test B" not in apercu and "Site test A2" in apercu),
+                "suggestion « même nom » attendue pour Site test A2 (témoin)")
+        empreinte = lambda code: hashlib.sha1(code.encode()).hexdigest()  # noqa: E731
+        mappings_avant = valeur("SELECT COUNT(*) FROM glpi_plugin_printgestion_entitysageclients")
+        WEB.post(config.FRONT + "/sageimport.php", [("apply", "1"), ("token", jeton.group(1)),
+                                                   ("link_code[" + empreinte("TSTCLI99") + "]", "TSTCLI99"), ("link[" + empreinte("TSTCLI99") + "]", str(b))])
+        constat("import Sage : lien vers Client test B refusé, rien écrit",
+                ok_ko(valeur(f"SELECT COUNT(*) FROM glpi_plugin_printgestion_entitysageclients WHERE entities_id = {b}") == "0"
+                      and valeur("SELECT COUNT(*) FROM glpi_plugin_printgestion_sageclients WHERE code = 'TSTCLI99'") == "0"))
+        WEB.post(config.FRONT + "/sageimport.php", [("apply", "1"), ("token", jeton.group(1)),
+                                                   ("link_code[" + empreinte("TSTCLI98") + "]", "TSTCLI98"), ("link[" + empreinte("TSTCLI98") + "]", str(d.SITE_A2))])
+        constat("témoin import Sage : lien vers Site test A2 (périmètre du compte) enregistré",
+                ok_ko(valeur(f"SELECT COUNT(*) FROM glpi_plugin_printgestion_entitysageclients WHERE entities_id = {d.SITE_A2}") == "1"), f"liaisons {mappings_avant} → "
+                + str(valeur("SELECT COUNT(*) FROM glpi_plugin_printgestion_entitysageclients")))
+        sql(f"DELETE FROM glpi_plugin_printgestion_entitysageclients WHERE entities_id IN ({d.SITE_A2}, {b});"
+            "DELETE FROM glpi_plugin_printgestion_sageclients WHERE code IN ('TSTCLI98', 'TSTCLI99');"
+            "DELETE FROM glpi_plugin_printgestion_sageimports WHERE filename = 'clients-test.csv';"
+            "UPDATE glpi_plugin_printgestion_sageclients SET is_in_last_import = 1 WHERE code = 'TSTCLI01';")
 
 
 # ── 3. Points d'entrée sans droit ────────────────────────────────────────────

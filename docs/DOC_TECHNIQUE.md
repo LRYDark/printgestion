@@ -381,6 +381,9 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
 - **Aucune suppression** : une ligne absente d'un nouvel import passe `is_in_last_import = 0` et ne sert plus
   à l'export. L'import ne modifie aucun objet GLPI ; seules les correspondances entité ↔ client cochées
   (suggestion : entité de même nom) ou choisies à la validation sont écrites.
+- **Périmètre** : une correspondance n'est acceptée que vers une entité du périmètre de l'utilisateur (sinon
+  même refus qu'une entité inexistante) ; suggestions, correspondances affichées (« entité hors de votre
+  périmètre ») et rapport d'écarts limités à ses entités.
 - **Code client d'une entité** (`Sage::getClientForEntity()`) : correspondance propre, sinon celle de
   l'ancêtre le plus proche. Modifiable sur l'onglet « Print Gestion — Sage » de l'entité ; chaque changement
   est tracé dans l'historique natif de l'entité. `registration_number` (SIRET) n'est pas utilisé.

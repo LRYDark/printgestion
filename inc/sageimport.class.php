@@ -407,13 +407,17 @@ class PluginPrintgestionSageimport extends CommonDBTM {
                 'glpi_entities AS e' => ['ON' => ['m' => 'entities_id', 'e' => 'id']],
             ],
         ]) as $link) {
-            $mapped[mb_strtoupper((string) $link['code'])][] = (string) $link['completename'];
-            $mapped_entities[(int) $link['entities_id']]    = true;
+            // Nom d'une entité hors du périmètre de l'utilisateur jamais affiché.
+            $mapped[mb_strtoupper((string) $link['code'])][] = Session::haveAccessToEntity((int) $link['entities_id'])
+                ? (string) $link['completename']
+                : __('entité hors de votre périmètre', 'printgestion');
+            $mapped_entities[(int) $link['entities_id']] = true;
         }
 
+        // Suggestions par nom : entités du périmètre de l'utilisateur seulement.
         $by_name = [];
         foreach ($DB->request(['SELECT' => ['id', 'name'], 'FROM' => 'glpi_entities']) as $entity) {
-            if (!isset($mapped_entities[(int) $entity['id']])) {
+            if (!isset($mapped_entities[(int) $entity['id']]) && Session::haveAccessToEntity((int) $entity['id'])) {
                 $by_name[self::normalizeLabel((string) $entity['name'])][] = (int) $entity['id'];
             }
         }
@@ -488,7 +492,8 @@ class PluginPrintgestionSageimport extends CommonDBTM {
             'SELECT'     => ['e.id', 'e.completename', new QueryExpression('COUNT(`p`.`id`) AS `nb`')],
             'FROM'       => 'glpi_printers AS p',
             'INNER JOIN' => ['glpi_entities AS e' => ['ON' => ['p' => 'entities_id', 'e' => 'id']]],
-            'WHERE'      => ['p.is_deleted' => 0, 'p.is_template' => 0],
+            // Rapport limité aux entités de l'utilisateur.
+            'WHERE'      => ['p.is_deleted' => 0, 'p.is_template' => 0] + getEntitiesRestrictCriteria('p', '', '', true),
             'GROUPBY'    => ['e.id', 'e.completename'],
             'ORDER'      => ['e.completename'],
         ]) as $entity) {
@@ -522,7 +527,8 @@ class PluginPrintgestionSageimport extends CommonDBTM {
             'SELECT'     => ['p.id', 'p.name', 'p.entities_id', 'p.locations_id', 'e.completename'],
             'FROM'       => 'glpi_printers AS p',
             'INNER JOIN' => ['glpi_entities AS e' => ['ON' => ['p' => 'entities_id', 'e' => 'id']]],
-            'WHERE'      => ['p.is_deleted' => 0, 'p.is_template' => 0],
+            // Rapport limité aux entités de l'utilisateur.
+            'WHERE'      => ['p.is_deleted' => 0, 'p.is_template' => 0] + getEntitiesRestrictCriteria('p', '', '', true),
             'ORDER'      => ['e.completename', 'p.name'],
         ]) as $printer) {
             $client_code = self::resolveEntityCode((int) $printer['entities_id'], $codes, $cache);
@@ -574,8 +580,9 @@ class PluginPrintgestionSageimport extends CommonDBTM {
                 $entity = new Entity();
                 if (!isset($codes_in_file[$code])) {
                     $errors[] = sprintf(__('Code client %s absent du fichier.', 'printgestion'), $code);
-                } elseif (!$entity->getFromDB($entities_id)) {
-                    $errors[] = sprintf(__('Code client %s : entité introuvable.', 'printgestion'), $code);
+                } elseif (!$entity->getFromDB($entities_id) || !Session::haveAccessToEntity($entities_id)) {
+                    // Hors périmètre de l'utilisateur : même refus qu'une entité inexistante.
+                    $errors[] = sprintf(__('Code client %s : entité introuvable ou hors de votre périmètre.', 'printgestion'), $code);
                 } elseif (isset($entities[$entities_id])) {
                     $errors[] = sprintf(
                         __('L\'entité %1$s est choisie pour deux codes clients (%2$s et %3$s) : une entité n\'a qu\'un client.', 'printgestion'),
