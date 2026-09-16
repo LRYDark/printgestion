@@ -780,7 +780,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             echo "<div class='alert alert-warning'>" . $esc(sprintf(__('L\'installeur servi (%1$s) est plus ancien que la dernière version (%2$s) : indiquez la nouvelle version dans « Paramètres transmis » puis récupérez-la.', 'printgestion'), $served, $latest['version'])) . "</div>";
         }
         if ($can_edit) {
-            echo "<form method='post' action='" . $esc($page) . "' class='mb-3'><button type='submit' name='check_latest' value='1' class='btn btn-outline-primary'><i class='ti ti-refresh me-1'></i>"
+            echo "<form method='post' action='" . $esc($page) . "' class='mb-3'><button type='submit' data-pg-submit-once='1' name='check_latest' value='1' class='btn btn-outline-primary'><i class='ti ti-refresh me-1'></i>"
                 . $esc(__('Vérifier sur GitHub maintenant', 'printgestion')) . "</button>" . Html::closeForm(false);
             echo "<form method='post' action='" . $esc($page) . "' class='row g-3 align-items-end'>";
             echo "<div class='col-md-6 col-xl-3'><label class='form-label'>" . $esc(__('Dernière version saisie à la main (vide : GitHub)', 'printgestion')) . "</label>"
@@ -793,7 +793,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
                 . "<input type='text' class='form-control' name='agent_update_target' maxlength='20' value='" . $esc($fields['agent_update_target'] ?? '') . "'></div>";
             echo "<div class='col-md-6 col-xl-3'><label class='form-label'>" . $esc(__('Statut GLPI des PC sondes', 'printgestion')) . "</label>"
                 . State::dropdown(['name' => 'agent_probe_states_id', 'value' => self::getProbeStateId(), 'display' => false, 'entity' => 0, 'entity_sons' => true]) . "</div>";
-            echo "<div class='col-12'><button type='submit' name='save_update_defaults' value='1' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button></div>";
+            echo "<div class='col-12'><button type='submit' data-pg-submit-once='1' name='save_update_defaults' value='1' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button></div>";
             echo Html::closeForm(false);
         } else {
             echo "<p class='mb-0'>" . $esc(sprintf(

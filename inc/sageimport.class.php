@@ -719,7 +719,7 @@ class PluginPrintgestionSageimport extends CommonDBTM {
         echo "</div>";
         echo "<div class='col-md-5'><label class='form-label'>" . $esc(__('Fichier', 'printgestion')) . "</label>"
             . "<input type='file' class='form-control' name='file' accept='.xlsx,.xls,.ods,.csv,.txt' required></div>";
-        echo "<div class='col-md-3'><button type='submit' name='analyze' value='1' class='btn btn-primary'>"
+        echo "<div class='col-md-3'><button type='submit' data-pg-submit-once='1' name='analyze' value='1' class='btn btn-primary'>"
             . "<i class='ti ti-file-search me-1'></i>" . $esc(__('Analyser', 'printgestion')) . "</button></div>";
         Html::closeForm();
 
@@ -838,7 +838,7 @@ class PluginPrintgestionSageimport extends CommonDBTM {
 
         echo "<div class='d-flex gap-2 mt-3'>";
         if ($preview !== null) {
-            echo "<button type='submit' name='apply' value='1' class='btn btn-success'>"
+            echo "<button type='submit' data-pg-submit-once='1' name='apply' value='1' class='btn btn-success'>"
                 . "<i class='ti ti-check me-1'></i>" . $esc(__('Valider l\'import', 'printgestion')) . "</button>";
         }
         echo "<button type='submit' name='abandon' value='1' class='btn btn-outline-secondary'>"

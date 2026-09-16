@@ -4,9 +4,42 @@
 (function () {
     'use strict';
 
-    // Placeholder : sera complété en Phase 2 (dashboard alertes, expéditions AJAX)
-    document.addEventListener('DOMContentLoaded', function () {
-        // Initialisation future
+    // Envoi unique : un formulaire qui contient un bouton [data-pg-submit-once] (action lente : téléchargement
+    // GitHub, import, renvoi aux Achats) ne part qu'une fois. Un second clic réutiliserait le jeton CSRF déjà
+    // consommé et afficherait « Accès refusé » alors que le premier envoi a abouti. Les boutons ne sont pas
+    // désactivés (leur nom et leur valeur doivent partir avec le formulaire) : le second envoi est ignoré.
+    document.addEventListener('submit', function (event) {
+        var form = event.target;
+        if (!(form instanceof HTMLFormElement) || !form.querySelector('[data-pg-submit-once]')) {
+            return;
+        }
+        if (form.getAttribute('data-pg-submitted') === '1') {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return;
+        }
+        // Après les autres gestionnaires (confirmation) : un envoi annulé ne verrouille pas le formulaire.
+        setTimeout(function () {
+            if (event.defaultPrevented) {
+                return;
+            }
+            form.setAttribute('data-pg-submitted', '1');
+            form.querySelectorAll('button[type=submit], input[type=submit]').forEach(function (button) {
+                button.classList.add('disabled');
+                button.setAttribute('aria-busy', 'true');
+            });
+        }, 0);
+    }, true);
+
+    // Retour arrière (cache de page) : formulaire de nouveau utilisable.
+    window.addEventListener('pageshow', function () {
+        document.querySelectorAll('form[data-pg-submitted]').forEach(function (form) {
+            form.removeAttribute('data-pg-submitted');
+            form.querySelectorAll('[aria-busy=true]').forEach(function (button) {
+                button.classList.remove('disabled');
+                button.removeAttribute('aria-busy');
+            });
+        });
     });
 })();
 

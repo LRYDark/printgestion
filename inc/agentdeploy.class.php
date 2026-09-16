@@ -1128,7 +1128,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             echo "</td>";
             if ($can_edit) {
                 echo "<td class='text-end'><form method='post' action='" . $esc($page) . "' class='d-inline'>"
-                    . "<button type='submit' name='fetch_github' value='" . $esc($asset) . "' class='btn btn-sm btn-outline-primary'><i class='ti ti-cloud-download me-1'></i>" . $esc(__('Récupérer depuis GitHub', 'printgestion')) . "</button>"
+                    . "<button type='submit' data-pg-submit-once='1' name='fetch_github' value='" . $esc($asset) . "' class='btn btn-sm btn-outline-primary'><i class='ti ti-cloud-download me-1'></i>" . $esc(__('Récupérer depuis GitHub', 'printgestion')) . "</button>"
                     . Html::closeForm(false) . "</td>";
             }
             echo "</tr>";
@@ -1148,7 +1148,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             }
             echo "</select></div>";
             echo "<div class='col-md-6'><input type='text' class='form-control' name='sha256' maxlength='64' pattern='[0-9a-fA-F]{64}' placeholder='" . $esc(__('Empreinte SHA-256 (64 caractères)', 'printgestion')) . "' required></div>";
-            echo "<div class='col-md-3'><button type='submit' name='verify_deposit' value='1' class='btn btn-outline-primary'><i class='ti ti-file-check me-1'></i>" . $esc(__('Vérifier le fichier déposé', 'printgestion')) . "</button></div>";
+            echo "<div class='col-md-3'><button type='submit' data-pg-submit-once='1' name='verify_deposit' value='1' class='btn btn-outline-primary'><i class='ti ti-file-check me-1'></i>" . $esc(__('Vérifier le fichier déposé', 'printgestion')) . "</button></div>";
             Html::closeForm();
         } else {
             echo "<p class='text-muted small mb-0'>" . $esc(__('Récupération et vérification de l\'installeur : droit de configuration du plugin.', 'printgestion')) . "</p>";
@@ -1182,7 +1182,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 . "<input type='text' class='form-control' name='agent_server_url' value='" . $esc($config->fields['agent_server_url'] ?? '') . "' placeholder='https://…'></div>";
             echo "<div class='col-md-4'><label class='form-label'>" . $esc(__('Adresses autorisées en plus du poste (IPv4, CIDR)', 'printgestion')) . "</label>"
                 . "<input type='text' class='form-control' name='agent_httpd_trust' value='" . $esc($config->fields['agent_httpd_trust'] ?? '') . "' placeholder='203.0.113.10'></div>";
-            echo "<div class='col-12'><button type='submit' name='save_settings' value='1' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button></div>";
+            echo "<div class='col-12'><button type='submit' data-pg-submit-once='1' name='save_settings' value='1' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button></div>";
             Html::closeForm();
         }
         echo "</div></div>";

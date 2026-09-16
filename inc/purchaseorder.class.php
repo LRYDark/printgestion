@@ -234,7 +234,7 @@ class PluginPrintgestionPurchaseorder extends CommonDBTM {
             if ($can_send) {
                 echo "<form method='post' action='" . $esc(PLUGIN_PRINTGESTION_WEBDIR . '/front/purchaseorder.form.php') . "' class='d-inline'>"
                     . Html::hidden('id', ['value' => (int) $order['id']])
-                    . "<button type='submit' name='resend' value='1' class='btn btn-sm btn-danger' data-pg-submit-once='1'><i class='ti ti-send me-1'></i>"
+                    . "<button type='submit' name='resend' value='1' data-pg-submit-once='1' class='btn btn-sm btn-danger'><i class='ti ti-send me-1'></i>"
                     . $esc(__('Renvoyer aux Achats', 'printgestion')) . "</button>"
                     . Html::closeForm(false);
             }
