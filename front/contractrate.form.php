@@ -2,7 +2,9 @@
 include('../../../inc/includes.php');
 
 Session::checkLoginUser();
+// Droit natif sur les contrats ET droit du plugin (« Contrats » : créer print / éditer tarifs).
 Session::checkRight('contract', UPDATE);
+Session::checkRight('plugin_printgestion_contrats', UPDATE);
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
@@ -19,7 +21,7 @@ if ($contracts_id <= 0) {
 }
 
 $contract = new Contract();
-if (!$contract->getFromDB($contracts_id) || !$contract->can($contracts_id, UPDATE)) {
+if (!$contract->getFromDB($contracts_id) || !PluginPrintgestionContractrate::canEditRates($contract)) {
     throw new \Glpi\Exception\Http\AccessDeniedHttpException();
 }
 

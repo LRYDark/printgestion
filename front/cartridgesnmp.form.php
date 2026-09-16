@@ -2,7 +2,9 @@
 include('../../../inc/includes.php');
 
 Session::checkLoginUser();
+// Droit natif sur les cartouches ET droit de configuration du plugin (liaisons SNMP).
 Session::checkRight('cartridge', UPDATE);
+Session::checkRight('plugin_printgestion_config', UPDATE);
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
@@ -20,7 +22,7 @@ if ($cartridgeitems_id <= 0) {
 
 // Vérifie que la cartouche existe et que l'utilisateur peut l'éditer
 $item = new CartridgeItem();
-if (!$item->getFromDB($cartridgeitems_id) || !$item->can($cartridgeitems_id, UPDATE)) {
+if (!$item->getFromDB($cartridgeitems_id) || !PluginPrintgestionCartridgesnmp::canEditBindings($item)) {
     throw new \Glpi\Exception\Http\AccessDeniedHttpException();
 }
 

@@ -23,8 +23,17 @@ class PluginPrintgestionContractrate extends CommonDBTM {
         return parent::getTable($classname);
     }
 
+    /** Onglet et formulaire : droit natif sur les contrats ET droit du plugin (« Contrats », éditer les tarifs pour écrire). */
+    public static function canViewRates(): bool {
+        return Session::haveRight('contract', READ) && Session::haveRight('plugin_printgestion_contrats', READ);
+    }
+
+    public static function canEditRates(Contract $contract): bool {
+        return Session::haveRight('plugin_printgestion_contrats', UPDATE) && $contract->can((int) $contract->getID(), UPDATE);
+    }
+
     function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
-        if ($item->getType() == 'Contract' && Session::haveRight('contract', READ)) {
+        if ($item->getType() == 'Contract' && self::canViewRates()) {
             $nb = countElementsInTable(self::getTable(), ['contracts_id' => $item->getID()]);
             return self::createTabEntry(__('Tarifs Print Gestion', 'printgestion'), $nb);
         }
@@ -32,7 +41,8 @@ class PluginPrintgestionContractrate extends CommonDBTM {
     }
 
     static function displayTabContentForItem(CommonGLPI $item, $tabnum = 1, $withtemplate = 0) {
-        if ($item->getType() == 'Contract') {
+        // Droits revérifiés à l'affichage : l'onglet peut être appelé directement.
+        if ($item->getType() == 'Contract' && self::canViewRates() && $item->can((int) $item->getID(), READ)) {
             self::showForContract($item);
         }
         return true;
@@ -42,7 +52,7 @@ class PluginPrintgestionContractrate extends CommonDBTM {
         global $DB;
 
         $contracts_id = (int)$contract->getID();
-        $canedit      = $contract->can($contracts_id, UPDATE);
+        $canedit      = self::canEditRates($contract);
 
         $rates = [];
         foreach ($DB->request([

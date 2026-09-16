@@ -958,14 +958,14 @@ demandes validées est en service. Une mise à jour du plugin ne change pas l'é
 
 | Droit | Protège |
 |---|---|
-| `plugin_printgestion_contrats` | Dashboard contrats / Liste / Créer Print (CREATE pour créer) |
+| `plugin_printgestion_contrats` | Dashboard contrats / Liste / Créer Print (UPDATE pour créer) ; onglet « Tarifs Print Gestion » des contrats : READ voir, UPDATE ajouter ou supprimer un tarif, toujours avec le droit natif sur le contrat |
 | `plugin_printgestion_dashboard` | Alertes toner (dashboard + actions) ; onglet « Seuils d'alerte » des imprimantes (UPDATE pour enregistrer) |
 | `plugin_printgestion_expedition` | Expéditions (UPDATE pour agir) |
 | `plugin_printgestion_validation` | Demandes d'envoi : READ voir, UPDATE modifier / valider / annuler (file aussi visible avec `dashboard` READ, sans agir) |
 | `plugin_printgestion_deploiement` | Collecte SNMP / Déploiement Agent : READ voir et télécharger l'installeur et les paquets de consigne, page « Sondes », onglet de la fiche Agent, cartes du tableau de bord ; UPDATE raccorder des imprimantes, régler la fréquence des relevés de l'entité, régler la mise à jour des sondes, marquer le PC sonde ; « Contrôle de la remontée » |
 | `plugin_printgestion_sage` | Référentiel Sage : READ onglet Sage de l'entité, UPDATE import et correspondances |
 | `plugin_printgestion_billing` | Coût à la page : écrans et onglet de la fiche imprimante (prix et coûts ; jamais le seul droit sur l'imprimante) |
-| `plugin_printgestion_config` | Configuration du plugin + mappings SNMP |
+| `plugin_printgestion_config` | Configuration du plugin + mappings SNMP ; onglet « Print Gestion » des cartouches (liaisons SNMP) : READ voir, UPDATE enregistrer, toujours avec le droit natif sur la cartouche |
 
 Migration 1.5.9 : `sage` repris de `config` (lecture → lecture, modification → lecture et modification),
 `deploiement` donné en lecture et modification aux profils qui modifiaient la configuration ; le module

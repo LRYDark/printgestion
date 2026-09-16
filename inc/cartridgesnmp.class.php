@@ -33,8 +33,20 @@ class PluginPrintgestionCartridgesnmp extends CommonDBTM {
         return __('Propriétés SNMP', 'printgestion');
     }
 
+    /**
+     * Onglet et formulaire : droit natif sur les cartouches ET droit de configuration du plugin, le même que le
+     * mapping SNMP de secours (la liaison règle la résolution des cartouches commandées).
+     */
+    public static function canViewBindings(): bool {
+        return Session::haveRight('cartridge', READ) && Session::haveRight('plugin_printgestion_config', READ);
+    }
+
+    public static function canEditBindings(CartridgeItem $item): bool {
+        return Session::haveRight('plugin_printgestion_config', UPDATE) && $item->can((int) $item->getID(), UPDATE);
+    }
+
     function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
-        if ($item->getType() == 'CartridgeItem' && Session::haveRight('cartridge', READ)) {
+        if ($item->getType() == 'CartridgeItem' && self::canViewBindings()) {
             $nb = countElementsInTable(self::getTable(), ['cartridgeitems_id' => $item->getID()]);
             return self::createTabEntry(__('Print Gestion', 'printgestion'), $nb);
         }
@@ -42,7 +54,8 @@ class PluginPrintgestionCartridgesnmp extends CommonDBTM {
     }
 
     static function displayTabContentForItem(CommonGLPI $item, $tabnum = 1, $withtemplate = 0) {
-        if ($item->getType() == 'CartridgeItem') {
+        // Droits revérifiés à l'affichage : l'onglet peut être appelé directement.
+        if ($item->getType() == 'CartridgeItem' && self::canViewBindings() && $item->can((int) $item->getID(), READ)) {
             self::showForCartridge($item);
         }
         return true;
@@ -127,7 +140,7 @@ class PluginPrintgestionCartridgesnmp extends CommonDBTM {
      */
     static function showForCartridge(CartridgeItem $item): void {
         $cartridgeitems_id = (int)$item->getID();
-        $canedit = $item->can($cartridgeitems_id, UPDATE);
+        $canedit = self::canEditBindings($item);
 
         // Vérifie qu'au moins un modèle d'imprimante est déclaré compatible
         global $DB;

@@ -233,6 +233,16 @@ def scenario_sans_droit():
             modifiees = [t for t in apres if apres[t] != avant.get(t)]
             constat(f"{compte} ({description}) : aucun point d'entrée du plugin utilisable", ok_ko(not atteints), " ; ".join(atteints))
             constat(f"{compte} : aucune table du plugin modifiée", ok_ko(not modifiees), ", ".join(modifiees))
+            if compte == "test-sans-droit":
+                _, page_contrat, _ = WEB.get(f"/front/contract.form.php?id={d.CONTRAT_A}")
+                _, page_cartouche, _ = WEB.get(f"/front/cartridgeitem.form.php?id={d.CARTOUCHE_NOIR}")
+                constat("test-sans-droit : onglets « Tarifs » du contrat et « Print Gestion » de la cartouche absents",
+                        ok_ko("PluginPrintgestionContractrate$1" not in page_contrat and "PluginPrintgestionCartridgesnmp$1" not in page_cartouche
+                              and "Tarifs Print Gestion" not in page_contrat))
+        lib.connecter_admin()
+        WEB.post(config.FRONT + "/contractrate.form.php", [("contracts_id", str(d.CONTRAT_A)), ("add_rate", "1"), ("type_cout", "color"), ("rate", "0.123"), ("actif", "1")])
+        constat("témoin : compte avec les droits natif et du plugin, tarif ajouté",
+                ok_ko(valeur(f"SELECT COUNT(*) FROM glpi_plugin_printgestion_contractrates WHERE contracts_id = {d.CONTRAT_A} AND rate = 0.123") == "1"))
     finally:
         sql("DELETE FROM glpi_plugin_printgestion_contractrates WHERE rate = 0.123;")
 
