@@ -356,8 +356,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 data: function(params) {
                     return {
                         q: params.term,
-                        printers_id: document.getElementById('pc-linkbl-select')
-                            ? (document.getElementById('pc-linkbl-select').getAttribute('data-pc-printers-id') || '')
+                        expedition_id: document.getElementById('pc-linkbl-expid')
+                            ? (document.getElementById('pc-linkbl-expid').value || '')
                             : ''
                     };
                 },
@@ -380,7 +380,10 @@ document.addEventListener('DOMContentLoaded', function() {
             jQuery.ajax({
                 url: ajaxUrl,
                 method: 'GET',
-                data: { q: data.id },
+                data: {
+                    q: data.id,
+                    expedition_id: document.getElementById('pc-linkbl-expid') ? (document.getElementById('pc-linkbl-expid').value || '') : ''
+                },
                 dataType: 'json',
                 timeout: 15000
             })
@@ -649,10 +652,6 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('pc-linkbl-header').innerHTML =
       escapeHtml(d.printer_name) + (d.entity_name ? ' — ' + escapeHtml(d.entity_name) : '')
       + '<br>' + escapeHtml(MSG.toner_label) + ' : ' + escapeHtml(d.property);
-
-    // Mémorise l'imprimante courante pour le filtre entité côté search_bls.php
-    const sel = document.getElementById('pc-linkbl-select');
-    if (sel) sel.setAttribute('data-pc-printers-id', d.printers_id || '');
 
     // Reset select2 + purge des options tags résiduelles d'ouvertures précédentes
     if (typeof jQuery !== 'undefined' && typeof jQuery.fn.select2 !== 'undefined') {

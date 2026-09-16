@@ -110,10 +110,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             'field'         => 'completename',
             'name'          => Entity::getTypeName(1),
             'datatype'      => 'dropdown',
-            'massiveaction' => false,
-            'joinparams'    => [
-                'beforejoin' => ['table' => 'glpi_printers', 'joinparams' => ['jointype' => '']],
-            ],
+            'massiveaction' => false, // entité de l'envoi, figée à sa création
         ];
         $tab[] = [
             'id'       => '3',
@@ -268,7 +265,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
 
         $where = [];
         if ($entities_id !== null) {
-            $where['p.entities_id'] = $entities_id;
+            $where['e.entities_id'] = $entities_id;
         }
         if (in_array($statut, ['pending','shipped','transit','delivered'], true)) {
             $where['e.statut'] = $statut;
@@ -312,10 +309,10 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                     'ON' => ['e' => 'printers_id', 'p' => 'id'],
                 ],
                 'glpi_entities AS ent' => [
-                    'ON' => ['p' => 'entities_id', 'ent' => 'id'],
+                    'ON' => ['e' => 'entities_id', 'ent' => 'id'],
                 ],
             ],
-            'WHERE' => $where,
+            'WHERE' => array_merge($where, getEntitiesRestrictCriteria('e', '', '', true)),
         ];
 
         $total_row = $DB->request(array_merge($base, [
@@ -329,7 +326,6 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             'SELECT' => [
                 'e.*',
                 'p.name AS printer_name',
-                'p.entities_id',
                 'ent.completename AS entity_name',
             ],
             'ORDER' => [$order_col . ' ' . $sort_dir],
@@ -1343,13 +1339,15 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 continue;
             }
 
+            // Donnée commerciale : le client de l'envoi est l'entité figée à sa création.
             $entity_name = '';
             $entity = new Entity();
-            if ($entity->getFromDB((int)$printer->fields['entities_id'])) {
+            if ($entity->getFromDB((int)$exp['entities_id'])) {
                 $entity_name = (string)$entity->fields['completename'];
             }
 
             $items[] = [
+                'scope'       => ['entities_id' => (int)$exp['entities_id'], 'is_recursive' => (int)$exp['is_recursive']],
                 'printers_id' => (int)$exp['printers_id'],
                 'property'    => (string)$exp['toner_property'],
                 'level'       => (int)($exp['level_at_alert'] ?? 0),
@@ -1419,7 +1417,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 $it['property'],
                 $it['level'],
                 null,
-                'no_install_reminder'
+                'no_install_reminder',
+                $it['scope']
             );
         }
 
@@ -1528,8 +1527,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
 
         // 1. Met à jour l'expédition : constatée posée sur la nouvelle imprimante.
         $now_date = date('Y-m-d H:i:s');
-        // L'envoi prend l'entité de sa nouvelle imprimante, et ses liaisons BL avec lui.
-        $DB->update(self::getTable(), PluginPrintgestionEntityscope::forPrinter($new_printers_id) + [
+        // Donnée commerciale : l'envoi et ses liaisons BL gardent l'entité figée à la création.
+        $DB->update(self::getTable(), [
             'printers_id'    => $new_printers_id,
             'statut'         => self::STATUS_INSTALLED,
             'date_installed' => $now_date,
@@ -1538,8 +1537,6 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 . "\n[" . date('Y-m-d H:i') . "] Réassignée depuis l'imprimante #"
                 . (int)$exp['printers_id'] . " vers #{$new_printers_id}"),
         ], ['id' => $expedition_id]);
-
-        PluginPrintgestionEntityscope::reconcile('glpi_printers', $new_printers_id);
 
         // 2. Crée rétroactivement la ligne glpi_cartridges sur la nouvelle imprimante
         //    et ferme la précédente si active pour ce couple.

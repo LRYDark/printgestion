@@ -36,14 +36,14 @@ if ($expedition_id <= 0) {
     exit;
 }
 
-// Cloisonnement client : l'expédition doit viser une imprimante du périmètre.
+// Cloisonnement client : l'expédition doit être dans le périmètre (son entité, figée à sa création).
 $accessible = PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id);
 if ($accessible === null) {
     PluginPrintgestionSecurity::denyJson();
 }
-// BL affichables : ceux de l'entité de l'imprimante ou d'une parente, dans le périmètre de l'utilisateur.
+// BL affichables : ceux de l'entité de l'expédition ou d'une parente, dans le périmètre de l'utilisateur.
 // Un lien vers le BL d'un autre client, posé avant ce contrôle, n'est jamais relu.
-$bl_entities = PluginPrintgestionSecurity::getBlEntities((int) $accessible['printers_id']);
+$bl_entities = PluginPrintgestionSecurity::getBlEntities($accessible);
 
 if (!$DB->tableExists('glpi_plugin_gestion_surveys')) {
     echo json_encode(['ok' => true, 'bls' => []]);

@@ -4,15 +4,22 @@
  *
  * Les tables métier portent `entities_id` et `is_recursive` (1.6.5) : GLPI restreint alors nativement
  * ce qui s'appuie sur ses mécanismes (canView / canUpdate d'un objet, moteur de recherche, actions de
- * masse). Les contrôles applicatifs sur l'imprimante (PluginPrintgestionSecurity) restent en seconde
- * barrière.
+ * masse). Les contrôles applicatifs (PluginPrintgestionSecurity) restent en seconde barrière et lisent
+ * la même entité.
  *
- * Règle : une ligne rattachée à une imprimante prend l'entité et la récursivité de l'imprimante, une
- * liaison BL celles de son expédition, un tarif celles de son contrat ; une ligne de demande hérite de
- * sa demande (CommonDBChild, natif). L'entité suit l'objet : quand une imprimante ou un contrat change
- * d'entité (fiche ou transfert), ses lignes suivent aussitôt. La tâche quotidienne
- * PrintgestionEntityScope recalcule tout et journalise en erreur chaque écart corrigé : un écart veut
- * dire qu'un chemin d'écriture a oublié l'entité.
+ * Deux règles, selon la nature de la donnée (1.6.6) :
+ *  - Technique (relevés toner, rendements, historique des cartouches, seuils, mises en veille) : la ligne
+ *    suit son imprimante. Quand l'imprimante change d'entité (fiche ou transfert), ses lignes suivent
+ *    aussitôt ; un tarif suit de même son contrat. La tâche quotidienne PrintgestionEntityScope recale ces
+ *    tables et journalise en erreur chaque écart : il révèle un chemin d'écriture qui a oublié l'entité.
+ *  - Commerciale (expéditions, alertes, liaisons BL, demandes et leurs lignes) : l'entité est figée à la
+ *    création et n'est plus jamais recalculée. Une imprimante transférée d'un client à un autre laisse son
+ *    historique commercial chez le premier. Un écart avec l'entité actuelle de l'imprimante est normal :
+ *    ni la tâche ni aucun crochet ne lit ces tables.
+ *
+ * Ligne orpheline : son objet de rattachement a été purgé et son entité n'a pas pu être déterminée
+ * (entité racine, non récursive : invisible des comptes clients). findOrphans() les liste pour qu'un
+ * administrateur tranche (configuration du plugin) ; rien n'est supprimé ni rattaché d'office.
  */
 
 if (!defined('GLPI_ROOT')) {
@@ -21,10 +28,8 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionEntityscope {
 
-    /** Tables rattachées à une imprimante (colonne printers_id). */
+    /** Données techniques rattachées à une imprimante (colonne printers_id) : suivent l'imprimante. */
     const PRINTER_TABLES = [
-        'glpi_plugin_printgestion_expeditions',
-        'glpi_plugin_printgestion_alerts',
         'glpi_plugin_printgestion_alert_snoozes',
         'glpi_plugin_printgestion_cartridge_history',
         'glpi_plugin_printgestion_toner_readings',
@@ -32,19 +37,25 @@ class PluginPrintgestionEntityscope {
         'glpi_plugin_printgestion_printer_thresholds',
     ];
 
-    /** Tables rattachées à un autre objet : table => [table parente, colonne de liaison]. */
-    const PARENT_TABLES = [
+    /** Données rattachées à un contrat : suivent le contrat. table => [table parente, colonne de liaison]. */
+    const CONTRACT_TABLES = [
+        'glpi_plugin_printgestion_contractrates' => ['glpi_contracts', 'contracts_id'],
+    ];
+
+    /** Données commerciales : entité figée à la création. table => [table de rattachement, colonne]. */
+    const FROZEN_TABLES = [
+        'glpi_plugin_printgestion_expeditions'    => ['glpi_printers', 'printers_id'],
+        'glpi_plugin_printgestion_alerts'         => ['glpi_printers', 'printers_id'],
         'glpi_plugin_printgestion_expedition_bls' => ['glpi_plugin_printgestion_expeditions', 'expeditions_id'],
         'glpi_plugin_printgestion_demandelines'   => ['glpi_plugin_printgestion_demandes', 'plugin_printgestion_demandes_id'],
-        'glpi_plugin_printgestion_contractrates'  => ['glpi_contracts', 'contracts_id'],
     ];
 
     /** @var array<string, array{entities_id: int, is_recursive: int}> */
     private static array $cache = [];
 
-    /** Toutes les tables qui portent l'entité d'une donnée client. */
+    /** Toutes les tables qui portent l'entité d'une donnée client, hors demandes (entité native). */
     public static function getTables(): array {
-        return array_merge(self::PRINTER_TABLES, array_keys(self::PARENT_TABLES));
+        return array_merge(self::PRINTER_TABLES, array_keys(self::CONTRACT_TABLES), array_keys(self::FROZEN_TABLES));
     }
 
     /**
@@ -88,7 +99,8 @@ class PluginPrintgestionEntityscope {
     }
 
     /**
-     * Recale l'entité des lignes sur celle de leur objet de rattachement.
+     * Recale l'entité des données techniques sur celle de leur imprimante ou de leur contrat. Ne lit jamais
+     * les tables commerciales (FROZEN_TABLES).
      *
      * @param string|null $parent_table glpi_printers ou glpi_contracts pour ne traiter que ce qui en dépend ; null : tout
      * @param int|null    $parent_id    identifiant de cet objet ; null : tous
@@ -102,21 +114,15 @@ class PluginPrintgestionEntityscope {
         foreach (self::PRINTER_TABLES as $table) {
             $jobs[$table] = ['glpi_printers', 'printers_id'];
         }
-        // Les expéditions avant leurs liaisons BL : une liaison prend l'entité à jour de son expédition.
-        $jobs += self::PARENT_TABLES;
+        $jobs += self::CONTRACT_TABLES;
         foreach ($jobs as $table => [$source, $column]) {
-            if (!$DB->tableExists($table) || !$DB->fieldExists($table, 'entities_id')) {
+            if (($parent_table !== null && $source !== $parent_table)
+                || !$DB->tableExists($table) || !$DB->fieldExists($table, 'entities_id')) {
                 continue;
             }
             $where = '(t.`entities_id` <> s.`entities_id` OR t.`is_recursive` <> s.`is_recursive`)';
             if ($parent_table !== null) {
-                if ($source === $parent_table) {
-                    $where .= ' AND s.`id` = ' . (int) $parent_id;
-                } elseif ($parent_table === 'glpi_printers' && $source === 'glpi_plugin_printgestion_expeditions') {
-                    $where .= ' AND s.`printers_id` = ' . (int) $parent_id;
-                } else {
-                    continue;
-                }
+                $where .= ' AND s.`id` = ' . (int) $parent_id;
             }
             $DB->doQuery("UPDATE `{$table}` AS t INNER JOIN `{$source}` AS s ON s.`id` = t.`{$column}`"
                 . " SET t.`entities_id` = s.`entities_id`, t.`is_recursive` = s.`is_recursive` WHERE {$where}");
@@ -129,7 +135,49 @@ class PluginPrintgestionEntityscope {
         return $fixed;
     }
 
-    /** Hook item_update d'une imprimante : ses lignes suivent sa nouvelle entité (fiche ou transfert). */
+    /**
+     * Lignes orphelines : objet de rattachement purgé et entité restée à la racine, non récursive (entité
+     * indéterminable). Invisibles des comptes clients ; à trancher par un administrateur.
+     *
+     * @return array<string, array{count: int, ids: int[]}> table => nombre et premiers identifiants
+     */
+    public static function findOrphans(int $max_ids = 20): array {
+        global $DB;
+
+        $orphans = [];
+        $sources = array_fill_keys(self::PRINTER_TABLES, ['glpi_printers', 'printers_id']) + self::CONTRACT_TABLES + self::FROZEN_TABLES;
+        foreach ($sources as $table => [$source, $column]) {
+            if (!$DB->tableExists($table) || !$DB->fieldExists($table, 'entities_id')) {
+                continue;
+            }
+            $criteria = [
+                'FROM'      => $table . ' AS t',
+                'LEFT JOIN' => [$source . ' AS s' => ['ON' => ['t' => $column, 's' => 'id']]],
+                'WHERE'     => ['s.id' => null, 't.entities_id' => 0, 't.is_recursive' => 0],
+            ];
+            $count = (int) ($DB->request($criteria + ['COUNT' => 'cnt'])->current()['cnt'] ?? 0);
+            if ($count === 0) {
+                continue;
+            }
+            $ids = [];
+            foreach ($DB->request($criteria + ['SELECT' => ['t.id'], 'ORDER' => ['t.id'], 'LIMIT' => $max_ids]) as $row) {
+                $ids[] = (int) $row['id'];
+            }
+            $orphans[$table] = ['count' => $count, 'ids' => $ids];
+        }
+        return $orphans;
+    }
+
+    /** Résumé lisible de findOrphans() : « table : n (#1, #2…) ». */
+    public static function describeOrphans(array $orphans): string {
+        return implode(', ', array_map(
+            static fn($table, $o) => sprintf('%s : %d (#%s%s)', $table, $o['count'], implode(', #', $o['ids']), $o['count'] > count($o['ids']) ? '…' : ''),
+            array_keys($orphans),
+            $orphans
+        ));
+    }
+
+    /** Hook item_update d'une imprimante : ses données techniques suivent sa nouvelle entité (fiche ou transfert). */
     public static function onPrinterUpdate(CommonDBTM $item): void {
         if (array_intersect(['entities_id', 'is_recursive'], (array) ($item->updates ?? []))) {
             $fixed = self::reconcile('glpi_printers', (int) $item->getID());
@@ -147,12 +195,13 @@ class PluginPrintgestionEntityscope {
     }
 
     public static function cronInfo($name) {
-        return ['description' => __('Print Gestion : contrôle de l\'entité des données client (expéditions, alertes, relevés…)', 'printgestion')];
+        return ['description' => __('Print Gestion : contrôle de l\'entité des données techniques (relevés, historique des cartouches, seuils…)', 'printgestion')];
     }
 
     /**
-     * Tâche quotidienne : recale toutes les lignes. Chaque écart corrigé est journalisé en erreur, car il
-     * révèle un chemin d'écriture qui n'a pas posé l'entité, ou un changement d'entité non intercepté.
+     * Tâche quotidienne : recale les données techniques. Chaque écart corrigé est journalisé en erreur, car il
+     * révèle un chemin d'écriture qui n'a pas posé l'entité, ou un changement d'entité non intercepté. Les
+     * données commerciales ne sont pas lues. Les lignes orphelines sont signalées, jamais modifiées.
      */
     public static function cronPrintgestionEntityScope($task = null) {
         $fixed = self::reconcile();
@@ -161,9 +210,14 @@ class PluginPrintgestionEntityscope {
             PluginPrintgestionLogger::error('entityscope', 'Entité de lignes corrigée (écart avec l\'objet de rattachement) — ' . $detail);
             PluginPrintgestionAlertview::markStale();
         }
+        $orphans = self::findOrphans();
+        if (!empty($orphans)) {
+            PluginPrintgestionLogger::warning('entityscope', 'Lignes orphelines à trancher (objet de rattachement purgé, entité indéterminée) — ' . self::describeOrphans($orphans));
+        }
         if ($task instanceof CronTask) {
             $task->addVolume(array_sum($fixed));
-            $task->log(empty($fixed) ? 'Aucun écart d\'entité.' : 'Écarts corrigés : ' . implode(', ', array_map(static fn($t, $n) => "{$t} : {$n}", array_keys($fixed), $fixed)));
+            $task->log((empty($fixed) ? 'Aucun écart d\'entité.' : 'Écarts corrigés : ' . implode(', ', array_map(static fn($t, $n) => "{$t} : {$n}", array_keys($fixed), $fixed)))
+                . (empty($orphans) ? '' : ' Lignes orphelines : ' . array_sum(array_column($orphans, 'count')) . ' (voir la configuration du plugin).'));
         }
         return empty($fixed) ? 0 : 1;
     }

@@ -48,7 +48,17 @@ class PluginPrintgestionSecurity {
     }
 
     /**
-     * Expédition dont l'imprimante est accessible à l'utilisateur.
+     * Ligne d'une donnée commerciale (expédition, alerte) dans le périmètre de l'utilisateur : son entité,
+     * figée à la création, ou une entité parente si la ligne est récursive. Jamais l'entité actuelle de
+     * l'imprimante : après un transfert, l'historique reste au client d'origine.
+     */
+    public static function canAccessRow(array $row): bool {
+        return isset($row['entities_id'])
+            && Session::haveAccessToEntity((int) $row['entities_id'], (bool) ($row['is_recursive'] ?? false));
+    }
+
+    /**
+     * Expédition dans le périmètre de l'utilisateur (entité de l'expédition, figée à sa création).
      * Retourne null si elle n'existe pas OU si elle est hors périmètre : les deux
      * cas sont volontairement indiscernables pour l'appelant.
      */
@@ -64,25 +74,22 @@ class PluginPrintgestionSecurity {
             'LIMIT' => 1,
         ])->current();
 
-        if (!is_array($exp) || !self::canAccessPrinter((int) $exp['printers_id'])) {
-            return null;
-        }
-        return $exp;
+        return is_array($exp) && self::canAccessRow($exp) ? $exp : null;
     }
 
     /**
-     * Entités où peut se trouver un BL (plugin Gestion) lié à une expédition de cette imprimante : l'entité de
-     * l'imprimante et ses entités parentes (BL d'un groupe couvrant ses sites), limitées au périmètre de
-     * l'utilisateur. Vide si l'imprimante n'existe pas.
+     * Entités où peut se trouver un BL (plugin Gestion) lié à cette expédition : l'entité de l'expédition, figée
+     * à sa création, et ses entités parentes (BL d'un groupe couvrant ses sites), limitées au périmètre de
+     * l'utilisateur. Jamais une entité sœur. Vide si l'expédition n'a pas d'entité.
      *
+     * @param array $expedition ligne de glpi_plugin_printgestion_expeditions
      * @return int[]
      */
-    public static function getBlEntities(int $printers_id): array {
-        $printer = new Printer();
-        if ($printers_id <= 0 || !$printer->getFromDB($printers_id)) {
+    public static function getBlEntities(array $expedition): array {
+        if (!isset($expedition['entities_id'])) {
             return [];
         }
-        $entities_id = (int) $printer->fields['entities_id'];
+        $entities_id = (int) $expedition['entities_id'];
         $entities    = array_merge([$entities_id], array_map('intval', array_values(getAncestorsOf(Entity::getTable(), $entities_id))));
         return array_values(array_filter($entities, static fn(int $id): bool => Session::haveAccessToEntity($id)));
     }
@@ -98,7 +105,7 @@ class PluginPrintgestionSecurity {
         if ($bl_surveys_id <= 0 || !$DB->tableExists('glpi_plugin_gestion_surveys')) {
             return null;
         }
-        $entities = self::getBlEntities((int) ($expedition['printers_id'] ?? 0));
+        $entities = self::getBlEntities($expedition);
         if (empty($entities)) {
             return null;
         }
@@ -111,9 +118,8 @@ class PluginPrintgestionSecurity {
     }
 
     /**
-     * Alerte dont l'imprimante concernée est accessible à l'utilisateur.
-     * Pour une alerte « mauvaise imprimante », printers_id est l'imprimante sur
-     * laquelle la cartouche a été détectée. Null si inexistante OU hors périmètre.
+     * Alerte dans le périmètre de l'utilisateur (entité de l'alerte, figée à sa création). Null si inexistante
+     * OU hors périmètre.
      */
     public static function getAccessibleAlert(int $alert_id): ?array {
         global $DB;
@@ -126,12 +132,7 @@ class PluginPrintgestionSecurity {
             'WHERE' => ['id' => $alert_id],
             'LIMIT' => 1,
         ])->current();
-        if (!is_array($alert)) {
-            return null;
-        }
-
-        $printers_id = (int) ($alert['printers_id'] ?: ($alert['detected_printers_id'] ?? 0));
-        return self::canAccessPrinter($printers_id) ? $alert : null;
+        return is_array($alert) && self::canAccessRow($alert) ? $alert : null;
     }
 
     /**

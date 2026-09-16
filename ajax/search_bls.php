@@ -34,23 +34,15 @@ if (mb_strlen($q) < 2) {
     exit;
 }
 
-// Filtre optionnel par entité de l'imprimante
-$printers_id = (int)($_GET['printers_id'] ?? 0);
+// Filtre par expédition : BL de son entité (figée à sa création) ou d'une entité parente, comme link_bls.php.
+$expedition_id   = (int)($_GET['expedition_id'] ?? 0);
 $entities_filter = null;
-if ($printers_id > 0) {
-    // Cloisonnement client : imprimante dans le périmètre de l'utilisateur.
-    if (!PluginPrintgestionSecurity::canAccessPrinter($printers_id)) {
+if ($expedition_id > 0) {
+    $expedition = PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id);
+    if ($expedition === null) {
         PluginPrintgestionSecurity::denyJson();
     }
-    $printerRow = $DB->request([
-        'SELECT' => ['entities_id'],
-        'FROM'   => 'glpi_printers',
-        'WHERE'  => ['id' => $printers_id],
-        'LIMIT'  => 1,
-    ])->current();
-    if (is_array($printerRow)) {
-        $entities_filter = (int)$printerRow['entities_id'];
-    }
+    $entities_filter = PluginPrintgestionSecurity::getBlEntities($expedition) ?: [-1];
 }
 
 $where = [

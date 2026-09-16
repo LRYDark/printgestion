@@ -12,7 +12,7 @@ import donnees
 import lib
 
 ICI = os.path.dirname(os.path.abspath(__file__))
-TESTS = ["harnais", "bl", "gesconso", "parcours"]
+TESTS = ["harnais", "entites", "bl", "gesconso", "parcours"]
 
 
 def main():
@@ -21,11 +21,15 @@ def main():
     tailles = lib.tailles_journaux()
     resume = []
     for nom in choisis:
+        avant = donnees.empreinte()
         res = subprocess.run([sys.executable, os.path.join(ICI, f"{nom}.py")], capture_output=True, text=True)
         sortie = res.stdout + res.stderr
         print(sortie)
         ligne = re.findall(r"^Résultat : .*$", sortie, re.M)
-        resume.append(f"{nom:10} code {res.returncode} — {ligne[-1] if ligne else 'pas de bilan (voir la sortie)'}")
+        apres = donnees.empreinte()
+        modifiees = [cle for cle in avant if avant[cle] != apres[cle]]
+        resume.append(f"{nom:10} code {res.returncode if not modifiees else 1} — {ligne[-1] if ligne else 'pas de bilan (voir la sortie)'}"
+                      + (f" — DONNÉES DE RÉFÉRENCE MODIFIÉES : {', '.join(modifiees)}" if modifiees else ""))
     erreurs = lib.erreurs_php_depuis(tailles, attendues=("Fichier Gesconso non archivé",))
     print("======== Synthèse")
     print("\n".join(resume))

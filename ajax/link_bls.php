@@ -57,26 +57,14 @@ if (!is_array($bls) || empty($bls)) {
 }
 
 // Récupère l'expédition + imprimante pour connaître l'entité
-$exp = $DB->request([
-    'FROM'  => 'glpi_plugin_printgestion_expeditions',
-    'WHERE' => ['id' => $expedition_id],
-    'LIMIT' => 1,
-])->current();
-if (!is_array($exp)) {
-    echo json_encode(['ok' => false, 'error' => 'Expedition not found']);
-    exit;
-}
-
-$printer = new Printer();
-if (!$printer->getFromDB((int)$exp['printers_id'])) {
-    echo json_encode(['ok' => false, 'error' => 'Printer not found']);
-    exit;
-}
-// Cloisonnement client : l'expédition doit viser une imprimante du périmètre.
-if (!$printer->canViewItem()) {
+// Cloisonnement client : expédition du périmètre (son entité, figée à sa création). Inexistante ou d'un autre
+// client : même refus.
+$exp = PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id);
+if ($exp === null) {
     PluginPrintgestionSecurity::denyJson();
 }
-$printer_entities_id = (int)$printer->fields['entities_id'];
+// Un nouveau BL Sage est préparé dans l'entité de l'expédition (le client de l'envoi).
+$expedition_entities_id = (int)$exp['entities_id'];
 
 // Résolution des IDs cibles (local + création SAGE si besoin)
 $target_ids = [];
@@ -97,7 +85,7 @@ foreach ($bls as $raw) {
             $errors[] = ['bl' => $raw, 'error' => 'Format BL invalide'];
             continue;
         }
-        $bl_surveys_id = prepareSageBl($bl_num, $printer_entities_id, $error);
+        $bl_surveys_id = prepareSageBl($bl_num, $expedition_entities_id, $error);
         if ($bl_surveys_id <= 0) {
             $errors[] = ['bl' => $bl_num, 'error' => $error ?: 'Impossible de préparer le BL'];
             continue;

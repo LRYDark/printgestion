@@ -53,6 +53,7 @@ class PluginPrintgestionSchema {
         '1.6.3' => 'migrateTo163',
         '1.6.4' => 'migrateTo164',
         '1.6.5' => 'migrateTo165',
+        '1.6.6' => 'migrateTo166',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -1004,7 +1005,13 @@ class PluginPrintgestionSchema {
         global $DB;
 
         $sign   = DBConnection::getDefaultPrimaryKeySignOption();
-        $tables = array_merge(PluginPrintgestionEntityscope::getTables(), ['glpi_plugin_printgestion_demandes']);
+        // Liste figée : une étape livrée ne dépend pas de constantes applicatives susceptibles d'évoluer.
+        $tables = [
+            'glpi_plugin_printgestion_expeditions', 'glpi_plugin_printgestion_alerts', 'glpi_plugin_printgestion_alert_snoozes',
+            'glpi_plugin_printgestion_cartridge_history', 'glpi_plugin_printgestion_toner_readings', 'glpi_plugin_printgestion_historical_yields',
+            'glpi_plugin_printgestion_printer_thresholds', 'glpi_plugin_printgestion_expedition_bls', 'glpi_plugin_printgestion_demandelines',
+            'glpi_plugin_printgestion_contractrates', 'glpi_plugin_printgestion_demandes',
+        ];
         foreach ($tables as $table) {
             if (!$DB->tableExists($table)) {
                 continue;
@@ -1016,9 +1023,138 @@ class PluginPrintgestionSchema {
             $migration->migrationOneTable($table);
         }
 
+        // Données techniques ; les données commerciales sont remplies par l'étape 1.6.6 (entité à la création).
         $fixed = PluginPrintgestionEntityscope::reconcile();
         $migration->displayMessage('Print Gestion — entité des données client remplie : ' . (empty($fixed)
             ? 'aucune ligne à recaler'
             : implode(', ', array_map(static fn($t, $n) => "{$t} : {$n}", array_keys($fixed), $fixed))));
+    }
+
+    /**
+     * 1.6.6 — données commerciales : entité figée à la création. Expéditions et alertes reprennent l'entité
+     * (et la récursivité) qu'avait leur imprimante à leur date de création, d'après l'historique GLPI des
+     * changements d'entité de l'imprimante ; une expédition réattribuée, celle de son imprimante d'origine.
+     * Liaisons BL : entité de leur expédition ; lignes de demande : entité de leur demande. Imprimante purgée
+     * (historique supprimé avec elle) : la ligne garde l'entité qu'elle porte ; à la racine, elle est listée
+     * comme orpheline. Rien n'est supprimé.
+     */
+    private static function migrateTo166(Migration $migration): void {
+        global $DB;
+
+        [$current, $history] = self::loadPrinterEntityHistory();
+        $report   = [];
+        $unknown  = [];
+        $frozen = [
+            'glpi_plugin_printgestion_expeditions' => ['id', 'printers_id', 'date_alert', 'entities_id', 'is_recursive', 'notes'],
+            'glpi_plugin_printgestion_alerts'      => ['id', 'printers_id', 'detected_printers_id', 'date_alert', 'entities_id', 'is_recursive'],
+        ];
+        foreach ($frozen as $table => $fields) {
+            if (!$DB->tableExists($table) || !$DB->fieldExists($table, 'entities_id')) {
+                continue;
+            }
+            $changed = 0;
+            foreach ($DB->request(['SELECT' => $fields, 'FROM' => $table]) as $row) {
+                $printers_id = (int) $row['printers_id'];
+                if ($printers_id <= 0) {
+                    $printers_id = (int) ($row['detected_printers_id'] ?? 0);
+                }
+                // Réattribution : la note garde l'imprimante d'origine (« Réassignée depuis l'imprimante #N »).
+                if (isset($row['notes']) && preg_match('/Réassignée depuis l\'imprimante #(\d+)/u', (string) $row['notes'], $m)) {
+                    $printers_id = (int) $m[1];
+                }
+                $scope = self::printerScopeAt($printers_id, (string) ($row['date_alert'] ?? ''), $current, $history);
+                if ($scope === null) {
+                    $unknown[$table] = ($unknown[$table] ?? 0) + 1;
+                    continue;
+                }
+                if ($scope['entities_id'] !== (int) $row['entities_id'] || $scope['is_recursive'] !== (int) $row['is_recursive']) {
+                    $DB->update($table, $scope, ['id' => (int) $row['id']]);
+                    $changed++;
+                }
+            }
+            $report[$table] = $changed;
+        }
+
+        foreach ([
+            'glpi_plugin_printgestion_expedition_bls' => ['glpi_plugin_printgestion_expeditions', 'expeditions_id'],
+            'glpi_plugin_printgestion_demandelines'   => ['glpi_plugin_printgestion_demandes', 'plugin_printgestion_demandes_id'],
+        ] as $table => [$source, $column]) {
+            if (!$DB->tableExists($table) || !$DB->fieldExists($table, 'entities_id')) {
+                continue;
+            }
+            $DB->doQuery("UPDATE `{$table}` AS t INNER JOIN `{$source}` AS s ON s.`id` = t.`{$column}`"
+                . ' SET t.`entities_id` = s.`entities_id`, t.`is_recursive` = s.`is_recursive`'
+                . ' WHERE t.`entities_id` <> s.`entities_id` OR t.`is_recursive` <> s.`is_recursive`');
+            $report[$table] = (int) $DB->affectedRows();
+        }
+
+        $migration->displayMessage('Print Gestion — entité des données commerciales figée à la création, lignes recalées : '
+            . implode(', ', array_map(static fn($t, $n) => "{$t} : {$n}", array_keys($report), $report)));
+        if (!empty($unknown)) {
+            $migration->displayMessage('Print Gestion — imprimante purgée, entité à la création introuvable (entité actuelle conservée) : '
+                . implode(', ', array_map(static fn($t, $n) => "{$t} : {$n}", array_keys($unknown), $unknown)));
+        }
+        $orphans = PluginPrintgestionEntityscope::findOrphans();
+        $migration->displayMessage('Print Gestion — lignes sans objet de rattachement, à trancher (configuration du plugin) : '
+            . (empty($orphans) ? 'aucune' : PluginPrintgestionEntityscope::describeOrphans($orphans)));
+        if (!empty($orphans)) {
+            PluginPrintgestionLogger::warning('schema', 'Migration 1.6.6 : lignes orphelines à trancher — ' . PluginPrintgestionEntityscope::describeOrphans($orphans));
+        }
+    }
+
+    /**
+     * Imprimantes existantes (entité et récursivité actuelles) et historique GLPI de leurs changements d'entité
+     * (option 80) et de récursivité (option 86), dans l'ordre chronologique : [date, ancienne valeur].
+     *
+     * @return array{0: array<int, array{entities_id: int, is_recursive: int}>, 1: array<int, array<string, array>>}
+     */
+    private static function loadPrinterEntityHistory(): array {
+        global $DB;
+
+        $current = [];
+        foreach ($DB->request(['SELECT' => ['id', 'entities_id', 'is_recursive'], 'FROM' => 'glpi_printers']) as $row) {
+            $current[(int) $row['id']] = ['entities_id' => (int) $row['entities_id'], 'is_recursive' => (int) $row['is_recursive']];
+        }
+        $history = [];
+        foreach ($DB->request([
+            'SELECT' => ['items_id', 'id_search_option', 'old_value', 'old_id', 'date_mod'],
+            'FROM'   => 'glpi_logs',
+            'WHERE'  => ['itemtype' => 'Printer', 'id_search_option' => [80, 86]],
+            'ORDER'  => ['date_mod ASC', 'id ASC'],
+        ]) as $row) {
+            if ((int) $row['id_search_option'] === 80) {
+                // Ancienne entité : old_id, sinon l'identifiant entre parenthèses de « Nom complet (id) ».
+                $old = $row['old_id'] !== null ? (int) $row['old_id']
+                    : (preg_match('/\((\d+)\)\s*$/', (string) $row['old_value'], $m) ? (int) $m[1] : null);
+                if ($old !== null) {
+                    $history[(int) $row['items_id']]['entities'][] = [(string) $row['date_mod'], $old];
+                }
+            } else {
+                $history[(int) $row['items_id']]['recursive'][] = [(string) $row['date_mod'], (int) $row['old_value'] === 1 ? 1 : 0];
+            }
+        }
+        return [$current, $history];
+    }
+
+    /**
+     * Entité et récursivité d'une imprimante à une date : la première modification postérieure donne l'ancienne
+     * valeur, sinon la valeur actuelle. Null si l'imprimante n'existe plus.
+     *
+     * @return array{entities_id: int, is_recursive: int}|null
+     */
+    private static function printerScopeAt(int $printers_id, string $date, array $current, array $history): ?array {
+        if (!isset($current[$printers_id])) {
+            return null;
+        }
+        $scope = $current[$printers_id];
+        foreach (['entities' => 'entities_id', 'recursive' => 'is_recursive'] as $kind => $field) {
+            foreach ($history[$printers_id][$kind] ?? [] as [$changed_at, $old_value]) {
+                if ($date !== '' && $changed_at > $date) {
+                    $scope[$field] = $old_value;
+                    break;
+                }
+            }
+        }
+        return $scope;
     }
 }

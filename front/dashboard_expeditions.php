@@ -169,7 +169,7 @@ document.addEventListener('submit', function (e) {
 </script>";
 }
 
-// ── Compteurs par statut (calculés, restreints par l'entité de l'imprimante) ──
+// ── Compteurs par statut (calculés, restreints par l'entité de l'envoi, figée à sa création) ──
 $exp_t         = 'glpi_plugin_printgestion_expeditions';
 $status_counts = ['pending' => 0, 'shipped' => 0, 'transit' => 0, 'delivered' => 0, 'installed' => 0, 'cancelled' => 0];
 $sel = [];
@@ -180,7 +180,7 @@ $crow = $DB->request([
     'SELECT'     => $sel,
     'FROM'       => $exp_t,
     'INNER JOIN' => ['glpi_printers' => ['ON' => ['glpi_printers' => 'id', $exp_t => 'printers_id']]],
-    'WHERE'      => array_merge(['glpi_printers.is_deleted' => 0], getEntitiesRestrictCriteria('glpi_printers', '', '', true)),
+    'WHERE'      => array_merge(['glpi_printers.is_deleted' => 0], getEntitiesRestrictCriteria($exp_t, '', '', true)),
 ])->current();
 foreach (array_keys($status_counts) as $st) {
     $status_counts[$st] = (int) ($crow[$st] ?? 0);
@@ -201,7 +201,7 @@ PluginPrintgestionUi::statsBar([
 ], 'printgestionExpeditionStatsBar');
 
 // ── Tableau NATIF (moteur de recherche GLPI) ──
-// Restriction d'entité (via l'imprimante) appliquée par plugin_printgestion_addDefaultWhere().
+// Restriction d'entité : entité de l'envoi (native, et seconde barrière dans plugin_printgestion_addDefaultWhere()).
 $itemtype = 'PluginPrintgestionExpedition';
 $params   = Search::manageParams($itemtype, $_GET);
 $params['target'] = PLUGIN_PRINTGESTION_WEBDIR . '/front/dashboard_expeditions.php';
@@ -236,8 +236,8 @@ $exp_data = $DB->request([
     ],
     'FROM'       => $exp_t,
     'INNER JOIN' => ['glpi_printers' => ['ON' => ['glpi_printers' => 'id', $exp_t => 'printers_id']]],
-    'LEFT JOIN'  => ['glpi_entities' => ['ON' => ['glpi_entities' => 'id', 'glpi_printers' => 'entities_id']]],
-    'WHERE'      => array_merge(['glpi_printers.is_deleted' => 0], getEntitiesRestrictCriteria('glpi_printers', '', '', true)),
+    'LEFT JOIN'  => ['glpi_entities' => ['ON' => ['glpi_entities' => 'id', $exp_t => 'entities_id']]],
+    'WHERE'      => array_merge(['glpi_printers.is_deleted' => 0], getEntitiesRestrictCriteria($exp_t, '', '', true)),
 ]);
 foreach ($exp_data as $r) {
     $exp_map[(int) $r['id']] = [

@@ -7,7 +7,7 @@
 // À incrémenter à chaque nouvelle étape de schéma (inc/schema.class.php) ou nouvelle
 // tâche automatique : GLPI ne rejoue l'installation (migrations, enregistrement des
 // tâches) que si cette version change.
-define('PLUGIN_PRINTGESTION_VERSION', '1.6.5');
+define('PLUGIN_PRINTGESTION_VERSION', '1.6.6');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');
@@ -153,15 +153,11 @@ function plugin_printgestion_addDefaultWhere($itemtype) {
             . " AND `glpi_plugin_printgestion_billing_view`.`view_mode` = '" . $view . "'";
     }
 
-    // Expéditions : le moteur de recherche restreint nativement sur leur entities_id (1.6.5) ;
-    // seconde barrière, l'entité actuelle de l'imprimante liée.
+    // Expéditions : le moteur de recherche restreint nativement sur leur entities_id (1.6.5), figée à la
+    // création (1.6.6) ; seconde barrière explicite sur la même entité. Jamais l'entité actuelle de
+    // l'imprimante : une imprimante transférée ne fait pas passer l'historique commercial au nouveau client.
     if ($itemtype === 'PluginPrintgestionExpedition') {
-        $entity_where = getEntitiesRestrictRequest('', 'glpi_printers', '', '', true);
-        if (trim((string) $entity_where) === '') {
-            return ''; // l'utilisateur voit toutes les entités → aucune restriction
-        }
-        return '`glpi_plugin_printgestion_expeditions`.`printers_id` IN ('
-            . 'SELECT `glpi_printers`.`id` FROM `glpi_printers` WHERE ' . $entity_where . ')';
+        return trim((string) getEntitiesRestrictRequest('', 'glpi_plugin_printgestion_expeditions', '', '', true));
     }
 
     return '';

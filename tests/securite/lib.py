@@ -103,6 +103,18 @@ def vider_cache():
 
 # ── Session HTTP ─────────────────────────────────────────────────────────────
 
+def transferer_imprimante(imprimante, entite):
+    """Transfert natif (liste de transfert puis « Transférer »), avec la configuration « complete » de GLPI comme
+    l'écran natif ; session administrateur requise."""
+    WEB.action_de_masse("Printer", [imprimante], "add_transfer_list", "MassiveAction")
+    options = dict(zip([r for r in sql("SELECT * FROM glpi_transfers WHERE id = 1").splitlines()[0].split("\t")],
+                       lignes("SELECT * FROM glpi_transfers WHERE id = 1")[0]))
+    champs = [(k, v) for k, v in options.items() if k.startswith(("keep_", "clean_", "lock_"))]
+    statut = WEB.post("/front/transfer.action.php", champs + [("transfer", "1"), ("to_entity", str(entite)), ("id", "1")])[0]
+    if valeur(f"SELECT entities_id FROM glpi_printers WHERE id = {imprimante}") != str(entite):
+        raise RuntimeError(f"Transfert de l'imprimante #{imprimante} vers l'entité #{entite} sans effet (HTTP {statut})")
+
+
 class _SansRedirection(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None

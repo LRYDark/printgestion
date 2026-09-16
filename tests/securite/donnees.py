@@ -6,7 +6,7 @@ test crée en plus (envois, alertes, comptes) il le crée lui-même et le suppri
 Arbre des entités :
     Entité racine (0)          imprimantes 1 à 7, contrat 1
     ├── Client test A (1)      imprimantes 8 et 9, contrat 2
-    │   ├── Site test A1 (2)   imprimante 10
+    │   ├── Site test A1 (2)   imprimante 10     (imprimantes 9 à 12 sans contrat : transférables par les tests)
     │   └── Site test A2 (3)   imprimante 11
     └── Client test B (4)      imprimante 12
 """
@@ -83,8 +83,8 @@ INSERT INTO glpi_contracttypes (id, name, date_creation, date_mod) VALUES (1,'Ty
 INSERT INTO glpi_contracts (id, entities_id, is_recursive, name, num, contracttypes_id, begin_date, duration, is_deleted, is_template, date_creation, date_mod) VALUES
  ({CONTRAT_RACINE},0,0,'Contrat test racine','TST-CTR-001',1,'2026-01-01',36,0,0,@now,@now),
  ({CONTRAT_A},{CLIENT_A},0,'Contrat test A','TST-CTR-002',1,'2026-01-01',36,0,0,@now,@now);
-INSERT INTO glpi_contracts_items (contracts_id, itemtype, items_id) VALUES ({CONTRAT_RACINE},'Printer',1),({CONTRAT_RACINE},'Printer',4),({CONTRAT_A},'Printer',8),({CONTRAT_A},'Printer',9);
-INSERT INTO glpi_plugin_printgestion_contractrates (contracts_id, type_cout, rate, actif, date_creation) VALUES ({CONTRAT_RACINE},'nb',0.005,1,@now),({CONTRAT_RACINE},'color',0.05,1,@now),({CONTRAT_A},'nb',0.006,1,@now);
+INSERT INTO glpi_contracts_items (contracts_id, itemtype, items_id) VALUES ({CONTRAT_RACINE},'Printer',1),({CONTRAT_RACINE},'Printer',4),({CONTRAT_A},'Printer',8);
+INSERT INTO glpi_plugin_printgestion_contractrates (contracts_id, type_cout, rate, actif, date_creation, entities_id, is_recursive) VALUES ({CONTRAT_RACINE},'nb',0.005,1,@now,0,0),({CONTRAT_RACINE},'color',0.05,1,@now,0,0),({CONTRAT_A},'nb',0.006,1,@now,{CLIENT_A},0);
 UPDATE glpi_plugin_printgestion_configs SET consumables_contracttypes='1',
   mode_commercial='emails', emails_commercial='{ADMIN_ID}', mode_achat='emails', emails_achat='{ADMIN_ID}', mode_planif='emails', emails_planif='{ADMIN_ID}' WHERE id=1;
 INSERT INTO glpi_plugin_printgestion_sageclients (id, code, name, is_in_last_import, date_import, date_creation, date_mod) VALUES (1,'TSTCLI01','CLIENT TEST RACINE',1,@now,@now,@now);
@@ -108,6 +108,21 @@ INSERT INTO glpi_useremails (users_id, is_default, is_dynamic, email) VALUES ({A
 
 CORE = {"smtp_mode": "1", "smtp_host": "127.0.0.1", "smtp_port": str(config.SMTP_PORT), "use_notifications": "1", "notifications_mailing": "1",
         "admin_email": "glpi@exemple.test", "from_email": "glpi@exemple.test"}
+
+
+def empreinte():
+    """Données de référence qu'aucun test ne doit laisser modifiées."""
+    return {
+        "entités": lib.lignes("SELECT id, name, entities_id FROM glpi_entities ORDER BY id"),
+        "imprimantes": lib.lignes("SELECT id, name, serial, entities_id, is_recursive, is_deleted FROM glpi_printers ORDER BY id"),
+        "contrats": lib.lignes("SELECT id, name, entities_id, is_recursive, is_deleted FROM glpi_contracts ORDER BY id"),
+        "liens contrat": lib.lignes("SELECT contracts_id, itemtype, items_id FROM glpi_contracts_items ORDER BY contracts_id, items_id"),
+        "tarifs": lib.lignes("SELECT contracts_id, type_cout, rate, entities_id FROM glpi_plugin_printgestion_contractrates ORDER BY id"),
+        "cartouches": lib.lignes("SELECT id, ref, entities_id FROM glpi_cartridgeitems ORDER BY id"),
+        "profils": lib.lignes("SELECT id, name FROM glpi_profiles ORDER BY id"),
+        "comptes": lib.lignes("SELECT id, name FROM glpi_users ORDER BY id"),
+        "configuration": lib.lignes("SELECT * FROM glpi_plugin_printgestion_configs"),
+    }
 
 
 def verifier_instance():

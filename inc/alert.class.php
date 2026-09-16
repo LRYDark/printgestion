@@ -492,10 +492,11 @@ class PluginPrintgestionAlert extends CommonDBTM {
     /**
      * Enregistre une alerte en BDD (pour traçabilité + éviter les doublons de mail).
      */
-    public static function logAlert(int $printers_id, string $property, int $level, ?int $days, string $type): int {
+    public static function logAlert(int $printers_id, string $property, int $level, ?int $days, string $type, ?array $scope = null): int {
         global $DB;
 
-        $DB->insert(self::getTable(), PluginPrintgestionEntityscope::forPrinter($printers_id) + [
+        // Entité figée à la création : celle de l'imprimante, ou celle de l'envoi concerné ($scope).
+        $DB->insert(self::getTable(), ($scope ?? PluginPrintgestionEntityscope::forPrinter($printers_id)) + [
             'printers_id'    => $printers_id,
             'toner_property' => $property,
             'level_percent'  => $level,
@@ -760,7 +761,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 'a.date_alert',
                 'pd.name AS detected_name',
                 'pi.name AS intended_name',
-                'pd.entities_id',
+                'a.entities_id',
                 'ei.completename AS entity_name',
                 'ex.statut AS expedition_statut',
                 'ex.date_shipped',
@@ -778,7 +779,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
                     'ON' => ['a' => 'intended_printers_id', 'pi' => 'id'],
                 ],
                 'glpi_entities AS ei' => [
-                    'ON' => ['pd' => 'entities_id', 'ei' => 'id'],
+                    'ON' => ['a' => 'entities_id', 'ei' => 'id'],
                 ],
             ],
             'WHERE' => [
@@ -788,10 +789,10 @@ class PluginPrintgestionAlert extends CommonDBTM {
             'ORDER' => ['a.date_alert DESC'],
         ];
         if ($entities_id !== null && $entities_id >= 0) {
-            $criteria['WHERE']['pd.entities_id'] = $entities_id;
+            $criteria['WHERE']['a.entities_id'] = $entities_id;
         }
-        // Cloisonnement client (affichage) : entités de l'utilisateur uniquement.
-        $criteria['WHERE'][] = getEntitiesRestrictCriteria('pd', '', '', true);
+        // Cloisonnement client (affichage) : entité de l'alerte, figée à sa création.
+        $criteria['WHERE'][] = getEntitiesRestrictCriteria('a', '', '', true);
 
         foreach ($DB->request($criteria) as $a) {
             $days_since = !empty($a['date_alert'])
@@ -832,7 +833,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 'e.transport_number',
                 'e.date_shipped',
                 'p.name AS printer_name',
-                'p.entities_id',
+                'e.entities_id',
                 'ei.completename AS entity_name',
             ],
             'FROM'      => 'glpi_plugin_printgestion_expeditions AS e',
@@ -841,7 +842,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
                     'ON' => ['e' => 'printers_id', 'p' => 'id'],
                 ],
                 'glpi_entities AS ei' => [
-                    'ON' => ['p' => 'entities_id', 'ei' => 'id'],
+                    'ON' => ['e' => 'entities_id', 'ei' => 'id'],
                 ],
             ],
             'WHERE' => [
@@ -851,10 +852,10 @@ class PluginPrintgestionAlert extends CommonDBTM {
             'ORDER' => ['e.date_shipped ASC'],
         ];
         if ($entities_id !== null && $entities_id >= 0) {
-            $criteria['WHERE']['p.entities_id'] = $entities_id;
+            $criteria['WHERE']['e.entities_id'] = $entities_id;
         }
-        // Cloisonnement client (affichage) : entités de l'utilisateur uniquement.
-        $criteria['WHERE'][] = getEntitiesRestrictCriteria('p', '', '', true);
+        // Cloisonnement client (affichage) : entité de l'envoi, figée à sa création.
+        $criteria['WHERE'][] = getEntitiesRestrictCriteria('e', '', '', true);
 
         foreach ($DB->request($criteria) as $e) {
             $days_since = !empty($e['date_shipped'])

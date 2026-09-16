@@ -135,12 +135,26 @@ nouvelle interception passe par `PluginPrintgestionLogger`.
 
 ### « Entité de lignes corrigée » dans le journal (tâche `PrintgestionEntityScope`)
 
-Chaque donnée client (envoi, alerte, relevé, pose, seuil, tarif, ligne de demande, liaison BL) porte l'entité de son
-imprimante, de son contrat ou de sa demande, et GLPI s'en sert pour cloisonner les clients. La tâche quotidienne
-recale les écarts et les journalise en `[ERREUR]` avec les tables et le nombre de lignes. Hors reprise de données à
-la main en base, un écart signale un bug : un chemin d'écriture du plugin qui ne pose pas l'entité. Noter la table,
-chercher son insertion dans le code (elle doit passer par `PluginPrintgestionEntityscope`), corriger. Un transfert
-d'imprimante ou de contrat ne produit pas d'écart : les lignes suivent au moment du transfert.
+Chaque donnée technique (relevé, rendement, pose, seuil, mise en veille, tarif) porte l'entité de son imprimante ou
+de son contrat, et GLPI s'en sert pour cloisonner les clients. La tâche quotidienne recale les écarts et les journalise
+en `[ERREUR]` avec les tables et le nombre de lignes. Hors reprise de données à la main en base, un écart signale un
+bug : un chemin d'écriture du plugin qui ne pose pas l'entité. Noter la table, chercher son insertion dans le code
+(elle doit passer par `PluginPrintgestionEntityscope`), corriger. Un transfert d'imprimante ou de contrat ne produit
+pas d'écart : les lignes techniques suivent au moment du transfert.
+
+Les données commerciales (envois, alertes, liaisons BL, demandes) ne sont jamais recalées : leur entité est celle de
+leur création. Une expédition restée chez le client A alors que son imprimante est passée chez B est normale et ne
+doit pas être « corrigée » en base : c'est l'historique commercial de A.
+
+### Lignes sans objet de rattachement (configuration du plugin)
+
+La carte « Lignes sans objet de rattachement » de la configuration (comptes de l'entité racine), le journal de la
+tâche `PrintgestionEntityScope` (« Lignes orphelines ») et la migration 1.6.6 listent les lignes dont l'imprimante,
+l'expédition, la demande ou le contrat a été purgé alors que leur entité n'était pas connue. Elles sont à l'entité
+racine, non récursives : invisibles des comptes clients. Le plugin ne les rattache ni ne les supprime. Pour trancher :
+retrouver le client (numéro de suivi, date, référence, BL, historique GLPI), puis soit renseigner l'entité en base
+(`UPDATE <table> SET entities_id = <entité du client> WHERE id = …`), soit les laisser à la racine si elles ne
+concernent aucun client. Ne jamais supprimer une expédition ni une demande.
 
 ### Les mails ne partent pas
 

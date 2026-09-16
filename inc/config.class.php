@@ -1239,10 +1239,42 @@ HTML;
             echo "</div></div>";
         }
 
+        self::showOrphansCard();
+
         // Rouvrir la table/tr/td attendue par showFormButtons avant de fermer
         echo '<table><tr><td>';
         $config->showFormButtons(['candel' => false]);
         return true;
+    }
+
+    /**
+     * Lignes orphelines (objet de rattachement purgé, entité indéterminée) : restées à l'entité racine, non
+     * récursives, donc invisibles des comptes clients. Listées ici pour qu'un administrateur tranche ; le
+     * plugin ne les supprime ni ne les rattache d'office. Affiché aux seuls comptes qui voient la racine.
+     */
+    protected static function showOrphansCard(): void {
+        if (!Session::haveAccessToEntity(0)) {
+            return;
+        }
+        $orphans = PluginPrintgestionEntityscope::findOrphans();
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
+            . __('Lignes sans objet de rattachement', 'printgestion') . "</h3></div><div class='card-body'>";
+        if (empty($orphans)) {
+            echo "<p class='text-muted mb-0'>" . __('Aucune : toutes les lignes ont une entité déterminée.', 'printgestion') . "</p>";
+        } else {
+            echo "<p class='text-muted small'>"
+                . __('Imprimante, expédition, demande ou contrat purgé et entité impossible à retrouver : ces lignes restent à l\'entité racine, invisibles des comptes clients. À trancher par un administrateur (voir la documentation de maintenance, « Lignes sans objet de rattachement »).', 'printgestion')
+                . "</p>";
+            echo "<table class='table table-sm mb-0'><thead><tr><th>" . __('Table', 'printgestion') . "</th><th>"
+                . __('Lignes', 'printgestion') . "</th><th>" . __('Identifiants', 'printgestion') . "</th></tr></thead><tbody>";
+            foreach ($orphans as $table => $orphan) {
+                echo '<tr><td>' . htmlspecialchars($table, ENT_QUOTES, 'UTF-8') . '</td><td>' . (int) $orphan['count'] . '</td><td>'
+                    . htmlspecialchars('#' . implode(', #', $orphan['ids']) . ($orphan['count'] > count($orphan['ids']) ? '…' : ''), ENT_QUOTES, 'UTF-8')
+                    . '</td></tr>';
+            }
+            echo '</tbody></table>';
+        }
+        echo "</div></div>";
     }
 
     /**

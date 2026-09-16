@@ -19,7 +19,7 @@ if ($expedition_id <= 0) {
     Html::back();
 }
 
-// Cloisonnement client : l'expédition doit viser une imprimante du périmètre.
+// Cloisonnement client : l'expédition doit être dans le périmètre (son entité, figée à sa création).
 $exp = PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id);
 if ($exp === null) {
     throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException();
@@ -35,7 +35,7 @@ if ($action === 'ship') {
         Html::back();
     }
 
-    // BL choisi : existant et du même client (entité de l'imprimante ou parente, dans le périmètre).
+    // BL choisi : existant et du même client (entité de l'expédition ou parente, dans le périmètre).
     if ($bl_id !== null && PluginPrintgestionSecurity::getBlForExpedition($bl_id, $exp) === null) {
         Session::addMessageAfterRedirect(__('BL introuvable ou rattaché à un autre client : expédition non modifiée.', 'printgestion'), true, ERROR);
         Html::back();

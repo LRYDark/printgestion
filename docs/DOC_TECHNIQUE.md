@@ -55,7 +55,7 @@ printgestion/
 | `Print` | Création/association imprimante ↔ contrat (4 scénarios, transactionnel) |
 | `Tonerreading` | Snapshot horodaté des niveaux toner (lit `glpi_printers_cartridgeinfos` SNMP GLPI 11) |
 | `Ui` | Fragments d'interface partagés : barre de statistiques ; `jsonData()`, seul passage des données PHP vers le JavaScript (bloc JSON non exécuté, drapeaux `JSON_HEX_*`) |
-| `Entityscope` | Entité des données client (1.6.5) : entité à écrire sur une ligne rattachée à une imprimante, une expédition ou un contrat ; suivi des changements d'entité ; tâche de contrôle `PrintgestionEntityScope` |
+| `Entityscope` | Entité des données client (1.6.5, 1.6.6) : entité à écrire à la création ; données techniques qui suivent l'imprimante ou le contrat ; données commerciales figées ; lignes orphelines (`findOrphans()`) ; tâche de contrôle `PrintgestionEntityScope` |
 | `Cartridgehistory` | Détection automatique des changements de cartouche (hausse de niveau ≥ `detection_delta` %) |
 | `Alert` | Calcul intelligent des alertes toner (vitesse de conso sur fenêtre 30 j) + **digest mail commercial** |
 | `Alertview` | Table **matérialisée** des alertes et écran natif (recherche, colonnes verrou / référence, actions de masse Commander, Ne plus alerter, Réactiver) |
@@ -129,26 +129,39 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_collectfrequencies` | Fréquence des relevés d'imprimantes par entité (étape 1.6.4) : entité (unique), unité (`hourly`, `daily`), nombre, auteur, dates ; sans ligne, l'entité hérite de sa parente, sinon quotidienne |
 | `glpi_plugin_printgestion_table_prefs` | Préférences d'affichage des tableaux par utilisateur |
 
-**Entité des données client (étape 1.6.5).** `entities_id` et `is_recursive` sont portés par les tables rattachées à une
-imprimante (`expeditions`, `alerts`, `alert_snoozes`, `cartridge_history`, `toner_readings`, `historical_yields`,
-`printer_thresholds` : entité et récursivité de l'imprimante), par `expedition_bls` (celles de l'expédition), par
-`demandelines` (celles de la demande, héritage natif de `CommonDBChild`) et par `contractrates` (celles du contrat) ;
-`demandes` a son entité depuis 1.3.1 et reçoit `is_recursive` (0). GLPI traite alors ces objets comme rattachés à une
-entité (`isEntityAssign()`) : droits sur un objet (`canViewItem`, `canUpdateItem`), moteur de recherche et actions de
-masse natives restreignent d'eux-mêmes. Les contrôles du plugin sur l'imprimante (`PluginPrintgestionSecurity`) restent
-une seconde barrière. Règles :
+**Entité des données client (étapes 1.6.5 et 1.6.6).** `entities_id` et `is_recursive` sont portés par les tables
+rattachées à une imprimante, à une expédition, à une demande ou à un contrat ; `demandes` a son entité depuis 1.3.1 et
+reçoit `is_recursive` (0). GLPI traite alors ces objets comme rattachés à une entité (`isEntityAssign()`) : droits sur un
+objet (`canViewItem`, `canUpdateItem`), moteur de recherche et actions de masse natives restreignent d'eux-mêmes. Les
+contrôles du plugin (`PluginPrintgestionSecurity`) restent une seconde barrière et lisent la même entité. Deux règles,
+selon la nature de la donnée :
+
+| Nature | Tables | Au transfert de l'imprimante (ou du contrat) |
+|---|---|---|
+| Technique | `toner_readings`, `historical_yields`, `cartridge_history`, `printer_thresholds`, `alert_snoozes` ; `contractrates` (suit le contrat) | Suit l'imprimante (le contrat) aussitôt : hook `item_update` sur `Printer` et `Contract` |
+| Commerciale | `expeditions`, `alerts`, `expedition_bls`, `demandes`, `demandelines` | Ne suit jamais : entité figée à la création, jamais recalculée |
+
 - **écriture** : chaque insertion pose l'entité de l'objet de rattachement (`Entityscope::forPrinter()`,
-  `forExpedition()`, `forContract()` ; relevés toner : entités chargées en une requête) ; une réattribution d'envoi
-  prend l'entité de la nouvelle imprimante, liaisons BL comprises ;
-- **changement d'entité** : l'entité suit l'objet. Hook `item_update` sur `Printer` et `Contract` : quand
-  `entities_id` ou `is_recursive` change (fiche ou transfert natif, qui passe par la mise à jour), les lignes
-  rattachées sont recalées aussitôt. Choix assumé : l'historique d'une imprimante transférée (envois, relevés,
-  alertes) suit l'imprimante chez son nouveau client, comme les contrôles applicatifs, qui lisent déjà l'entité
-  actuelle de l'imprimante ;
-- **contrôle** : tâche quotidienne `PrintgestionEntityScope` (`Entityscope::reconcile()`), qui recale toute ligne en
-  écart et journalise chaque correction en `[ERREUR]` : un écart révèle un chemin d'écriture qui a oublié l'entité ;
-- imprimante ou contrat introuvable à l'écriture : entité racine, non récursive (visible des seuls comptes de la
-  racine), avec un avertissement au journal.
+  `forExpedition()`, `forContract()` ; relevés toner : entités chargées en une requête) ; une liaison BL prend celle de
+  son expédition, un rappel « non posée » celle de son envoi. Une réattribution d'envoi vers une autre imprimante ne
+  change pas son entité ;
+- **lecture** : écrans, listes, exports et contrôles d'accès des envois, alertes, liaisons BL et demandes filtrent sur
+  l'entité de la ligne (`Security::canAccessRow()`, `getAccessibleExpedition()`, `getAccessibleAlert()`), jamais sur
+  l'entité actuelle de l'imprimante : après un transfert de A vers B, un compte de B ne voit rien de l'historique
+  commercial de A, un compte de A le garde ;
+- **contrôle** : tâche quotidienne `PrintgestionEntityScope` (`Entityscope::reconcile()`), limitée aux données
+  techniques : elle recale toute ligne en écart et journalise chaque correction en `[ERREUR]` (un écart révèle un
+  chemin d'écriture qui a oublié l'entité). Elle ne lit pas les tables commerciales : une expédition dont l'entité
+  diffère de celle de son imprimante n'est pas une erreur ;
+- **étape 1.6.6** : entité des données commerciales recalculée à leur date de création, d'après l'historique GLPI de
+  l'imprimante (changements d'entité, option 80 ; de récursivité, option 86) ; une expédition réattribuée reprend son
+  imprimante d'origine (note « Réassignée depuis l'imprimante #N ») ; liaisons BL et lignes de demande prennent l'entité
+  de leur expédition ou de leur demande ;
+- **lignes orphelines** : imprimante (expédition, demande, contrat) introuvable à l'écriture ou purgée avant que
+  l'entité ne soit connue : entité racine, non récursive, donc invisible des comptes clients. Jamais rattachées d'office
+  à une autre entité ni supprimées : `Entityscope::findOrphans()` les liste (objet de rattachement absent et entité
+  racine non récursive) dans la configuration du plugin (carte « Lignes sans objet de rattachement », comptes de la
+  racine), dans le journal de la tâche quotidienne et à la migration 1.6.6, pour qu'un administrateur tranche.
 Hors périmètre : tables globales (référentiel Sage, mappings et règles SNMP, liaisons cartouche) et tables déjà
 rattachées à une entité (raccordements et leurs adresses et journaux via le raccordement, fréquences, alertes de
 sondes, réglages de sonde via l'agent natif).
@@ -836,12 +849,13 @@ supposée.
 | `update_expedition.php` | Marquer expédié (transporteur + tracking) → `markShipped()` |
 | `edit_expedition.php`, `reassign_expedition.php` | Édition / réassignation vers une autre imprimante |
 | `resolve_alert.php` | Ignorer une alerte « mauvaise imprimante » (suspendre / réactiver : actions de masse de l'écran des alertes) |
-| `link_bls.php`, `expedition_bls.php` | Lier des BL du plugin Gestion à une expédition (identifiant local ou « sage:<n°> » préparé dans l'entité de l'imprimante) ; lister les BL liés |
+| `link_bls.php`, `expedition_bls.php` | Lier des BL du plugin Gestion à une expédition (identifiant local ou « sage:<n°> » préparé dans l'entité de l'expédition) ; lister les BL liés |
 
 **BL du plugin Gestion** (`Security::getBlForExpedition()`) : un BL n'est utilisable pour une expédition que s'il existe et
-si son entité est celle de l'imprimante ou une entité parente (BL d'un groupe couvrant ses sites), dans le périmètre de
-l'utilisateur (`Security::getBlEntities()`). Appliqué à `update_expedition.php` (BL posté avec « expédiée » : refus, rien
-d'écrit), à `link_bls.php` (identifiant posté ou BL Sage déjà présent localement dans une autre entité : refusé et
+si son entité est celle de l'expédition (figée à sa création) ou une entité parente (BL d'un groupe couvrant ses sites),
+dans le périmètre de l'utilisateur (`Security::getBlEntities()`) ; jamais une entité sœur, même visible du compte.
+Appliqué à `update_expedition.php` (BL posté avec « expédiée » : refus, rien d'écrit), à `search_bls.php` (recherche
+dans la modale, filtrée par l'expédition), à `link_bls.php` (identifiant posté ou BL Sage déjà présent localement dans une autre entité : refusé et
 signalé dans `errors`) et à `expedition_bls.php` (un lien antérieur vers le BL d'un autre client n'est jamais relu). BL
 inexistant et BL d'un autre client reçoivent le même refus : l'existence d'un document d'un autre client n'est pas
 révélée.
@@ -927,7 +941,7 @@ courtoisie), `count`, `glpi_url`. Toute balise non fournie est remplacée par un
 | `PrintgestionCheckAgentVersion` (classe `Agentsetting`) | hebdomadaire | Dernière version publiée de GLPI Agent sur GitHub (une saisie à la main est gardée) |
 | `PrintgestionSilentProbes` (classe `Agentalert`) | quotidienne | Alertes « sonde sans contact » et « imprimante qui ne remonte plus » : ouverture, fermeture, notifications |
 | `PrintgestionCollectSchedule` (classe `Collectfrequency`) | 15 minutes | Fréquence des relevés de chaque entité appliquée aux tâches GLPI Inventory des raccordements (date de début) |
-| `PrintgestionEntityScope` (classe `Entityscope`) | quotidienne | Entité des données client recalée sur celle de l'imprimante, de l'expédition, de la demande ou du contrat ; chaque écart corrigé est journalisé en erreur |
+| `PrintgestionEntityScope` (classe `Entityscope`) | quotidienne | Entité des données techniques recalée sur celle de l'imprimante ou du contrat, chaque écart corrigé journalisé en erreur ; lignes orphelines signalées ; données commerciales jamais lues |
 
 Les 4 premières tâches sortent immédiatement (`return 0`) si la feature `toner` est désactivée, les 3 du module
 Déploiement Agent si la feature `deploiement` l'est. Toutes sont enregistrées par `Reminder::install()`, sauf `PrintgestionEntityScope` (`Entityscope::install()`), qui
@@ -971,8 +985,8 @@ Migration 1.5.9 : `sage` repris de `config` (lecture → lecture, modification �
    pour toute nouvelle table dont le nom ne se re-déduit pas par split sur `_`.
 3. **`plugin_printgestion_addDefaultWhere()`** (setup.php) : périmètres natifs pour
    `PluginPrintgestionContract` (contrats liés à ≥1 imprimante), `Billingview` (lignes du user
-   courant + vue courante) et `Expedition` (depuis 1.6.5, seconde barrière : la restriction native porte sur
-   l'`entities_id` de l'expédition, le plugin ajoute celle de l'imprimante liée).
+   courant + vue courante) et `Expedition` (seconde barrière : restriction explicite sur l'`entities_id` de
+   l'expédition, figée à sa création, la même que la restriction native ; jamais l'entité de l'imprimante).
 4. **Itemtype dédié `PluginPrintgestionContract`** : sous-classe de Contract sans table propre,
    pour isoler session de recherche/colonnes/exports et porter l'autorisation par le droit plugin.
 
