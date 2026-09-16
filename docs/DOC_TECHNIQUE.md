@@ -958,7 +958,7 @@ demandes validées est en service. Une mise à jour du plugin ne change pas l'é
 
 | Droit | Protège |
 |---|---|
-| `plugin_printgestion_contrats` | Dashboard contrats / Liste / Créer Print (UPDATE pour créer) ; onglet « Tarifs Print Gestion » des contrats : READ voir, UPDATE ajouter ou supprimer un tarif, toujours avec le droit natif sur le contrat |
+| `plugin_printgestion_contrats` | Dashboard contrats / Liste / Créer Print (UPDATE pour créer ; entité cible, contrat, imprimante et lieu choisis toujours dans le périmètre du compte, contrôlés avant toute écriture) ; onglet « Tarifs Print Gestion » des contrats : READ voir, UPDATE ajouter ou supprimer un tarif, toujours avec le droit natif sur le contrat |
 | `plugin_printgestion_dashboard` | Alertes toner (dashboard + actions) ; onglet « Seuils d'alerte » des imprimantes (UPDATE pour enregistrer) |
 | `plugin_printgestion_expedition` | Expéditions (UPDATE pour agir) |
 | `plugin_printgestion_validation` | Demandes d'envoi : READ voir, UPDATE modifier / valider / annuler (file aussi visible avec `dashboard` READ, sans agir) |

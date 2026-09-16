@@ -180,6 +180,23 @@ def scenario_cloisonnement():
     liaisons = valeur(f"SELECT COUNT(*) FROM glpi_contracts_items ci JOIN glpi_contracts c ON c.id = ci.contracts_id WHERE c.name = 'TST-CONTRAT-LIAISON' AND ci.items_id = {pb}")
     constat("« Créer Print » : imprimante de Client test B (printers_id posté) jamais liée", ok_ko(liaisons == "0"),
             f"contrat créé {lies}, liaisons {liaisons}" if lies else "")
+    sql(f"INSERT INTO glpi_locations (entities_id, name, completename, level, locations_id, date_creation, date_mod) VALUES ({b}, 'Lieu test B', 'Lieu test B', 1, 0, NOW(), NOW());")
+    lieu_b = valeur("SELECT MAX(id) FROM glpi_locations WHERE name = 'Lieu test B'")
+    WEB.post(config.FRONT + "/print.form.php", [("add", "1"), ("contract_mode", "new"), ("printer_mode", "new"), ("entities_id", str(d.SITE_A1)),
+                                               ("c_name", "TST-CONTRAT-LIEU-B"), ("c_duration", "12"), ("p_name", "TST-IMPRIMANTE-LIEU-B"), ("locations_id", lieu_b)])
+    crees = lignes("SELECT 'contrat', id FROM glpi_contracts WHERE name = 'TST-CONTRAT-LIEU-B' UNION ALL SELECT 'imprimante', id FROM glpi_printers WHERE name = 'TST-IMPRIMANTE-LIEU-B'")
+    for genre, ident in crees:
+        CTX.crees["contrats" if genre == "contrat" else "imprimantes"].append(int(ident))
+    constat("« Créer Print » : lieu de Client test B refusé, rien créé", ok_ko(not crees), f"créés : {crees}" if crees else "")
+    WEB.post(config.FRONT + "/print.form.php", [("add", "1"), ("contract_mode", "new"), ("printer_mode", "new"), ("entities_id", str(d.SITE_A1)),
+                                               ("c_name", "TST-CONTRAT-TEMOIN"), ("c_duration", "12"), ("p_name", "TST-IMPRIMANTE-TEMOIN")])
+    crees = lignes("SELECT 'contrat', id, entities_id FROM glpi_contracts WHERE name = 'TST-CONTRAT-TEMOIN' "
+                   "UNION ALL SELECT 'imprimante', id, entities_id FROM glpi_printers WHERE name = 'TST-IMPRIMANTE-TEMOIN'")
+    for genre, ident, _ in crees:
+        CTX.crees["contrats" if genre == "contrat" else "imprimantes"].append(int(ident))
+    constat("témoin « Créer Print » : contrat et imprimante créés et liés dans une sous-entité du compte (Site test A1)",
+            ok_ko(sorted(r[2] for r in crees) == [str(d.SITE_A1)] * 2), str(crees))
+    sql(f"DELETE FROM glpi_locations WHERE id = {lieu_b};")
 
 
 # ── 3. Points d'entrée sans droit ────────────────────────────────────────────

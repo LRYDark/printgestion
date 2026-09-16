@@ -255,7 +255,8 @@ class PluginPrintgestionPrint extends CommonGLPI {
 
         if ($contract_mode === 'existing') {
             $contracts_id = (int) ($input['contracts_id'] ?? 0);
-            if ($contracts_id <= 0 || !$contract->getFromDB($contracts_id)) {
+            // Hors périmètre de l'utilisateur : même refus qu'un contrat inexistant.
+            if ($contracts_id <= 0 || !$contract->getFromDB($contracts_id) || !$contract->canViewItem()) {
                 Session::addMessageAfterRedirect(
                     __('Veuillez sélectionner un contrat existant valide.', 'printgestion'), false, ERROR
                 );
@@ -266,7 +267,8 @@ class PluginPrintgestionPrint extends CommonGLPI {
 
         if ($printer_mode === 'existing') {
             $printers_id = (int) ($input['printers_id'] ?? 0);
-            if ($printers_id <= 0 || !$printer->getFromDB($printers_id)) {
+            // Hors périmètre de l'utilisateur : même refus qu'une imprimante inexistante.
+            if ($printers_id <= 0 || !$printer->getFromDB($printers_id) || !$printer->canViewItem()) {
                 Session::addMessageAfterRedirect(
                     __('Veuillez sélectionner une imprimante existante valide.', 'printgestion'), false, ERROR
                 );
@@ -283,6 +285,24 @@ class PluginPrintgestionPrint extends CommonGLPI {
             $new_entity = $contract_entity;
         } else {
             $new_entity = (int) ($input['entities_id'] ?? ($_SESSION['glpiactive_entity'] ?? 0));
+        }
+
+        // Cloisonnement client : rien n'est créé ni lié hors des entités de l'utilisateur. Les créations passent par
+        // add(), qui ne contrôle pas l'entité : contrôle ici, avant toute écriture.
+        if (!Session::haveAccessToEntity($new_entity)) {
+            Session::addMessageAfterRedirect(
+                __('Entité hors de votre périmètre : rien n\'a été créé.', 'printgestion'), false, ERROR
+            );
+            return false;
+        }
+        $locations_id = (int) ($input['locations_id'] ?? 0);
+        $location     = new Location();
+        if ($printer_mode === 'new' && $locations_id > 0
+            && (!$location->getFromDB($locations_id) || !$location->canViewItem())) {
+            Session::addMessageAfterRedirect(
+                __('Veuillez sélectionner un lieu valide.', 'printgestion'), false, ERROR
+            );
+            return false;
         }
 
         // Validation des champs requis selon le mode (ne pas se fier au JS).
