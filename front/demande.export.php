@@ -71,6 +71,11 @@ if (isset($_POST['send']) || isset($_POST['download'])) {
         Html::redirect($back);
     }
 
+    if (!empty($result['not_sent'])) {
+        // Export enregistré (demandes exportées, expéditions créées) mais mail aux Achats non parti.
+        $flash([$result['not_sent']], ERROR);
+        Html::redirect($page);
+    }
     $flash([sprintf(
         __('Export envoyé aux Achats : %1$d demande(s), %2$d ligne(s), fichier archivé sur les demandes.', 'printgestion'),
         count($ids),
@@ -89,6 +94,8 @@ Html::header(
 
 echo "<div class='container-fluid mt-3'>";
 PluginPrintgestionMenu::showTabBar('tn_dem');
+// Commandes enregistrées mais non transmises aux Achats : en tête, jusqu'au renvoi.
+PluginPrintgestionPurchaseorder::showNotSentCard();
 
 $esc       = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 // Paramètre « demandes » et non « id » : GLPI lit id comme l'identifiant d'une fiche

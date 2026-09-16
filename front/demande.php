@@ -30,6 +30,8 @@ Html::header(
 echo "<div class='container-fluid mt-3'>";
 
 PluginPrintgestionMenu::showTabBar('tn_dem');
+// Commandes enregistrées mais non transmises aux Achats : en tête, jusqu'au renvoi.
+PluginPrintgestionPurchaseorder::showNotSentCard();
 
 // Proposition automatique désactivée : la file ne se remplit pas — le dire.
 $propose_task = new CronTask();

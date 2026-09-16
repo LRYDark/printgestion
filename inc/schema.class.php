@@ -54,6 +54,7 @@ class PluginPrintgestionSchema {
         '1.6.4' => 'migrateTo164',
         '1.6.5' => 'migrateTo165',
         '1.6.6' => 'migrateTo166',
+        '1.6.7' => 'migrateTo167',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -1038,6 +1039,45 @@ class PluginPrintgestionSchema {
      * (historique supprimé avec elle) : la ligne garde l'entité qu'elle porte ; à la racine, elle est listée
      * comme orpheline. Rien n'est supprimé.
      */
+    /**
+     * 1.6.7 — transmission des commandes aux Achats : une ligne par commande enregistrée (commande directe ou export
+     * de demandes), statut de l'envoi du mail, lignes et fichier archivé pour un renvoi identique
+     * (PluginPrintgestionPurchaseorder). Les commandes antérieures, transmises dans la même transaction que leur
+     * enregistrement, n'ont pas de ligne.
+     */
+    private static function migrateTo167(Migration $migration): void {
+        global $DB;
+
+        $charset   = DBConnection::getDefaultCharset();
+        $collation = DBConnection::getDefaultCollation();
+        $sign      = DBConnection::getDefaultPrimaryKeySignOption();
+        if (!$DB->tableExists('glpi_plugin_printgestion_purchaseorders')) {
+            $migration->displayMessage('Print Gestion — création de la table des transmissions aux Achats');
+            $DB->doQuery("CREATE TABLE `glpi_plugin_printgestion_purchaseorders` (
+                `id` int {$sign} NOT NULL AUTO_INCREMENT,
+                `group_id` char(36) NOT NULL,
+                `source` varchar(10) NOT NULL,
+                `documents_id` int {$sign} NOT NULL DEFAULT '0',
+                `users_id` int {$sign} NOT NULL DEFAULT '0',
+                `nb_lines` int NOT NULL DEFAULT '0',
+                `mail_rows` longtext NOT NULL,
+                `status` varchar(10) NOT NULL DEFAULT 'pending',
+                `attempts` int NOT NULL DEFAULT '0',
+                `last_error` text NULL,
+                `date_creation` timestamp NULL DEFAULT NULL,
+                `date_last_attempt` timestamp NULL DEFAULT NULL,
+                `date_sent` timestamp NULL DEFAULT NULL,
+                `date_notified` timestamp NULL DEFAULT NULL,
+                PRIMARY KEY (`id`),
+                UNIQUE KEY `group_id` (`group_id`),
+                KEY `documents_id` (`documents_id`),
+                KEY `users_id` (`users_id`),
+                KEY `status` (`status`),
+                KEY `date_creation` (`date_creation`)
+            ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
+        }
+    }
+
     private static function migrateTo166(Migration $migration): void {
         global $DB;
 

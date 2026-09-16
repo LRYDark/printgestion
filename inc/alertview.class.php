@@ -307,9 +307,11 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
             $ma->itemDone($item->getType(), $id, $result['ok'] ? MassiveAction::ACTION_OK : MassiveAction::ACTION_KO);
         }
 
-        $messages = $result['ok']
-            ? [sprintf(__('Commande envoyée aux Achats : %d expédition(s) enregistrée(s).', 'printgestion'), (int) $result['created'])]
-            : explode("\n", (string) $result['error']);
+        $messages = !$result['ok']
+            ? explode("\n", (string) $result['error'])
+            : (!empty($result['not_sent'])
+                ? [sprintf(__('%d expédition(s) enregistrée(s).', 'printgestion'), (int) $result['created']), $result['not_sent']]
+                : [sprintf(__('Commande envoyée aux Achats : %d expédition(s) enregistrée(s).', 'printgestion'), (int) $result['created'])]);
         foreach (array_merge($messages, (array) $result['warnings']) as $message) {
             $message = trim(ltrim((string) $message, '- '));
             if ($message !== '') {

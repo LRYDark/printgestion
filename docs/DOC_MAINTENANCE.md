@@ -372,6 +372,17 @@ Le motif figure dans la colonne « Référence non résolue » de l'écran Alert
 4. Une fois l'import validé, utiliser « Envoyer aux Achats ». Attention : un fichier de test importé pour de
    bon dans Sage n'est pas tracé comme exporté — ne pas le renvoyer ensuite.
 
+### « Commande ENREGISTRÉE mais NON TRANSMISE aux Achats »
+
+La commande est enregistrée (expéditions, fichier archivé) et ses cartouches restent verrouillées, mais le mail aux
+Achats n'est pas parti (serveur mail injoignable, aucun destinataire Achats, fichier archivé illisible : cause
+exacte dans la carte et dans `printgestion.log`). **Ne pas recommander** : régler la cause, puis cliquer
+« Renvoyer aux Achats » dans la carte « Commandes non transmises aux Achats » (écrans Expéditions, Demandes d'envoi
+ou Export). Le renvoi reprend le fichier d'origine, jamais un fichier recalculé. Si les Achats confirment avoir
+quand même reçu la commande (erreur signalée par le serveur après remise du message), ne pas renvoyer. Au-delà de
+4 h, la notification « Print Gestion - Commande non transmise aux Achats » part à l'administrateur et à l'auteur ;
+si le journal de la tâche `CheckAlerts` indique « non notifiées », vérifier que cette notification est active.
+
 ### Commande refusée : « Fichier Gesconso non archivé »
 
 Rien n'a été enregistré ni envoyé aux Achats. Deux causes :

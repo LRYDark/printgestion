@@ -70,6 +70,17 @@ class PluginPrintgestionReminder extends CommonGLPI {
         $reminders_sent = PluginPrintgestionExpedition::sendInstallReminders();
         // Avancement des expéditions (poses détectées, réattributions) → demandes d'envoi.
         PluginPrintgestionDemande::syncFromExpeditions();
+        // Commandes enregistrées mais non transmises aux Achats depuis plus de STALE_HOURS heures : notification.
+        $not_sent = PluginPrintgestionPurchaseorder::notifyStale();
+        if ($task !== null && $not_sent['stale'] > 0) {
+            $task->log(sprintf(
+                'Commandes non transmises aux Achats depuis plus de %d h : %d — notifiées : %d — non notifiées : %d',
+                PluginPrintgestionPurchaseorder::STALE_HOURS,
+                $not_sent['stale'],
+                $not_sent['notified'],
+                $not_sent['errors']
+            ));
+        }
         // Relance native des demandes qui traînent (proposées ou validées non exportées).
         $demande_reminders = PluginPrintgestionDemande::sendReminders();
         if ($task !== null && $demande_reminders > 0) {

@@ -1079,9 +1079,6 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         return $sent;
     }
 
-    /** Code d'exception : échec du mail aux Achats pendant l'export (message affichable). */
-    const EXPORT_MAIL_FAILURE = 4301;
-
     /**
      * Export Gesconso de demandes VALIDÉES, en un seul fichier (une ligne par cartouche).
      *
@@ -1197,7 +1194,8 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                     return $documents_id;
                 });
             } else {
-                $out['documents_id'] = self::transactional(function () use ($file, $demandes, $data, $numbers, $author, $now, &$archive) {
+                $order_id = 0;
+                $out['documents_id'] = self::transactional(function () use ($file, $demandes, $data, $numbers, $author, $now, &$archive, &$order_id) {
                     // UUID de 36 caractères (colonne group_id) : Rule::getUuid() en produit 41.
                     $group_id    = PluginPrintgestionExpedition::generateUuid();
                     $line_object = new PluginPrintgestionDemandeline();
@@ -1250,24 +1248,25 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                     $archive = new Document();
                     $archive->getFromDB($documents_id);
 
-                    $mail = PluginPrintgestionExpedition::sendPurchaseOrderMail($mail_rows, $file['path']);
-                    if (!$mail['ok']) {
-                        throw new RuntimeException($mail['error'], self::EXPORT_MAIL_FAILURE);
-                    }
+                    // Enregistrer d'abord, envoyer ensuite : le mail part après la transaction.
+                    $order_id = PluginPrintgestionPurchaseorder::record($group_id, PluginPrintgestionPurchaseorder::SOURCE_EXPORT, $documents_id, $mail_rows);
                     return $documents_id;
                 });
+                $archive = null; // archive validée en base : plus jamais retirée par le traitement d'erreur ci-dessous
                 PluginPrintgestionAlert::invalidateCache();
-                foreach (array_keys($demandes) as $id) {
-                    self::raiseEventFor('demande_exported', $id);
+
+                // Export enregistré : mail aux Achats (demande_exported émis par send() une fois transmis). En cas
+                // d'échec, l'export reste enregistré et verrouillé, « non transmis », à renvoyer.
+                $sent = PluginPrintgestionPurchaseorder::send($order_id);
+                if (!$sent['ok']) {
+                    $out['not_sent'] = PluginPrintgestionPurchaseorder::getNotSentMessage($sent['error']);
                 }
             }
         } catch (Throwable $e) {
             if ($archive !== null) {
                 PluginPrintgestionGesconso::removeOrphanArchive($archive->fields);
             }
-            if ($e->getCode() === self::EXPORT_MAIL_FAILURE) {
-                $out['errors'][] = $e->getMessage();
-            } elseif ($e->getCode() === PluginPrintgestionGesconso::ARCHIVE_FAILURE) {
+            if ($e->getCode() === PluginPrintgestionGesconso::ARCHIVE_FAILURE) {
                 PluginPrintgestionLogger::error('export', sprintf('Export Gesconso des demandes %s annulé : fichier non archivé.', $numbers), $e);
                 $out['errors'][] = $e->getMessage();
             } elseif (PluginPrintgestionExpedition::isDuplicateActiveError($e)) {

@@ -167,12 +167,14 @@ def scenario_migration():
     sql(f"UPDATE {EXP} SET date_alert = NOW() - INTERVAL 2 DAY WHERE id = {exp};"
         f"INSERT INTO {LIENS} (expeditions_id, bl_surveys_id, date_creation, entities_id, is_recursive) VALUES ({exp}, 434343, NOW(), {d.SITE_A2}, 0);")
     transferer(imp, d.CLIENT_B)
+    version_cible = valeur("SELECT value FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'schema_version'")
     # Ce qu'aurait fait 1.6.5 au transfert : l'historique commercial suit l'imprimante.
     sql(f"UPDATE {EXP} SET entities_id = {d.CLIENT_B} WHERE id = {exp}; UPDATE {LIENS} SET entities_id = {d.CLIENT_B} WHERE expeditions_id = {exp};"
         "UPDATE glpi_configs SET value = '1.6.5' WHERE context = 'plugin:printgestion' AND name = 'schema_version';")
     res = subprocess.run([config.PHP, "bin/console", "plugin:install", "-u", config.GLPI_LOGIN, "-f", "printgestion", "-n"], cwd=config.GLPI_DIR, capture_output=True, text=True)
     subprocess.run([config.PHP, "bin/console", "plugin:activate", "printgestion", "-n"], cwd=config.GLPI_DIR, capture_output=True, text=True)
-    verifier("mise à jour rejouée jusqu'à 1.6.6", (res.returncode, valeur("SELECT value FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'schema_version'")), (0, "1.6.6"))
+    verifier(f"mise à jour rejouée de 1.6.5 jusqu'à la version courante ({version_cible})",
+             (res.returncode, valeur("SELECT value FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'schema_version'")), (0, version_cible))
     verifier("expédition et liaison BL : entité de leur création retrouvée dans l'historique (Site test A2)",
              (portee(EXP, exp), lignes(f"SELECT entities_id FROM {LIENS} WHERE expeditions_id = {exp}")), ((str(d.SITE_A2), "0"), [[str(d.SITE_A2)]]))
     transferer(imp, d.SITE_A2)

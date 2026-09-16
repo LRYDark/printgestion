@@ -714,7 +714,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         }
 
         try {
-            // ── 4. Expéditions + mail Achats : tout ou rien ──
+            // ── 4. Enregistrement (expéditions, fichier archivé, transmission en attente), puis mail aux Achats ──
+            // Enregistrer d'abord : un mail parti sur une commande non enregistrée ferait recommander la cartouche.
             $group_id = self::generateUuid();
             $DB->beginTransaction();
             // DBmysql n'expose pas l'état de la transaction : suivi local, pour ne jamais
@@ -741,16 +742,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 $archive = new Document();
                 $archive->getFromDB($documents_id);
 
-                $mail = self::sendPurchaseOrderMail($rows, $file['path']);
-                if (!$mail['ok']) {
-                    $DB->rollBack();
-                    $in_transaction    = false;
-                    PluginPrintgestionGesconso::removeOrphanArchive($archive->fields);
-                    $result['created'] = 0;
-                    $result['error']   = $mail['error'] . ' '
-                        . __('Aucune expédition n\'a été enregistrée : la commande peut être relancée.', 'printgestion');
-                    return $result;
-                }
+                $order_id = PluginPrintgestionPurchaseorder::record($group_id, PluginPrintgestionPurchaseorder::SOURCE_DIRECT, $documents_id, $rows);
                 $DB->commit();
                 $in_transaction = false;
             } catch (Throwable $e) {
@@ -771,17 +763,24 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                     ? $e->getMessage()
                     : (self::isDuplicateActiveError($e)
                     ? __('Commande non passée : un autre envoi vient d\'être enregistré pour une de ces cartouches (commande simultanée). Rechargez l\'écran. Aucune expédition n\'a été enregistrée.', 'printgestion')
-                    : __('Commande non passée : erreur technique pendant l\'enregistrement ou l\'envoi (détail dans le journal d\'erreurs GLPI). Aucune expédition n\'a été enregistrée.', 'printgestion'));
+                    : __('Commande non passée : erreur technique pendant l\'enregistrement (détail dans le journal d\'erreurs GLPI). Aucune expédition n\'a été enregistrée, rien n\'a été envoyé aux Achats.', 'printgestion'));
                 return $result;
             }
-            $result['ok']   = true;
-            $result['mail'] = true;
+            $result['ok'] = true;
 
-            // ── 5. Mails complémentaires : non bloquants, mais jamais passés sous silence ──
-            if ($send_planif && !self::sendOrderPlanifMail($rows, $file['path'])) {
+            // Commande enregistrée : mail aux Achats. En cas d'échec, elle reste enregistrée et verrouillée,
+            // « non transmise », à renvoyer (jamais annulée ni renvoyée automatiquement).
+            $sent = PluginPrintgestionPurchaseorder::send($order_id);
+            $result['mail'] = $sent['ok'];
+            if (!$sent['ok']) {
+                $result['not_sent'] = PluginPrintgestionPurchaseorder::getNotSentMessage($sent['error']);
+            }
+
+            // ── 5. Mails complémentaires, seulement si la commande est transmise : non bloquants, mais jamais passés sous silence ──
+            if ($sent['ok'] && $send_planif && !self::sendOrderPlanifMail($rows, $file['path'])) {
                 $result['warnings'][] = __('Commande envoyée aux Achats, mais le mail à la planification n\'est pas parti (destinataires ou modèle non configurés, ou erreur d\'envoi).', 'printgestion');
             }
-            if ($send_courtesy) {
+            if ($sent['ok'] && $send_courtesy) {
                 $courtesy = self::sendOrderCourtesyMails($rows);
                 if ($courtesy['no_template']) {
                     $result['warnings'][] = __('Mail de courtoisie non envoyé : aucun modèle de notification configuré.', 'printgestion');
@@ -851,7 +850,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      * @param ?int $requester_user_id User GLPI à mettre en copie (défaut : user connecté).
      * @return array ['ok' => bool, 'error' => string] — error renseigné quand ok = false.
      */
-    public static function sendPurchaseOrderMail(array $rows, string $xlsx, ?int $requester_user_id = null): array {
+    public static function sendPurchaseOrderMail(array $rows, string $xlsx, ?int $requester_user_id = null, ?string $xlsx_name = null): array {
         if (empty($rows)) {
             return ['ok' => false, 'error' => __('Aucune ligne à commander.', 'printgestion')];
         }
@@ -889,7 +888,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         $error   = '';
 
         if ($gabarit > 0) {
-            $ok = PluginPrintgestionConfig::sendMail($valid, $gabarit, self::buildPurchaseBalises($rows), $xlsx);
+            $ok = PluginPrintgestionConfig::sendMail($valid, $gabarit, self::buildPurchaseBalises($rows), $xlsx, $xlsx_name);
             if (!$ok) {
                 $error = PluginPrintgestionConfig::getLastMailError();
             }
@@ -905,7 +904,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 ) . '</p>'
                 . '<p>' . __('Merci.', 'printgestion') . '</p>';
             $raw_error = null;
-            $ok = self::sendRawMail($to, $cc, $subject, $bodyHtml, $xlsx, $raw_error);
+            $ok = self::sendRawMail($to, $cc, $subject, $bodyHtml, $xlsx, $raw_error, $xlsx_name);
             if (!$ok) {
                 $error = (string)$raw_error;
             }
@@ -927,7 +926,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      * Envoi direct d'un mail (GLPIMailer/Symfony) sans gabarit : sujet + corps HTML
      * + pièce jointe optionnelle. $to = destinataire principal, $cc = copies.
      */
-    protected static function sendRawMail(string $to, array $cc, string $subject, string $bodyHtml, ?string $attachment = null, ?string &$error = null): bool {
+    protected static function sendRawMail(string $to, array $cc, string $subject, string $bodyHtml, ?string $attachment = null, ?string &$error = null, ?string $attachment_name = null): bool {
         global $CFG_GLPI;
 
         $mmail = new GLPIMailer();
@@ -952,7 +951,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 PluginPrintgestionLogger::error('Expedition::sendRawMail', sprintf('Mail « %s » non envoyé : pièce jointe %s introuvable ou vide.', $subject, basename($attachment)));
                 return false;
             }
-            $emailObj->attachFromPath($attachment);
+            $emailObj->attachFromPath($attachment, $attachment_name);
             if (count($emailObj->getAttachments()) === 0) {
                 $error = __('pièce jointe non attachée au message, mail non envoyé', 'printgestion');
                 PluginPrintgestionLogger::error('Expedition::sendRawMail', sprintf('Mail « %s » non envoyé : pièce jointe %s non attachée.', $subject, basename($attachment)));

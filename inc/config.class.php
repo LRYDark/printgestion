@@ -648,6 +648,7 @@ class PluginPrintgestionConfig extends CommonDBTM {
             'glpi_plugin_printgestion_printer_thresholds',
             'glpi_plugin_printgestion_historical_yields',
             'glpi_plugin_printgestion_expedition_bls',
+            'glpi_plugin_printgestion_purchaseorders',
             'glpi_plugin_printgestion_table_prefs', // legacy
             // Anciennes tables cache (maintenant abandonnées) — drop si existent
             'glpi_plugin_printgestion_alertviews',
@@ -1500,8 +1501,9 @@ HTML;
      * @param int          $gabarit_id ID du gabarit glpi_notificationtemplates.
      * @param array        $balises    ['##printgestion.printer##' => 'valeur', ...]
      * @param string|null  $attachment Chemin fichier à joindre (optionnel).
+     * @param string|null  $attachment_name Nom de la pièce jointe (défaut : nom du fichier).
      */
-    public static function sendMail($email, int $gabarit_id, array $balises = [], ?string $attachment = null): bool {
+    public static function sendMail($email, int $gabarit_id, array $balises = [], ?string $attachment = null, ?string $attachment_name = null): bool {
         global $DB, $CFG_GLPI;
 
         self::$last_mail_error = '';
@@ -1645,7 +1647,7 @@ HTML;
                 PluginPrintgestionLogger::error('Config::sendMail', sprintf('Mail non envoyé (modèle %d) : pièce jointe %s introuvable ou vide.', $gabarit_id, basename($attachment)));
                 return false;
             }
-            $emailObj->attachFromPath($attachment);
+            $emailObj->attachFromPath($attachment, $attachment_name); // nom affiché (fichier archivé : nom d'origine)
             if (count($emailObj->getAttachments()) === 0) {
                 self::$last_mail_error = __('pièce jointe non attachée au message, mail non envoyé', 'printgestion');
                 PluginPrintgestionLogger::error('Config::sendMail', sprintf('Mail non envoyé (modèle %d) : pièce jointe %s non attachée.', $gabarit_id, basename($attachment)));

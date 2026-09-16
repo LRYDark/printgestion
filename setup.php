@@ -7,7 +7,7 @@
 // À incrémenter à chaque nouvelle étape de schéma (inc/schema.class.php) ou nouvelle
 // tâche automatique : GLPI ne rejoue l'installation (migrations, enregistrement des
 // tâches) que si cette version change.
-define('PLUGIN_PRINTGESTION_VERSION', '1.6.6');
+define('PLUGIN_PRINTGESTION_VERSION', '1.6.7');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');
@@ -69,6 +69,8 @@ function plugin_init_printgestion() {
         // Déploiement Agent : notifications des alertes de sondes, réglages et action dans « Agent cleanup »
         // (lus par la tâche native Cleanoldagents, hors session) et cartes du tableau de bord.
         Plugin::registerClass('PluginPrintgestionAgentalert', ['notificationtemplates_types' => true]);
+        // Commandes enregistrées mais non transmises aux Achats : notification native.
+        Plugin::registerClass('PluginPrintgestionPurchaseorder', ['notificationtemplates_types' => true]);
         if (PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
             $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::STALE_AGENT_CONFIG]['printgestion'] = PluginPrintgestionAgentalert::getStaleAgentHook();
             $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::DASHBOARD_CARDS]['printgestion']    = [PluginPrintgestionAgentalert::class, 'getDashboardCards'];

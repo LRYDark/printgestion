@@ -114,6 +114,7 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_sageimports` | Trace des imports (référentiel, fichier, auteur, volumes) |
 | `glpi_plugin_printgestion_snmprules` | Règles de lecture SNMP par constructeur (ignorer / inverser une propriété) — nommée `snmpadapters` avant la 1.5.5 |
 | `glpi_plugin_printgestion_expedition_bls` | Liaison expéditions ↔ BL du plugin Gestion |
+| `glpi_plugin_printgestion_purchaseorders` | Transmission aux Achats (étape 1.6.7) : une ligne par commande enregistrée (groupe d'expéditions), origine, fichier archivé, lignes du mail, statut d'envoi (`pending`, `sending`, `sent`, `failed`), tentatives, dernière erreur, dates d'envoi et de notification |
 | `glpi_plugin_printgestion_snmp_mapping` | Mapping constructeur/propriété SNMP → cartouche |
 | `glpi_plugin_printgestion_cartridge_snmp` | Bindings directs cartouche ↔ propriété SNMP |
 | `glpi_plugin_printgestion_contractrates` | Tarifs €/page N&B / Couleur par contrat |
@@ -351,8 +352,8 @@ une autre entité, jamais la même machine : un envoi d'un client ne bloque pas 
 - **Export** (`front/demande.export.php`, `Demande::exportDemandes()`, droit validation UPDATE) : un fichier
   Gesconso pour la sélection de demandes validées. **Envoyer aux Achats** : verrous revérifiés, puis en
   transaction une expédition par ligne (la ligne `exported` cède son verrou à l'expédition), demandes
-  `exported`, fichier archivé sur les demandes et les expéditions, mail Achats ; échec d'archivage ou de mail
-  = rien n'est enregistré. **Télécharger (test, sans envoi)** : même fichier, archivé sur les demandes avec la
+  `exported`, fichier archivé sur les demandes et les expéditions, transmission « en attente » ; mail aux
+  Achats APRÈS la transaction (voir « Transmission aux Achats ») ; échec d'archivage = rien n'est enregistré. **Télécharger (test, sans envoi)** : même fichier, archivé sur les demandes avec la
   mention « non transmis », noté dans leur historique, sans mail, sans changement de statut ni expédition.
   Une seule ligne en défaut refuse l'export entier.
 - **Suivi après export** (`Demande::syncFromExpeditions()`, tâches `CheckAlerts` et `TrackingUpdate`, aussitôt
@@ -413,6 +414,20 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
   référentiel articles importé), prix 0 hors contrat. Une ligne en défaut n'est jamais écrite : l'appelant
   refuse l'export entier avec la liste des lignes en défaut.
 - Codes et références écrits en texte explicite (zéros de tête conservés) ; cellules vides non écrites.
+- **Transmission aux Achats** (`inc/purchaseorder.class.php`, table `purchaseorders`, étape 1.6.7) : commande
+  directe et export de demandes ENREGISTRENT d'abord (expéditions, fichier archivé, ligne de transmission
+  `pending` avec les lignes du mail, dans la transaction), puis `Purchaseorder::send()` envoie le mail. Un SMTP
+  peut signaler une erreur après avoir remis le message : un échec ne défait donc rien et ne renvoie rien tout
+  seul. La commande reste `failed` (verrou anti-double-envoi posé), message « ENREGISTRÉE mais NON TRANSMISE »,
+  carte « Commandes non transmises aux Achats » en tête des écrans Expéditions, Demandes d'envoi et Export
+  (commandes dont toutes les expéditions sont dans le périmètre), bouton « Renvoyer aux Achats »
+  (`front/purchaseorder.form.php`, droit validation UPDATE) qui renvoie le MÊME fichier archivé (nom d'origine
+  en pièce jointe) et les mêmes lignes, jamais régénérés. Réservation atomique de l'envoi (`sending`) : double
+  clic ou écrans simultanés n'envoient qu'une fois ; une commande `sent` n'est jamais renvoyée ; un envoi
+  interrompu se renvoie après 15 min. Mails planification et courtoisie seulement si la commande est
+  transmise ; `demande_exported` émis une fois l'export transmis. Surveillance : tâche `CheckAlerts`
+  (horaire), commande non transmise depuis plus de 4 h (`STALE_HOURS`) → notification native
+  `purchaseorder_not_sent`, une fois par commande, créée **active** (administrateur de GLPI et auteur).
 - **Archivage** (`Gesconso::archive()`) : chaque fichier transmis devient un Document GLPI natif (nom
   `Gesconso_…xlsx`, commentaire date / auteur / volume), rattaché aux expéditions créées (commande directe)
   ou aux demandes exportées. Entité racine, **non récursif** : invisible des comptes clients. L'archivage est
@@ -898,6 +913,7 @@ Le bouton « Qui est notifié ? » de la config affiche le récapitulatif selon 
 Détails d'implémentation (tous dans `expedition.class.php` sauf mention) :
 
 - **`sendPurchaseOrderMail($rows, $requester_uid)`** : point UNIQUE du mail achats.
+  Appelé par `Purchaseorder::send()` après l'enregistrement de la commande, avec le fichier archivé.
   Joint le fichier Gesconso (`Gesconso::write`, voir « Fichier Gesconso », 1 cartouche/ligne),
   l'envoie via `gabarit_achat` (corps synthétique : « N référence(s), détail dans l'Excel joint »),
   fallback mail brut si gabarit non configuré. Fichier temporaire supprimé après envoi.
