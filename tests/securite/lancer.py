@@ -30,7 +30,7 @@ def main():
         modifiees = [cle for cle in avant if avant[cle] != apres[cle]]
         resume.append(f"{nom:10} code {res.returncode if not modifiees else 1} — {ligne[-1] if ligne else 'pas de bilan (voir la sortie)'}"
                       + (f" — DONNÉES DE RÉFÉRENCE MODIFIÉES : {', '.join(modifiees)}" if modifiees else ""))
-    erreurs = lib.erreurs_php_depuis(tailles, attendues=("Fichier Gesconso non archivé",))
+    erreurs = lib.erreurs_php_depuis(tailles, attendues=("Fichier Gesconso non archivé", "panne simulee"))
     print("======== Synthèse")
     print("\n".join(resume))
     print(f"journaux GLPI : {len(erreurs)} erreur(s) PHP ou SQL inattendue(s)" + ("".join(f"\n    {e}" for e in erreurs[:10])))

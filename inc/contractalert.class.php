@@ -86,10 +86,16 @@ class PluginPrintgestionContractalert extends CommonGLPI {
         }
 
         $activated = 0;
+        $refused   = 0;
         foreach ($DB->request(['SELECT' => ['id'], 'FROM' => 'glpi_notifications', 'WHERE' => ['itemtype' => 'Contract', 'is_active' => 0]]) as $row) {
             if ((new Notification())->update(['id' => (int) $row['id'], 'is_active' => 1])) {
                 $activated++;
+            } else {
+                $refused++;
             }
+        }
+        if ($refused > 0) {
+            $out['errors'][] = sprintf(__('%d notification(s) de contrat non activée(s) : mise à jour refusée par GLPI.', 'printgestion'), $refused);
         }
         if ($activated > 0) {
             $out['done'][] = sprintf(__('%d notification(s) de contrat activée(s).', 'printgestion'), $activated);

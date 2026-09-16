@@ -289,6 +289,12 @@ def scenario_sans_droit():
         WEB.post(config.FRONT + "/contractrate.form.php", [("contracts_id", str(d.CONTRAT_A)), ("add_rate", "1"), ("type_cout", "color"), ("rate", "0.123"), ("actif", "1")])
         constat("témoin : compte avec les droits natif et du plugin, tarif ajouté",
                 ok_ko(valeur(f"SELECT COUNT(*) FROM glpi_plugin_printgestion_contractrates WHERE contracts_id = {d.CONTRAT_A} AND rate = 0.123") == "1"))
+        tarif_racine = valeur(f"SELECT MIN(id) FROM glpi_plugin_printgestion_contractrates WHERE contracts_id = {d.CONTRAT_RACINE}")
+        tarifs_avant = valeur("SELECT COUNT(*) FROM glpi_plugin_printgestion_contractrates")
+        WEB.post(config.FRONT + "/contractrate.form.php", [("contracts_id", str(d.CONTRAT_A)), ("delete_rate", tarif_racine)])
+        message = WEB.messages()
+        constat("suppression d'un tarif d'un autre contrat : rien supprimé, jamais « Tarif supprimé » annoncé",
+                ok_ko(valeur("SELECT COUNT(*) FROM glpi_plugin_printgestion_contractrates") == tarifs_avant and "Tarif supprimé" not in message and "introuvable" in message), message[:120])
     finally:
         sql("DELETE FROM glpi_plugin_printgestion_contractrates WHERE rate = 0.123;")
 

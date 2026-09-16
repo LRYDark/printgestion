@@ -854,7 +854,7 @@ supposée.
 | `update_expedition.php` | Marquer expédié (transporteur + tracking) → `markShipped()` |
 | `edit_expedition.php`, `reassign_expedition.php` | Édition / réassignation vers une autre imprimante |
 | `resolve_alert.php` | Ignorer une alerte « mauvaise imprimante » (suspendre / réactiver : actions de masse de l'écran des alertes) |
-| `link_bls.php`, `expedition_bls.php` | Lier des BL du plugin Gestion à une expédition (identifiant local ou « sage:<n°> » préparé dans l'entité de l'expédition) ; lister les BL liés |
+| `link_bls.php`, `expedition_bls.php` | Lier des BL du plugin Gestion à une expédition (identifiant local ou « sage:<n°> » préparé dans l'entité de l'expédition) ; lister les BL liés. `link_bls.php` : sélection entière ou rien (transaction) ; `ok` vrai seulement si tout est enregistré, sinon `errors` et aucune liaison modifiée |
 
 **BL du plugin Gestion** (`Security::getBlForExpedition()`) : un BL n'est utilisable pour une expédition que s'il existe et
 si son entité est celle de l'expédition (figée à sa création) ou une entité parente (BL d'un groupe couvrant ses sites),

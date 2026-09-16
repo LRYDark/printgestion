@@ -49,7 +49,12 @@ if (isset($_POST['delete_rate'])) {
             'id'           => $rate_id,
             'contracts_id' => $contracts_id,
         ]);
-        Session::addMessageAfterRedirect(__('Tarif supprimé', 'printgestion'), true, INFO);
+        // Tarif déjà supprimé ou d'un autre contrat : rien n'a été supprimé, ne pas l'annoncer.
+        if ($DB->affectedRows() > 0) {
+            Session::addMessageAfterRedirect(__('Tarif supprimé', 'printgestion'), true, INFO);
+        } else {
+            Session::addMessageAfterRedirect(__('Tarif introuvable sur ce contrat : rien n\'a été supprimé.', 'printgestion'), true, WARNING);
+        }
     }
 }
 

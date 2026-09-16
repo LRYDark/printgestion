@@ -1,11 +1,11 @@
 """BL : contrôle d'entité et d'existence (plugin Gestion simulé, tests/simulations/gestion).
 
-Règle : un envoi n'accepte que les BL de l'entité de son imprimante ou d'une entité parente, et seulement parmi les
+Règle : un envoi n'accepte que les BL de son entité (figée à sa création) ou d'une entité parente, et seulement parmi les
 entités du compte connecté. Jamais le BL d'une entité sœur, même si le compte voit les deux.
 1. update_expedition (compte Client test A) : BL de Client test B et BL inexistant refusés avec le même message ;
    BL de la racine (hors du périmètre du compte) refusé ; BL de Client test A accepté.
 2. link_bls (compte Client test A) : BL de Client test B refusé ; BL de Client test A lié ; « sage:<n°> » d'un BL
-   présent chez Client test B refusé ; nouveau BL Sage préparé dans l'entité de l'imprimante.
+   présent chez Client test B refusé ; nouveau BL Sage préparé dans l'entité de l'expédition ; réponse ok fausse et rien de modifié dès qu'un BL est refusé.
 3. expedition_bls : un lien vers le BL de Client test B posé en base n'est jamais relu.
 4. Sous-entités : compte de Site test A1 face au BL de Site test A2 (sœur) et de Client test A (parent hors de son
    périmètre) ; compte de Client test A (voit A1 et A2) : BL de A2 refusé sur un envoi de A1, BL de A accepté.
@@ -76,18 +76,36 @@ def main():
 
         section("2. link_bls (compte Client test A)")
         _, reponse = lier(ea, [str(bl_b)])
-        verifier("identifiant d'un BL de Client test B : refusé et signalé, aucun lien", (liens(ea), [e.get("error") for e in reponse.get("errors", [])]), ([], [MESSAGE_REFUS]))
-        lier(ea, [str(bl_a)])
-        verifier("BL de Client test A : lié", liens(ea), [bl_a])
+        verifier("identifiant d'un BL de Client test B : refusé et signalé (ok faux), aucun lien",
+                 (liens(ea), reponse.get("ok"), [e.get("error") for e in reponse.get("errors", [])]), ([], False, [MESSAGE_REFUS]))
+        _, reponse = lier(ea, [str(bl_a)])
+        verifier("BL de Client test A : lié (ok vrai)", (liens(ea), reponse.get("ok")), ([bl_a], True))
         _, reponse = lier(ea, [str(bl_a), "sage:BLTSTB0001"])
-        verifier("« sage:<n°> » d'un BL présent chez Client test B : refusé, BL de Client test A gardé", (liens(ea), len(reponse.get("errors", []))), ([bl_a], 1))
+        verifier("« sage:<n°> » d'un BL présent chez Client test B : refusé (ok faux), BL de Client test A gardé",
+                 (liens(ea), reponse.get("ok"), len(reponse.get("errors", []))), ([bl_a], False, 1))
+        _, reponse = lier(ea, [str(bl_b)])
+        verifier("sélection réduite à un BL refusé : aucune liaison existante retirée, ok faux", (liens(ea), reponse.get("ok")), ([bl_a], False))
+        _, reponse = lier(ea, ["sage:BLINCONNU01"])
+        verifier("BL Sage inexistant : ok faux, erreur rendue, liaison existante gardée", (liens(ea), reponse.get("ok"), len(reponse.get("errors", []))), ([bl_a], False, 1))
         lier(ea, [str(bl_a), "sage:BLOKTST001"])
         nouveau = valeur("SELECT id FROM glpi_plugin_gestion_surveys WHERE bl = 'BLOKTST001' OR bl LIKE 'BLOKTST001%'")
         if nouveau:
             CTX.crees["bl"].append(int(nouveau))
-        verifier("nouveau BL Sage : préparé dans l'entité de l'imprimante et lié",
+        verifier("nouveau BL Sage : préparé dans l'entité de l'expédition et lié",
                  (valeur(f"SELECT entities_id FROM glpi_plugin_gestion_surveys WHERE id = {nouveau}") if nouveau else None, liens(ea)),
                  (str(d.CLIENT_A), sorted([bl_a, int(nouveau or 0)])))
+        # Panne d'écriture simulée (déclencheur sur la base de test) : rien de modifié, ok faux, cause journalisée.
+        bl_a_bis = CTX.bl("BLTSTA0002", d.CLIENT_A)
+        avant = liens(ea)
+        sql("DROP TRIGGER IF EXISTS pgtest_panne_liaison; CREATE TRIGGER pgtest_panne_liaison BEFORE INSERT ON glpi_plugin_printgestion_expedition_bls "
+            "FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'panne simulee';")
+        try:
+            tailles = lib.tailles_journaux()
+            _, reponse = lier(ea, [str(bl_a_bis)])
+        finally:
+            sql("DROP TRIGGER IF EXISTS pgtest_panne_liaison;")
+        verifier("panne d'écriture pendant link_bls : ok faux, liaisons existantes intactes (transaction annulée), erreur journalisée",
+                 (reponse.get("ok"), liens(ea), "Liaisons BL de l'expédition" in lib.journal_depuis(tailles, "printgestion.log")), (False, avant, True))
 
         section("3. expedition_bls (compte Client test A)")
         sql(f"INSERT INTO glpi_plugin_printgestion_expedition_bls (expeditions_id, bl_surveys_id, date_creation, entities_id, is_recursive) VALUES ({ea}, {bl_b}, NOW(), {d.CLIENT_A}, 0);")

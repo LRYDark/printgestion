@@ -585,7 +585,11 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 $flash('error', __('Seul un raccordement dont la découverte est lancée peut être terminé.', 'printgestion'));
                 return $back;
             }
-            $racc->update(['id' => (int) $racc->getID(), 'status' => self::STATUS_CLOSED]);
+            if (!$racc->update(['id' => (int) $racc->getID(), 'status' => self::STATUS_CLOSED])) {
+                PluginPrintgestionLogger::error('raccordement', sprintf('Raccordement #%d : passage au statut terminé refusé.', $racc->getID()));
+                $flash('error', __('Raccordement non terminé : la mise à jour a été refusée (voir le journal Print Gestion).', 'printgestion'));
+                return $back;
+            }
             $report(4, [['success', sprintf(__('Raccordement terminé. %s.', 'printgestion'), self::formatCounts($racc->getResultCounts()))]]);
             return $back;
         }
@@ -596,7 +600,11 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 return $back;
             }
             $step = $racc->getCurrentStep();
-            $racc->update(['id' => (int) $racc->getID(), 'status' => self::STATUS_ABANDONED]);
+            if (!$racc->update(['id' => (int) $racc->getID(), 'status' => self::STATUS_ABANDONED])) {
+                PluginPrintgestionLogger::error('raccordement', sprintf('Raccordement #%d : passage au statut abandonné refusé.', $racc->getID()));
+                $flash('error', __('Raccordement non abandonné : la mise à jour a été refusée (voir le journal Print Gestion).', 'printgestion'));
+                return $back;
+            }
             $created = importArrayFromDB((string) $racc->fields['created_items']);
             $names   = [
                 SNMPCredential::class                       => __('identifiants SNMP', 'printgestion'),

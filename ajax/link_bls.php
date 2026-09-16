@@ -12,10 +12,11 @@
  * Pour les "sage:..." :
  *   - On appelle la fonction `documentExiste()` de SageApi pour vérifier
  *     que le BL existe toujours côté SAGE
- *   - On appelle en interne la logique de création de survey en récupérant
- *     l'entité depuis l'imprimante de l'expédition
+ *   - On appelle en interne la logique de création de survey dans l'entité de
+ *     l'expédition (figée à sa création)
  *
  * La liaison est stockée dans `glpi_plugin_printgestion_expedition_bls` (N:N).
+ * Réponse : ok vrai seulement si toute la sélection est enregistrée ; sinon ok faux, `errors`, rien de modifié.
  */
 
 include('../../../inc/includes.php');
@@ -102,7 +103,7 @@ foreach ($bls as $raw) {
         continue;
     }
 
-    // BL existant et du même client (entité de l'imprimante ou parente, dans le périmètre de l'utilisateur) :
+    // BL existant et du même client (entité de l'expédition ou parente, dans le périmètre de l'utilisateur) :
     // un identifiant posté, ou un BL Sage déjà présent localement dans une autre entité, est refusé.
     if (PluginPrintgestionSecurity::getBlForExpedition($bl_surveys_id, $exp) === null) {
         $errors[] = ['bl' => $raw, 'error' => 'BL introuvable ou rattaché à un autre client'];
@@ -112,10 +113,14 @@ foreach ($bls as $raw) {
     $target_ids[$bl_surveys_id] = true;
 }
 
-// Mode SYNC : on remplace la sélection actuelle par la cible.
-//   1. Charge les liens actuels de l'expé
-//   2. Supprime ceux qui ne sont plus dans la cible
-//   3. Insère ceux de la cible qui n'existent pas encore
+// Un BL refusé, introuvable ou non préparé : rien n'est modifié et les erreurs sont rendues. Le JS ne recharge
+// l'écran que sur ok ; appliquer quand même la sélection retirerait des liaisons sans que l'utilisateur le voie.
+if (!empty($errors)) {
+    echo json_encode(['ok' => false, 'errors' => $errors, 'prepared' => $prepared]);
+    exit;
+}
+
+// Mode SYNC : la sélection actuelle est remplacée par la cible, en une transaction.
 $current_ids = [];
 foreach ($DB->request([
     'SELECT' => ['bl_surveys_id'],
@@ -129,49 +134,47 @@ $legacy_principal = (int)($exp['bl_surveys_id'] ?? 0);
 if ($legacy_principal > 0) {
     $current_ids[$legacy_principal] = true;
 }
-
-// À supprimer
 $to_remove = array_diff_key($current_ids, $target_ids);
-foreach (array_keys($to_remove) as $rid) {
-    $DB->delete('glpi_plugin_printgestion_expedition_bls', [
-        'expeditions_id' => $expedition_id,
-        'bl_surveys_id'  => $rid,
-    ]);
-    // Si on retire le "principal" legacy, on reset la colonne
-    if ($rid === $legacy_principal) {
-        $DB->update('glpi_plugin_printgestion_expeditions', [
-            'bl_surveys_id' => null,
-        ], ['id' => $expedition_id]);
-        $legacy_principal = 0;
-    }
-}
+$to_add    = array_diff_key($target_ids, $current_ids);
 
-// À ajouter
-$to_add = array_diff_key($target_ids, $current_ids);
-foreach (array_keys($to_add) as $aid) {
-    try {
-        $DB->insert('glpi_plugin_printgestion_expedition_bls', PluginPrintgestionEntityscope::forExpedition($expedition_id) + [
-            'expeditions_id' => $expedition_id,
-            'bl_surveys_id'  => $aid,
-            'date_creation'  => date('Y-m-d H:i:s'),
-        ]);
-    } catch (Throwable $e) {
-        // Doublon possible en cas d'appels concurrents (clé unique) : liaison déjà
-        // présente, on poursuit — mais toute autre cause d'échec reste tracée.
-        PluginPrintgestionLogger::warning(
-            'link_bls',
-            sprintf('Liaison expédition %d ↔ BL %d non insérée (doublon concurrent ou erreur SQL).', $expedition_id, $aid),
-            $e
-        );
-    }
-}
-
-// Rétro-compat : si plus de principal mais des liens existent, set le premier
-if ($legacy_principal <= 0 && !empty($target_ids)) {
-    $first = array_key_first($target_ids);
-    $DB->update('glpi_plugin_printgestion_expeditions', [
-        'bl_surveys_id' => (int)$first,
-    ], ['id' => $expedition_id]);
+try {
+    PluginPrintgestionDemande::transactional(function () use ($DB, $expedition_id, $to_remove, $to_add, $target_ids, $legacy_principal) {
+        foreach (array_keys($to_remove) as $rid) {
+            if (!$DB->delete('glpi_plugin_printgestion_expedition_bls', ['expeditions_id' => $expedition_id, 'bl_surveys_id' => $rid])) {
+                throw new RuntimeException("Liaison BL {$rid} non supprimée.");
+            }
+            // Si on retire le "principal" legacy, on reset la colonne
+            if ($rid === $legacy_principal) {
+                if (!$DB->update('glpi_plugin_printgestion_expeditions', ['bl_surveys_id' => null], ['id' => $expedition_id])) {
+                    throw new RuntimeException('BL principal non retiré.');
+                }
+                $legacy_principal = 0;
+            }
+        }
+        foreach (array_keys($to_add) as $aid) {
+            try {
+                $DB->insert('glpi_plugin_printgestion_expedition_bls', PluginPrintgestionEntityscope::forExpedition($expedition_id) + [
+                    'expeditions_id' => $expedition_id,
+                    'bl_surveys_id'  => $aid,
+                    'date_creation'  => date('Y-m-d H:i:s'),
+                ]);
+            } catch (Throwable $e) {
+                // Seul cas toléré : la même liaison posée au même instant par un autre appel (clé unique).
+                if (countElementsInTable('glpi_plugin_printgestion_expedition_bls', ['expeditions_id' => $expedition_id, 'bl_surveys_id' => $aid]) === 0) {
+                    throw $e;
+                }
+            }
+        }
+        // Rétro-compat : si plus de principal mais des liens existent, set le premier
+        if ($legacy_principal <= 0 && !empty($target_ids)
+            && !$DB->update('glpi_plugin_printgestion_expeditions', ['bl_surveys_id' => (int)array_key_first($target_ids)], ['id' => $expedition_id])) {
+            throw new RuntimeException('BL principal non enregistré.');
+        }
+    });
+} catch (Throwable $e) {
+    PluginPrintgestionLogger::error('link_bls', sprintf('Liaisons BL de l\'expédition %d non enregistrées : rien n\'a été modifié.', $expedition_id), $e);
+    echo json_encode(['ok' => false, 'errors' => [['bl' => '—', 'error' => 'Enregistrement impossible, rien n\'a été modifié (voir le journal Print Gestion)']]]);
+    exit;
 }
 
 echo json_encode([
@@ -180,7 +183,7 @@ echo json_encode([
     'added'    => array_keys($to_add),
     'removed'  => array_keys($to_remove),
     'prepared' => $prepared,
-    'errors'   => $errors,
+    'errors'   => [],
 ]);
 
 

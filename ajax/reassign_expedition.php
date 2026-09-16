@@ -33,8 +33,17 @@ if ($refusal !== '') {
     Html::back();
 }
 
+$property = (string) (PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id)['toner_property'] ?? '');
 if (PluginPrintgestionExpedition::reassignToPrinter($expedition_id, $new_printers_id)) {
     PluginPrintgestionDemande::syncForExpedition($expedition_id);
+    // Cartouche native créée seulement si la référence de l'emplacement est résolue : sinon, le dire.
+    if (PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($new_printers_id, $property) <= 0) {
+        Session::addMessageAfterRedirect(
+            __('Cartouche GLPI non créée sur la nouvelle imprimante : référence de cartouche non résolue pour ce toner (liaison SNMP ou modèle à renseigner).', 'printgestion'),
+            true,
+            WARNING
+        );
+    }
     Session::addMessageAfterRedirect(
         __('Expédition réassignée et alerte résolue', 'printgestion'),
         true,

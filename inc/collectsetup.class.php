@@ -798,13 +798,19 @@ class PluginPrintgestionCollectsetup {
             'items_entities_id' => null,
             'date_check'        => null,
         ], ['plugin_printgestion_raccordements_id' => (int) $racc->getID()]);
-        $racc->update([
+        if (!$racc->update([
             'id'                      => (int) $racc->getID(),
             'status'                  => PluginPrintgestionRaccordement::STATUS_TRIGGERED,
             'date_triggered'          => $since,
             'date_inventory_prepared' => 'NULL',
             'date_verified'           => 'NULL',
-        ]);
+        ])) {
+            PluginPrintgestionLogger::error('collectsetup', sprintf('Raccordement #%d : découverte préparée (%d job(s)) mais statut « découverte lancée » non enregistré.', $racc->getID(), $pending));
+            return ['ok' => false, 'events' => [['error', sprintf(
+                __('GLPI Inventory a préparé %d job(s), mais le raccordement n\'a pas pu passer à « découverte lancée » : relancez l\'étape.', 'printgestion'),
+                $pending
+            )]]];
+        }
 
         return ['ok' => true, 'events' => [
             ['success', sprintf(_n('Découverte préparée : %d job en attente de la sonde.', 'Découverte préparée : %d jobs en attente de la sonde.', $pending, 'printgestion'), $pending)],
