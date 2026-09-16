@@ -87,6 +87,10 @@ try {
 if ($ok && in_array($statut, ['cancelled', 'installed'], true)) {
     PluginPrintgestionExpedition::resolveWrongPrinterAlerts($expedition_id);
 }
+// Avancement reporté aussitôt sur la demande d'envoi rattachée.
+if ($ok) {
+    PluginPrintgestionDemande::syncForExpedition($expedition_id);
+}
 
 echo json_encode([
     'ok'      => (bool)$ok,

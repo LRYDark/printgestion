@@ -354,8 +354,10 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
   = rien n'est enregistré. **Télécharger (test, sans envoi)** : même fichier, archivé sur les demandes avec la
   mention « non transmis », noté dans leur historique, sans mail, sans changement de statut ni expédition.
   Une seule ligne en défaut refuse l'export entier.
-- **Suivi après export** (`Demande::syncFromExpeditions()`, tâches `CheckAlerts` et `TrackingUpdate`, et à
-  l'ouverture d'une fiche) : chaque ligne exportée suit son expédition (en attente → exportée,
+- **Suivi après export** (`Demande::syncFromExpeditions()`, tâches `CheckAlerts` et `TrackingUpdate`, aussitôt
+  après une action sur une expédition — expédier, éditer, réattribuer : `syncForExpedition()` — et bouton
+  « Actualiser les statuts » de la fiche, en POST ; l'ouverture de la fiche n'écrit rien et signale seulement les
+  lignes en retard) : chaque ligne exportée suit son expédition (en attente → exportée,
   expédiée ou en transit → expédiée, livrée → livrée, posée → posée, annulée → annulée) ; l'en-tête prend le
   statut le moins avancé des lignes non annulées, annulée si toutes le sont.
 - **Droits** : `plugin_printgestion_validation` (READ voir, UPDATE modifier / valider / annuler). La file

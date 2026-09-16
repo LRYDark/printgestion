@@ -315,6 +315,26 @@ def scenario_ecritures_get():
     statut_e, _, _ = WEB.get(config.AJAX + "/update_expedition.php", [("id", IDS["EA"]), ("action", "ship"), ("carrier", "ups"), ("tracking", "ECRIT-EN-GET")])
     constat("printer_thresholds et update_expedition en GET : rien d'écrit", ok_ko(etat() == avant), f"HTTP {statut_s} et {statut_e}")
 
+    # Fiche d'une demande d'envoi : l'avancement des expéditions n'est jamais reporté en GET.
+    exp_expediee = CTX.expedition(d.IMP_A1, "test_demande_get", "SUIVI-DEMANDE", statut="shipped")
+    exp_attente = CTX.expedition(d.IMP_A2, "test_demande_post")
+    sql("INSERT INTO glpi_plugin_printgestion_demandes (name, entities_id, locations_id, statut, delivery_mode, date_creation, date_mod) "
+        f"VALUES ('Demande test GET', {d.CLIENT_A}, 0, 'exported', 'direct', NOW(), NOW());")
+    demande = int(valeur("SELECT MAX(id) FROM glpi_plugin_printgestion_demandes WHERE name = 'Demande test GET'"))
+    CTX.crees["demandes"].append(demande)
+    for exp, imp in ((exp_expediee, d.IMP_A1), (exp_attente, d.IMP_A2)):
+        sql("INSERT INTO glpi_plugin_printgestion_demandelines (plugin_printgestion_demandes_id, printers_id, toner_property, cartridgeitems_id, quantity, is_under_contract, "
+            f"contracts_id, level_at_proposal, statut, expeditions_id, date_creation, date_mod, entities_id) VALUES ({demande}, {imp}, 'tonerblack', {d.CARTOUCHE_NOIR}, 1, 0, 0, 20, "
+            f"'exported', {exp}, NOW(), NOW(), {d.CLIENT_A});")
+    statut_ligne = lambda exp: valeur(f"SELECT statut FROM glpi_plugin_printgestion_demandelines WHERE expeditions_id = {exp}")  # noqa: E731
+    statut, page, _ = WEB.get(config.FRONT + f"/demande.form.php?id={demande}")
+    constat("demande.form.php en GET : aucune ligne mise à jour, retard signalé avec « Actualiser les statuts »",
+            ok_ko(statut_ligne(exp_expediee) == "exported" and "Actualiser les statuts" in page), f"HTTP {statut}, ligne {statut_ligne(exp_expediee)}")
+    WEB.post(config.FRONT + "/demande.form.php", [("id", str(demande)), ("sync_statuses", "1")])
+    constat("demande.form.php en POST « Actualiser les statuts » : ligne passée à « expédiée »", ok_ko(statut_ligne(exp_expediee) == "shipped"), statut_ligne(exp_expediee))
+    WEB.post(config.AJAX + "/update_expedition.php", [("id", exp_attente), ("action", "ship"), ("carrier", "ups"), ("tracking", "SUIVI-DEMANDE-2")])
+    constat("update_expedition (POST) : demande rattachée mise à jour aussitôt", ok_ko(statut_ligne(exp_attente) == "shipped"), statut_ligne(exp_attente))
+
 
 # ── 5. Mails ─────────────────────────────────────────────────────────────────
 

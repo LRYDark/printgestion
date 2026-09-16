@@ -904,13 +904,61 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
      * Répercute l'avancement des expéditions sur les lignes exportées (exportée →
      * expédiée → livrée → posée, ou annulée), puis sur l'en-tête des demandes concernées :
      * statut le moins avancé des lignes non annulées, annulée si toutes le sont.
-     * Écritures par update() : historique natif. Appelée par les tâches automatiques et à
-     * l'ouverture d'une fiche.
+     * Écritures par update() : historique natif. Appelée par les tâches automatiques, après une
+     * action sur une expédition (syncForExpedition()) et depuis la fiche, par un POST : jamais en GET.
      *
      * @param ?array $demandes_ids Restreindre à ces demandes (null : toutes).
      * @return int Nombre de lignes mises à jour.
      */
     public static function syncFromExpeditions(?array $demandes_ids = null): int {
+        $updated  = 0;
+        $touched  = [];
+        $line     = new PluginPrintgestionDemandeline();
+        foreach (self::getLinesBehindExpeditions($demandes_ids) as [$row, $target]) {
+            if ($line->update(['id' => (int) $row['id'], 'statut' => $target])) {
+                $updated++;
+                $touched[(int) $row['plugin_printgestion_demandes_id']] = true;
+            } else {
+                PluginPrintgestionLogger::warning('demandes', sprintf('Ligne #%d : passage au statut %s refusé.', $row['id'], $target));
+            }
+        }
+
+        foreach (array_keys($touched) as $demandes_id) {
+            $demande = new self();
+            if ($demande->getFromDB($demandes_id)) {
+                $demande->refreshStatusFromLines();
+            }
+        }
+        return $updated;
+    }
+
+    /** Répercute l'avancement d'une expédition sur les demandes dont une ligne lui est rattachée. */
+    public static function syncForExpedition(int $expeditions_id): int {
+        global $DB;
+
+        $ids = [];
+        foreach ($DB->request([
+            'SELECT'   => ['plugin_printgestion_demandes_id'],
+            'DISTINCT' => true,
+            'FROM'     => PluginPrintgestionDemandeline::getTable(),
+            'WHERE'    => ['expeditions_id' => $expeditions_id],
+        ]) as $row) {
+            $ids[] = (int) $row['plugin_printgestion_demandes_id'];
+        }
+        return empty($ids) ? 0 : self::syncFromExpeditions($ids);
+    }
+
+    /** Nombre de lignes de ces demandes en retard sur leur expédition (lecture seule, pour l'affichage). */
+    public static function countLinesBehindExpeditions(array $demandes_ids): int {
+        return count(self::getLinesBehindExpeditions($demandes_ids));
+    }
+
+    /**
+     * Lignes exportées ou plus avancées dont le statut ne reflète pas encore celui de leur expédition.
+     *
+     * @return array<int, array{0: array, 1: string}> [ligne, statut cible]
+     */
+    private static function getLinesBehindExpeditions(?array $demandes_ids): array {
         global $DB;
 
         $criteria = [
@@ -929,29 +977,14 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             $criteria['WHERE']['l.plugin_printgestion_demandes_id'] = $ids;
         }
 
-        $updated  = 0;
-        $touched  = [];
-        $line     = new PluginPrintgestionDemandeline();
+        $behind = [];
         foreach ($DB->request($criteria) as $row) {
             $target = self::EXPEDITION_TO_LINE_STATUS[(string) $row['expedition_statut']] ?? null;
-            if ($target === null || $target === (string) $row['statut']) {
-                continue;
-            }
-            if ($line->update(['id' => (int) $row['id'], 'statut' => $target])) {
-                $updated++;
-                $touched[(int) $row['plugin_printgestion_demandes_id']] = true;
-            } else {
-                PluginPrintgestionLogger::warning('demandes', sprintf('Ligne #%d : passage au statut %s refusé.', $row['id'], $target));
+            if ($target !== null && $target !== (string) $row['statut']) {
+                $behind[] = [$row, $target];
             }
         }
-
-        foreach (array_keys($touched) as $demandes_id) {
-            $demande = new self();
-            if ($demande->getFromDB($demandes_id)) {
-                $demande->refreshStatusFromLines();
-            }
-        }
-        return $updated;
+        return $behind;
     }
 
     /**

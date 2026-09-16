@@ -34,6 +34,7 @@ if ($refusal !== '') {
 }
 
 if (PluginPrintgestionExpedition::reassignToPrinter($expedition_id, $new_printers_id)) {
+    PluginPrintgestionDemande::syncForExpedition($expedition_id);
     Session::addMessageAfterRedirect(
         __('Expédition réassignée et alerte résolue', 'printgestion'),
         true,

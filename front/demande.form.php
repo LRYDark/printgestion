@@ -5,7 +5,9 @@
  * POST, avec le droit de validation sur l'entité de la demande :
  *   - update   : enregistre les modifications d'une demande proposée ;
  *   - validate : enregistre puis valide (validation en un clic) ;
- *   - cancel   : annule une demande proposée ou validée (motif obligatoire).
+ *   - cancel   : annule une demande proposée ou validée (motif obligatoire) ;
+ *   - sync_statuses : reporte l'avancement des expéditions (expédiée, livrée, posée) sur la demande.
+ * GET : affichage seul, aucune écriture.
  */
 include('../../../inc/includes.php');
 
@@ -18,6 +20,17 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
 }
 
 $demande = new PluginPrintgestionDemande();
+
+if (isset($_POST['sync_statuses'])) {
+    // Jeton CSRF déjà validé par CheckCsrfListener avant ce fichier.
+    $id = (int) ($_POST['id'] ?? 0);
+    if ($id <= 0 || !$demande->getFromDB($id) || !$demande->can($id, UPDATE)) {
+        throw new \Glpi\Exception\Http\NotFoundHttpException();
+    }
+    $updated = PluginPrintgestionDemande::syncFromExpeditions([$id]);
+    Session::addMessageAfterRedirect(sprintf(__('Statuts actualisés d\'après les expéditions : %d ligne(s).', 'printgestion'), $updated), false, INFO);
+    Html::redirect(PluginPrintgestionDemande::getFormURLWithID($id));
+}
 
 if (isset($_POST['update']) || isset($_POST['validate']) || isset($_POST['cancel'])) {
     // Jeton CSRF déjà validé par CheckCsrfListener avant ce fichier.
@@ -84,10 +97,6 @@ if (!$demande->getFromDB($id) || !$demande->can($id, READ)) {
     throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
-// Statuts à jour de l'avancement des expéditions (expédiée, livrée, posée) avant affichage.
-PluginPrintgestionDemande::syncFromExpeditions([$id]);
-$demande->getFromDB($id);
-
 Html::header(
     PluginPrintgestionDemande::getTypeName(1),
     $_SERVER['PHP_SELF'],
@@ -95,6 +104,23 @@ Html::header(
     'PluginPrintgestionMenu',
     'tn_dem'
 );
+
+// Avancement des expéditions pas encore reporté (tâche automatique à venir) : signalé, reporté sur POST.
+$behind = PluginPrintgestionDemande::countLinesBehindExpeditions([$id]);
+if ($behind > 0) {
+    echo "<div class='alert alert-info d-flex align-items-center gap-3 mt-3'><div>" . htmlspecialchars(sprintf(
+        __('%d ligne(s) en retard sur l\'avancement de leur expédition : la tâche automatique les mettra à jour.', 'printgestion'),
+        $behind
+    ), ENT_QUOTES, 'UTF-8') . "</div>";
+    if ($demande->can($id, UPDATE)) {
+        echo "<form method='post' action='" . htmlspecialchars(PluginPrintgestionDemande::getFormURL(), ENT_QUOTES, 'UTF-8') . "' class='ms-auto'>"
+            . Html::hidden('id', ['value' => $id])
+            . "<button type='submit' name='sync_statuses' value='1' class='btn btn-sm btn-primary'>"
+            . htmlspecialchars(__('Actualiser les statuts', 'printgestion'), ENT_QUOTES, 'UTF-8') . "</button>";
+        Html::closeForm();
+    }
+    echo "</div>";
+}
 
 $demande->display(['id' => $id]);
 

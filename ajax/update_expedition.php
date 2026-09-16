@@ -42,6 +42,7 @@ if ($action === 'ship') {
     }
 
     if (PluginPrintgestionExpedition::markShipped($expedition_id, $carrier, $tracking, $bl_id)) {
+        PluginPrintgestionDemande::syncForExpedition($expedition_id);
         Session::addMessageAfterRedirect(__('Expédition marquée comme expédiée', 'printgestion'), true, INFO);
     } else {
         Session::addMessageAfterRedirect(
