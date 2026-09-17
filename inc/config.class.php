@@ -163,7 +163,6 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 `gls_client_id` varchar(255) DEFAULT NULL,
                 `gls_client_secret` varchar(255) DEFAULT NULL,
                 `gls_secret_date` timestamp NULL DEFAULT NULL,
-                `tracking_frequency` int NOT NULL DEFAULT '4',
                 `wrong_printer_auto_reassign_days` int NOT NULL DEFAULT '7',
                 `wrong_printer_lookback_days` int NOT NULL DEFAULT '30',
                 `billing_require_contract` tinyint NOT NULL DEFAULT '1',
@@ -1214,12 +1213,18 @@ HTML;
         }
         echo "</div></div>";
 
-        // ── Suivi : tâche automatique ──
+        // ── Suivi : tâche automatique (lecture seule : la fréquence et le mode appartiennent à GLPI) ──
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Suivi des expéditions : tâche automatique', 'printgestion')) . "</h3></div><div class='card-body'>";
-        echo "<div class='row mb-2 align-items-center'><div class='col-md-4'>"
-            . __('Fréquence tracking (heures)', 'printgestion') . "</div><div class='col-md-6'>";
-        echo "<input type='number' min='1' class='form-control' name='tracking_frequency' value='"
-            . (int)($config->fields['tracking_frequency'] ?? 4) . "'>";
+        $tracking_rows = PluginPrintgestionConfighealth::getTaskRows(['PrintgestionTrackingUpdate']);
+        echo PluginPrintgestionConfighealth::renderTaskTable($tracking_rows);
+        foreach ($tracking_rows as $row) {
+            if ((int) $row['frequency'] > HOUR_TIMESTAMP) {
+                echo "<p class='text-warning mb-0'><i class='ti ti-alert-triangle me-1'></i>" . $esc(sprintf(
+                    __('Le suivi des colis demande un passage toutes les heures : la fréquence réglée dans GLPI (toutes les %s) est plus longue. Elle se règle dans la fiche de la tâche, le plugin ne la corrige pas.', 'printgestion'),
+                    Html::timestampToString((int) $row['frequency'], false)
+                )) . "</p>";
+            }
+        }
         echo "</div></div>";
         echo "</div></div>";
 

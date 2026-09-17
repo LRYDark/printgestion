@@ -1095,7 +1095,8 @@ class PluginPrintgestionSchema {
         $migration->addField($config, 'gls_client_id', 'varchar(255) DEFAULT NULL');
         $migration->addField($config, 'gls_client_secret', 'varchar(255) DEFAULT NULL');
         $migration->addField($config, 'gls_secret_date', 'timestamp NULL DEFAULT NULL');
-        foreach (['api_ups', 'api_gls', 'api_chronopost'] as $dead) {
+        // « Fréquence tracking » : jamais lue ; la fréquence est celle de la tâche automatique, réglée dans GLPI.
+        foreach (['api_ups', 'api_gls', 'api_chronopost', 'tracking_frequency'] as $dead) {
             if ($DB->fieldExists($config, $dead)) {
                 $migration->dropField($config, $dead);
             }

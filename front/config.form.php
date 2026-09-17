@@ -96,7 +96,6 @@ if (isset($_POST['activate_contract_alerts'])) {
         'gabarit_rappel'         => (int)($_POST['gabarit_rappel']     ?? 0) ?: null,
         'gabarit_courtoisie'     => (int)($_POST['gabarit_courtoisie'] ?? 0) ?: null,
         'reminder_recipients'    => in_array($_POST['reminder_recipients'] ?? 'both', ['planif', 'commercial', 'both'], true) ? $_POST['reminder_recipients'] : 'both',
-        'tracking_frequency'     => max(1, (int)($_POST['tracking_frequency'] ?? 4)),
         'billing_require_contract' => ((int)($_POST['billing_require_contract'] ?? 0) === 1) ? 1 : 0,
         'billing_require_counter'  => ((int)($_POST['billing_require_counter']  ?? 0) === 1) ? 1 : 0,
         'billing_require_activity' => ((int)($_POST['billing_require_activity'] ?? 0) === 1) ? 1 : 0,

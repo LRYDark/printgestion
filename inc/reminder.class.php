@@ -186,7 +186,7 @@ class PluginPrintgestionReminder extends CommonGLPI {
         CronTask::Register(
             self::class,
             'PrintgestionTrackingUpdate',
-            4 * HOUR_TIMESTAMP,
+            HOUR_TIMESTAMP,  // valeur initiale seulement (le suivi des colis la demande) : ensuite, réglée dans GLPI
             ['state' => CronTask::STATE_WAITING]
         );
         // Horaire, enregistrée DÉSACTIVÉE (voir cronPrintgestionProposeDemandes).

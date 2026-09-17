@@ -165,6 +165,59 @@ class PluginPrintgestionConfighealth {
     }
 
     /**
+     * Tâches automatiques lues dans GLPI (glpi_crontasks), jamais redéfinies : état, mode, fréquence, dernière
+     * exécution. Le plugin les affiche, dit si le mode est correct, et renvoie vers la fiche native de chaque tâche.
+     *
+     * @param string[] $names noms des tâches
+     * @return array[] [['id', 'name', 'itemtype', 'state', 'mode', 'frequency', 'lastrun', 'description']]
+     */
+    public static function getTaskRows(array $names): array {
+        global $DB;
+
+        $rows = [];
+        foreach ($DB->request([
+            'SELECT' => ['id', 'name', 'itemtype', 'state', 'mode', 'frequency', 'lastrun'],
+            'FROM'   => CronTask::getTable(),
+            'WHERE'  => ['name' => $names],
+            'ORDER'  => ['name'],
+        ]) as $row) {
+            $info = is_callable([$row['itemtype'], 'cronInfo']) ? (array) call_user_func([$row['itemtype'], 'cronInfo'], $row['name']) : [];
+            $rows[] = $row + ['description' => (string) ($info['description'] ?? $row['name'])];
+        }
+        return $rows;
+    }
+
+    /**
+     * Encart en lecture seule d'une ou plusieurs tâches : une ligne par tâche et un lien « Configurer dans GLPI »
+     * vers sa fiche. Une tâche en mode Interne (GLPI) est dite en toutes lettres, car elle ne partira pas de façon
+     * fiable : rien ne se règle ici.
+     */
+    public static function renderTaskTable(array $rows): string {
+        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        if (empty($rows)) {
+            return "<p class='text-muted mb-0'>" . $esc(__('Tâche automatique introuvable : relancer la mise à jour du plugin (Configuration → Plugins).', 'printgestion')) . "</p>";
+        }
+        $html = "<table class='table table-sm mb-2'><thead><tr><th>" . $esc(__('Tâche automatique', 'printgestion')) . "</th><th>" . $esc(__('État', 'printgestion'))
+            . "</th><th>" . $esc(__('Mode d\'exécution', 'printgestion')) . "</th><th>" . $esc(__('Fréquence', 'printgestion')) . "</th><th>" . $esc(__('Dernière exécution', 'printgestion')) . "</th><th></th></tr></thead><tbody>";
+        $internal = false;
+        foreach ($rows as $row) {
+            $is_internal = (int) $row['mode'] === CronTask::MODE_INTERNAL;
+            $internal    = $internal || ($is_internal && (int) $row['state'] !== CronTask::STATE_DISABLE);
+            $html .= "<tr><td title='" . $esc($row['name']) . "'>" . $esc($row['description']) . "</td>"
+                . "<td>" . $esc(CronTask::getStateName((int) $row['state'])) . "</td>"
+                . "<td class='" . ($is_internal ? 'text-danger fw-bold' : '') . "'>" . $esc($is_internal ? __('Interne (GLPI)', 'printgestion') : __('CLI', 'printgestion')) . "</td>"
+                . "<td>" . $esc(sprintf(__('toutes les %s', 'printgestion'), Html::timestampToString((int) $row['frequency'], false))) . "</td>"
+                . "<td>" . $esc(!empty($row['lastrun']) ? Html::convDateTime((string) $row['lastrun']) : __('jamais', 'printgestion')) . "</td>"
+                . "<td><a href='" . $esc(CronTask::getFormURLWithID((int) $row['id'])) . "'>" . $esc(__('Configurer dans GLPI', 'printgestion')) . "</a></td></tr>";
+        }
+        $html .= "</tbody></table>";
+        if ($internal) {
+            $html .= "<div class='alert alert-danger mb-0'>" . $esc(__('Mode d\'exécution « Interne » — les tâches automatiques ne partiront pas de façon fiable. Elles ne s\'exécutent que lorsqu\'un utilisateur navigue dans GLPI. Le mode CLI avec une tâche système est nécessaire.', 'printgestion')) . "</div>";
+        }
+        return $html;
+    }
+
+    /**
      * Preuve par le réel de l'URL de l'application : un agent portant le TAG d'une entité (donc déployé avec un
      * paquet du plugin) a contacté GLPI depuis que cette URL est en place. « Depuis quand » : mémo dérivé, dans la
      * configuration GLPI du plugin (contexte plugin:printgestion), réécrit seulement quand l'URL change — pas un

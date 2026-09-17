@@ -140,6 +140,20 @@ def main():
         constat("mémo : URL et date écrits dans la configuration du plugin, jamais dans un réglage",
                 ok_ko(valeur("SELECT value FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'url_base_seen'") == d.CORE["url_base"]))
 
+        section("8. Tâche de suivi : encart en lecture seule, plus de champ de fréquence")
+        lib.connecter_admin()
+        page, _ = carte()
+        tache = lib.lignes("SELECT id, mode, frequency FROM glpi_crontasks WHERE name = 'PrintgestionTrackingUpdate'")[0]
+        constat("plus de champ « Fréquence tracking » ; encart avec l'état, le mode, la fréquence, la dernière exécution et le lien vers la fiche de la tâche",
+                ok_ko("tracking_frequency" not in page and "Suivi des expéditions : tâche automatique" in page and f"crontask.form.php?id={tache[0]}" in page
+                      and "Configurer dans GLPI" in page and "Dernière exécution" in page))
+        sql("UPDATE glpi_crontasks SET mode = 1, frequency = 14400 WHERE name = 'PrintgestionTrackingUpdate';")
+        page, _ = carte()
+        constat("mode Interne dit en toutes lettres ; fréquence de 4 h signalée comme trop longue pour le suivi, sans la corriger",
+                ok_ko("Interne (GLPI)" in page and "ne partiront pas de façon fiable" in page and "est plus longue" in page
+                      and valeur("SELECT frequency FROM glpi_crontasks WHERE name = 'PrintgestionTrackingUpdate'") == "14400"))
+        sql(f"UPDATE glpi_crontasks SET mode = {tache[1]}, frequency = {tache[2]} WHERE name = 'PrintgestionTrackingUpdate';")
+
         section("7. Profils")
         lecture = CTX.profil(4, "Profil test configuration en lecture", {"plugin_printgestion_config": 1})
         CTX.utilisateur("test-config-lecture", lecture, 0)
