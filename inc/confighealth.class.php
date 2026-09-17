@@ -15,9 +15,11 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionConfighealth {
 
-    const STATE_OK     = 'ok';
-    const STATE_ERROR  = 'error';
-    const STATE_MANUAL = 'manual';
+    const STATE_OK      = 'ok';
+    const STATE_ERROR   = 'error';
+    const STATE_MANUAL  = 'manual';
+    /** Vérifiable en partie seulement : rien de faux, mais le réel ne l'a pas encore confirmé. */
+    const STATE_PENDING = 'pending';
 
     /** Fenêtre dans laquelle au moins une action automatique en mode CLI doit avoir tourné (le cron système lance GLPI chaque minute). */
     const CLI_RUN_WINDOW = HOUR_TIMESTAMP;
@@ -34,14 +36,18 @@ class PluginPrintgestionConfighealth {
         $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $checks = [];
 
-        // En tête : une URL fausse rend chaque agent déployé injoignable par GLPI, sans réparation à distance.
+        // En tête : une URL fausse rend chaque agent déployé injoignable par GLPI, sans réparation à distance. Sa
+        // syntaxe se vérifie d'ici ; qu'elle soit joignable depuis un réseau client, seul un agent qui remonte le prouve.
         $url_issue = PluginPrintgestionAgentdeploy::getApplicationUrlIssue();
+        $confirmed = $url_issue === '' ? self::getUrlConfirmation((string) ($CFG_GLPI['url_base'] ?? '')) : null;
         $checks[]  = [
             'key'    => 'app_url',
             'group'  => 'required',
             'label'  => __('URL de l\'application GLPI', 'printgestion'),
-            'state'  => $url_issue === '' ? self::STATE_OK : self::STATE_ERROR,
-            'status' => $url_issue === '' ? sprintf(__('Correcte : %s', 'printgestion'), (string) ($CFG_GLPI['url_base'] ?? '')) : $url_issue,
+            'state'  => $url_issue !== '' ? self::STATE_ERROR : ($confirmed['agent'] !== null ? self::STATE_OK : self::STATE_PENDING),
+            'status' => $url_issue !== '' ? $url_issue : ($confirmed['agent'] !== null
+                ? sprintf(__('%1$s — confirmée par un agent le %2$s (sonde %3$s).', 'printgestion'), $confirmed['url'], Html::convDateTime($confirmed['agent']['last_contact']), $confirmed['agent']['name'])
+                : sprintf(__('%1$s — jamais confirmée : aucun agent n\'a encore remonté avec cette URL (en place depuis le %2$s).', 'printgestion'), $confirmed['url'], Html::convDateTime($confirmed['since']))),
             'breaks' => __('Un agent déployé avec une URL fausse ne contacte jamais GLPI et ne se répare pas à distance : il faut retourner sur le site. Le téléchargement des installeurs est bloqué tant qu\'elle est fausse.', 'printgestion'),
             'fix'    => __('Configuration → Générale, « URL de l\'application »', 'printgestion'),
             'url'    => Config::getFormURL(),
@@ -155,6 +161,34 @@ class PluginPrintgestionConfighealth {
     }
 
     /**
+     * Preuve par le réel de l'URL de l'application : un agent portant le TAG d'une entité (donc déployé avec un
+     * paquet du plugin) a contacté GLPI depuis que cette URL est en place. « Depuis quand » : mémo dérivé, dans la
+     * configuration GLPI du plugin (contexte plugin:printgestion), réécrit seulement quand l'URL change — pas un
+     * réglage, personne ne le saisit.
+     *
+     * @return array ['url' => string, 'since' => 'Y-m-d H:i:s', 'agent' => ?['name', 'last_contact']]
+     */
+    public static function getUrlConfirmation(string $url): array {
+        global $DB;
+
+        $memo  = Config::getConfigurationValues('plugin:printgestion', ['url_base_seen', 'url_base_seen_since']);
+        $since = (string) ($memo['url_base_seen_since'] ?? '');
+        if (($memo['url_base_seen'] ?? null) !== $url || $since === '') {
+            $since = Session::getCurrentTime();
+            Config::setConfigurationValues('plugin:printgestion', ['url_base_seen' => $url, 'url_base_seen_since' => $since]);
+        }
+        $agent = $DB->request([
+            'SELECT'     => ['a.name', 'a.last_contact'],
+            'FROM'       => 'glpi_agents AS a',
+            'INNER JOIN' => ['glpi_entities AS e' => ['ON' => ['e' => 'tag', 'a' => 'tag']]],
+            'WHERE'      => ['e.tag' => ['<>', ''], 'a.last_contact' => ['>=', $since]],
+            'ORDER'      => ['a.last_contact DESC'],
+            'LIMIT'      => 1,
+        ])->current();
+        return ['url' => $url, 'since' => $since, 'agent' => is_array($agent) ? $agent : null];
+    }
+
+    /**
      * Mode d'exécution des actions automatiques actives et preuve que le cron système tourne : aucune action active
      * en mode GLPI, et au moins une action en mode CLI lancée dans l'heure (le cron système lance GLPI chaque minute,
      * l'envoi des notifications en file tourne à chaque passage).
@@ -205,7 +239,8 @@ class PluginPrintgestionConfighealth {
         $esc      = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $checks   = self::getChecks();
         $failed   = array_filter($checks, static fn(array $c) => $c['group'] === 'required' && $c['state'] === self::STATE_ERROR);
-        $complete = empty(array_filter($checks, static fn(array $c) => $c['state'] === self::STATE_ERROR));
+        // Repliée en une ligne seulement quand tout est vert ET que le réel a confirmé ce qu'il peut confirmer.
+        $complete = empty(array_filter($checks, static fn(array $c) => in_array($c['state'], [self::STATE_ERROR, self::STATE_PENDING], true)));
 
         $groups = [
             'required'    => __('Obligatoire — sans ça, quelque chose ne marche pas', 'printgestion'),
@@ -214,7 +249,8 @@ class PluginPrintgestionConfighealth {
         $icons = [
             self::STATE_OK     => ['ti-circle-check', 'text-success', __('Correct', 'printgestion')],
             self::STATE_ERROR  => ['ti-alert-octagon', 'text-danger', __('À corriger', 'printgestion')],
-            self::STATE_MANUAL => ['ti-help-circle', 'text-secondary', __('Non vérifiable automatiquement', 'printgestion')],
+            self::STATE_MANUAL  => ['ti-help-circle', 'text-secondary', __('Non vérifiable automatiquement', 'printgestion')],
+            self::STATE_PENDING => ['ti-clock', 'text-warning', __('Jamais confirmée par le réel', 'printgestion')],
         ];
         $body = '';
         foreach ($groups as $group => $title) {

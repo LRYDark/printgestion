@@ -131,7 +131,7 @@ affichage ; la carte ne bloque rien. Tout vert : une ligne « Configuration : co
 
 | Contrôle | Rouge quand | Corriger |
 |---|---|---|
-| URL de l'application GLPI (obligatoire) | vide, `localhost` ou `127.x`, sans `https://`, ou nom sans domaine qui ne se résout pas : un agent déployé avec ne joindra jamais GLPI et ne se répare pas à distance ; le téléchargement des installeurs est bloqué | Configuration → Générale, « URL de l'application » |
+| URL de l'application GLPI (obligatoire) | vide, `localhost` ou `127.x`, sans `https://`, ou nom sans domaine qui ne se résout pas : un agent déployé avec ne joindra jamais GLPI et ne se répare pas à distance ; le téléchargement des installeurs est bloqué. Syntaxe correcte mais aucun agent n'a encore remonté depuis qu'elle est en place : « jamais confirmée » (horloge), la carte reste dépliée jusqu'au premier agent qui remonte — seule preuve qu'elle est joignable depuis un réseau client | Configuration → Générale, « URL de l'application » |
 | Inventaire GLPI activé (obligatoire) | « Activer l'inventaire » décoché | Administration → Inventaire |
 | Plugin GLPI Inventory (obligatoire) | absent, inactif, version trop ancienne, fichiers ou tâche `taskscheduler` manquants | Configuration → Plugins → Marketplace |
 | Actions automatiques en mode CLI avec un cron système (obligatoire) | une action active est en mode « GLPI », ou aucune action en mode « CLI » n'a tourné depuis une heure (cron système arrêté ou absent) | Configuration → Actions automatiques, mode CLI pour chaque action ; crontab du compte du serveur web : `* * * * * php <GLPI>/front/cron.php` |

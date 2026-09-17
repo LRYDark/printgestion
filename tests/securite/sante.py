@@ -34,6 +34,11 @@ def main():
     inventaire = valeur("SELECT value FROM glpi_configs WHERE context = 'inventory' AND name = 'enabled_inventory'")
     xlsx = lib.lignes("SELECT id, is_uploadable FROM glpi_documenttypes WHERE ext = 'xlsx'")
     etat_glpiinventory = valeur("SELECT state FROM glpi_plugins WHERE directory = 'glpiinventory'")
+    # Une sonde inventée portant le TAG d'une entité et vue à l'instant : l'URL de l'application est « confirmée ».
+    sql("INSERT INTO glpi_agents (deviceid, entities_id, name, agenttypes_id, last_contact, version, useragent, tag, locked, itemtype, items_id, "
+        f"use_module_network_inventory, use_module_network_discovery) VALUES ('agent-test-sante', {d.CLIENT_A}, 'SONDE-TEST-SANTE', 1, NOW(), "
+        "'1.19', 'GLPI-Agent_v1.19', 'CLIENT-TEST-A', 0, 'Computer', 0, 1, 1);")
+    agent = int(valeur("SELECT id FROM glpi_agents WHERE deviceid = 'agent-test-sante'"))
     try:
         lib.connecter_admin()
 
@@ -117,7 +122,33 @@ def main():
                 ok_ko("Configuration : complète" in page and not bandeau(page)
                       and page.find("Configuration : complète") < page.find("class='collapse'") < page.find("data-pg-health=")))
 
-        section("6. Profils")
+        section("6. URL de l'application : confirmée par un agent, ou jamais")
+        constat("sonde vue à l'instant avec le TAG d'une entité : « confirmée par un agent le … », état vert",
+                ok_ko(etats.get("app_url") == "ok" and "confirmée par un agent le" in page and "SONDE-TEST-SANTE" in page))
+        sql(f"UPDATE glpi_agents SET last_contact = last_contact - INTERVAL 30 DAY WHERE id = {agent};")
+        page, etats = carte()
+        constat("aucun agent depuis que l'URL est en place : « jamais confirmée », état d'attente (horloge), carte non repliée",
+                ok_ko(etats.get("app_url") == "pending" and "jamais confirmée" in page and "Configuration : complète" not in page and not bandeau(page)))
+        sql("UPDATE glpi_configs SET value = 'https://glpi2.exemple.test' WHERE context = 'core' AND name = 'url_base';")
+        lib.vider_cache()
+        page, etats = carte()  # premier affichage : le mémo repart de l'heure GLPI (pas NOW() de la base : fuseau différent)
+        depuis = lambda: valeur("SELECT value FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'url_base_seen_since'")  # noqa: E731
+        sql(f"UPDATE glpi_agents SET last_contact = {lib.q(depuis())} - INTERVAL 1 MINUTE WHERE id = {agent};")
+        page, etats = carte()
+        constat("URL changée : le mémo repart de maintenant, un contact antérieur ne confirme plus rien",
+                ok_ko(etats.get("app_url") == "pending" and "https://glpi2.exemple.test" in page), f"{etats.get('app_url')} ; depuis {depuis()}")
+        sql(f"UPDATE glpi_agents SET last_contact = {lib.q(depuis())} + INTERVAL 1 MINUTE WHERE id = {agent};")
+        page, etats = carte()
+        constat("contact postérieur au changement : confirmée de nouveau", ok_ko(etats.get("app_url") == "ok" and "confirmée par un agent le" in page))
+        sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
+        lib.vider_cache()
+        page, etats = carte()
+        sql(f"UPDATE glpi_agents SET last_contact = {lib.q(depuis())} + INTERVAL 1 MINUTE WHERE id = {agent};")
+        page, etats = carte()
+        constat("mémo : URL et date écrits dans la configuration du plugin, jamais dans un réglage",
+                ok_ko(valeur("SELECT value FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'url_base_seen'") == d.CORE["url_base"]))
+
+        section("7. Profils")
         lecture = CTX.profil(4, "Profil test configuration en lecture", {"plugin_printgestion_config": 1})
         CTX.utilisateur("test-config-lecture", lecture, 0)
         lib.supprimer_regles_tag()
@@ -138,6 +169,7 @@ def main():
             sql(f"UPDATE glpi_documenttypes SET is_uploadable = {autorise} WHERE id = {ident};")
         sql(f"UPDATE glpi_plugins SET state = {etat_glpiinventory} WHERE directory = 'glpiinventory';")
         sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
+        sql(f"DELETE FROM glpi_agents WHERE id = {agent};")
         lib.supprimer_regles_tag()
         lib.vider_cache()
         CTX.nettoyer()
