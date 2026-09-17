@@ -10,9 +10,13 @@ chevron) tant qu'elle manque, et créée du même clic que le TAG quand c'est l'
 présente mais désactivée compte comme absente : état rouge, bouton « Activer la règle ». Téléchargement de l'installeur
 bloqué (écran et URL directe) tant que le TAG manque ou que la règle est absente ou désactivée.
 """
+import hashlib
 import io
+import json
+import os
 import re
 import sys
+import tarfile
 import zipfile
 from html.parser import HTMLParser
 
@@ -373,6 +377,59 @@ def main():
         sql(f"DELETE FROM glpi_plugin_printgestion_raccordementips WHERE plugin_printgestion_raccordements_id = {racc}; "
             f"DELETE FROM glpi_plugin_printgestion_raccordementlogs WHERE plugin_printgestion_raccordements_id = {racc}; "
             f"DELETE FROM glpi_plugin_printgestion_raccordements WHERE id = {racc};")
+
+        section("12. Contenu réel des paquets : fichiers attendus, réglages exacts, aucun secret")
+        lib.connecter_admin()
+        secret = re.compile(r"(?i)\b(password|passwd|pwd|token|community|communaute|secret|api_?key|client_?secret|authorization|bearer)\s*=")
+        cles_agent = {"server", "tag", "tasks", "httpd-trust", "snmp-retries"}
+        url = d.CORE["url_base"] + "/"
+        with open(os.path.join(config.GLPI_DIR, "files", "_plugins", "printgestion", "agent", "installer.json"), encoding="utf-8") as fichier:
+            sha_msi = json.load(fichier)["sha256"]
+        _, octets = telecharger(d.CLIENT_A)
+        with zipfile.ZipFile(io.BytesIO(octets)) as paquet:
+            noms = sorted(paquet.namelist())
+            textes = {n: paquet.read(n).decode("utf-8", "replace") for n in noms if n.lower().endswith((".txt", ".bat", ".cmd"))}
+            msi = [n for n in noms if n.lower().endswith(".msi")]
+            sha = hashlib.sha256(paquet.read(msi[0])).hexdigest() if msi else ""
+        base = {"1-installer-glpi-agent.bat", "commande-cmd.txt", "LISEZMOI.txt"}
+        maj = {"2-facultatif-mise-a-jour-automatique.bat", "glpi-agent-update.cmd"}
+        constat("Windows : le MSI officiel (empreinte de installer.json) et les scripts attendus, rien d'autre",
+                ok_ko(len(msi) == 1 and sha == sha_msi and set(noms) - set(msi) in (base, base | maj)), ", ".join(noms))
+        proprietes = dict(re.findall(r' ([A-Z_]+)="([^"]*)"', textes.get("1-installer-glpi-agent.bat", "")))
+        constat("Windows : propriétés MSI exactement SERVER, TAG, ADDLOCAL, HTTPD_TRUST, SNMP_RETRIES, RUNNOW, EXECMODE, QUICKINSTALL ; SERVER, TAG et HTTPD_TRUST justes",
+                ok_ko(set(proprietes) == {"SERVER", "TAG", "ADDLOCAL", "HTTPD_TRUST", "SNMP_RETRIES", "RUNNOW", "EXECMODE", "QUICKINSTALL"}
+                      and proprietes.get("SERVER") == url and proprietes.get("TAG") == "CLIENT-TEST-A" and proprietes.get("HTTPD_TRUST", "").startswith("127.0.0.1/32")), str(proprietes))
+        fuites = [n for n, t in textes.items() if secret.search(t)]
+        constat("Windows : aucun mot de passe, communauté, jeton ni clé dans les fichiers texte", ok_ko(not fuites), ", ".join(fuites))
+
+        _, octets = WEB.telecharger(config.FRONT + f"/agentdeploy.download.php?entities_id={d.CLIENT_A}&os=linux")
+        with tarfile.open(fileobj=io.BytesIO(octets), mode="r:gz") as archive:
+            membres = {m.name.split("/", 1)[1]: archive.extractfile(m).read() for m in archive.getmembers() if m.isfile() and "/" in m.name}
+        script = membres.get("installer-glpi-agent.sh", b"").decode("utf-8", "replace")
+        lisez = membres.get("LISEZMOI.txt", b"").decode("utf-8", "replace")
+        commande = membres.get("commande.txt", b"").decode("utf-8", "replace")
+        # server et tag sont passés en options à l'installeur officiel ; le agent.cfg partiel ne porte que snmp-retries.
+        options = dict(re.findall(r'--([a-z-]+)="([^"]*)"', commande))
+        bloc = re.search(r"<<'PRINTGESTION_EOF'\n(.*?)\nPRINTGESTION_EOF", script, re.S)
+        cles = set(re.findall(r"^\s*([a-z-]+)\s*=", bloc.group(1) if bloc else "", re.M))
+        installeur = [n for n in membres if n.endswith(".pl")]
+        constat("Linux : installeur officiel, installer-glpi-agent.sh, commande.txt et LISEZMOI.txt ; options exactement type=network, server, tag, httpd-trust (server et tag justes) ; agent.cfg = snmp-retries seulement ; aucun secret",
+                ok_ko(len(installeur) == 1 and set(membres) == {installeur[0], "installer-glpi-agent.sh", "commande.txt", "LISEZMOI.txt"}
+                      and "--type=network" in commande and set(options) == {"server", "tag", "httpd-trust"} and options["server"] == url and options["tag"] == "CLIENT-TEST-A"
+                      and options["httpd-trust"].startswith("127.0.0.1/32") and bloc is not None and cles <= cles_agent
+                      and f'--server="{url}"' in script and not any(secret.search(t) for t in (script, lisez, commande))),
+                f"{sorted(membres)} ; options {options} ; clés {sorted(cles)}")
+
+        _, octets = WEB.telecharger(config.FRONT + f"/agentdeploy.download.php?entities_id={d.CLIENT_A}&os=macos")
+        with zipfile.ZipFile(io.BytesIO(octets)) as paquet:
+            noms = sorted(paquet.namelist())
+            cfg = paquet.read("local.cfg").decode("utf-8", "replace") if "local.cfg" in noms else ""
+            lisez = paquet.read("LISEZMOI.txt").decode("utf-8", "replace") if "LISEZMOI.txt" in noms else ""
+        pkgs = [n for n in noms if n.endswith(".pkg")]
+        cles = set(re.findall(r"^\s*([a-z-]+)\s*=", cfg, re.M))
+        constat("macOS : les deux paquets officiels, local.cfg et LISEZMOI.txt ; local.cfg = server, tag, tasks, httpd-trust, snmp-retries seulement, server juste, aucun secret",
+                ok_ko(len(pkgs) == 2 and set(noms) == set(pkgs) | {"local.cfg", "LISEZMOI.txt"} and cles == cles_agent and f"server = {url}" in cfg
+                      and not secret.search(cfg) and not secret.search(lisez)), f"{noms} ; clés {sorted(cles)}")
     finally:
         for ident, mode, lastrun in cron:
             sql(f"UPDATE glpi_crontasks SET mode = {mode}, lastrun = {'NULL' if lastrun == 'NULL' else lib.q(lastrun)} WHERE id = {ident};")
