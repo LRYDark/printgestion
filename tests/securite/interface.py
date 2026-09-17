@@ -102,6 +102,11 @@ def main():
     agent = int(valeur("SELECT id FROM glpi_agents WHERE deviceid = 'agent-test-interface'"))
     regles = lambda: int(valeur("SELECT COUNT(DISTINCT r.id) FROM glpi_rules r JOIN glpi_ruleactions a ON a.rules_id = r.id "  # noqa: E731
                                 "WHERE r.sub_type = 'RuleImportEntity' AND a.field = '_affect_entity_by_tag'"))
+    # Environnement « correct » le temps du test : actions automatiques en CLI avec une exécution récente (sinon
+    # l'onglet dit, à raison, que rien ne remontera). État d'origine rétabli à la fin.
+    cron = lib.lignes("SELECT id, mode, IFNULL(lastrun, 'NULL') FROM glpi_crontasks")
+    sql("UPDATE glpi_crontasks SET mode = 2; UPDATE glpi_crontasks SET lastrun = NOW() WHERE name = 'queuednotification';")
+    etat_glpiinventory = valeur("SELECT state FROM glpi_plugins WHERE directory = 'glpiinventory'")
     try:
         lib.connecter_admin()
         droits = {"plugin_printgestion_deploiement": 3, "plugin_printgestion_config": 0}
@@ -318,7 +323,33 @@ def main():
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
         statut, octets = telecharger(d.CLIENT_A)
         constat("URL rétablie : lien présent, paquet servi", ok_ko(bloque not in page and lien in page and octets.startswith(b"PK")), f"HTTP {statut}")
+
+        section("10. L'onglet Entité intègre l'environnement : rouge sans bloquer quand rien ne remontera")
+        rien = "Rien ne remontera pour l&#039;instant — contactez l&#039;administrateur"
+        constat("environnement correct : aucune ligne « Rien ne remontera »", ok_ko(rien not in page))
+        sql("UPDATE glpi_plugins SET state = 4 WHERE directory = 'glpiinventory';")
+        lib.vider_cache()
+        CTX.connecter("test-technicien")
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+        constat("GLPI Inventory désactivé, technicien : ligne rouge « Rien ne remontera… contactez l'administrateur », téléchargement toujours possible, aucun détail réservé",
+                ok_ko(rien in page and lien in page and bloque not in page and not trouves(page)), ", ".join(trouves(page)))
+        lib.connecter_admin()
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+        constat("administrateur : même ligne, détail replié avec la cause et le lien vers l'écran GLPI",
+                ok_ko(rien in page and "data-pg-admin" in page and "Marketplace" in page and "config.form.php" not in page[page.find(rien):page.find(rien) + 200]))
+        sql("UPDATE glpi_crontasks SET mode = 1 WHERE name = 'queuednotification';")
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+        constat("action automatique en mode GLPI : cause listée aussi (Actions automatiques)", ok_ko(rien in page and "crontask" in page))
+        sql("UPDATE glpi_crontasks SET mode = 2 WHERE name = 'queuednotification';")
+        sql(f"UPDATE glpi_plugins SET state = {etat_glpiinventory} WHERE directory = 'glpiinventory';")
+        lib.vider_cache()
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+        constat("environnement rétabli : ligne disparue", ok_ko(rien not in page))
     finally:
+        for ident, mode, lastrun in cron:
+            sql(f"UPDATE glpi_crontasks SET mode = {mode}, lastrun = {'NULL' if lastrun == 'NULL' else lib.q(lastrun)} WHERE id = {ident};")
+        sql(f"UPDATE glpi_plugins SET state = {etat_glpiinventory} WHERE directory = 'glpiinventory';")
+        lib.vider_cache()
         sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
         lib.supprimer_regles_tag()
         sql(f"DELETE FROM glpi_agents WHERE id = {agent};")

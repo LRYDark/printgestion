@@ -1293,6 +1293,20 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             }
         }
         echo "</div>";
+
+        // Ce qui empêche toute remontée sans bloquer le déploiement (réparable après coup, à distance) : le
+        // technicien voit l'état, l'administrateur ce qui manque et où le corriger. Jamais vert quand rien ne remontera.
+        $environment = array_filter(PluginPrintgestionConfighealth::getChecks(), static fn(array $c) => $c['group'] === 'required'
+            && $c['state'] === PluginPrintgestionConfighealth::STATE_ERROR && !in_array($c['key'], ['tag_rule', 'app_url'], true));
+        if (!empty($environment)) {
+            $items = '';
+            foreach ($environment as $check) {
+                $fix    = $check['url'] !== '' ? "<a href='" . $esc($check['url']) . "'>" . $esc($check['fix']) . "</a>" : $esc($check['fix']);
+                $items .= "<li><span class='fw-bold'>" . $esc($check['label']) . "</span> — " . $esc($check['status']) . ' ' . $esc($check['breaks'])
+                    . " <i class='ti ti-tool mx-1'></i>" . $fix . "</li>";
+            }
+            echo PluginPrintgestionUi::statusLine('error', __('Rien ne remontera pour l\'instant — contactez l\'administrateur', 'printgestion'), "<ul class='mb-0'>" . $items . "</ul>");
+        }
         PluginPrintgestionCollectfrequency::showForEntity($entity);
         echo "</div></div>";
 

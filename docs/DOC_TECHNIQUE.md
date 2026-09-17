@@ -488,7 +488,11 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
      « Configuration incomplète — le déploiement est bloqué » ; « Contactez l'administrateur » seulement si
      l'utilisateur ne peut pas lever lui-même tout le blocage ; les actions qui le lèvent (formulaire du TAG, bouton
      créer ou activer la règle) sont affichées juste en dessous. Même contrôle côté serveur : `getPackageBlockers()`
-     inclut ces motifs, `agentdeploy.download.php` refuse le paquet (URL directe comprise). Boutons Windows, Linux et
+     inclut ces motifs, `agentdeploy.download.php` refuse le paquet (URL directe comprise). Ce qui empêche toute
+     remontée mais se répare après coup (GLPI Inventory absent, inventaire désactivé, actions automatiques en mode
+     GLPI ou cron arrêté : contrôles obligatoires de `Confighealth::getChecks()` hors TAG/règle/URL) : ligne rouge
+     « Rien ne remontera pour l'instant — contactez l'administrateur », sans blocage, causes et liens repliés pour
+     l'administrateur ; l'onglet n'est jamais vert quand rien ne remontera. Boutons Windows, Linux et
      macOS (actifs dès que leurs fichiers officiels sont vérifiés et le rattachement complet), commande
      Windows et propriétés MSI expliquées, commande Linux, procédure macOS et son `local.cfg` (phase 6).
 - **Paquet Windows** (`front/agentdeploy.download.php`, droit `deploiement` READ et accès à l'entité) : ZIP généré
