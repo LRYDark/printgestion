@@ -689,6 +689,8 @@ class PluginPrintgestionConfig extends CommonDBTM {
         // de table ouverte par showFormHeader pour rendre nos cards à la place.
         $config->showFormHeader(['colspan' => 4]);
         echo '</td></tr></table>';
+        // Tout le formulaire passe par un tampon : en lecture seule, chaque contrôle de saisie ressort désactivé.
+        ob_start();
 
         // En tête : état réel de l'environnement (contrôles automatiques, journal du plugin compris).
         PluginPrintgestionConfighealth::showCard($canedit);
@@ -1249,9 +1251,23 @@ HTML;
 
         self::showOrphansCard();
 
-        // Rouvrir la table/tr/td attendue par showFormButtons avant de fermer
-        echo '<table><tr><td>';
-        $config->showFormButtons(['candel' => false]);
+        $html = (string) ob_get_clean();
+        if (!$canedit) {
+            // Lecture seule réelle : champs, listes, zones de texte et boutons d'envoi désactivés ; les boutons
+            // « type=button » (chevrons, fenêtres d'information, « Qui est notifié ? ») restent utilisables.
+            $html = (string) preg_replace('/<(input|select|textarea)\b(?![^>]*\bdisabled\b)/i', '<$1 disabled', $html);
+            $html = (string) preg_replace('/<button\b(?![^>]*type=[\'"]button[\'"])(?![^>]*\bdisabled\b)/i', '<button disabled', $html);
+        }
+        echo $html;
+
+        if ($canedit) {
+            // Rouvrir la table/tr/td attendue par showFormButtons avant de fermer
+            echo '<table><tr><td>';
+            $config->showFormButtons(['candel' => false]);
+        } else {
+            // Pas de bouton Sauvegarder : le formulaire est fermé tel quel.
+            Html::closeForm();
+        }
         return true;
     }
 

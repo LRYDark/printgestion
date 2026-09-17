@@ -148,6 +148,13 @@ def main():
         page, etats = carte()
         constat("droit de configuration en lecture : carte visible, sans bouton de règle ni de test du journal",
                 ok_ko(etats.get("tag_rule") == "error" and "create_tag_rule" not in page and "test_log" not in page))
+        actifs = [a for a in re.findall(r"<(?:input|select|textarea)\b(?![^>]*\bdisabled\b)[^>]*>", page) if "hidden" not in a]  # champs cachés (jeton) : pas une saisie
+        envois = re.findall(r"<button\b(?![^>]*type=['\"]button['\"])(?![^>]*\bdisabled\b)[^>]*>", page)
+        constat("lecture seule réelle : aucun champ, liste ou zone de texte modifiable, aucun bouton d'envoi, pas de Sauvegarder",
+                ok_ko(not actifs and not envois and "name='update'" not in page and 'name="update"' not in page),
+                f"{len(actifs)} champ(s) actif(s) : {' '.join(a[:60] for a in actifs[:3])} ; {len(envois)} bouton(s)")
+        constat("lecture seule : « Qui est notifié ? » et les chevrons restent utilisables (type=button non désactivé)",
+                ok_ko(re.search(r"<button type='button'(?![^>]*disabled)[^>]*data-bs-target='#pg-notif-modal'", page) is not None))
         sans = CTX.profil(4, "Profil test sans configuration du plugin", {"plugin_printgestion_config": 0})
         CTX.utilisateur("test-config-sans", sans, 0)
         CTX.connecter("test-config-sans")

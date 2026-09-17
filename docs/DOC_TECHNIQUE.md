@@ -48,7 +48,7 @@ printgestion/
 
 | Classe | Rôle |
 |---|---|
-| `Config` | Singleton de configuration (ligne id=1), **crée toutes les tables à l'install**, envoi mail générique `sendMail()` |
+| `Config` | Singleton de configuration (ligne id=1), **crée toutes les tables à l'install**, envoi mail générique `sendMail()` ; droit de configuration en lecture seule : formulaire mis en tampon, chaque champ, liste, zone de texte et bouton d'envoi ressort `disabled`, pas de bouton Sauvegarder (les boutons `type=button` restent) |
 | `Menu` | Entrée de menu + hub à catégories + barre d'onglets unifiée |
 | `Profile` | Droits du plugin (8 droits, voir §8) |
 | `Dashboard` | Dashboard contrats (tuiles, camemberts ECharts, liste Search native) |
