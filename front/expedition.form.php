@@ -75,9 +75,8 @@ echo "</div>";
 echo "<div class='col-md-6'><label class='form-label'>" . __('N° de suivi', 'printgestion') . "</label>";
 echo "<input type='text' class='form-control' name='tracking' required></div>";
 
-// Lien BL plugin Gestion si activé
-$config = PluginPrintgestionConfig::getInstance();
-if ((int)($config->fields['plugin_gestion_enabled'] ?? 0) === 1 && $DB->tableExists('glpi_plugin_gestion_surveys')) {
+// Lien BL : déduit de l'état du plugin Gestion.
+if (PluginPrintgestionTracking::isGestionLinkActive()) {
     echo "<div class='col-md-12'><label class='form-label'>"
         . __('BL plugin Gestion (optionnel)', 'printgestion') . "</label>";
 

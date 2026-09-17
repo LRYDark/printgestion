@@ -55,6 +55,11 @@ Les tests de l'installeur (`interface.py`, `harnais.py`) ont besoin des installe
 `files/_plugins/printgestion/agent` de l'instance : page « Installeur GLPI Agent » → « Récupérer depuis GitHub »
 pour chaque fichier, ou `PluginPrintgestionAgentdeploy::fetchFromGitHub('windows'|'linux'|'macos-arm64'|'macos-x86_64')`.
 
+Pour copier l'arbre GLPI d'un serveur vers l'instance de test avec `rsync`, ancrer les exclusions à la racine :
+`--exclude '/files/*' --exclude '/config/*' --exclude '/plugins/*' --exclude '/marketplace/*'`. Sans le `/` initial,
+un motif s'applique à toute profondeur : `config/*` exclut aussi `vendor/symfony/config/*`, et GLPI ne démarre plus
+(« Class Symfony\Component\Config\ConfigCache not found »). Constaté le 17/09/2026.
+
 Le harnais ne vide jamais le cache de GLPI : en GLPI 11, la configuration et l'état des plugins sont relus en base à
 chaque requête, et un `bin/console cache:clear` pendant les tests efface le conteneur Symfony compilé — une requête
 servie pendant sa reconstruction tombe en erreur 500 (constaté une fois, non reproductible à la demande).

@@ -36,10 +36,7 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
 header('Content-Type: application/json; charset=utf-8');
 global $DB, $CFG_GLPI;
 
-$config = PluginPrintgestionConfig::getInstance();
-if ((int)($config->fields['plugin_gestion_enabled'] ?? 0) !== 1
-    || !$plugin->isInstalled('gestion')
-    || !$plugin->isActivated('gestion')) {
+if (!PluginPrintgestionTracking::isGestionLinkActive()) {
     echo json_encode(['ok' => false, 'error' => 'Gestion integration not enabled']);
     exit;
 }

@@ -38,7 +38,6 @@ def scenario_transfert():
     section("1. Transfert d'une imprimante de Client test A vers Client test B")
     imp = d.IMP_A2
     lib.connecter_admin()
-    sql("UPDATE glpi_plugin_printgestion_configs SET plugin_gestion_enabled = 1 WHERE id = 1;")
     bl_a = CTX.bl("BLTSTTRA001", d.CLIENT_A)
     exp = CTX.expedition(imp, "test_transfert", SUIVI_A, statut="shipped")
     sql(f"INSERT INTO {LIENS} (expeditions_id, bl_surveys_id, date_creation, entities_id, is_recursive) VALUES ({exp}, {bl_a}, NOW(), {d.CLIENT_A}, 0);")
@@ -204,8 +203,7 @@ def main():
         for imprimante, entite in ((d.IMP_A2, d.CLIENT_A), (d.IMP_SITE_A2, d.SITE_A2)):
             if valeur(f"SELECT entities_id FROM glpi_printers WHERE id = {imprimante}") != str(entite):
                 transferer(imprimante, entite)
-        sql("UPDATE glpi_plugin_printgestion_configs SET plugin_gestion_enabled = 0 WHERE id = 1;"
-            f"DELETE FROM glpi_plugin_printgestion_printer_thresholds WHERE printers_id = {d.IMP_A2};"
+        sql(f"DELETE FROM glpi_plugin_printgestion_printer_thresholds WHERE printers_id = {d.IMP_A2};"
             "DELETE FROM glpi_plugin_printgestion_toner_readings WHERE property_name = 'test_transfert';"
             f"DELETE FROM glpi_cartridgeitems_printermodels WHERE cartridgeitems_id > {cartouches_avant};"
             f"DELETE FROM glpi_plugin_printgestion_cartridge_snmp WHERE cartridgeitems_id > {cartouches_avant};"

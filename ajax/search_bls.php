@@ -20,11 +20,7 @@ if (!Session::haveRight('plugin_printgestion_expedition', UPDATE)) {
     PluginPrintgestionSecurity::denyJson();
 }
 
-$config = PluginPrintgestionConfig::getInstance();
-if ((int)($config->fields['plugin_gestion_enabled'] ?? 0) !== 1
-    || !$plugin->isInstalled('gestion')
-    || !$plugin->isActivated('gestion')
-    || !$DB->tableExists('glpi_plugin_gestion_surveys')) {
+if (!PluginPrintgestionTracking::isGestionLinkActive()) {
     echo json_encode(['ok' => false, 'bls' => [], 'error' => 'Gestion integration not enabled']);
     exit;
 }

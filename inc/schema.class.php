@@ -55,6 +55,7 @@ class PluginPrintgestionSchema {
         '1.6.5' => 'migrateTo165',
         '1.6.6' => 'migrateTo166',
         '1.6.7' => 'migrateTo167',
+        '1.6.8' => 'migrateTo168',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -1076,6 +1077,20 @@ class PluginPrintgestionSchema {
                 KEY `date_creation` (`date_creation`)
             ) ENGINE=InnoDB DEFAULT CHARSET={$charset} COLLATE={$collation} ROW_FORMAT=DYNAMIC");
         }
+    }
+
+    /**
+     * 1.6.8 (bloc 2) : réglages déduits ou doublons de GLPI retirés. Idempotente : chaque suppression teste la colonne.
+     */
+    private static function migrateTo168(Migration $migration): void {
+        global $DB;
+
+        $config = 'glpi_plugin_printgestion_configs';
+        // « Activer lien plugin Gestion » : déduit de l'état du plugin Gestion (PluginPrintgestionTracking::isGestionLinkActive).
+        if ($DB->fieldExists($config, 'plugin_gestion_enabled')) {
+            $migration->dropField($config, 'plugin_gestion_enabled');
+        }
+        $migration->migrationOneTable($config);
     }
 
     private static function migrateTo166(Migration $migration): void {

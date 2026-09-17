@@ -163,7 +163,6 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 `api_gls` varchar(255) DEFAULT NULL,
                 `api_chronopost` varchar(255) DEFAULT NULL,
                 `tracking_frequency` int NOT NULL DEFAULT '4',
-                `plugin_gestion_enabled` tinyint NOT NULL DEFAULT '0',
                 `wrong_printer_auto_reassign_days` int NOT NULL DEFAULT '7',
                 `wrong_printer_lookback_days` int NOT NULL DEFAULT '30',
                 `billing_require_contract` tinyint NOT NULL DEFAULT '1',
@@ -1225,29 +1224,6 @@ HTML;
         echo "</div></div>";
         echo "</div></div>";
 
-        // ── Intégrations (visible UNIQUEMENT si plugin Gestion installé et actif) ──
-        $gestion_active = false;
-        try {
-            $plugin = new Plugin();
-            $gestion_active = $plugin->isInstalled('gestion') && $plugin->isActivated('gestion');
-        } catch (Throwable $e) {
-            // Section « Intégrations » masquée pour cet affichage, cause tracée.
-            PluginPrintgestionLogger::error(
-                'Config::showConfigForm',
-                "Lecture de l'état du plugin Gestion impossible : section Intégrations masquée.",
-                $e
-            );
-        }
-
-        if ($gestion_active) {
-            echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
-                . __('Intégrations', 'printgestion') . "</h3></div><div class='card-body'>";
-            echo "<div class='row mb-2 align-items-center'><div class='col-md-4'>"
-                . __('Activer lien plugin Gestion (BL signé → livraison)', 'printgestion') . "</div><div class='col-md-6'>";
-            Dropdown::showYesNo('plugin_gestion_enabled', (int)($config->fields['plugin_gestion_enabled'] ?? 0));
-            echo "</div></div>";
-            echo "</div></div>";
-        }
 
         self::showOrphansCard();
 

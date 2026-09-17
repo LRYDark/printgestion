@@ -71,15 +71,10 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
         $can_expedition_update = Session::haveRight('plugin_printgestion_expedition', UPDATE);
         $ajax_base = PLUGIN_PRINTGESTION_WEBDIR . '/ajax';
 
-        // Vérifie si le plugin Gestion est actif ET que l'intégration est activée
-        // côté plugin printgestion (config plugin_gestion_enabled = 1)
+        // Lien BL : déduit de l'état du plugin Gestion, jamais réglé.
         $bl_enabled = false;
         try {
-            $plugin = new Plugin();
-            if ($plugin->isInstalled('gestion') && $plugin->isActivated('gestion')) {
-                $config = PluginPrintgestionConfig::getInstance();
-                $bl_enabled = (int)($config->fields['plugin_gestion_enabled'] ?? 0) === 1;
-            }
+            $bl_enabled = PluginPrintgestionTracking::isGestionLinkActive();
         } catch (Throwable $e) {
             // Liaison BL désactivée pour cet affichage, mais la cause est tracée.
             PluginPrintgestionLogger::error(

@@ -54,7 +54,6 @@ def bls_lus(expedition):
 
 def main():
     d.verifier_instance()
-    sql("UPDATE glpi_plugin_printgestion_configs SET plugin_gestion_enabled = 1 WHERE id = 1;")
     try:
         lib.connecter_admin()
         bl_a, bl_b, bl_racine = CTX.bl("BLTSTA0001", d.CLIENT_A), CTX.bl("BLTSTB0001", d.CLIENT_B), CTX.bl("BLTSTR0001", d.RACINE)
@@ -137,9 +136,22 @@ def main():
         bloc = re.search(r'<script type="application/json" id="pc-linkbl-labels">(.*?)</script>', page, re.S)
         verifier("bloc pc-linkbl-labels présent, décodable, relu par JSON.parse",
                  (bloc is not None and "title" in json.loads(bloc.group(1)), "JSON.parse(document.getElementById('pc-linkbl-labels').textContent)" in page), (True, True))
+
+        section("7. BL signé → « livrée » automatique : le verrou anti-doublon tient")
+        lib.connecter_admin()
+        ev = CTX.expedition(d.IMP_A1, "test_verrou", "SUIVI-VERROU", statut="shipped")
+        sql(f"UPDATE glpi_plugin_printgestion_expeditions SET bl_surveys_id = {bl_a}, date_shipped = NOW() WHERE id = {ev};")
+        sql(f"UPDATE glpi_plugin_gestion_surveys SET signed = 1 WHERE id = {bl_a};")
+        lib.tache("PrintgestionTrackingUpdate")
+        verifier("expédition passée en « livrée » par le BL signé (lien déduit du plugin Gestion actif, sans réglage)",
+                 lib.valeur(f"SELECT statut FROM glpi_plugin_printgestion_expeditions WHERE id = {ev}"), "delivered")
+        verrou = json.loads(lib.php_glpi(f"echo json_encode(PluginPrintgestionGuard::evaluate([['printers_id' => {d.IMP_A1}, 'property' => 'test_verrou']]));"))
+        cle = f"{d.IMP_A1}|test_verrou"
+        lib.constat("verrou anti-doublon toujours actif après « livrée » : envoi en cours, seule la pose le clôt",
+                    lib.ok_ko(verrou.get(cle) is not None and "in_progress" in json.dumps(verrou.get(cle))), json.dumps(verrou.get(cle), ensure_ascii=False)[:160])
+        sql(f"UPDATE glpi_plugin_gestion_surveys SET signed = 0 WHERE id = {bl_a};")
     finally:
         CTX.nettoyer()
-        sql("UPDATE glpi_plugin_printgestion_configs SET plugin_gestion_enabled = 0 WHERE id = 1;")
     return lib.bilan()
 
 

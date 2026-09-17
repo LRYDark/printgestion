@@ -26,15 +26,20 @@ class PluginPrintgestionTracking {
      * Pour chaque expédition liée à un BL du plugin Gestion, vérifie si le BL a
      * été signé. Si oui, passe l'expédition en "delivered" et notifie le commercial.
      */
+    /**
+     * Lien avec le plugin Gestion (BL signé → expédition livrée, liaison des BL) : déduit, jamais réglé. Actif dès
+     * que le plugin Gestion est actif et que sa table des BL existe. Sans effet sur le verrou anti-doublon : une
+     * expédition « livrée » reste un envoi en cours, seule la pose détectée le clôt (Guard, statuts actifs).
+     */
+    public static function isGestionLinkActive(): bool {
+        global $DB;
+        return Plugin::isPluginActive('gestion') && $DB->tableExists('glpi_plugin_gestion_surveys');
+    }
+
     public static function syncDeliveredFromGestion(): int {
         global $DB;
 
-        $config = PluginPrintgestionConfig::getInstance();
-        if ((int)($config->fields['plugin_gestion_enabled'] ?? 0) !== 1) {
-            return 0;
-        }
-
-        if (!$DB->tableExists('glpi_plugin_gestion_surveys')) {
+        if (!self::isGestionLinkActive()) {
             return 0;
         }
 

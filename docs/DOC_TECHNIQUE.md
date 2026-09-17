@@ -89,7 +89,7 @@ printgestion/
 | `Billing` / `Billingview` | Coût à la page + table matérialisée **par utilisateur** (le calcul dépend de la période choisie) |
 | `PrinterCostsTab` | Onglet « Coût à la page » sur la fiche imprimante : prix et coûts (droit `billing` READ) |
 | `PrinterThresholdsTab` | Onglet « Seuils d'alerte » sur la fiche imprimante : seuils et rendement propres (droit `dashboard` READ, UPDATE pour enregistrer) |
-| `Tracking` | Intégrations externes : BL signés du plugin Gestion + APIs transporteurs (UPS/GLS/Chronopost) |
+| `Tracking` | Intégrations externes : BL signés du plugin Gestion + APIs transporteurs (UPS/GLS/Chronopost) ; lien avec le plugin Gestion **déduit** (`isGestionLinkActive()` : plugin actif et table des BL présente), jamais réglé — l'ancien interrupteur « Activer lien plugin Gestion » est supprimé (1.6.8) ; le passage automatique en « livrée » sur BL signé ne touche pas au verrou anti-doublon (statut actif, seule la pose détectée clôt l'envoi ; prouvé par `tests/securite/bl.py`) |
 | `Reminder` | Les 3 tâches cron GLPI (voir §7) |
 | `Dashboardactions` | Menu contextuel et modales des écrans Expéditions et Coût à la page (modifier l'expédition, BL) |
 
