@@ -30,6 +30,8 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
     const STATUS_ABANDONED  = 'abandoned';
 
     const IPS_TABLE  = 'glpi_plugin_printgestion_raccordementips';
+    /** Après ce délai depuis le déclenchement, la vérification cesse de se relancer : état franc et quoi faire. */
+    const VERIFY_LIMIT = 30 * MINUTE_TIMESTAMP;
     const LOGS_TABLE = 'glpi_plugin_printgestion_raccordementlogs';
 
     /** Adresses déclarées au plus par raccordement (un /22). */
@@ -721,7 +723,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             return;
         }
         $esc     = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        $confirm = __('Abandonner ce raccordement ? Rien n\'est supprimé : le journal est gardé et les objets créés dans GLPI Inventory restent en place.', 'printgestion');
+        $confirm = __('Abandonner ce raccordement ? Rien n\'est supprimé : le journal est gardé et la configuration de collecte déjà créée reste en place.', 'printgestion');
         echo "<form method='post' action='" . $esc(self::getPageURL()) . "' class='mb-3 text-end'>"
             . Html::hidden('id', ['value' => (int) $this->getID()])
             . "<button type='submit' name='abandon' value='1' class='btn btn-outline-danger' onclick=\"return confirm(" . $esc(json_encode($confirm)) . ");\">"
@@ -868,9 +870,16 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
 
     private function showStep3(bool $can_edit): void {
         $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('3. Configuration de la collecte (GLPI Inventory)', 'printgestion')) . "</h3></div><div class='card-body'>";
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('3. Configuration de la collecte', 'printgestion')) . "</h3></div><div class='card-body'>";
         if ($this->fields['status'] !== self::STATUS_OPEN) {
+            // Technicien : l'état ; administrateur : les objets créés ou réutilisés, repliés.
+            ob_start();
             $this->showConfiguration();
+            $objects = (string) ob_get_clean();
+            echo PluginPrintgestionUi::statusLine('ok', empty($this->fields['date_configured'])
+                ? __('Collecte configurée', 'printgestion')
+                : sprintf(__('Collecte configurée le %s', 'printgestion'), Html::convDateTime((string) $this->fields['date_configured'])));
+            echo PluginPrintgestionUi::adminDetails(__('Objets créés ou réutilisés', 'printgestion'), $objects);
             echo "</div></div>";
             return;
         }
@@ -899,7 +908,9 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 . "<div class='col-sm-5'><input class='form-control' name='credential_name' maxlength='64' placeholder='" . $esc(__('Nom', 'printgestion')) . "'></div>"
                 . "<div class='col-sm-3'><select class='form-select' name='snmpversion'><option value='2'>v2c</option><option value='1'>v1</option></select></div>"
                 . "<div class='col-sm-4'><input class='form-control' type='password' name='community' maxlength='255' autocomplete='new-password' placeholder='" . $esc(__('Communauté', 'printgestion')) . "'></div>"
-                . "</div><div class='form-hint'>" . $esc(__('Réutilisés tels quels s\'ils existent déjà. SNMP v3 : à créer dans GLPI (Configuration → Identifiants SNMP), puis à choisir ici.', 'printgestion')) . "</div></div></div>";
+                . "</div><div class='form-hint'>" . $esc(__('Réutilisés tels quels s\'ils existent déjà.', 'printgestion'))
+                . (PluginPrintgestionUi::isAdmin() ? " <span data-pg-admin='1'>" . $esc(__('SNMP v3 : à créer dans GLPI (Configuration → Identifiants SNMP), puis à choisir ici.', 'printgestion')) . "</span>" : '')
+                . "</div></div></div>";
             echo "<button type='submit' name='configure' value='1' class='btn btn-primary mt-3'><i class='ti ti-settings-automation me-1'></i>" . $esc(__('Créer la configuration de collecte', 'printgestion')) . "</button>";
             echo Html::closeForm(false);
         }
@@ -992,7 +1003,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('4. Déclenchement et vérification', 'printgestion')) . "</h3></div><div class='card-body'>";
 
         if ($status === self::STATUS_CONFIGURED) {
-            echo "<p>" . $esc(__('La collecte est configurée. Lancez la découverte : GLPI Inventory prépare le job de la sonde, puis GLPI tente de la réveiller.', 'printgestion')) . "</p>";
+            echo "<p>" . $esc(__('La collecte est configurée. Lancez la découverte : la sonde recevra sa consigne, et GLPI tentera de la réveiller.', 'printgestion')) . "</p>";
         }
         if (!empty($this->fields['date_triggered'])) {
             $this->showProgress();
@@ -1018,8 +1029,20 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         if (!empty($this->fields['date_triggered'])) {
             $this->showResults();
         }
-        if ($can_edit && $status === self::STATUS_TRIGGERED && $waiting) {
-            echo "<p class='text-muted small mt-2 mb-0'>" . $esc(__('Vérification automatique toutes les 60 secondes tant que des résultats sont en attente.', 'printgestion')) . "</p>";
+        // Au-delà de la limite, plus de relance : un résultat franc et ce qu'il faut faire, plutôt qu'une attente sans fin.
+        $timed_out = $status === self::STATUS_TRIGGERED && $waiting && !empty($this->fields['date_triggered'])
+            && strtotime((string) $this->fields['date_triggered']) < strtotime(Session::getCurrentTime()) - self::VERIFY_LIMIT;
+        if ($timed_out) {
+            $still = (int) ($counts['waiting_discovery'] ?? 0) + (int) ($counts['waiting_inventory'] ?? 0) + (int) ($counts['pending'] ?? 0);
+            echo PluginPrintgestionUi::statusLine('error', sprintf(
+                _n('Vérification arrêtée après %1$d min : %2$d adresse toujours sans réponse', 'Vérification arrêtée après %1$d min : %2$d adresses toujours sans réponse', $still, 'printgestion'),
+                (int) (self::VERIFY_LIMIT / MINUTE_TIMESTAMP),
+                $still
+            ));
+            echo "<p class='mb-1'>" . $esc(__('Vérifier que le PC sonde est allumé et branché sur le réseau des imprimantes, que les adresses et la communauté SNMP sont les bonnes, puis « Relancer la découverte ». Si la sonde vient seulement de répondre : « Vérifier maintenant ».', 'printgestion')) . "</p>";
+        }
+        if ($can_edit && $status === self::STATUS_TRIGGERED && $waiting && !$timed_out) {
+            echo "<p class='text-muted small mt-2 mb-0'>" . $esc(sprintf(__('Vérification automatique toutes les 60 secondes tant que des résultats sont en attente, pendant %d minutes au plus.', 'printgestion'), (int) (self::VERIFY_LIMIT / MINUTE_TIMESTAMP))) . "</p>";
             echo "<form method='post' action='" . $esc(self::getPageURL()) . "' id='pg-racc-autoverify' class='d-none'>"
                 . Html::hidden('id', ['value' => $id]) . Html::hidden('verify', ['value' => 1]) . Html::hidden('auto', ['value' => 1])
                 . Html::closeForm(false);
@@ -1032,7 +1055,8 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
     private function showProgress(): void {
         $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         if (!PluginPrintgestionCollectsetup::isAvailable()) {
-            echo "<div class='alert alert-warning'>" . $esc(__('Plugin GLPI Inventory absent ou inactif : avancement indisponible.', 'printgestion')) . "</div>";
+            // Cause (plugin absent ou inactif) dans la carte Santé et l'onglet de l'entité : ici, l'état seul.
+            echo PluginPrintgestionUi::statusLine('error', __('Avancement indisponible — contactez l\'administrateur', 'printgestion'));
             return;
         }
         $progress = PluginPrintgestionCollectsetup::getProgress($this);

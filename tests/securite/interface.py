@@ -345,6 +345,33 @@ def main():
         lib.vider_cache()
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
         constat("environnement rétabli : ligne disparue", ok_ko(rien not in page))
+
+        section("11. Vérification du raccordement : limite de temps, état franc")
+        heure = lambda decalage: lib.php_glpi(f"echo date('Y-m-d H:i:s', time() + ({decalage}));").strip()  # noqa: E731  (heure de GLPI, pas NOW() de la base)
+        sql(f"INSERT INTO glpi_plugin_printgestion_raccordements (entities_id, agents_id, status, users_id, date_creation, date_mod, date_configured, date_triggered) "
+            f"VALUES ({d.CLIENT_A}, {agent}, 'triggered', 2, NOW(), NOW(), NOW(), {lib.q(heure(-31 * 60))});")
+        racc = int(valeur("SELECT MAX(id) FROM glpi_plugin_printgestion_raccordements"))
+        sql(f"INSERT INTO glpi_plugin_printgestion_raccordementips (plugin_printgestion_raccordements_id, ip, ip_num) VALUES ({racc}, '10.99.0.31', INET_ATON('10.99.0.31'));")
+        arretee = "Vérification arrêtée après 30 min : 1 adresse toujours sans réponse"
+        _, page, _ = WEB.get(config.FRONT + f"/raccordement.php?id={racc}")
+        constat("31 min après le déclenchement, administrateur : « Vérification arrêtée après 30 min », quoi faire, plus de relance automatique",
+                ok_ko(arretee in page and "Relancer la découverte" in page and "pg-racc-autoverify" not in page))
+        CTX.connecter("test-technicien")
+        _, page, _ = WEB.get(config.FRONT + f"/raccordement.php?id={racc}")
+        constat("technicien : même état, sans détail réservé", ok_ko(arretee in page and not trouves(page)), ", ".join(trouves(page)))
+        lib.connecter_admin()
+        sql(f"UPDATE glpi_plugin_printgestion_raccordements SET date_triggered = {lib.q(heure(-60))} WHERE id = {racc};")
+        _, page, _ = WEB.get(config.FRONT + f"/raccordement.php?id={racc}")
+        constat("1 min après le déclenchement : relance automatique en place, pas d'arrêt", ok_ko("Vérification arrêtée" not in page and "pg-racc-autoverify" in page))
+        CTX.connecter("test-technicien")
+        for statut_racc, libelle in (("configured", "collecte configurée, avant déclenchement"), ("open", "ouvert, à l'étape 3 (identifiants SNMP)")):
+            sql(f"UPDATE glpi_plugin_printgestion_raccordements SET status = '{statut_racc}', date_configured = {'NOW()' if statut_racc == 'configured' else 'NULL'} WHERE id = {racc};")
+            _, page, _ = WEB.get(config.FRONT + f"/raccordement.php?id={racc}")
+            constat(f"raccordement {libelle}, technicien : aucun détail réservé", ok_ko(not trouves(page)), ", ".join(trouves(page)))
+        lib.connecter_admin()
+        sql(f"DELETE FROM glpi_plugin_printgestion_raccordementips WHERE plugin_printgestion_raccordements_id = {racc}; "
+            f"DELETE FROM glpi_plugin_printgestion_raccordementlogs WHERE plugin_printgestion_raccordements_id = {racc}; "
+            f"DELETE FROM glpi_plugin_printgestion_raccordements WHERE id = {racc};")
     finally:
         for ident, mode, lastrun in cron:
             sql(f"UPDATE glpi_crontasks SET mode = {mode}, lastrun = {'NULL' if lastrun == 'NULL' else lib.q(lastrun)} WHERE id = {ident};")

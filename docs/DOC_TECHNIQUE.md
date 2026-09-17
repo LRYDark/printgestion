@@ -591,7 +591,10 @@ revérifiée à chaque requête (hors périmètre : 404). Lieu, commentaire et c
   sur les tâches de découverte (job préparé pour la sonde), puis réveil natif `Agent::requestInventory()` (GET /now
   sur le port de l'agent). Sonde injoignable (NAT) : geste sur place, `http://127.0.0.1:62354` puis « Force an
   Inventory » (autorisé par `HTTPD_TRUST=127.0.0.1/32` du paquet), deux fois : découverte, puis relevé des niveaux.
-  Vérification (bouton, et automatique toutes les 60 s tant qu'un résultat est en attente) à partir des journaux
+  Vérification (bouton, et automatique toutes les 60 s tant qu'un résultat est en attente, pendant
+  `VERIFY_LIMIT` = 30 min après le déclenchement au plus ; au-delà, plus de relance : ligne rouge « Vérification
+  arrêtée après 30 min : N adresses toujours sans réponse » et quoi faire — sonde allumée et sur le bon réseau,
+  adresses, communauté, « Relancer la découverte » qui rouvre 30 min) à partir des journaux
   GLPI Inventory de la sonde datés d'après le déclenchement : découverte terminée pour toutes les plages → relevé
   des niveaux préparé une seule fois (`forceRunning()` des tâches d'inventaire, qui ne retiennent que les
   équipements importés avec des identifiants) et nouveau réveil. Résultat par adresse, **parmi les seuls
