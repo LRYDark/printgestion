@@ -768,13 +768,15 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
     }
 
     /** Page « Installeur GLPI Agent » : dernière version connue, mise à jour des nouveaux paquets, statut des PC sondes. */
-    public static function showDefaultsCard(bool $can_edit, string $page): void {
+    public static function showDefaultsCard(bool $can_edit, string $page, bool $body_only = false): void {
         $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $latest = self::getLatestVersion();
         $fields = PluginPrintgestionConfig::getInstance()->fields;
         $served = PluginPrintgestionAgentdeploy::getServedVersion();
 
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Dernière version de GLPI Agent, mise à jour automatique et PC sondes', 'printgestion')) . "</h3></div><div class='card-body'>";
+        if (!$body_only) {
+            echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Dernière version de GLPI Agent, mise à jour automatique et PC sondes', 'printgestion')) . "</h3></div><div class='card-body'>";
+        }
         echo "<p>" . $esc(sprintf(__('Dernière version connue : %1$s (%2$s).', 'printgestion'), $latest['version'], self::getLatestSourceLabel($latest))) . "</p>";
         if (version_compare($served, $latest['version'], '<')) {
             echo "<div class='alert alert-warning'>" . $esc(sprintf(__('L\'installeur servi (%1$s) est plus ancien que la dernière version (%2$s) : indiquez la nouvelle version dans « Paramètres transmis » puis récupérez-la.', 'printgestion'), $served, $latest['version'])) . "</div>";
@@ -803,7 +805,9 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             )) . "</p>";
         }
         echo "<p class='text-muted small mt-3 mb-0'>" . $esc(__('Le plugin ne pousse aucune mise à jour. Selon ces réglages, le paquet Windows pose sur le PC une tâche planifiée mensuelle (winget, compte SYSTEM) et le paquet Linux une tâche cron mensuelle (installeur officiel téléchargé sur GitHub, empreinte vérifiée), toutes deux seulement si l\'agent est en attente ; macOS : mise à jour manuelle. Chaque sonde se règle ensuite depuis sa fiche, et le changement n\'est appliqué qu\'en lançant sa consigne sur le PC. Microsoft ne prend pas officiellement en charge winget sous le compte SYSTEM : à vérifier au pilote. Statut des PC sondes : créez-le à la racine (récursif) dans Configuration > Intitulés > Statuts des éléments, puis marquez chaque PC depuis la page « Sondes ».', 'printgestion')) . "</p>";
-        echo "</div></div>";
+        if (!$body_only) {
+            echo "</div></div>";
+        }
     }
 
     /** Conformité, mise à jour automatique, imprimantes collectées : ce qui manque à la fiche Agent native. */

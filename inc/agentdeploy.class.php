@@ -1294,7 +1294,6 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $host     = (string) parse_url((string) ($CFG_GLPI['url_base'] ?? ''), PHP_URL_HOST);
         $resolved = $host !== '' ? gethostbyname($host) : '';
         ob_start();
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Paramètres transmis à l\'installation', 'printgestion')) . "</h3></div><div class='card-body'>";
         echo "<ul class='mb-3'>";
         echo "<li>" . $esc(__('Adresse du serveur (SERVER) :', 'printgestion')) . " <code>" . $esc($server['url'] !== '' ? $server['url'] : '—') . "</code> <span class='text-muted small'>(" . $esc($sources[$server['source']]) . ")</span>"
             . ($server['error'] !== '' ? " <span class='text-danger'>" . $esc($server['error']) . "</span>" : '') . "</li>";
@@ -1315,12 +1314,11 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             echo "<div class='col-12'><button type='submit' data-pg-submit-once='1' name='save_settings' value='1' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button></div>";
             Html::closeForm();
         }
-        echo "</div></div>";
         $params_html = (string) ob_get_clean();
 
         // Dernière version de GLPI Agent et mise à jour automatique des nouveaux paquets.
         ob_start();
-        PluginPrintgestionAgentsetting::showDefaultsCard($can_edit, $page);
+        PluginPrintgestionAgentsetting::showDefaultsCard($can_edit, $page, true);
         $defaults_html = (string) ob_get_clean();
 
         // Prérequis communs à tous les clients.
@@ -1362,9 +1360,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         if ($admin && version_compare($version, $latest['version'], '<')) {
             echo "<div data-pg-admin='1'>" . PluginPrintgestionUi::statusLine('warning', sprintf(__('Nouvelle version de GLPI Agent disponible : %1$s (servie : %2$s)', 'printgestion'), $latest['version'], $version)) . "</div>";
         }
-        echo PluginPrintgestionUi::adminDetails(__('Paramètres transmis à l\'installation', 'printgestion'), $params_html);
-        echo PluginPrintgestionUi::adminDetails(__('Dernière version, mise à jour automatique et PC sondes', 'printgestion'), $defaults_html);
         echo "</div></div>";
+        echo PluginPrintgestionUi::adminCard(__('Paramètres transmis à l\'installation', 'printgestion'), $params_html);
+        echo PluginPrintgestionUi::adminCard(__('Dernière version, mise à jour automatique et PC sondes', 'printgestion'), $defaults_html);
 
         $prerequisites_ok = $inventory_on && empty($inventory['blocking']) && $rule['active'] !== null && $with_tag > 0;
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Prérequis', 'printgestion')) . "</h3></div><div class='card-body'>";

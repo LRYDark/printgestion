@@ -57,3 +57,13 @@
     color: var(--tblr-body-color);
     font-weight: 600;
 }
+
+/* Chevrons de détail (PluginPrintgestionUi) : pointent vers le bas fermés, vers le haut ouverts. Bootstrap pose
+   aria-expanded sur le bouton à chaque ouverture ou fermeture. */
+/* Propriété rotate (indépendante de transform, qu'une règle de GLPI impose déjà à l'icône du bouton). */
+.btn.pg-chevron .ti-chevron-down {
+    transition: rotate .2s ease;
+}
+.btn.pg-chevron[aria-expanded="true"] .ti-chevron-down {
+    rotate: 180deg;
+}

@@ -79,9 +79,24 @@ class PluginPrintgestionUi {
             . "<div class='modal-body'>{$html}</div></div></div></div></span>";
     }
 
+    /**
+     * Carte réservée à l'administrateur : titre et chevron dans l'en-tête, contenu replié (fermé par défaut).
+     * Chaîne vide pour les autres profils.
+     */
+    public static function adminCard(string $title, string $html): string {
+        if (!self::isAdmin() || $html === '') {
+            return '';
+        }
+        $id = 'pg-detail-' . bin2hex(random_bytes(5));
+        return "<div class='card mb-3' data-pg-admin='1'><div class='card-header d-flex align-items-center'>"
+            . "<h3 class='card-title mb-0'>" . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . "</h3><div class='ms-auto'>" . self::chevron($id) . "</div></div>"
+            . "<div class='collapse' id='{$id}'><div class='card-body'>{$html}</div></div></div>";
+    }
+
     private static function chevron(string $target): string {
         $label = htmlspecialchars(__('Détail', 'printgestion'), ENT_QUOTES, 'UTF-8');
-        return "<button type='button' class='btn btn-sm btn-ghost-secondary' data-pg-admin='1' data-bs-toggle='collapse' data-bs-target='#{$target}' aria-expanded='false' aria-controls='{$target}' title='{$label}' aria-label='{$label}'>"
+        // pg-chevron : pivote à l'ouverture (aria-expanded posé par Bootstrap, printgestion.css).
+        return "<button type='button' class='btn btn-sm btn-ghost-secondary pg-chevron' data-pg-admin='1' data-bs-toggle='collapse' data-bs-target='#{$target}' aria-expanded='false' aria-controls='{$target}' title='{$label}' aria-label='{$label}'>"
             . "<i class='ti ti-chevron-down'></i></button>";
     }
 
