@@ -165,9 +165,6 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 `gls_secret_date` timestamp NULL DEFAULT NULL,
                 `wrong_printer_auto_reassign_days` int NOT NULL DEFAULT '7',
                 `wrong_printer_lookback_days` int NOT NULL DEFAULT '30',
-                `billing_require_contract` tinyint NOT NULL DEFAULT '1',
-                `billing_require_counter` tinyint NOT NULL DEFAULT '1',
-                `billing_require_activity` tinyint NOT NULL DEFAULT '1',
                 `default_pages_per_cartridge` int NOT NULL DEFAULT '5000',
                 `enable_contrats` tinyint NOT NULL DEFAULT '1',
                 `enable_toner` tinyint NOT NULL DEFAULT '1',
@@ -189,9 +186,6 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 'emails_commercial'                => "text DEFAULT NULL",
                 'wrong_printer_auto_reassign_days' => "int NOT NULL DEFAULT '7'",
                 'wrong_printer_lookback_days'      => "int NOT NULL DEFAULT '30'",
-                'billing_require_contract'         => "tinyint NOT NULL DEFAULT '1'",
-                'billing_require_counter'          => "tinyint NOT NULL DEFAULT '1'",
-                'billing_require_activity'         => "tinyint NOT NULL DEFAULT '1'",
                 'default_pages_per_cartridge'      => "int NOT NULL DEFAULT '5000'",
                 'gabarit_planif_group'             => "int {$default_key_sign} DEFAULT NULL",
                 'gabarit_courtoisie'               => "int {$default_key_sign} DEFAULT NULL",
@@ -899,39 +893,6 @@ class PluginPrintgestionConfig extends CommonDBTM {
 })();
 </script>";
 
-        // ── Dashboard Coût à la page : filtres d'affichage ────────
-        $req_contract = (int)($config->fields['billing_require_contract'] ?? 1);
-        $req_counter  = (int)($config->fields['billing_require_counter']  ?? 1);
-        $req_activity = (int)($config->fields['billing_require_activity'] ?? 1);
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
-            . __('Dashboard Coût à la page — Filtres', 'printgestion') . "</h3></div><div class='card-body'>";
-        echo "<p class='text-muted small mb-3'>"
-            . __("Par défaut, seules les imprimantes avec un contrat, des compteurs de page ET une activité "
-                . "(pages N&B ou couleur > 0 sur la période) s'affichent. Décoche une option pour élargir.", 'printgestion')
-            . "</p>";
-        echo "<div class='row g-3'>";
-        echo "<div class='col-md-4'><div class='form-check form-switch'>";
-        echo "<input type='hidden' name='billing_require_contract' value='0'>";
-        echo "<input type='checkbox' class='form-check-input' id='billing_require_contract' "
-            . "name='billing_require_contract' value='1'" . ($req_contract === 1 ? ' checked' : '') . ">";
-        echo "<label class='form-check-label' for='billing_require_contract'>"
-            . __('N\'afficher que les imprimantes liées à un contrat', 'printgestion') . "</label>";
-        echo "</div></div>";
-        echo "<div class='col-md-4'><div class='form-check form-switch'>";
-        echo "<input type='hidden' name='billing_require_counter' value='0'>";
-        echo "<input type='checkbox' class='form-check-input' id='billing_require_counter' "
-            . "name='billing_require_counter' value='1'" . ($req_counter === 1 ? ' checked' : '') . ">";
-        echo "<label class='form-check-label' for='billing_require_counter'>"
-            . __('N\'afficher que les imprimantes ayant au moins un compteur de page', 'printgestion') . "</label>";
-        echo "</div></div>";
-        echo "<div class='col-md-4'><div class='form-check form-switch'>";
-        echo "<input type='hidden' name='billing_require_activity' value='0'>";
-        echo "<input type='checkbox' class='form-check-input' id='billing_require_activity' "
-            . "name='billing_require_activity' value='1'" . ($req_activity === 1 ? ' checked' : '') . ">";
-        echo "<label class='form-check-label' for='billing_require_activity'>"
-            . __('N\'afficher que les imprimantes avec au moins 1 page imprimée (N&B ou Couleur) sur la période', 'printgestion') . "</label>";
-        echo "</div></div>";
-        echo "</div></div></div>";
 
         // ── Card unique : Rôles & notifications ───────────────────
         $roles = [

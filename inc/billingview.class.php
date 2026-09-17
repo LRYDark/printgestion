@@ -74,7 +74,8 @@ class PluginPrintgestionBillingview extends CommonDBTM {
         string $start,
         string $end,
         ?int $entities_id,
-        string $view
+        string $view,
+        array $filters = []
     ): int {
         global $DB;
 
@@ -85,7 +86,7 @@ class PluginPrintgestionBillingview extends CommonDBTM {
         $now   = $_SESSION['glpi_currenttime'] ?? date('Y-m-d H:i:s');
 
         // Calcul (lourd, mais mis en cache par computeForPeriodCached).
-        $rows = PluginPrintgestionBilling::computeForPeriodCached($start, $end, $entities_id);
+        $rows = PluginPrintgestionBilling::computeForPeriodCached($start, $end, $entities_id, $filters);
 
         // On efface uniquement les lignes de cet utilisateur (isolation par session).
         $DB->delete($table, ['users_id' => $users_id]);

@@ -27,7 +27,13 @@ $entities_id = (isset($_GET['entities_id']) && $_GET['entities_id'] !== '' && (i
     ? (int)$_GET['entities_id']
     : null;
 
-$rows           = PluginPrintgestionBilling::computeForPeriod($start, $end, $entities_id);
+// Mêmes critères que l'écran Facturation (cochés par défaut).
+$filters = [
+    'contract' => (string) ($_GET['contract'] ?? '1') === '1',
+    'counter'  => (string) ($_GET['counter']  ?? '1') === '1',
+    'activity' => (string) ($_GET['activity'] ?? '1') === '1',
+];
+$rows           = PluginPrintgestionBilling::computeForPeriod($start, $end, $entities_id, $filters);
 $rows_by_client = PluginPrintgestionBilling::groupByClient($rows);
 
 $spreadsheet = new Spreadsheet();

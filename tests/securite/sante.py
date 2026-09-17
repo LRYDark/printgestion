@@ -165,6 +165,15 @@ def main():
                       and valeur("SELECT frequency FROM glpi_crontasks WHERE name = 'PrintgestionTrackingUpdate'") == "14400"))
         sql(f"UPDATE glpi_crontasks SET mode = {tache[1]}, frequency = {tache[2]} WHERE name = 'PrintgestionTrackingUpdate';")
 
+        section("9. Filtres de facturation : critères de l'écran Facturation, plus un réglage")
+        page, _ = carte()
+        constat("configuration : plus de carte « Dashboard Coût à la page — Filtres »", ok_ko("billing_require_contract" not in page and "Coût à la page — Filtres" not in page))
+        statut, page, _ = WEB.get(config.FRONT + "/dashboard_billing.php?pg_period=current&pg_view=printer&pg_contract=0&pg_counter=0&pg_activity=0")
+        case = lambda nom: re.search(r"<input[^>]*id='pg_" + nom + r"'[^>]*>", page)  # noqa: E731
+        constat("écran Facturation : trois critères décochables, page servie", ok_ko(statut == 200 and all(case(n) is not None and "checked" not in case(n).group(0) for n in ("contract", "counter", "activity"))))
+        statut, page, _ = WEB.get(config.FRONT + "/dashboard_billing.php?pg_period=current&pg_view=printer&pg_contract=1&pg_counter=1&pg_activity=1")
+        constat("critères cochés par défaut ; l'export Excel les porte", ok_ko(all("checked" in case(n).group(0) for n in ("contract", "counter", "activity")) and "contract=1" in page))
+
         section("7. Profils")
         lecture = CTX.profil(4, "Profil test configuration en lecture", {"plugin_printgestion_config": 1})
         CTX.utilisateur("test-config-lecture", lecture, 0)

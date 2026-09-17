@@ -26,13 +26,16 @@ class PluginPrintgestionBilling extends CommonDBTM {
      * Calcule les coûts par imprimante pour une période donnée.
      * Retourne une liste de lignes consolidées.
      */
-    public static function computeForPeriod(string $start, string $end, ?int $entities_id = null): array {
+    /**
+     * @param array $filters critères de l'écran Facturation (jamais un réglage) : 'contract', 'counter', 'activity'
+     *                       (bool, vrai par défaut) — imprimantes liées à un contrat, avec un compteur, avec de l'activité.
+     */
+    public static function computeForPeriod(string $start, string $end, ?int $entities_id = null, array $filters = []): array {
         global $DB;
 
-        $config = PluginPrintgestionConfig::getInstance();
-        $require_contract = (int)($config->fields['billing_require_contract'] ?? 1) === 1;
-        $require_counter  = (int)($config->fields['billing_require_counter']  ?? 1) === 1;
-        $require_activity = (int)($config->fields['billing_require_activity'] ?? 1) === 1;
+        $require_contract = (bool) ($filters['contract'] ?? true);
+        $require_counter  = (bool) ($filters['counter']  ?? true);
+        $require_activity = (bool) ($filters['activity'] ?? true);
 
         $rows = [];
 
@@ -175,15 +178,13 @@ class PluginPrintgestionBilling extends CommonDBTM {
      * Version cachée de computeForPeriod via $GLPI_CACHE (fichiers dans files/_cache/).
      * TTL 10min — suffisant pour un dashboard consulté.
      */
-    public static function computeForPeriodCached(string $start, string $end, ?int $entities_id = null): array {
+    public static function computeForPeriodCached(string $start, string $end, ?int $entities_id = null, array $filters = []): array {
         global $GLPI_CACHE;
 
-        // Inclut les toggles filtre dans la clé pour invalider automatiquement
-        // quand un admin change la config.
-        $config = PluginPrintgestionConfig::getInstance();
-        $filters_sig = ((int)($config->fields['billing_require_contract'] ?? 1))
-            . '_' . ((int)($config->fields['billing_require_counter']  ?? 1))
-            . '_' . ((int)($config->fields['billing_require_activity'] ?? 1));
+        // Les critères de l'écran font partie de la clé.
+        $filters_sig = (int) (bool) ($filters['contract'] ?? true)
+            . '_' . (int) (bool) ($filters['counter']  ?? true)
+            . '_' . (int) (bool) ($filters['activity'] ?? true);
         // v3 = formule universelle total = max(sources), color = max, bw = total - color
         // Version counter pour invalidation manuelle (refresh dashboard)
         $ver = (int)($GLPI_CACHE->get('plugin_printgestion_billing_ver') ?? 0);
@@ -199,7 +200,7 @@ class PluginPrintgestionBilling extends CommonDBTM {
             }
         }
 
-        $rows = self::computeForPeriod($start, $end, $entities_id);
+        $rows = self::computeForPeriod($start, $end, $entities_id, $filters);
         if (isset($GLPI_CACHE)) {
             $GLPI_CACHE->set($key, $rows, 600);
         }
@@ -224,7 +225,7 @@ class PluginPrintgestionBilling extends CommonDBTM {
             $view = 'printer';
         }
 
-        $rows = self::computeForPeriodCached($start, $end, $entities_id);
+        $rows = self::computeForPeriodCached($start, $end, $entities_id, (array) ($params['filters'] ?? []));
         if ($view === 'client') {
             $rows = self::groupByClient($rows);
         }

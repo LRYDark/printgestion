@@ -36,7 +36,8 @@ $sess_key = 'plugin_printgestion_billing_filter';
 $today    = new DateTime();
 
 $has_filter = isset($_GET['pg_period']) || isset($_GET['pg_view'])
-           || isset($_GET['pg_start'])  || isset($_GET['pg_entities']);
+           || isset($_GET['pg_start'])  || isset($_GET['pg_entities']) || isset($_GET['pg_contract']);
+$filtres_defaut = ['contract' => true, 'counter' => true, 'activity' => true];
 
 if ($has_filter) {
     $period = $_GET['pg_period'] ?? 'current';
@@ -66,7 +67,13 @@ if ($has_filter) {
     if (!in_array($view, ['printer', 'client'], true)) {
         $view = 'printer';
     }
-    $_SESSION[$sess_key] = compact('period', 'start', 'end', 'entities_id', 'view');
+    // Critères d'affichage (anciens réglages « Dashboard Coût à la page — Filtres ») : cochés par défaut, décochables ici.
+    $filters = [
+        'contract' => (string) ($_GET['pg_contract'] ?? '1') === '1',
+        'counter'  => (string) ($_GET['pg_counter']  ?? '1') === '1',
+        'activity' => (string) ($_GET['pg_activity'] ?? '1') === '1',
+    ];
+    $_SESSION[$sess_key] = compact('period', 'start', 'end', 'entities_id', 'view', 'filters');
 } elseif (!empty($_SESSION[$sess_key])) {
     $f           = $_SESSION[$sess_key];
     $period      = $f['period'];
@@ -74,12 +81,14 @@ if ($has_filter) {
     $end         = $f['end'];
     $entities_id = $f['entities_id'];
     $view        = $f['view'];
+    $filters     = is_array($f['filters'] ?? null) ? $f['filters'] : $filtres_defaut;
 } else {
     $period      = 'current';
     $start       = (clone $today)->modify('first day of this month')->format('Y-m-d');
     $end         = $today->format('Y-m-d');
     $entities_id = null;
     $view        = 'printer';
+    $filters     = $filtres_defaut;
 }
 
 // Vue courante exposée à addDefaultWhere (isolation imprimante|client).
@@ -87,7 +96,7 @@ $_SESSION['plugin_printgestion_billing_view'] = $view;
 
 // ── (Re)matérialise les lignes de l'utilisateur courant ──────────────────────
 $uid = (int) Session::getLoginUserID();
-PluginPrintgestionBillingview::rebuildForUser($uid, $start, $end, $entities_id, $view);
+PluginPrintgestionBillingview::rebuildForUser($uid, $start, $end, $entities_id, $view, $filters);
 
 echo "<div class='container-fluid mt-3'>";
 
@@ -135,6 +144,19 @@ echo "</div>";
 echo "<div class='col-md-1'>"
     . "<button type='submit' class='btn btn-primary w-100'><i class='fa-solid fa-magnifying-glass'></i></button></div>";
 
+// Critères d'affichage : cochés par défaut (imprimantes sous contrat, avec compteur, avec activité) ; décocher élargit.
+echo "<div class='col-12'><div class='d-flex flex-wrap gap-4'>";
+foreach ([
+    'contract' => __('Liées à un contrat seulement', 'printgestion'),
+    'counter'  => __('Avec au moins un compteur de pages', 'printgestion'),
+    'activity' => __('Avec au moins une page imprimée sur la période', 'printgestion'),
+] as $cle => $libelle) {
+    echo "<div class='form-check form-switch mb-0'><input type='hidden' name='pg_{$cle}' value='0'>"
+        . "<input type='checkbox' class='form-check-input' id='pg_{$cle}' name='pg_{$cle}' value='1'" . (!empty($filters[$cle]) ? ' checked' : '') . ">"
+        . "<label class='form-check-label' for='pg_{$cle}'>" . htmlspecialchars($libelle, ENT_QUOTES, 'UTF-8') . "</label></div>";
+}
+echo "</div></div>";
+
 echo "</div></div></form>";
 
 // ── Barre de stats (sur les lignes matérialisées) ────────────────────────────
@@ -154,7 +176,8 @@ PluginPrintgestionUi::statsBar([
 
 // ── Export Excel (conservé) — le moteur Search ajoute en plus CSV / PDF ──────
 if (Session::haveRight('plugin_printgestion_billing', CREATE)) {
-    $export_params = ['start' => $start, 'end' => $end, 'view' => $view];
+    $export_params = ['start' => $start, 'end' => $end, 'view' => $view,
+        'contract' => (int) !empty($filters['contract']), 'counter' => (int) !empty($filters['counter']), 'activity' => (int) !empty($filters['activity'])];
     if ($entities_id !== null) {
         $export_params['entities_id'] = $entities_id;
     }
