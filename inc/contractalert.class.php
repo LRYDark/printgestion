@@ -124,9 +124,13 @@ class PluginPrintgestionContractalert extends CommonGLPI {
             . "<li>" . $badge($status['entity_alert']) . ' ' . $esc(sprintf(__('Alertes de contrat de l\'entité racine (délai : %d jours)', 'printgestion'), $status['before_days'])) . "</li>"
             . "<li>" . $badge($status['notifications_active'] > 0) . ' ' . $esc(sprintf(__('Notifications de contrat actives : %1$d / %2$d', 'printgestion'), $status['notifications_active'], $status['notifications_total'])) . "</li>"
             . "</ul>";
-        if (Session::haveRight('config', UPDATE)) {
-            echo "<button type='submit' name='activate_contract_alerts' value='1' class='btn btn-outline-primary'>"
-                . "<i class='ti ti-bell-ringing me-1'></i>" . $esc(__('Activer les alertes de contrat natives', 'printgestion')) . "</button>";
+        // Cette action écrit dans la configuration de GLPI : elle demande le droit de configuration de GLPI, en plus
+        // du droit du plugin qui donne accès à l'écran. Sans lui : bouton désactivé et la raison, jamais un clic qui échoue.
+        $glpi_config = Session::haveRight('config', UPDATE);
+        echo "<button type='submit' name='activate_contract_alerts' value='1' class='btn btn-outline-primary'" . ($glpi_config ? '' : ' disabled') . ">"
+            . "<i class='ti ti-bell-ringing me-1'></i>" . $esc(__('Activer les alertes de contrat natives', 'printgestion')) . "</button>";
+        if (!$glpi_config) {
+            echo "<p class='text-muted small mt-2 mb-0'>" . $esc(__('Cette action modifie la configuration de GLPI : elle demande le droit de configuration de GLPI (profil, « Configuration générale » en écriture).', 'printgestion')) . "</p>";
         }
         echo "</div></div>";
     }

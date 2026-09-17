@@ -215,6 +215,15 @@ def main():
                 f"{len(actifs)} champ(s) actif(s) : {' '.join(a[:60] for a in actifs[:3])} ; {len(envois)} bouton(s)")
         constat("lecture seule : « Qui est notifié ? » et les chevrons restent utilisables (type=button non désactivé)",
                 ok_ko(re.search(r"<button type='button'(?![^>]*disabled)[^>]*data-bs-target='#pg-notif-modal'", page) is not None))
+        intermediaire = CTX.profil(4, "Profil test configuration du plugin sans configuration GLPI", {"plugin_printgestion_config": 3, "config": 1})
+        CTX.utilisateur("test-config-sans-glpi", intermediaire, 0)
+        CTX.connecter("test-config-sans-glpi")
+        page, etats = carte()
+        bouton = re.search(r"<button[^>]*name='activate_contract_alerts'[^>]*>", page)
+        constat("droit du plugin sans droit de configuration GLPI : bouton « Activer les alertes de contrat natives » désactivé, raison affichée",
+                ok_ko(bouton is not None and "disabled" in bouton.group(0) and "demande le droit de configuration de GLPI" in page))
+        statut, _, _ = WEB.post(config.FRONT + "/config.form.php", [("activate_contract_alerts", "1")])
+        constat("envoi direct refusé (403)", ok_ko(statut == 403), f"HTTP {statut}")
         sans = CTX.profil(4, "Profil test sans configuration du plugin", {"plugin_printgestion_config": 0})
         CTX.utilisateur("test-config-sans", sans, 0)
         CTX.connecter("test-config-sans")
