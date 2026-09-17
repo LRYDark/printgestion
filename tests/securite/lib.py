@@ -123,7 +123,11 @@ def supprimer_regles_tag():
 
 
 def vider_cache():
+    """Vide le cache de GLPI (configuration, conteneur), puis attend la revalidation d'OPcache : le serveur PHP
+    garde l'ancien conteneur compilé quelques secondes, et une requête pendant ce temps échoue sur un fichier
+    supprimé (« Failed opening required …/_cache/… »). Même précaution que deployer.sh."""
     subprocess.run([config.PHP, "bin/console", "cache:clear", "-n"], cwd=config.GLPI_DIR, capture_output=True)
+    time.sleep(3)
 
 
 # ── Session HTTP ─────────────────────────────────────────────────────────────
