@@ -114,8 +114,8 @@ def scenario_commande_non_transmise():
             return
         ordre_id = int(ordre[0][0])
         _, page, _ = WEB.get(config.FRONT + "/dashboard_expeditions.php")
-        constat("écran Expéditions : carte « Commandes non transmises aux Achats » avec « Renvoyer aux Achats »",
-                ok_ko("Commandes non transmises aux Achats" in page and "Renvoyer aux Achats" in page))
+        constat("écran Expéditions : carte « Commandes non transmises aux Achats », « Renvoyer aux Achats » et délai de notification affiché (4 h)",
+                ok_ko("Commandes non transmises aux Achats" in page and "Renvoyer aux Achats" in page and "4 h après" in page))
         commander()
         verifier("recommander la même cartouche : refusé par le verrou, aucune seconde expédition",
                  valeur(f"SELECT COUNT(*) FROM {EXP} WHERE printers_id = {d.IMP_BAS} AND toner_property = 'tonerblack'"), "1")

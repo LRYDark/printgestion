@@ -214,7 +214,8 @@ class PluginPrintgestionPurchaseorder extends CommonDBTM {
 
         echo "<div class='card border-danger mb-3'><div class='card-header bg-danger-lt'><h3 class='card-title mb-0'><i class='ti ti-mail-off me-1'></i>"
             . $esc(sprintf(__('Commandes non transmises aux Achats (%d)', 'printgestion'), count($orders))) . "</h3></div><div class='card-body'>";
-        echo "<p class='mb-2'>" . $esc(__('Enregistrées, cartouches verrouillées, mais le mail aux Achats n\'est pas parti. Ne recommandez pas : renvoyez le fichier d\'origine.', 'printgestion')) . "</p>";
+        echo "<p class='mb-2'>" . $esc(__('Enregistrées, cartouches verrouillées, mais le mail aux Achats n\'est pas parti. Ne recommandez pas : renvoyez le fichier d\'origine.', 'printgestion'))
+            . " <span class='text-muted small'>" . $esc(sprintf(__('Sans renvoi, une notification part à l\'administrateur et à l\'auteur %d h après l\'enregistrement.', 'printgestion'), self::STALE_HOURS)) . "</span></p>";
         echo "<div class='table-responsive'><table class='table table-sm table-vcenter mb-0'><thead><tr>"
             . "<th>" . $esc(__('Enregistrée le', 'printgestion')) . "</th><th>" . $esc(__('Origine', 'printgestion')) . "</th>"
             . "<th>" . $esc(__('Par', 'printgestion')) . "</th><th class='text-end'>" . $esc(__('Lignes', 'printgestion')) . "</th>"
