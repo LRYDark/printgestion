@@ -226,10 +226,12 @@ Une fois pour tout le parc :
    automatique `taskscheduler` programmée et le cron de GLPI qui tourne.
 2. Créer la règle d'affectation d'entité par TAG (Administration → Règles → Règles d'affectation d'un élément
    à une entité) : critère « Tag d'inventaire » vérifie l'expression régulière `/^(.*)$/`, action « Entité depuis
-   TAG » = `#0`. Ou, en administrateur : onglet Déploiement Agent d'une entité → chevron du bloc 1 → « Créer la
-   règle d'affectation par TAG » (une seule règle pour tous les clients, créée en dernière position ; si d'autres
-   règles actives passent avant, le chevron les nomme : les vérifier ou déplacer la nouvelle). Le bouton n'apparaît
-   pas si une règle portant cette action existe déjà, même désactivée.
+   TAG » = `#0`. Ou, en administrateur : bouton « Créer la règle d'affectation par TAG » (onglet Déploiement Agent
+   d'une entité, bloc 1, ou page Installeur GLPI Agent, carte Prérequis), ou simplement « Créer le TAG et la règle
+   d'affectation » sur la première entité sans TAG : une seule règle pour tous les clients, créée en dernière
+   position ; si d'autres règles actives passent avant, le chevron du bloc 1 les nomme : les vérifier ou déplacer la
+   nouvelle. Le bouton disparaît dès qu'une règle portant cette action existe, même désactivée. Un technicien qui
+   crée un TAG sans règle existante n'obtient que le TAG, avec le message « l'administrateur doit la créer ».
 3. Print Gestion → Collecte SNMP / Déploiement Agent → Installeur GLPI Agent : « Récupérer depuis GitHub » pour
    chaque fichier utile (MSI Windows ; installeur Perl Linux ; les deux paquets macOS). Sans accès Internet sur le
    serveur : déposer le fichier dans le dossier indiqué, choisir lequel, puis vérifier son empreinte.
