@@ -25,7 +25,7 @@ def carte():
 
 
 def bandeau(page):
-    return "alert alert-danger" in page and "prérequis obligatoire" in page
+    return "alert alert-danger" in page and "prérequis manquant" in page
 
 
 def main():
@@ -47,9 +47,13 @@ def main():
         constat("carte « Santé de la configuration » en tête, avant les modules", ok_ko(0 <= page.find("Santé de la configuration") < page.find("Activation des modules")))
         constat("9 contrôles : 7 obligatoires, 2 recommandés, l'URL de l'application en tête",
                 ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "cron", "xlsx", "notifications", "tag_rule", "glpicrypt", "log"]), str(etats))
-        constat("glpicrypt.key : « non vérifiable automatiquement », état neutre, rien à cocher dans la carte",
-                ok_ko(etats.get("glpicrypt") == "manual" and "Non vérifiable automatiquement" in page
+        sql("DELETE FROM glpi_configs WHERE context = 'plugin:printgestion' AND name IN ('glpicrypt_checked_at', 'glpicrypt_checked_by');")
+        page, etats = carte()
+        constat("glpicrypt.key : « non vérifiable automatiquement — jamais vérifié », bouton « J'ai vérifié », rien à cocher",
+                ok_ko(etats.get("glpicrypt") == "manual" and "jamais vérifié" in page and "ack_glpicrypt" in page
                       and "type='checkbox'" not in page[page.find("pg-config-health"):page.find("Activation des modules")]))
+        constat("bannière : le nombre de prérequis manquants et ce qui casse, une seule fois, sans « quelque chose ne marche pas »",
+                ok_ko("prérequis manquant" in page and "quelque chose ne marche pas" not in page and ("ne fonctionnera pas" in page or "ne partira" in page or "mauvaise entité" in page)))
         constat("mode CLI expliqué dans le bouton d'information", ok_ko("modal" in page and "le plus souvent négligé" in page))
         constat("ancienne carte « Journal du plugin » rattachée : une seule occurrence du bouton de test", ok_ko(page.count("name='test_log'") == 1 and etats.get("log") == "ok"))
 
@@ -128,10 +132,21 @@ def main():
         constat("clic : règle activée, ligne verte", ok_ko(etats.get("tag_rule") == "ok"), WEB.messages()[:120])
 
         section("5. Tout vert : une ligne")
-        constat("état complet (hors rappel non vérifiable)", ok_ko(all(e in ("ok", "manual") for e in etats.values())), str(etats))
+        constat("sauvegarde de la clé jamais acquittée : la carte reste dépliée", ok_ko("Configuration : complète" not in page and etats.get("glpicrypt") == "manual"))
+        WEB.post(config.FRONT + "/config.form.php", [("ack_glpicrypt", "1")])
+        page, etats = carte()
+        constat("« J'ai vérifié » : « Vérifié le … par glpi », ligne verte, plus de bouton",
+                ok_ko(etats.get("glpicrypt") == "ok" and "Vérifié le" in page and "par glpi" in page and "ack_glpicrypt" not in page))
+        constat("état complet", ok_ko(all(e == "ok" for e in etats.values())), str(etats))
         constat("« Configuration : complète », détail replié derrière un chevron, aucune bannière",
                 ok_ko("Configuration : complète" in page and not bandeau(page)
                       and page.find("Configuration : complète") < page.find("class='collapse'") < page.find("data-pg-health=")))
+        sql("UPDATE glpi_configs SET value = DATE_SUB(value, INTERVAL 7 MONTH) WHERE context = 'plugin:printgestion' AND name = 'glpicrypt_checked_at';")
+        page, etats = carte()
+        constat("vérification vieille de sept mois : la ligne redevient visible d'elle-même, carte dépliée, bouton de retour",
+                ok_ko(etats.get("glpicrypt") == "manual" and "il y a plus de six mois" in page and "ack_glpicrypt" in page and "Configuration : complète" not in page))
+        WEB.post(config.FRONT + "/config.form.php", [("ack_glpicrypt", "1")])
+        page, etats = carte()
 
         section("6. URL de l'application : confirmée par un agent, ou jamais")
         constat("sonde vue à l'instant avec le TAG d'une entité : « confirmée par un agent le … », état vert",
@@ -206,8 +221,8 @@ def main():
         lib.supprimer_regles_tag()
         CTX.connecter("test-config-lecture")
         page, etats = carte()
-        constat("droit de configuration en lecture : carte visible, sans bouton de règle ni de test du journal",
-                ok_ko(etats.get("tag_rule") == "error" and "create_tag_rule" not in page and "test_log" not in page))
+        constat("droit de configuration en lecture : carte visible, sans bouton de règle, de test du journal ni d'acquittement",
+                ok_ko(etats.get("tag_rule") == "error" and "create_tag_rule" not in page and "test_log" not in page and "name='ack_glpicrypt'" not in page))
         actifs = [a for a in re.findall(r"<(?:input|select|textarea)\b(?![^>]*\bdisabled\b)[^>]*>", page) if "hidden" not in a]  # champs cachés (jeton) : pas une saisie
         envois = re.findall(r"<button\b(?![^>]*type=['\"]button['\"])(?![^>]*\bdisabled\b)[^>]*>", page)
         constat("lecture seule réelle : aucun champ, liste ou zone de texte modifiable, aucun bouton d'envoi, pas de Sauvegarder",

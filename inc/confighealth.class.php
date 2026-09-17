@@ -147,16 +147,23 @@ class PluginPrintgestionConfighealth {
             'button' => PluginPrintgestionAgentdeploy::getTagRuleButton($rule),
         ];
 
+        // Non vérifiable automatiquement : acquittable (« J'ai vérifié »), et la ligne redevient visible d'elle-même au bout
+        // de six mois — un rappel que personne ne peut éteindre finit ignoré, et la vraie alerte du jour avec lui.
+        $ack = self::getKeyBackupAck();
         $checks[] = [
             'key'    => 'glpicrypt',
             'group'  => 'recommended',
             'label'  => __('Sauvegarde de config/glpicrypt.key avec la base', 'printgestion'),
-            'state'  => self::STATE_MANUAL,
-            'status' => __('Non vérifiable automatiquement : rappel permanent.', 'printgestion'),
-            'breaks' => __('Sans ce fichier, les valeurs chiffrées sont définitivement perdues à la restauration : mots de passe LDAP et SMTP, clés d\'API transporteurs.', 'printgestion'),
+            'state'  => $ack['fresh'] ? self::STATE_OK : self::STATE_MANUAL,
+            'status' => $ack['fresh']
+                ? sprintf(__('Vérifié le %1$s par %2$s.', 'printgestion'), Html::convDate($ack['date']), $ack['user'])
+                : ($ack['date'] !== '' ? sprintf(__('Non vérifiable automatiquement — dernière vérification le %1$s par %2$s, il y a plus de six mois.', 'printgestion'), Html::convDate($ack['date']), $ack['user'])
+                    : __('Non vérifiable automatiquement — jamais vérifié.', 'printgestion')),
+            'breaks' => __('Sans ce fichier, les valeurs chiffrées sont définitivement perdues à la restauration : mots de passe LDAP et SMTP, secret GLS.', 'printgestion'),
             'fix'    => sprintf(__('Sauvegarde du serveur : fichier %s, dans le même jeu que la base de données', 'printgestion'), GLPI_CONFIG_DIR . '/glpicrypt.key'),
             'url'    => '',
             'detail' => '',
+            'button' => $ack['fresh'] ? '' : self::getKeyBackupAckButton(),
         ];
 
         $log    = PluginPrintgestionLogger::getStatus();
@@ -176,6 +183,34 @@ class PluginPrintgestionConfighealth {
         ];
 
         return $checks;
+    }
+
+    /** Acquittement de la sauvegarde de glpicrypt.key : mémo dérivé (date, auteur) dans la configuration GLPI du plugin. */
+    const KEY_BACKUP_ACK_VALIDITY = 182 * DAY_TIMESTAMP;
+
+    /** @return array ['date' => 'Y-m-d H:i:s'|'', 'user' => string, 'fresh' => bool] */
+    public static function getKeyBackupAck(): array {
+        $memo = Config::getConfigurationValues('plugin:printgestion', ['glpicrypt_checked_at', 'glpicrypt_checked_by']);
+        $date = (string) ($memo['glpicrypt_checked_at'] ?? '');
+        return [
+            'date'  => $date,
+            'user'  => (string) ($memo['glpicrypt_checked_by'] ?? ''),
+            'fresh' => $date !== '' && strtotime($date) >= strtotime(Session::getCurrentTime()) - self::KEY_BACKUP_ACK_VALIDITY,
+        ];
+    }
+
+    /** Enregistre l'acquittement (date de GLPI, nom de l'utilisateur connecté). */
+    public static function acknowledgeKeyBackup(): void {
+        Config::setConfigurationValues('plugin:printgestion', [
+            'glpicrypt_checked_at' => Session::getCurrentTime(),
+            'glpicrypt_checked_by' => getUserName((int) Session::getLoginUserID()),
+        ]);
+    }
+
+    private static function getKeyBackupAckButton(): string {
+        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        return "<button type='submit' name='ack_glpicrypt' value='1' data-pg-submit-once='1' class='btn btn-outline-primary' formnovalidate>"
+            . "<i class='ti ti-checkbox me-1'></i>" . $esc(__('J\'ai vérifié', 'printgestion')) . "</button>";
     }
 
     /**
@@ -384,11 +419,12 @@ class PluginPrintgestionConfighealth {
         $checks   = self::getChecks();
         $failed   = array_filter($checks, static fn(array $c) => $c['group'] === 'required' && $c['state'] === self::STATE_ERROR);
         // Repliée en une ligne seulement quand tout est vert ET que le réel a confirmé ce qu'il peut confirmer.
-        $complete = empty(array_filter($checks, static fn(array $c) => in_array($c['state'], [self::STATE_ERROR, self::STATE_PENDING], true)));
+        // Repliée seulement quand rien n'est en erreur, en attente du réel, ni à acquitter.
+        $complete = empty(array_filter($checks, static fn(array $c) => in_array($c['state'], [self::STATE_ERROR, self::STATE_PENDING, self::STATE_MANUAL], true)));
 
         $groups = [
-            'required'    => __('Obligatoire — sans ça, quelque chose ne marche pas', 'printgestion'),
-            'recommended' => __('Recommandé — ça marche sans, mais c\'est mieux avec', 'printgestion'),
+            'required'    => __('Obligatoire', 'printgestion'),
+            'recommended' => __('Recommandé', 'printgestion'),
         ];
         $icons = [
             self::STATE_OK     => ['ti-circle-check', 'text-success', __('Correct', 'printgestion')],
@@ -411,7 +447,8 @@ class PluginPrintgestionConfighealth {
                     . "<div class='" . ($error ? '' : 'text-muted ') . "small'>" . $esc($check['breaks']) . "</div>"
                     . "<div class='small'><i class='ti ti-tool me-1'></i>" . $fix . "</div>"
                     . ($check['detail'] !== '' ? "<div class='text-muted small mt-1'>" . $check['detail'] . "</div>" : '');
-                if ($error && ($check['button'] ?? '') !== '' && $canedit) {
+                // Bouton d'action : ligne en erreur, ou rappel manuel à acquitter.
+                if (($error || $check['state'] === self::STATE_MANUAL) && ($check['button'] ?? '') !== '' && $canedit) {
                     $body .= "<div class='mt-2'>" . $check['button'] . "</div>";
                 }
                 if ($check['key'] === 'log' && $canedit) {
@@ -435,12 +472,22 @@ class PluginPrintgestionConfighealth {
         } else {
             if (!empty($failed)) {
                 // Impossible à manquer, sans bloquer la page.
-                echo "<div class='alert alert-danger mb-2' role='alert'><i class='ti ti-alert-octagon me-1'></i><strong>" . $esc(sprintf(_n(
-                    '%d prérequis obligatoire manquant : quelque chose ne marche pas.',
-                    '%d prérequis obligatoires manquants : quelque chose ne marche pas.',
+                // Ce qui casse, concrètement, d'après les lignes en défaut : lu tous les jours, chaque mot compte.
+                $consequences = [
+                    'app_url'       => __('la collecte ne fonctionnera pas', 'printgestion'),
+                    'inventory'     => __('la collecte ne fonctionnera pas', 'printgestion'),
+                    'glpiinventory' => __('la collecte ne fonctionnera pas', 'printgestion'),
+                    'cron'          => __('rien ne partira de façon fiable', 'printgestion'),
+                    'tag_rule'      => __('les équipements iront dans la mauvaise entité', 'printgestion'),
+                    'xlsx'          => __('aucune commande ne partira', 'printgestion'),
+                    'notifications' => __('aucune notification ne partira', 'printgestion'),
+                ];
+                $what = array_values(array_unique(array_filter(array_map(static fn(array $c) => $consequences[$c['key']] ?? '', $failed))));
+                echo "<div class='alert alert-danger mb-2' role='alert'><i class='ti ti-alert-octagon me-1'></i><strong>" . $esc(sprintf(
+                    _n('%1$d prérequis manquant : %2$s.', '%1$d prérequis manquants : %2$s.', count($failed), 'printgestion'),
                     count($failed),
-                    'printgestion'
-                ), count($failed))) . "</strong> " . $esc(implode(', ', array_column($failed, 'label'))) . "</div>";
+                    implode(' ; ', $what)
+                )) . "</strong> " . $esc(implode(', ', array_column($failed, 'label'))) . "</div>";
             }
             echo $body;
         }

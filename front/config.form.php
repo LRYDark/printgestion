@@ -32,6 +32,10 @@ if (isset($_POST['activate_contract_alerts'])) {
         ? PluginPrintgestionAgentdeploy::activateTagRule()
         : PluginPrintgestionAgentdeploy::createTagRule();
     Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : WARNING);
+} elseif (isset($_POST['ack_glpicrypt'])) {
+    // « J'ai vérifié » la sauvegarde de glpicrypt.key : date et auteur mémorisés, la ligne se repliera six mois.
+    PluginPrintgestionConfighealth::acknowledgeKeyBackup();
+    Session::addMessageAfterRedirect(__('Sauvegarde de glpicrypt.key : vérification enregistrée. La ligne reviendra d\'elle-même dans six mois.', 'printgestion'), false, INFO);
 } elseif (isset($_POST['switch_plugin_tasks_cli'])) {
     // Bascule explicite des tâches du plugin en CLI (carte Santé) : jamais celles de GLPI ni d'un autre plugin.
     $switched = $DB->update('glpi_crontasks', ['mode' => CronTask::MODE_EXTERNAL], [

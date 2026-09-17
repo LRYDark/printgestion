@@ -138,7 +138,7 @@ affichage ; la carte ne bloque rien. Tout vert : une ligne « Configuration : co
 | Type de document xlsx autorisé (obligatoire) | extension xlsx sans « Autoriser l'import » : Gesconso non archivé, aucune commande | Configuration → Intitulés → Types de document |
 | Notifications GLPI activées (obligatoire) | « Activer le suivi » à Non : aucune notification native ne part (commande non transmise, demandes, sondes, contrats) | Configuration → Notifications → Configuration des notifications |
 | Règle d'affectation par TAG présente et active (obligatoire) | règle absente ou désactivée | bouton de la carte (créer ou activer) |
-| Sauvegarde de `config/glpicrypt.key` (recommandé) | jamais : non vérifiable automatiquement, rappel permanent | sauvegarde du serveur, avec la base |
+| Sauvegarde de `config/glpicrypt.key` (recommandé) | non vérifiable automatiquement : « jamais vérifié », ou vérification de plus de six mois ; bouton « J'ai vérifié » (date et auteur mémorisés), la ligne revient d'elle-même au bout de six mois | sauvegarde du serveur, avec la base |
 | Journal du plugin inscriptible (recommandé) | dossier ou fichier non inscriptible | droits du serveur web sur `files/_log` |
 
 Le mode CLI est le prérequis le plus souvent négligé : en mode « GLPI », les actions ne tournent que quand quelqu'un
