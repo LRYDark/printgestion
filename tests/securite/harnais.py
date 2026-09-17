@@ -378,6 +378,10 @@ def scenario_mail():
 def scenario_cles_api():
     section("6. Clés API transporteurs")
     lib.connecter_admin()
+    sortie = lib.php_glpi("$c = new PluginPrintgestionConfig(); $c->getFromDB(1); $f = $c->fields; PluginPrintgestionConfig::unsetUndisclosedFields($f); "
+                          "echo json_encode([array_values(array_intersect(array_keys($f), ['api_ups', 'api_gls', 'api_chronopost'])), array_key_exists('api_gls', $c->fields)]);")
+    constat("API REST : les colonnes de clés sont retirées de la réponse (undisclosedFields), la lecture interne garde les siennes",
+            ok_ko(json.loads(sortie) == [[], True]), sortie.strip())
     colonnes = [r[0] for r in lignes("SHOW COLUMNS FROM glpi_plugin_printgestion_configs")]
     choix = ", ".join(f"IFNULL(`{c}`, 'NULL')" for c in colonnes)
     lire = lambda: dict(zip(colonnes, (lib.decoder(v) for v in lignes(f"SELECT {choix} FROM glpi_plugin_printgestion_configs WHERE id = 1")[0])))  # noqa: E731

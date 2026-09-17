@@ -14,6 +14,8 @@ class PluginPrintgestionConfig extends CommonDBTM {
 
     /** Colonnes chiffrées avec GLPIKey (déclarées au hook secured_fields dans setup.php). */
     const SECRET_FIELDS = ['api_ups', 'api_gls', 'api_chronopost'];
+    /** Jamais rendues par l'API REST (même chiffrées) : GLPI les retire de la réponse via unsetUndisclosedFields(). */
+    public static $undisclosedFields = self::SECRET_FIELDS;
 
     static private $_instance = null;
 
