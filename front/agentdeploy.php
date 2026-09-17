@@ -16,6 +16,15 @@ Session::checkRight('plugin_printgestion_deploiement', READ);
 
 $page = PluginPrintgestionAgentdeploy::getPageURL();
 
+if (isset($_POST['create_tag'])) {
+    // « Créer le TAG » de l'onglet de l'entité : droit Déploiement (ci-dessus) et droit natif de modifier l'entité
+    // (vérifié par createTag()). Jeton CSRF déjà validé par CheckCsrfListener avant ce fichier.
+    $entities_id = (int) ($_POST['entities_id'] ?? 0);
+    $result      = PluginPrintgestionAgentdeploy::createTag($entities_id, (string) ($_POST['tag'] ?? ''));
+    Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : ERROR);
+    Html::redirect(Entity::getFormURLWithID($entities_id) . '&forcetab=' . urlencode('PluginPrintgestionAgentdeploy$1'));
+}
+
 if (isset($_POST['fetch_github']) || isset($_POST['verify_deposit']) || isset($_POST['save_settings'])
     || isset($_POST['check_latest']) || isset($_POST['save_update_defaults'])) {
     // Jeton CSRF déjà validé par CheckCsrfListener avant ce fichier.

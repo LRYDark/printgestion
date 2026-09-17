@@ -673,7 +673,8 @@ class PluginPrintgestionCollect extends CommonGLPI {
         $labels   = self::getStateLabels();
         $page     = PLUGIN_PRINTGESTION_WEBDIR . '/front/collect.php';
 
-        echo "<p class='text-muted small'>" . $esc(__('Ce que l\'inventaire GLPI reçoit réellement des imprimantes, avant tout calcul d\'alerte. Lecture seule : rien n\'est modifié.', 'printgestion')) . "</p>";
+        $admin     = PluginPrintgestionUi::isAdmin();
+        $info_html = "<p>" . $esc(__('Ce que l\'inventaire GLPI reçoit réellement des imprimantes, avant tout calcul d\'alerte. Lecture seule : rien n\'est modifié.', 'printgestion')) . "</p>";
 
         // 1. Prérequis.
         $pre  = self::getPrerequisites($analysis);
@@ -682,8 +683,8 @@ class PluginPrintgestionCollect extends CommonGLPI {
                 . "<i class='ti " . ($ok ? 'ti-circle-check text-success' : 'ti-alert-triangle text-warning') . " fs-2 me-2'></i>"
                 . "<div><div class='fw-bold'>" . $esc($label) . "</div><div class='text-muted small'>" . $esc($detail) . "</div></div></div></div>";
         };
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Prérequis de la collecte', 'printgestion')) . "</h3></div>";
-        echo "<div class='card-body'><div class='row g-3'>";
+        ob_start();
+        echo "<div class='row g-3'>";
         $item(
             $pre['inventory_enabled'],
             __('Inventaire GLPI', 'printgestion'),
@@ -727,7 +728,15 @@ class PluginPrintgestionCollect extends CommonGLPI {
                 PluginPrintgestionAgentsetting::getLatestVersion()['version']
             )
         );
-        echo "</div></div></div>";
+        echo "</div>";
+        $prerequisites_html = (string) ob_get_clean();
+        $prerequisites_ok   = $pre['inventory_enabled'] && $pre['glpiinventory_active'] && $pre['inventoried_24h'] > 0
+            && $pre['agents'] > 0 && $pre['agents_silent'] === 0 && $pre['agents_old'] === 0;
+        echo "<div class='card mb-3'><div class='card-body'>" . PluginPrintgestionUi::statusLine(
+            $prerequisites_ok ? 'ok' : 'error',
+            $prerequisites_ok ? __('Collecte : prérequis corrects', 'printgestion') : __('Collecte incomplète — contactez l\'administrateur', 'printgestion'),
+            $prerequisites_html
+        ) . "</div></div>";
 
         // 2. États des imprimantes.
         $colors = [self::STATE_NO_INVENTORY => 'secondary', self::STATE_STALE => 'red', self::STATE_NO_LEVEL => 'orange', self::STATE_OK => 'green'];
@@ -744,10 +753,11 @@ class PluginPrintgestionCollect extends CommonGLPI {
         }
         PluginPrintgestionUi::statsBar($cards, 'printgestionCollectStatsBar');
 
-        echo "<p class='text-muted small'>" . $esc(sprintf(
+        $info_html .= "<p>" . $esc(sprintf(
             __('Date de référence : dernier inventaire réseau (SNMP) du journal d\'import GLPI ; une simple découverte réseau ne compte pas. Muette : aucun inventaire depuis plus de %d jour(s) (Configuration → Print Gestion), ou la fréquence de relevé de son entité plus un jour si elle est plus longue. Une imprimante muette ou sans niveau lisible ne déclenche aucune alerte toner : à traiter comme une alerte.', 'printgestion'),
             self::getSilentDays()
         )) . "</p>";
+        echo "<div class='text-end mb-2'>" . PluginPrintgestionUi::infoButton(__('Contrôle de la remontée', 'printgestion'), $admin ? $info_html : '') . "</div>";
 
         // Agents.
         $version_badges = [
@@ -762,13 +772,13 @@ class PluginPrintgestionCollect extends CommonGLPI {
             echo "<div class='card-body text-muted'>" . $esc(__('Aucun agent connu pour ces imprimantes (journal d\'import GLPI vide).', 'printgestion')) . "</div></div>";
         } else {
             echo "<div class='table-responsive'><table class='table table-sm card-table'><thead><tr>"
-                . "<th>" . $esc(__('Agent', 'printgestion')) . "</th><th>" . $esc(__('Version', 'printgestion')) . "</th>"
+                . "<th>" . $esc(__('Agent', 'printgestion')) . "</th>" . ($admin ? "<th data-pg-admin='1'>" . $esc(__('Version', 'printgestion')) . "</th>" : '')
                 . "<th>" . $esc(__('Dernier contact', 'printgestion')) . "</th>"
                 . "<th class='text-end'>" . $esc(__('Imprimantes', 'printgestion')) . "</th><th>" . $esc(__('État', 'printgestion')) . "</th></tr></thead><tbody>";
             foreach ($analysis['agents'] as $agent) {
                 [$badge_class, $badge_label] = $version_badges[$agent['version_status']];
                 echo "<tr><td><a href='" . $esc(PluginPrintgestionAgentsetting::getPageURL($agent['id'])) . "'>" . $esc($agent['name']) . "</a></td>"
-                    . "<td>" . $esc($agent['version'] !== '' ? $agent['version'] : '—') . " <span class='badge {$badge_class}'>" . $esc($badge_label) . "</span></td>"
+                    . ($admin ? "<td data-pg-admin='1'>" . $esc($agent['version'] !== '' ? $agent['version'] : '—') . " <span class='badge {$badge_class}'>" . $esc($badge_label) . "</span></td>" : '')
                     . "<td>" . $esc($date($agent['last_contact'])) . "</td>"
                     . "<td class='text-end'>" . (int) $agent['printers'] . "</td>"
                     . "<td>" . ($agent['is_silent']
@@ -793,21 +803,26 @@ class PluginPrintgestionCollect extends CommonGLPI {
             echo "<div class='table-responsive'><table class='table table-sm card-table'><thead><tr>"
                 . "<th>" . $esc(_n('Imprimante', 'Imprimantes', 1, 'printgestion')) . "</th><th>" . $esc(Entity::getTypeName(1)) . "</th>"
                 . "<th>" . $esc(__('État', 'printgestion')) . "</th><th>" . $esc(__('Dernier inventaire SNMP', 'printgestion')) . "</th>"
-                . "<th>" . $esc(__('Dernière découverte', 'printgestion')) . "</th>"
-                . "<th>" . $esc(__('Agent', 'printgestion')) . "</th></tr></thead><tbody>";
+                . ($admin ? "<th data-pg-admin='1'>" . $esc(__('Dernière découverte', 'printgestion')) . "</th><th data-pg-admin='1'>" . $esc(__('Agent', 'printgestion')) . "</th>" : '')
+                . "</tr></thead><tbody>";
             foreach (array_slice($rows, 0, 1000) as $printer) {
                 echo "<tr><td><a href='" . $esc(Printer::getFormURLWithID($printer['id'])) . "'>" . $esc($printer['name']) . "</a></td>"
                     . "<td>" . $esc($printer['entity']) . "</td>"
                     . "<td><span class='badge bg-" . $colors[$printer['state']] . "-lt'>" . $esc($labels[$printer['state']]) . "</span></td>"
                     . "<td>" . $esc($date($printer['last_inventory'])) . "</td>"
-                    . "<td>" . $esc($date($printer['last_discovery'])) . "</td>"
-                    . "<td>" . $esc($printer['agent_name']) . "</td></tr>";
+                    . ($admin ? "<td data-pg-admin='1'>" . $esc($date($printer['last_discovery'])) . "</td><td data-pg-admin='1'>" . $esc($printer['agent_name']) . "</td>" : '')
+                    . "</tr>";
             }
             echo "</tbody></table></div></div>";
         }
 
         $printer_ids = array_keys($analysis['printers']);
 
+        // 3 à 5 : analyses de réglage, pour l'administrateur seulement (repliées).
+        if (!$admin) {
+            return;
+        }
+        ob_start();
         // 3. Valeurs de consommables reçues.
         $class_labels = self::getValueClassLabels();
         $class_colors = [
@@ -847,6 +862,9 @@ class PluginPrintgestionCollect extends CommonGLPI {
             echo "</tbody></table></div></div>";
         }
 
+        $values_html = (string) ob_get_clean();
+        echo PluginPrintgestionUi::adminDetails(__('Valeurs de consommables reçues, par modèle', 'printgestion'), $values_html);
+        ob_start();
         // 4. Compteurs disponibles et incohérences.
         $counters = self::analyzeCounters($printer_ids);
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Compteurs disponibles, par modèle', 'printgestion')) . "</h3></div>";
@@ -915,6 +933,9 @@ class PluginPrintgestionCollect extends CommonGLPI {
             echo "</div>";
         }
 
+        $counters_html = (string) ob_get_clean();
+        echo PluginPrintgestionUi::adminDetails(__('Compteurs disponibles, par modèle', 'printgestion'), $counters_html);
+        ob_start();
         // 5. Numéros de série en double.
         $duplicates = self::findDuplicateSerials(true);
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Numéros de série en double', 'printgestion'))
@@ -938,5 +959,6 @@ class PluginPrintgestionCollect extends CommonGLPI {
             }
             echo "</tbody></table></div></div>";
         }
+        echo PluginPrintgestionUi::adminDetails(__('Numéros de série en double', 'printgestion'), (string) ob_get_clean());
     }
 }

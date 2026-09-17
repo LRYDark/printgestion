@@ -818,7 +818,13 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         $installed  = self::getAgentVersion($agent->fields);
         $compliance = self::getCompliance($installed, $settings, $latest);
 
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Conformité de version', 'printgestion')) . "</h3></div><div class='card-body'><div class='row g-3'>";
+        $admin = PluginPrintgestionUi::isAdmin();
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Version de l\'agent', 'printgestion')) . "</h3></div><div class='card-body'>";
+        if (!$admin) {
+            // Technicien : l'état seul, sans numéro de version.
+            echo "<span class='badge " . $compliance['class'] . "'>" . $esc($compliance['label']) . "</span></div></div>";
+        } else {
+        echo "<div class='row g-3' data-pg-admin='1'>";
         echo "<div class='col-md-3'><div class='text-muted small'>" . $esc(__('Version installée', 'printgestion')) . "</div><div class='fw-bold'>" . $esc($installed !== '' ? $installed : '—') . "</div></div>";
         echo "<div class='col-md-3'><div class='text-muted small'>" . $esc(__('Dernière version connue', 'printgestion')) . "</div><div class='fw-bold'>" . $esc($latest['version']) . "</div>"
             . "<div class='text-muted small'>" . $esc(self::getLatestSourceLabel($latest)) . "</div></div>";
@@ -826,6 +832,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             . ($settings['target_version'] !== '' ? "<div class='text-muted small'>" . $esc(__('épinglée sur cette sonde', 'printgestion')) . "</div>" : '') . "</div>";
         echo "<div class='col-md-3'><div class='text-muted small'>" . $esc(__('État', 'printgestion')) . "</div><span class='badge " . $compliance['class'] . "'>" . $esc($compliance['label']) . "</span></div>";
         echo "</div></div></div>";
+        }
 
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Mise à jour automatique', 'printgestion')) . "</h3></div><div class='card-body'>";
         if ($can_edit) {
@@ -833,8 +840,12 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             echo "<div class='col-md-4'><div class='form-check'><input type='hidden' name='auto_update' value='0'>"
                 . "<input class='form-check-input' type='checkbox' id='pg-auto-update-{$agents_id}' name='auto_update' value='1'" . ($settings['auto_update'] ? ' checked' : '') . ">"
                 . "<label class='form-check-label' for='pg-auto-update-{$agents_id}'>" . $esc(__('Mise à jour automatique', 'printgestion')) . "</label></div></div>";
-            echo "<div class='col-md-4'><label class='form-label'>" . $esc(__('Version cible (vide : dernière connue)', 'printgestion')) . "</label>"
+                if ($admin) {
+        echo "<div class='col-md-4' data-pg-admin='1'><label class='form-label'>" . $esc(__('Version cible (vide : dernière connue)', 'printgestion')) . "</label>"
                 . "<input type='text' class='form-control' name='target_version' maxlength='20' value='" . $esc($settings['target_version']) . "' placeholder='" . $esc($latest['version']) . "'></div>";
+            } else {
+                echo Html::hidden('target_version', ['value' => $settings['target_version']]);
+            }
             echo "<div class='col-md-4'><button type='submit' name='save_agent_settings' value='1' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button></div>";
             echo Html::closeForm(false);
         } else {
@@ -842,13 +853,14 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
                 ? sprintf(__('Mise à jour automatique : oui, %s.', 'printgestion'), $settings['target_version'] !== '' ? sprintf(__('version cible %s', 'printgestion'), $settings['target_version']) : __('dernière version connue', 'printgestion'))
                 : __('Mise à jour automatique : non.', 'printgestion')) . "</p>";
         }
-        if ($settings['exists']) {
-            echo "<p class='text-muted small mt-2 mb-0'>" . $esc(sprintf(__('Réglé le %1$s par %2$s.', 'printgestion'), Html::convDateTime((string) $settings['date_mod']), getUserName($settings['users_id']))) . "</p>";
+        if ($settings['exists'] && $admin) {
+            echo "<p class='text-muted small mt-2 mb-0' data-pg-admin='1'>" . $esc(sprintf(__('Réglé le %1$s par %2$s.', 'printgestion'), Html::convDateTime((string) $settings['date_mod']), getUserName($settings['users_id']))) . "</p>";
         }
-        echo "<div class='alert alert-warning mt-3'><i class='ti ti-alert-triangle me-1'></i>" . $esc(__('Ce réglage ne change rien tout seul sur le PC. La tâche de mise à jour y est posée par le paquet d\'installation (Windows : son étape 2 facultative, 2-facultatif-mise-a-jour-automatique.bat, que le technicien a pu sauter ; Linux : tâche cron du script d\'installation) ; pour appliquer un changement (désactiver, épingler une version, revenir en arrière), téléchargez la consigne et lancez-la sur la sonde. Décocher la case ici ne désactive pas une tâche déjà posée. Retour à une version plus ancienne : l\'installeur peut refuser de rétrograder (signalé dans le journal de la tâche) ; il faut alors désinstaller puis réinstaller avec le paquet de l\'entité.', 'printgestion')) . "</div>";
+        echo "<p class='mt-3 mb-2'>" . $esc(__('Pour appliquer un changement, lancez la consigne sur le PC sonde.', 'printgestion')) . ' '
+            . PluginPrintgestionUi::infoButton(__('Mise à jour automatique', 'printgestion'), $admin ? '<p>' . $esc(__('Ce réglage ne change rien tout seul sur le PC. La tâche de mise à jour y est posée par le paquet d\'installation (Windows : son étape 2 facultative, 2-facultatif-mise-a-jour-automatique.bat, que le technicien a pu sauter ; Linux : tâche cron du script d\'installation) ; pour appliquer un changement (désactiver, épingler une version, revenir en arrière), téléchargez la consigne et lancez-la sur la sonde. Décocher la case ici ne désactive pas une tâche déjà posée. Retour à une version plus ancienne : l\'installeur peut refuser de rétrograder (signalé dans le journal de la tâche) ; il faut alors désinstaller puis réinstaller avec le paquet de l\'entité.', 'printgestion')) . '</p>' : '') . "</p>";
         $platform = self::getHostPlatform($agent->fields);
         if ($platform === 'macos') {
-            echo "<p class='mb-0'>" . $esc(__('PC sonde sous macOS : pas de mise à jour automatique (aucun mécanisme officiel). Réinstaller le paquet d\'une version plus récente depuis l\'onglet « Déploiement Agent » de l\'entité ; local.cfg est gardé.', 'printgestion')) . "</p>";
+            echo "<p class='mb-0'>" . $esc(__('Mac : pas de mise à jour automatique, réinstaller le paquet de l\'entité.', 'printgestion')) . "</p>";
         } else {
             echo "<div class='d-flex flex-wrap gap-2'>";
             foreach ([
@@ -861,7 +873,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             }
             echo "</div>";
             if ($platform === null) {
-                echo "<p class='text-muted small mt-2 mb-0'>" . $esc(__('Système du PC sonde inconnu (pas encore inventorié) : prendre la consigne de son système. macOS : mise à jour manuelle.', 'printgestion')) . "</p>";
+                echo "<p class='text-muted small mt-2 mb-0'>" . $esc(__('Système du PC pas encore connu : prendre la consigne de son système.', 'printgestion')) . "</p>";
             }
         }
         echo "</div></div>";
@@ -869,7 +881,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         $coverage = array_keys(self::getCoverage()[$agents_id] ?? []);
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(sprintf(__('Imprimantes collectées par cette sonde (%d)', 'printgestion'), count($coverage))) . "</h3></div><div class='card-body'>";
         if (empty($coverage)) {
-            echo "<p class='text-muted mb-0'>" . $esc(__('Aucune : aucune tâche GLPI Inventory de cette sonde ne vise d\'imprimante, et elle n\'a fait aucun inventaire réseau.', 'printgestion')) . "</p></div></div>";
+            echo "<p class='text-muted mb-0'>" . $esc(__('Aucune imprimante collectée par cette sonde pour l\'instant.', 'printgestion')) . "</p></div></div>";
             return;
         }
         $dates  = PluginPrintgestionCollect::getImportDates($coverage);
@@ -932,8 +944,8 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
                     . $esc(sprintf(__('Marquer ce PC comme sonde (statut « %s »)', 'printgestion'), Dropdown::getDropdownName(State::getTable(), $probe_state))) . "</button>" . Html::closeForm(false);
             }
         }
-        if ($probe_state === 0) {
-            echo " <span class='text-muted small'>" . $esc(__('(aucun statut « PC sonde » choisi sur la page « Installeur GLPI Agent »)', 'printgestion')) . "</span>";
+        if ($probe_state === 0 && PluginPrintgestionUi::isAdmin()) {
+            echo " <span class='text-muted small' data-pg-admin='1'>" . $esc(__('(aucun statut « PC sonde » choisi sur la page « Installeur GLPI Agent »)', 'printgestion')) . "</span>";
         }
         echo "</div></div></div>";
         self::showForAgent($agent);
@@ -962,13 +974,17 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             }
         }
 
-        echo "<div class='row row-cards mb-3'>";
-        foreach ([
+        $admin = PluginPrintgestionUi::isAdmin();
+        $tiles = [
             [sprintf(__('Sondes sans contact depuis plus de %d jours', 'printgestion'), $silent_days), $counts['silent'], $counts['silent'] > 0 ? 'text-red' : 'text-green'],
             [__('Sondes à mettre à jour', 'printgestion'), $counts['update'], $counts['update'] > 0 ? 'text-orange' : 'text-green'],
-            [__('Sondes épinglées sur leur version cible', 'printgestion'), $counts['pinned'], 'text-blue'],
-            [sprintf(__('Dernière version connue de GLPI Agent (%s)', 'printgestion'), self::getLatestSourceLabel($latest)), $latest['version'], 'text-body'],
-        ] as [$label, $value, $class]) {
+        ];
+        if ($admin) {
+            $tiles[] = [__('Sondes épinglées sur leur version cible', 'printgestion'), $counts['pinned'], 'text-blue'];
+            $tiles[] = [sprintf(__('Dernière version connue de GLPI Agent (%s)', 'printgestion'), self::getLatestSourceLabel($latest)), $latest['version'], 'text-body'];
+        }
+        echo "<div class='row row-cards mb-3'>";
+        foreach ($tiles as [$label, $value, $class]) {
             echo "<div class='col-sm-6 col-lg-3'><div class='card card-sm'><div class='card-body'><div class='h1 mb-0 {$class}'>" . $esc($value) . "</div><div class='text-muted'>" . $esc($label) . "</div></div></div></div>";
         }
         echo "</div>";
@@ -981,7 +997,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             echo "<div class='mb-2'><span class='fw-bold'>" . $esc($entity) . "</span> : " . implode(', ', array_map(static fn(array $probe): string =>
                 "<a href='" . $esc(self::getPageURL((int) $probe['id'])) . "'>" . $esc($probe['name']) . "</a> <span class='text-muted small'>(" . $esc(empty($probe['last_contact']) ? __('jamais', 'printgestion') : Html::convDateTime((string) $probe['last_contact'])) . ")</span>", $list)) . "</div>";
         }
-        echo "<p class='text-muted small mt-2 mb-0'>" . $esc(__('Sonde : agent installé avec l\'inventaire réseau ou qui collecte au moins une imprimante. Une sonde qui contacte GLPI ne garantit pas que ses imprimantes remontent : voir « Contrôle de la remontée ». Notifications : Configuration > Inventaire, « Agent cleanup ».', 'printgestion')) . "</p>";
+        echo "<div class='text-end'>" . PluginPrintgestionUi::infoButton(__('Sondes', 'printgestion'), $admin ? '<p>' . $esc(__('Sonde : agent installé avec l\'inventaire réseau ou qui collecte au moins une imprimante. Une sonde qui contacte GLPI ne garantit pas que ses imprimantes remontent : voir « Contrôle de la remontée ». Notifications : Configuration > Inventaire, « Agent cleanup ».', 'printgestion')) . '</p>' : '') . "</div>";
         echo "</div></div>";
 
         echo "<div class='card'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(self::getTypeName(Session::getPluralNumber())) . "</h3></div><div class='card-body'>";
@@ -990,20 +1006,19 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             return;
         }
         echo "<div class='table-responsive'><table class='table table-sm table-hover align-middle mb-0'><thead><tr>"
-            . "<th>" . $esc(Entity::getTypeName(1)) . "</th><th>" . $esc(__('Sonde', 'printgestion')) . "</th><th>" . $esc(__('PC hôte', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Version', 'printgestion')) . "</th><th>" . $esc(__('Conformité', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Dernier contact', 'printgestion')) . "</th><th>" . $esc(__('Mise à jour automatique', 'printgestion')) . "</th>"
+            . "<th>" . $esc(Entity::getTypeName(1)) . "</th><th>" . $esc(__('Sonde', 'printgestion')) . "</th>" . ($admin ? "<th data-pg-admin='1'>" . $esc(__('PC hôte', 'printgestion')) . "</th><th data-pg-admin='1'>" . $esc(__('Version', 'printgestion')) . "</th>" : '')
+            . "<th>" . $esc(__('Conformité', 'printgestion')) . "</th><th>" . $esc(__('Dernier contact', 'printgestion')) . "</th>"
+            . ($admin ? "<th data-pg-admin='1'>" . $esc(__('Mise à jour automatique', 'printgestion')) . "</th>" : '')
             . "<th class='text-end'>" . $esc(_n('Imprimante', 'Imprimantes', Session::getPluralNumber(), 'printgestion')) . "</th></tr></thead><tbody>";
         foreach ($probes as $agents_id => $probe) {
             $setting = $settings[$agents_id];
             echo "<tr><td>" . $esc($probe['entity']) . "</td>"
                 . "<td><a href='" . $esc(self::getPageURL($agents_id)) . "'>" . $esc($probe['name']) . "</a></td>"
-                . "<td>" . self::getHostHtml($probe, $hosts, $probe_state) . "</td>"
-                . "<td>" . $esc(self::getAgentVersion($probe) ?: '—') . "</td>"
+                . ($admin ? "<td data-pg-admin='1'>" . self::getHostHtml($probe, $hosts, $probe_state) . "</td><td data-pg-admin='1'>" . $esc(self::getAgentVersion($probe) ?: '—') . "</td>" : '')
                 . "<td><span class='badge " . $probe['compliance']['class'] . "'>" . $esc($probe['compliance']['label']) . "</span></td>"
                 . "<td>" . $esc(empty($probe['last_contact']) ? '—' : Html::convDateTime((string) $probe['last_contact']))
                 . ($probe['is_silent'] ? " <span class='badge bg-red text-red-fg'>" . $esc(__('Sans contact', 'printgestion')) . "</span>" : '') . "</td>"
-                . "<td>" . $esc($setting['auto_update'] ? ($setting['target_version'] !== '' ? sprintf(__('oui, cible %s', 'printgestion'), $setting['target_version']) : __('oui', 'printgestion')) : __('non', 'printgestion')) . "</td>"
+                . ($admin ? "<td data-pg-admin='1'>" . $esc($setting['auto_update'] ? ($setting['target_version'] !== '' ? sprintf(__('oui, cible %s', 'printgestion'), $setting['target_version']) : __('oui', 'printgestion')) : __('non', 'printgestion')) . "</td>" : '')
                 . "<td class='text-end'>" . (int) $probe['printers'] . "</td></tr>";
         }
         echo "</tbody></table></div></div></div>";

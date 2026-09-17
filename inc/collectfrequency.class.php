@@ -366,42 +366,49 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
     // ── Affichage ─────────────────────────────────────────────────────────────
 
     /** Onglet « Déploiement Agent » de l'entité : fréquence des relevés, modifiable avant de générer le paquet. */
+    /** Fréquence des relevés dans l'onglet de l'entité : une ligne et le réglage ; explications pour l'administrateur. */
     public static function showForEntity(Entity $entity): void {
         $esc         = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $entities_id = (int) $entity->getID();
         $current     = self::getForEntity($entities_id);
         $contact     = self::getContactHours();
 
-        echo "<div class='border rounded p-3 mb-3'><div class='fw-bold mb-1'><i class='ti ti-clock me-1'></i>" . $esc(__('Fréquence des relevés d\'imprimantes', 'printgestion')) . "</div>";
-        echo "<p class='mb-2'>" . $esc(sprintf(__('%1$s (%2$s).', 'printgestion'), ucfirst(self::getLabel($current['frequency'], $current['modifier'])), self::getSourceLabel($current))) . "</p>";
+        echo "<div class='d-flex flex-wrap align-items-end gap-2 mt-3'><div class='me-2'><i class='ti ti-clock me-1'></i>"
+            . $esc(sprintf(__('Relevés des imprimantes : %1$s (%2$s)', 'printgestion'), self::getLabel($current['frequency'], $current['modifier']), self::getSourceLabel($current))) . "</div>";
         if (Session::haveRight(self::$rightname, UPDATE)) {
-            echo "<form method='post' action='" . $esc(self::getFormURL()) . "' class='row g-2 align-items-end mb-2'>" . Html::hidden('entities_id', ['value' => $entities_id]);
-            echo "<div class='col-sm-5 col-lg-4'><select class='form-select' name='frequency'>";
+            echo "<form method='post' action='" . $esc(self::getFormURL()) . "' class='d-flex flex-wrap gap-2 align-items-end'>" . Html::hidden('entities_id', ['value' => $entities_id]);
+            echo "<select class='form-select form-select-sm w-auto' name='frequency'>";
             foreach (['daily' => __('Tous les N jours', 'printgestion'), 'hourly' => __('Toutes les N heures', 'printgestion')] as $value => $label) {
                 echo "<option value='{$value}'" . ($current['source'] === 'entity' && $current['frequency'] === $value ? ' selected' : '') . ">" . $esc($label) . "</option>";
             }
             if ($entities_id > 0) {
                 echo "<option value='inherit'" . ($current['source'] !== 'entity' ? ' selected' : '') . ">" . $esc(__('Comme l\'entité parente', 'printgestion')) . "</option>";
             }
-            echo "</select></div>";
-            echo "<div class='col-sm-3 col-lg-2'><input type='number' class='form-control' name='modifier' min='1' max='365' value='" . (int) $current['modifier'] . "' aria-label='" . $esc(__('N', 'printgestion')) . "'></div>";
-            echo "<div class='col-sm-4 col-lg-3'><button type='submit' name='save_frequency' value='1' class='btn btn-outline-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button></div>";
+            echo "</select>";
+            echo "<input type='number' class='form-control form-control-sm' style='width:6rem' name='modifier' min='1' max='365' value='" . (int) $current['modifier'] . "' aria-label='" . $esc(__('N', 'printgestion')) . "'>";
+            echo "<button type='submit' name='save_frequency' value='1' class='btn btn-sm btn-outline-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button>";
             echo Html::closeForm(false);
         }
-        if ($current['hours'] < $contact) {
-            echo "<div class='alert alert-warning mb-2'>" . $esc(sprintf(__('GLPI ne contacte les agents que toutes les %d h (Administration > Inventaire, fréquence d\'inventaire) : les relevés ne seront pas plus fréquents. Réglez-la à 1 heure pour permettre des relevés plus rapprochés.', 'printgestion'), $contact)) . "</div>";
+        echo "</div>";
+
+        if (!PluginPrintgestionUi::isAdmin()) {
+            return;
         }
-        echo "<p class='text-muted small mb-1'>" . $esc(sprintf(
+        $details = '';
+        if ($current['hours'] < $contact) {
+            $details .= "<div class='alert alert-warning'>" . $esc(sprintf(__('GLPI ne contacte les agents que toutes les %d h (Administration > Inventaire, fréquence d\'inventaire) : les relevés ne seront pas plus fréquents. Réglez-la à 1 heure pour permettre des relevés plus rapprochés.', 'printgestion'), $contact)) . "</div>";
+        }
+        $details .= "<p class='small mb-1'>" . $esc(sprintf(
             __('Appliquée par GLPI aux tâches de découverte et d\'inventaire réseau des raccordements de cette entité : rien à régler sur la sonde, rien à réinstaller pour la changer. Au plus souvent, la fréquence d\'inventaire de GLPI (%d h), à laquelle les agents le contactent. Une imprimante n\'est dite muette qu\'après %d jours sans relevé.', 'printgestion'),
             $contact,
             self::getSilentDaysForEntity($entities_id)
         )) . "</p>";
         $tasks = self::getManagedTasks([$entities_id]);
         if (!empty($tasks)) {
-            echo "<ul class='small mb-0'>";
+            $details .= "<ul class='small mb-0'>";
             foreach ($tasks as $task) {
                 $start = $task['datetime_start'] !== null ? strtotime((string) $task['datetime_start']) : null;
-                echo "<li>" . $esc(sprintf(
+                $details .= "<li>" . $esc(sprintf(
                     __('« %1$s » : %2$s', 'printgestion'),
                     $task['name'],
                     $task['datetime_end'] !== null
@@ -411,9 +418,9 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
                             : __('relevé au prochain contact de la sonde', 'printgestion'))
                 )) . "</li>";
             }
-            echo "</ul>";
+            $details .= "</ul>";
         }
-        echo "</div>";
+        echo PluginPrintgestionUi::adminDetails(__('Fréquence : détail', 'printgestion'), $details);
     }
 
     static function uninstall(Migration $migration) {

@@ -15,6 +15,76 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionUi {
 
+    // ── Deux publics, deux niveaux d'information ─────────────────────────────
+    // Le technicien voit l'état et l'action, rien d'autre : les détails techniques (commandes, propriétés,
+    // chemins de menu, noms de règles, versions) sont ABSENTS de sa page, pas repliés. L'administrateur (droit
+    // de configuration du plugin) les a derrière un chevron fermé par défaut ou un bouton « i ». Tout élément
+    // réservé porte data-pg-admin : le harnais vérifie qu'aucun n'arrive jusqu'à un compte technicien.
+
+    /** Administrateur du plugin : droit de configuration. */
+    public static function isAdmin(): bool {
+        return Session::haveRight('plugin_printgestion_config', READ);
+    }
+
+    /**
+     * Ligne d'état colorée, texte brut. $details_html : détail replié derrière un chevron fermé, rendu pour
+     * l'administrateur seulement (absent de la page sinon).
+     *
+     * @param string $level ok, warning, error ou info
+     */
+    public static function statusLine(string $level, string $text, string $details_html = ''): string {
+        $styles = [
+            'ok'      => ['ti-circle-check', 'text-success'],
+            'warning' => ['ti-alert-triangle', 'text-warning'],
+            'error'   => ['ti-alert-octagon', 'text-danger'],
+            'info'    => ['ti-info-circle', 'text-info'],
+        ];
+        [$icon, $color] = $styles[$level] ?? $styles['info'];
+        $details = $details_html !== '' && self::isAdmin();
+        $id      = 'pg-detail-' . bin2hex(random_bytes(5));
+        $out     = "<div class='d-flex align-items-center gap-2 py-1'><i class='ti {$icon} {$color} fs-2'></i>"
+            . "<span class='fw-bold'>" . htmlspecialchars($text, ENT_QUOTES, 'UTF-8') . "</span>";
+        if ($details) {
+            $out .= self::chevron($id);
+        }
+        $out .= "</div>";
+        if ($details) {
+            $out .= "<div class='collapse' id='{$id}' data-pg-admin='1'><div class='border rounded p-3 my-2'>{$details_html}</div></div>";
+        }
+        return $out;
+    }
+
+    /** Section repliée (fermée) pour l'administrateur seulement ; chaîne vide pour les autres. */
+    public static function adminDetails(string $label, string $html): string {
+        if (!self::isAdmin() || $html === '') {
+            return '';
+        }
+        $id = 'pg-detail-' . bin2hex(random_bytes(5));
+        return "<div class='mt-2' data-pg-admin='1'><div class='d-flex align-items-center gap-2'>"
+            . "<span class='text-muted'>" . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . "</span>" . self::chevron($id) . "</div>"
+            . "<div class='collapse' id='{$id}'><div class='border rounded p-3 my-2'>{$html}</div></div></div>";
+    }
+
+    /** Bouton « i » ouvrant une fenêtre d'explications, pour l'administrateur seulement ; chaîne vide sinon. */
+    public static function infoButton(string $title, string $html): string {
+        if (!self::isAdmin() || $html === '') {
+            return '';
+        }
+        $id    = 'pg-info-' . bin2hex(random_bytes(5));
+        $title = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
+        return "<span data-pg-admin='1'><button type='button' class='btn btn-sm btn-ghost-secondary' data-bs-toggle='modal' data-bs-target='#{$id}' title='{$title}' aria-label='{$title}'>"
+            . "<i class='ti ti-info-circle'></i></button>"
+            . "<div class='modal fade' id='{$id}' tabindex='-1' aria-hidden='true'><div class='modal-dialog modal-lg modal-dialog-scrollable'><div class='modal-content'>"
+            . "<div class='modal-header'><h5 class='modal-title'>{$title}</h5><button type='button' class='btn-close' data-bs-dismiss='modal' aria-label='" . htmlspecialchars(__('Fermer', 'printgestion'), ENT_QUOTES, 'UTF-8') . "'></button></div>"
+            . "<div class='modal-body'>{$html}</div></div></div></div></span>";
+    }
+
+    private static function chevron(string $target): string {
+        $label = htmlspecialchars(__('Détail', 'printgestion'), ENT_QUOTES, 'UTF-8');
+        return "<button type='button' class='btn btn-sm btn-ghost-secondary' data-pg-admin='1' data-bs-toggle='collapse' data-bs-target='#{$target}' aria-expanded='false' aria-controls='{$target}' title='{$label}' aria-label='{$label}'>"
+            . "<i class='ti ti-chevron-down'></i></button>";
+    }
+
     /**
      * Rend une barre de statistiques.
      *

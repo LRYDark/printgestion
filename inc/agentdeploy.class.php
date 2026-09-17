@@ -912,138 +912,156 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             . "<div class='text-muted small'>" . $detail_html . "</div></div></div></div>";
     }
 
-    /** Onglet « Déploiement Agent » de la fiche Entité : état du rattachement, installeur. */
-    public static function showForEntity(Entity $entity): void {
-        $esc  = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        $date = static fn($value) => $value === null || $value === '' ? '—' : Html::convDateTime((string) $value);
-        $id   = (int) $entity->getID();
-        $tag  = trim((string) ($entity->fields['tag'] ?? ''));
+    /**
+     * TAG proposé pour une entité : son nom en majuscules, sans accents, sans espaces ni caractères spéciaux
+     * (« Mairie de Marly » → MAIRIEDEMARLY). Chaîne vide si le nom n'en contient aucun.
+     */
+    public static function normalizeTag(string $name): string {
+        static $transliterator = null;
+        if ($transliterator === null) {
+            $transliterator = Transliterator::create('Any-Latin; Latin-ASCII; Upper()') ?: false;
+        }
+        $text = $transliterator ? (string) $transliterator->transliterate($name) : mb_strtoupper($name);
+        return mb_substr((string) preg_replace('/[^A-Z0-9]+/', '', strtoupper($text)), 0, 100);
+    }
 
-        echo "<div class='mt-3'>";
-        echo "<p class='text-muted small'>" . $esc(__('Installer GLPI Agent sur un PC du client (la sonde), puis vérifier ici que les équipements arrivent dans cette entité. Le paquet téléchargé ne contient que l\'adresse du serveur GLPI et le TAG : aucun identifiant, aucun secret.', 'printgestion')) . "</p>";
+    /** Autres entités portant ce TAG (identifiant => nom complet). */
+    public static function getTagOwners(string $tag, int $except_entities_id): array {
+        global $DB;
+
+        $owners = [];
+        if ($tag === '') {
+            return $owners;
+        }
+        foreach ($DB->request([
+            'SELECT' => ['id', 'completename'],
+            'FROM'   => Entity::getTable(),
+            'WHERE'  => ['tag' => $tag, 'NOT' => ['id' => $except_entities_id]],
+        ]) as $row) {
+            $owners[(int) $row['id']] = (string) $row['completename'];
+        }
+        return $owners;
+    }
+
+    /**
+     * Écrit le TAG d'une entité (action « Créer le TAG ») : droit natif de modification de l'entité, TAG valide,
+     * jamais un TAG déjà porté par une autre entité (un équipement partirait chez le mauvais client).
+     *
+     * @return array ['ok' => bool, 'message' => string]
+     */
+    public static function createTag(int $entities_id, string $tag): array {
+        $entity = new Entity();
+        if (!$entity->getFromDB($entities_id) || !$entity->can($entities_id, UPDATE)) {
+            return ['ok' => false, 'message' => __('Entité introuvable ou hors de vos droits de modification.', 'printgestion')];
+        }
+        $tag = trim($tag);
+        if ($tag === '' || !self::isValidTag($tag)) {
+            return ['ok' => false, 'message' => __('TAG invalide : lettres, chiffres, point, tiret ou soulignement.', 'printgestion')];
+        }
+        $owners = self::getTagOwners($tag, $entities_id);
+        if (!empty($owners)) {
+            return ['ok' => false, 'message' => sprintf(__('TAG « %1$s » déjà utilisé par l\'entité « %2$s » : choisissez-en un autre.', 'printgestion'), $tag, reset($owners))];
+        }
+        if (!$entity->update(['id' => $entities_id, 'tag' => $tag])) {
+            return ['ok' => false, 'message' => __('TAG non enregistré : modification refusée par GLPI.', 'printgestion')];
+        }
+        return ['ok' => true, 'message' => sprintf(__('TAG « %s » enregistré sur l\'entité.', 'printgestion'), $tag)];
+    }
+
+    /**
+     * Onglet « Déploiement Agent » de la fiche Entité, trois blocs. Technicien : l'état et l'action. Administrateur :
+     * les mêmes, plus les détails techniques repliés (chevron fermé) ou en fenêtre (bouton « i »).
+     */
+    public static function showForEntity(Entity $entity): void {
+        $esc   = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $id    = (int) $entity->getID();
+        $tag   = trim((string) ($entity->fields['tag'] ?? ''));
+        $admin = PluginPrintgestionUi::isAdmin();
 
         // ── 1. État du rattachement ──
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('1. État du rattachement', 'printgestion')) . "</h3></div><div class='card-body'>";
-        $tag_url = Entity::getFormURLWithID($id) . '&forcetab=' . urlencode('Entity$3');
-        if ($tag === '') {
-            echo "<div class='alert alert-danger'><i class='ti ti-alert-octagon me-1'></i><strong>" . $esc(__('TAG de l\'entité vide : rien ne fonctionnera.', 'printgestion')) . "</strong> "
-                . $esc(__('Les équipements découverts par la sonde sont rattachés à l\'entité dont le TAG correspond à celui de l\'agent. Les règles d\'entité ne jouent qu\'au premier import : un TAG corrigé après coup ne rapatrie rien, il faudrait transférer chaque équipement à la main.', 'printgestion'))
-                . " <a href='" . $esc($tag_url) . "'>" . $esc(__('Renseigner le TAG (onglet Informations avancées)', 'printgestion')) . "</a></div>";
+        $rule       = self::getTagRuleStatus();
+        $owners     = self::getTagOwners($tag, $id);
+        $tag_ok     = $tag !== '' && self::isValidTag($tag) && empty($owners);
+        $rule_ok    = $rule['active'] !== null && empty($rule['earlier']) && $rule['tag_criterion'];
+        $can_tag    = $entity->can($id, UPDATE);
+        echo "<div class='card mb-3 mt-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('1. Rattachement des équipements', 'printgestion')) . "</h3></div><div class='card-body'>";
+
+        // Toujours visible, sans dépliage : erreur irréversible (les règles d'affectation ne jouent qu'au premier import).
+        if (!empty($owners)) {
+            echo "<div class='alert alert-danger mb-2'><i class='ti ti-alert-octagon me-1'></i>" . $esc(sprintf(
+                __('TAG « %1$s » déjà utilisé par l\'entité « %2$s » : un équipement partirait chez ce client, sans retour possible. Ne rien installer avant correction.', 'printgestion'),
+                $tag,
+                implode(', ', $owners)
+            )) . "</div>";
         }
 
-        $rule   = self::getTagRuleStatus();
-        $checks = [];
-        $checks[] = self::checkItem(
-            $tag !== '' && self::isValidTag($tag) && countElementsInTable(Entity::getTable(), ['tag' => $tag]) === 1,
-            __('TAG de l\'entité', 'printgestion'),
-            $tag === ''
+        $details = '';
+        if ($admin) {
+            $tag_url  = Entity::getFormURLWithID($id) . '&forcetab=' . urlencode('Entity$3');
+            $checks   = [];
+            $checks[] = self::checkItem($tag_ok, __('TAG de l\'entité', 'printgestion'), $tag === ''
                 ? $esc(__('Vide.', 'printgestion'))
-                : ("<code>" . $esc($tag) . "</code> "
-                    . (!self::isValidTag($tag)
-                        ? $esc(__('— caractères non acceptés dans la commande d\'installation (lettres, chiffres, point, tiret, soulignement).', 'printgestion'))
-                        : (countElementsInTable(Entity::getTable(), ['tag' => $tag]) > 1
-                            ? $esc(__('— porté aussi par une autre entité : les équipements iraient à la première trouvée.', 'printgestion'))
-                            : ''))
-                    . " <a href='" . $esc($tag_url) . "'>" . $esc(__('Modifier', 'printgestion')) . "</a>")
-        );
-        if ($rule['active'] === null) {
-            $rule_detail = $esc(sprintf(
-                __('Aucune règle active. À créer une seule fois pour tous les clients (Administration → Règles → affectation d\'un élément à une entité) : critère « %1$s » vérifie l\'expression régulière /^(.*)$/, action « %2$s » = #0. Le plugin ne la crée pas : elle engage tout GLPI.', 'printgestion'),
-                __('Inventory tag'),
-                __('Entity from TAG')
-            ));
-            if (!empty($rule['rules'])) {
-                $rule_detail .= ' ' . $esc(sprintf(__('Règle présente mais désactivée : %s.', 'printgestion'), implode(', ', array_column($rule['rules'], 'name'))));
-            }
-        } else {
-            $rule_detail = $esc(sprintf(__('Règle « %1$s » active (position %2$d).', 'printgestion'), $rule['active']['name'], (int) $rule['active']['ranking']))
-                . " <a href='" . $esc(RuleImportEntity::getFormURLWithID((int) $rule['active']['id'])) . "'>" . $esc(__('Voir', 'printgestion')) . "</a>";
-            if (!$rule['tag_criterion']) {
-                $rule_detail .= ' ' . $esc(sprintf(__('Elle n\'a pas de critère « %s » : vérifiez qu\'elle s\'applique bien aux inventaires des sondes.', 'printgestion'), __('Inventory tag')));
-            }
-            if (!empty($rule['earlier'])) {
-                $rule_detail .= ' ' . $esc(sprintf(
-                    __('Jouées avant elle (le moteur s\'arrête à la première règle qui correspond, vérifiez qu\'elles ne capturent pas les inventaires de ce client) : %s.', 'printgestion'),
-                    implode(', ', array_map(static fn(array $r) => $r['name'] . ' (' . (int) $r['ranking'] . ')', $rule['earlier']))
+                : "<code>" . $esc($tag) . "</code> " . (!self::isValidTag($tag) ? $esc(__('— caractères refusés dans la commande d\'installation.', 'printgestion')) : '')
+                    . " <a href='" . $esc($tag_url) . "'>" . $esc(__('Modifier', 'printgestion')) . "</a>");
+            if ($rule['active'] === null) {
+                $rule_detail = $esc(sprintf(
+                    __('Aucune règle active : critère « %1$s » expression régulière /^(.*)$/, action « %2$s » = #0 (Administration → Règles → Règles d\'affectation d\'un élément à une entité).', 'printgestion'),
+                    __('Inventory tag'),
+                    __('Entity from TAG')
                 ));
-            }
-        }
-        $checks[] = self::checkItem($rule['active'] !== null && empty($rule['earlier']), __('Règle d\'affectation par TAG', 'printgestion'), $rule_detail);
-
-        $inventory_plugin = Plugin::isPluginActive('glpiinventory');
-        $inventory_check  = PluginPrintgestionCollectsetup::getPrerequisites();
-        $checks[] = self::checkItem(
-            $inventory_plugin && empty($inventory_check['blocking']),
-            __('Plugin GLPI Inventory', 'printgestion'),
-            $esc(implode(' ', array_merge(
-                [$inventory_plugin
-                    ? sprintf(__('Actif (version %s) : l\'agent recevra les tâches de découverte et d\'inventaire réseau.', 'printgestion'), $inventory_check['version'])
-                    : __('Absent ou inactif : il envoie aux sondes les plages IP à scanner, sans lui aucune imprimante ne remonte. À installer et activer avant de déployer (Configuration → Plugins).', 'printgestion')],
-                $inventory_check['blocking'],
-                $inventory_check['warnings']
-            )))
-        );
-        echo "<div class='row g-3 mb-3'>" . implode('', $checks) . "</div>";
-
-        // Agents de l'entité : lien vers la fiche native, rien de plus que ce qui aide à conclure.
-        $agents  = self::getEntityAgents($id);
-        $silent  = PluginPrintgestionCollect::getSilentDays();
-        $badges  = [
-            'old'     => ['bg-red text-red-fg', __('Trop ancienne', 'printgestion')],
-            'update'  => ['bg-orange text-orange-fg', __('À mettre à jour', 'printgestion')],
-            'ok'      => ['bg-green text-green-fg', __('À jour', 'printgestion')],
-            'unknown' => ['bg-secondary text-secondary-fg', __('Inconnue', 'printgestion')],
-        ];
-        echo "<h4 class='mb-2'>" . $esc(__('Agents rattachés à cette entité', 'printgestion')) . "</h4>";
-        if (empty($agents)) {
-            echo "<p class='text-muted mb-0'>" . $esc(__('Aucun agent pour l\'instant. Après l\'installation, l\'agent apparaît ici dès son premier contact.', 'printgestion')) . "</p>";
-        } else {
-            echo "<div class='table-responsive'><table class='table table-sm mb-0'><thead><tr>"
-                . "<th>" . $esc(__('Agent', 'printgestion')) . "</th><th>" . $esc(__('Poste', 'printgestion')) . "</th>"
-                . "<th>" . $esc(__('Version', 'printgestion')) . "</th><th>" . $esc(__('Dernier contact', 'printgestion')) . "</th>"
-                . "<th>" . $esc(__('TAG', 'printgestion')) . "</th><th>" . $esc(__('Collecte réseau', 'printgestion')) . "</th></tr></thead><tbody>";
-            foreach ($agents as $agent) {
-                [$badge_class, $badge_label] = $badges[PluginPrintgestionCollect::getAgentVersionStatus($agent['version_value'], PluginPrintgestionAgentsetting::getSettings((int) $agent['id']))];
-                $is_silent = $agent['last_contact'] === null || strtotime((string) $agent['last_contact']) < time() - $silent * DAY_TIMESTAMP;
-                $host      = '—';
-                if (is_a((string) $agent['itemtype'], CommonDBTM::class, true) && (int) $agent['items_id'] > 0) {
-                    $host = "<a href='" . $esc($agent['itemtype']::getFormURLWithID((int) $agent['items_id'])) . "'>" . $esc($agent['itemtype']::getTypeName(1) . ' #' . (int) $agent['items_id']) . "</a>";
+                if (!empty($rule['rules'])) {
+                    $rule_detail .= ' ' . $esc(sprintf(__('Présente mais désactivée : %s.', 'printgestion'), implode(', ', array_column($rule['rules'], 'name'))));
                 }
-                $agent_tag = trim((string) $agent['tag']);
-                $network   = (int) $agent['use_module_network_discovery'] === 1 && (int) $agent['use_module_network_inventory'] === 1;
-                echo "<tr><td><a href='" . $esc(Agent::getFormURLWithID((int) $agent['id'])) . "'>" . $esc($agent['name']) . "</a></td>"
-                    . "<td>" . $host . "</td>"
-                    . "<td>" . $esc($agent['version_value'] !== '' ? $agent['version_value'] : '—') . " <span class='badge {$badge_class}'>" . $esc($badge_label) . "</span></td>"
-                    . "<td>" . $esc($date($agent['last_contact'])) . ($is_silent ? " <span class='badge bg-red text-red-fg'>" . $esc(__('Muet', 'printgestion')) . "</span>" : '') . "</td>"
-                    . "<td>" . ($agent_tag !== '' ? "<code>" . $esc($agent_tag) . "</code>" : '—')
-                    . ($agent_tag !== $tag ? " <span class='badge bg-orange text-orange-fg'>" . $esc(__('≠ TAG de l\'entité', 'printgestion')) . "</span>" : '') . "</td>"
-                    . "<td>" . ($network
-                        ? "<span class='badge bg-green text-green-fg'>" . $esc(__('Installée', 'printgestion')) . "</span>"
-                        : "<span class='badge bg-red text-red-fg'>" . $esc(__('Absente : réinstaller avec feat_NETINV', 'printgestion')) . "</span>") . "</td></tr>";
+            } else {
+                $rule_detail = $esc(sprintf(__('« %1$s », position %2$d.', 'printgestion'), $rule['active']['name'], (int) $rule['active']['ranking']))
+                    . " <a href='" . $esc(RuleImportEntity::getFormURLWithID((int) $rule['active']['id'])) . "'>" . $esc(__('Voir', 'printgestion')) . "</a>";
+                if (!$rule['tag_criterion']) {
+                    $rule_detail .= ' ' . $esc(sprintf(__('Sans critère « %s ».', 'printgestion'), __('Inventory tag')));
+                }
+                if (!empty($rule['earlier'])) {
+                    $rule_detail .= ' ' . $esc(sprintf(
+                        __('Jouées avant elle (la première qui correspond l\'emporte) : %s.', 'printgestion'),
+                        implode(', ', array_map(static fn(array $r) => $r['name'] . ' (' . (int) $r['ranking'] . ')', $rule['earlier']))
+                    ));
+                }
             }
-            echo "</tbody></table></div>";
+            $checks[] = self::checkItem($rule_ok, __('Règle d\'affectation par TAG', 'printgestion'), $rule_detail);
+            $details  = "<div class='row g-3'>" . implode('', $checks) . "</div>";
+        }
+        echo PluginPrintgestionUi::statusLine(
+            $tag_ok && $rule_ok ? 'ok' : 'error',
+            $tag_ok && $rule_ok ? __('Rattachement : correct', 'printgestion') : __('Configuration incomplète — contactez l\'administrateur', 'printgestion'),
+            $details
+        );
+
+        // Action : TAG absent et droit natif de modifier l'entité.
+        if ($tag === '' && $can_tag) {
+            $proposed = self::normalizeTag((string) $entity->fields['name']);
+            echo "<form method='post' action='" . $esc(self::getPageURL()) . "' class='row g-2 align-items-end mt-1'>"
+                . Html::hidden('entities_id', ['value' => $id])
+                . "<div class='col-sm-6 col-lg-4'><label class='form-label'>" . $esc(__('TAG proposé (nom de l\'entité)', 'printgestion')) . "</label>"
+                . "<input type='text' class='form-control' name='tag' maxlength='100' pattern='[A-Za-z0-9][A-Za-z0-9._-]*' required value='" . $esc($proposed) . "'></div>"
+                . "<div class='col-auto'><button type='submit' name='create_tag' value='1' data-pg-submit-once='1' class='btn btn-primary'><i class='ti ti-tag me-1'></i>" . $esc(__('Créer le TAG', 'printgestion')) . "</button></div>"
+                . Html::closeForm(false);
         }
         echo "</div></div>";
 
-        // ── 2. Installeur ──
-        $version  = self::getServedVersion();
+        // ── 2. Télécharger l'installeur ──
+        $version   = self::getServedVersion();
         $platforms = self::getPlatforms();
         $icons     = ['windows' => 'ti-brand-windows', 'linux' => 'ti-brand-ubuntu', 'macos' => 'ti-brand-apple'];
         $blockers  = [];
         foreach (array_keys($platforms) as $platform) {
             $blockers[$platform] = self::getPackageBlockers($entity, $platform);
         }
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(sprintf(__('2. Télécharger l\'installeur (GLPI Agent %s)', 'printgestion'), $version)) . "</h3></div><div class='card-body'>";
-        PluginPrintgestionCollectfrequency::showForEntity($entity);
+        echo "<div class='card mb-3'><div class='card-header d-flex align-items-center'><h3 class='card-title mb-0'>" . $esc(__('2. Télécharger l\'installeur', 'printgestion')) . "</h3>"
+            . "<div class='ms-auto'>" . PluginPrintgestionUi::infoButton(__('Contenu des paquets d\'installation', 'printgestion'), $admin ? self::getPackageDetailsHtml($tag, $version) : '') . "</div></div><div class='card-body'>";
         $all_blockers = array_values(array_unique(array_merge(...array_values($blockers))));
         if (!empty($all_blockers)) {
-            echo "<div class='alert alert-warning'><strong>" . $esc(__('Paquet indisponible :', 'printgestion')) . "</strong><ul class='mb-0'>";
-            foreach ($all_blockers as $blocker) {
-                echo "<li>" . $esc($blocker) . "</li>";
-            }
-            echo "</ul></div>";
+            echo PluginPrintgestionUi::statusLine('error', __('Installeur indisponible — contactez l\'administrateur', 'printgestion'),
+                "<ul class='mb-0'>" . implode('', array_map(static fn(string $b) => '<li>' . $esc($b) . '</li>', $all_blockers)) . "</ul>");
         }
-        echo "<div class='d-flex flex-wrap gap-2 mb-3'>";
+        echo "<div class='d-flex flex-wrap gap-2 my-2'>";
         foreach ($platforms as $platform => $label) {
             $class = $platform === 'windows' ? 'btn-primary' : 'btn-outline-primary';
             if (empty($blockers[$platform])) {
@@ -1053,11 +1071,67 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             }
         }
         echo "</div>";
-        echo "<p class='text-muted small'>" . $esc(__('Windows : ZIP avec le MSI officiel servi par ce serveur et deux gestes séparés, à lancer en administrateur : 1-installer-glpi-agent.bat ne fait que lancer le MSI avec ses propriétés (assistant prérempli) ; 2-facultatif-mise-a-jour-automatique.bat, fourni si la mise à jour automatique est activée sur la page « Installeur GLPI Agent », pose seulement la tâche planifiée de mise à jour. Plus la commande seule et une note d\'une page. Linux : archive .tar.gz avec l\'installeur Perl officiel et le script installer-glpi-agent.sh à lancer avec sudo (réglages déjà remplis, tâche cron de mise à jour si elle est activée). macOS : ZIP avec les deux paquets officiels signés (Apple Silicon et Intel) et le fichier local.cfg à déposer, procédure ci-dessous ; mise à jour manuelle.', 'printgestion')) . "</p>";
+        PluginPrintgestionCollectfrequency::showForEntity($entity);
+        echo "</div></div>";
 
-        if ($tag !== '' && self::isValidTag($tag)) {
-            echo "<div class='mb-2 fw-bold'>" . $esc(__('Windows : commande lancée par 1-installer-glpi-agent.bat', 'printgestion')) . "</div>";
-            echo "<pre class='mb-3' style='white-space:pre-wrap'>" . $esc(self::buildWindowsCommand(self::getMsiName($version), $tag)) . "</pre>";
+        // ── 3. Raccordement ──
+        PluginPrintgestionRaccordement::showForEntity($entity);
+    }
+
+    /** Agents rattachés à une entité, pour le bloc « Raccordement » : colonnes techniques pour l'administrateur seulement. */
+    public static function showEntityAgents(int $entities_id): void {
+        $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $date   = static fn($value) => $value === null || $value === '' ? '—' : Html::convDateTime((string) $value);
+        $admin  = PluginPrintgestionUi::isAdmin();
+        $agents = self::getEntityAgents($entities_id);
+        $entity = new Entity();
+        $tag    = $entity->getFromDB($entities_id) ? trim((string) ($entity->fields['tag'] ?? '')) : '';
+        $silent = PluginPrintgestionCollect::getSilentDays();
+
+        echo "<h4 class='mt-3 mb-2'>" . $esc(__('Sondes rattachées', 'printgestion')) . "</h4>";
+        if (empty($agents)) {
+            echo "<p class='text-muted mb-0'>" . $esc(__('Aucune pour l\'instant.', 'printgestion')) . "</p>";
+            return;
+        }
+        $badges = [
+            'old'     => ['bg-red text-red-fg', __('Trop ancienne', 'printgestion')],
+            'update'  => ['bg-orange text-orange-fg', __('À mettre à jour', 'printgestion')],
+            'ok'      => ['bg-green text-green-fg', __('À jour', 'printgestion')],
+            'unknown' => ['bg-secondary text-secondary-fg', __('Inconnue', 'printgestion')],
+        ];
+        echo "<div class='table-responsive'><table class='table table-sm mb-0'><thead><tr>"
+            . "<th>" . $esc(__('Sonde', 'printgestion')) . "</th><th>" . $esc(__('Dernier contact', 'printgestion')) . "</th><th>" . $esc(__('État', 'printgestion')) . "</th>"
+            . ($admin ? "<th data-pg-admin='1'>" . $esc(__('Version', 'printgestion')) . "</th><th data-pg-admin='1'>" . $esc(__('TAG', 'printgestion')) . "</th>" : '')
+            . "</tr></thead><tbody>";
+        foreach ($agents as $agent) {
+            $is_silent = $agent['last_contact'] === null || strtotime((string) $agent['last_contact']) < time() - $silent * DAY_TIMESTAMP;
+            $network   = (int) $agent['use_module_network_discovery'] === 1 && (int) $agent['use_module_network_inventory'] === 1;
+            $state     = $is_silent
+                ? "<span class='badge bg-red text-red-fg'>" . $esc(__('Muette', 'printgestion')) . "</span>"
+                : ($network
+                    ? "<span class='badge bg-green text-green-fg'>" . $esc(__('Active', 'printgestion')) . "</span>"
+                    : "<span class='badge bg-red text-red-fg'>" . $esc(__('À réinstaller avec l\'installeur de l\'entité', 'printgestion')) . "</span>");
+            echo "<tr><td><a href='" . $esc(PluginPrintgestionAgentsetting::getPageURL((int) $agent['id'])) . "'>" . $esc($agent['name']) . "</a></td>"
+                . "<td>" . $esc($date($agent['last_contact'])) . "</td><td>{$state}</td>";
+            if ($admin) {
+                [$badge_class, $badge_label] = $badges[PluginPrintgestionCollect::getAgentVersionStatus($agent['version_value'], PluginPrintgestionAgentsetting::getSettings((int) $agent['id']))];
+                $agent_tag = trim((string) $agent['tag']);
+                echo "<td data-pg-admin='1'>" . $esc($agent['version_value'] !== '' ? $agent['version_value'] : '—') . " <span class='badge {$badge_class}'>" . $esc($badge_label) . "</span></td>"
+                    . "<td data-pg-admin='1'>" . ($agent_tag !== '' ? "<code>" . $esc($agent_tag) . "</code>" : '—')
+                    . ($agent_tag !== $tag ? " <span class='badge bg-orange text-orange-fg'>" . $esc(__('≠ TAG de l\'entité', 'printgestion')) . "</span>" : '') . "</td>";
+            }
+            echo "</tr>";
+        }
+        echo "</tbody></table></div>";
+    }
+
+    /** Contenu technique des paquets (fenêtre « i » de l'administrateur) : commandes, propriétés, procédures. */
+    private static function getPackageDetailsHtml(string $tag, string $version): string {
+        $esc  = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $html = "<p>" . $esc(sprintf(__('GLPI Agent %s. Le paquet ne contient que l\'adresse du serveur GLPI et le TAG : aucun identifiant, aucun secret.', 'printgestion'), $version)) . "</p>"
+            . "<p class='small'>" . $esc(__('Windows : ZIP avec le MSI officiel servi par ce serveur et deux gestes séparés, à lancer en administrateur : 1-installer-glpi-agent.bat ne fait que lancer le MSI avec ses propriétés (assistant prérempli) ; 2-facultatif-mise-a-jour-automatique.bat, fourni si la mise à jour automatique est activée, pose seulement la tâche planifiée de mise à jour. Linux : archive .tar.gz avec l\'installeur Perl officiel et installer-glpi-agent.sh à lancer avec sudo. macOS : ZIP avec les deux paquets officiels signés et le fichier local.cfg ; mise à jour manuelle.', 'printgestion')) . "</p>";
+        if ($tag === '' || !self::isValidTag($tag)) {
+            return $html . "<p class='text-danger'>" . $esc(__('Commandes non affichées : TAG de l\'entité absent ou invalide.', 'printgestion')) . "</p>";
         }
         $reasons = [
             'SERVER'       => __('Serveur GLPI qui reçoit les inventaires et distribue les tâches.', 'printgestion'),
@@ -1069,29 +1143,22 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'EXECMODE'     => __('Agent installé comme service Windows.', 'printgestion'),
             'QUICKINSTALL' => __('Assistant sans les écrans de configuration détaillée.', 'printgestion'),
         ];
-        echo "<div class='table-responsive'><table class='table table-sm mb-0'><thead><tr><th>" . $esc(__('Propriété', 'printgestion')) . "</th><th>" . $esc(__('Valeur', 'printgestion')) . "</th><th>" . $esc(__('Pourquoi', 'printgestion')) . "</th></tr></thead><tbody>";
+        $html .= "<div class='fw-bold mt-3 mb-1'>" . $esc(__('Windows : commande lancée par 1-installer-glpi-agent.bat', 'printgestion')) . "</div>"
+            . "<pre class='mb-2' style='white-space:pre-wrap'>" . $esc(self::buildWindowsCommand(self::getMsiName($version), $tag)) . "</pre>"
+            . "<div class='table-responsive'><table class='table table-sm'><thead><tr><th>" . $esc(__('Propriété', 'printgestion')) . "</th><th>" . $esc(__('Valeur', 'printgestion')) . "</th><th>" . $esc(__('Pourquoi', 'printgestion')) . "</th></tr></thead><tbody>";
         foreach (self::getWindowsProperties($tag) as $name => $value) {
-            echo "<tr><td><code>" . $esc($name) . "</code></td><td><code>" . $esc($value !== '' ? $value : '—') . "</code></td><td class='small'>" . $esc($reasons[$name] ?? '') . "</td></tr>";
+            $html .= "<tr><td><code>" . $esc($name) . "</code></td><td><code>" . $esc($value !== '' ? $value : '—') . "</code></td><td class='small'>" . $esc($reasons[$name] ?? '') . "</td></tr>";
         }
-        echo "</tbody></table></div>";
-        if ($tag !== '' && self::isValidTag($tag)) {
-            echo "<div class='mt-3 mb-2 fw-bold'>" . $esc(__('Linux : commande lancée par installer-glpi-agent.sh, en root', 'printgestion')) . "</div>";
-            echo "<pre class='mb-1' style='white-space:pre-wrap'>" . $esc(self::buildLinuxCommand(self::getAssets($version)['linux']['file'], $tag)) . "</pre>";
-            echo "<p class='text-muted small'>" . $esc(__('Avant la commande, le script pose /etc/glpi-agent/conf.d/90-printgestion.cfg (snmp-retries = 2, option absente de l\'installeur, gardée aux mises à jour) ; après, la tâche cron mensuelle de mise à jour si elle est activée.', 'printgestion')) . "</p>";
-            echo "<div class='mt-3 mb-2 fw-bold'>" . $esc(__('macOS : procédure sur le Mac sonde', 'printgestion')) . "</div>";
-            echo "<ol class='small ps-3'>";
-            foreach (self::getMacosSteps($version, $tag) as $step) {
-                echo "<li>" . $esc((string) preg_replace('/^\d+\.\s*/', '', $step)) . "</li>";
-            }
-            echo "</ol>";
-            echo "<pre class='mb-2' style='white-space:pre-wrap'>" . $esc(implode("\n", self::getMacosCommands($version, $tag))) . "</pre>";
-            echo "<div class='small fw-bold'>local.cfg</div><pre class='mb-0' style='white-space:pre-wrap'>" . $esc(self::buildAgentConfig($tag, true)) . "</pre>";
+        $html .= "</tbody></table></div>"
+            . "<div class='fw-bold mt-3 mb-1'>" . $esc(__('Linux : commande lancée par installer-glpi-agent.sh, en root', 'printgestion')) . "</div>"
+            . "<pre class='mb-1' style='white-space:pre-wrap'>" . $esc(self::buildLinuxCommand(self::getAssets($version)['linux']['file'], $tag)) . "</pre>"
+            . "<p class='small'>" . $esc(__('Avant la commande, le script pose /etc/glpi-agent/conf.d/90-printgestion.cfg (snmp-retries = 2) ; après, la tâche cron mensuelle de mise à jour si elle est activée.', 'printgestion')) . "</p>"
+            . "<div class='fw-bold mt-3 mb-1'>" . $esc(__('macOS : procédure sur le Mac sonde', 'printgestion')) . "</div><ol class='small ps-3'>";
+        foreach (self::getMacosSteps($version, $tag) as $step) {
+            $html .= "<li>" . $esc((string) preg_replace('/^\d+\.\s*/', '', $step)) . "</li>";
         }
-        echo "</div></div>";
-
-        // ── 3. Raccordement des imprimantes ──
-        PluginPrintgestionRaccordement::showForEntity($entity);
-        echo "</div>";
+        return $html . "</ol><pre class='mb-2' style='white-space:pre-wrap'>" . $esc(implode("\n", self::getMacosCommands($version, $tag))) . "</pre>"
+            . "<div class='small fw-bold'>local.cfg</div><pre class='mb-0' style='white-space:pre-wrap'>" . $esc(self::buildAgentConfig($tag, true)) . "</pre>";
     }
 
     /** Page « Installeur GLPI Agent » : installeur servi, adresses, prérequis ; actions avec le droit de configuration. */
@@ -1104,9 +1171,10 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $version   = self::getServedVersion();
         $config    = PluginPrintgestionConfig::getInstance();
 
-        echo "<p class='text-muted small'>" . $esc(__('Fichiers officiels de GLPI Agent servis aux techniciens depuis l\'onglet « Déploiement Agent » des entités, récupérés par ce serveur et vérifiés : l\'installation ne télécharge rien depuis GitHub sur les postes des clients. Seule la mise à jour automatique, si elle est posée, passe par winget (Windows) ou GitHub (Linux).', 'printgestion')) . "</p>";
+        $intro_html = "<p>" . $esc(__('Fichiers officiels de GLPI Agent servis aux techniciens depuis l\'onglet « Déploiement Agent » des entités, récupérés par ce serveur et vérifiés : l\'installation ne télécharge rien depuis GitHub sur les postes des clients. Seule la mise à jour automatique, si elle est posée, passe par winget (Windows) ou GitHub (Linux).', 'printgestion')) . "</p>";
 
-        // Installeurs servis.
+        // Installeurs servis : détail de l'administrateur.
+        ob_start();
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(sprintf(__('Installeurs servis : GLPI Agent %s', 'printgestion'), $version)) . "</h3></div><div class='card-body'>";
         echo "<div class='table-responsive'><table class='table table-sm align-middle'><thead><tr>"
             . "<th>" . $esc(__('Fichier officiel', 'printgestion')) . "</th><th>" . $esc(__('Nom', 'printgestion')) . "</th><th>" . $esc(__('État', 'printgestion')) . "</th>"
@@ -1154,6 +1222,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             echo "<p class='text-muted small mb-0'>" . $esc(__('Récupération et vérification de l\'installeur : droit de configuration du plugin.', 'printgestion')) . "</p>";
         }
         echo "</div></div>";
+        $installers_html = (string) ob_get_clean();
 
         // Adresses et version.
         $server   = self::getServerUrl();
@@ -1164,6 +1233,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         ];
         $host     = (string) parse_url((string) ($CFG_GLPI['url_base'] ?? ''), PHP_URL_HOST);
         $resolved = $host !== '' ? gethostbyname($host) : '';
+        ob_start();
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Paramètres transmis à l\'installation', 'printgestion')) . "</h3></div><div class='card-body'>";
         echo "<ul class='mb-3'>";
         echo "<li>" . $esc(__('Adresse du serveur (SERVER) :', 'printgestion')) . " <code>" . $esc($server['url'] !== '' ? $server['url'] : '—') . "</code> <span class='text-muted small'>(" . $esc($sources[$server['source']]) . ")</span>"
@@ -1186,9 +1256,12 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             Html::closeForm();
         }
         echo "</div></div>";
+        $params_html = (string) ob_get_clean();
 
         // Dernière version de GLPI Agent et mise à jour automatique des nouveaux paquets.
+        ob_start();
         PluginPrintgestionAgentsetting::showDefaultsCard($can_edit, $page);
+        $defaults_html = (string) ob_get_clean();
 
         // Prérequis communs à tous les clients.
         $rule          = self::getTagRuleStatus();
@@ -1211,8 +1284,38 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 : sprintf(__('Aucune règle active : critère « %1$s » expression régulière /^(.*)$/, action « %2$s » = #0, à créer à la main.', 'printgestion'), __('Inventory tag'), __('Entity from TAG')))),
             self::checkItem($with_tag > 0, __('Entités avec un TAG', 'printgestion'), $esc(sprintf(__('%d entité(s) ont un TAG renseigné.', 'printgestion'), $with_tag))),
         ];
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Prérequis', 'printgestion')) . "</h3></div>";
-        echo "<div class='card-body'><div class='row g-3'>" . implode('', $checks) . "</div></div></div>";
+
+        // Technicien : l'état seul (ni version, ni fichier, ni menu) ; administrateur : les mêmes lignes et le détail replié.
+        $admin  = PluginPrintgestionUi::isAdmin();
+        $ready  = true;
+        foreach (array_keys(self::getAssets($version)) as $asset) {
+            $ready = $ready && self::getCachedInstaller(false, $asset) !== null;
+        }
+        $latest = PluginPrintgestionAgentsetting::getLatestVersion();
+        echo "<div class='card mb-3'><div class='card-header d-flex align-items-center'><h3 class='card-title mb-0'>" . $esc(__('Installeur GLPI Agent', 'printgestion')) . "</h3>"
+            . "<div class='ms-auto'>" . PluginPrintgestionUi::infoButton(__('Installeur GLPI Agent', 'printgestion'), $admin ? $intro_html : '') . "</div></div><div class='card-body'>";
+        echo PluginPrintgestionUi::statusLine(
+            $ready ? 'ok' : 'error',
+            $ready
+                ? ($admin ? sprintf(__('Installeur prêt : GLPI Agent %s', 'printgestion'), $version) : __('Installeur prêt', 'printgestion'))
+                : __('Installeur incomplet — contactez l\'administrateur', 'printgestion'),
+            $installers_html
+        );
+        if ($admin && version_compare($version, $latest['version'], '<')) {
+            echo "<div data-pg-admin='1'>" . PluginPrintgestionUi::statusLine('warning', sprintf(__('Nouvelle version de GLPI Agent disponible : %1$s (servie : %2$s)', 'printgestion'), $latest['version'], $version)) . "</div>";
+        }
+        echo PluginPrintgestionUi::adminDetails(__('Paramètres transmis à l\'installation', 'printgestion'), $params_html);
+        echo PluginPrintgestionUi::adminDetails(__('Dernière version, mise à jour automatique et PC sondes', 'printgestion'), $defaults_html);
+        echo "</div></div>";
+
+        $prerequisites_ok = $inventory_on && empty($inventory['blocking']) && $rule['active'] !== null && $with_tag > 0;
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Prérequis', 'printgestion')) . "</h3></div><div class='card-body'>";
+        echo PluginPrintgestionUi::statusLine(
+            $prerequisites_ok ? 'ok' : 'error',
+            $prerequisites_ok ? __('Prérequis : corrects', 'printgestion') : __('Configuration incomplète — contactez l\'administrateur', 'printgestion'),
+            "<div class='row g-3'>" . implode('', $checks) . "</div>"
+        );
+        echo "</div></div>";
     }
 
     static function install(Migration $migration) {

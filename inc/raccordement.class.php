@@ -701,23 +701,17 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
      * discrète quand tout est réglé (en tête de l'assistant).
      */
     public static function showPrerequisites(array $prerequisites, bool $show_ok): void {
-        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $esc  = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $list = static fn(array $messages): string => "<ul class='mb-0'>" . implode('', array_map(static fn($m) => '<li>' . $esc($m) . '</li>', $messages)) . "</ul>";
         if (!empty($prerequisites['blocking'])) {
-            echo "<div class='alert alert-danger'><strong>" . $esc(__('Assistant arrêté : prérequis de GLPI Inventory manquants. Rien ne peut être fait tant qu\'ils ne sont pas réglés :', 'printgestion')) . "</strong><ul class='mb-0'>";
-            foreach ($prerequisites['blocking'] as $message) {
-                echo "<li>" . $esc($message) . "</li>";
-            }
-            echo "</ul></div>";
+            // Technicien : l'état seul ; administrateur : la cause et où agir, dépliables.
+            echo PluginPrintgestionUi::statusLine('error', __('Raccordement indisponible — contactez l\'administrateur', 'printgestion'), $list($prerequisites['blocking']));
         }
-        if (!empty($prerequisites['warnings'])) {
-            echo "<div class='alert alert-warning'><strong>" . $esc(__('À vérifier :', 'printgestion')) . "</strong><ul class='mb-0'>";
-            foreach ($prerequisites['warnings'] as $message) {
-                echo "<li>" . $esc($message) . "</li>";
-            }
-            echo "</ul></div>";
+        if (!empty($prerequisites['warnings']) && PluginPrintgestionUi::isAdmin()) {
+            echo PluginPrintgestionUi::statusLine('warning', __('Raccordement possible, points à vérifier', 'printgestion'), $list($prerequisites['warnings']));
         }
-        if ($show_ok && empty($prerequisites['blocking'])) {
-            echo "<p class='text-muted small'><i class='ti ti-circle-check text-success me-1'></i>" . $esc(sprintf(__('Prérequis de GLPI Inventory vérifiés : version %s, prise en charge ; tâche automatique « taskscheduler » programmée.', 'printgestion'), $prerequisites['version'])) . "</p>";
+        if ($show_ok && empty($prerequisites['blocking']) && PluginPrintgestionUi::isAdmin()) {
+            echo "<div data-pg-admin='1'>" . PluginPrintgestionUi::statusLine('ok', sprintf(__('Prérequis vérifiés (GLPI Inventory %s)', 'printgestion'), $prerequisites['version'])) . "</div>";
         }
     }
 
@@ -772,6 +766,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
     /** Sondes et leurs conditions ; « Demander le statut », et « Raccorder avec cette sonde » pour un nouveau raccordement. */
     private static function showAgentTable(Entity $entity, array $agents, bool $can_edit, ?self $racc, bool $can_start): void {
         $esc     = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $admin   = PluginPrintgestionUi::isAdmin();
         $contact = [
             'none'   => ['bg-red text-red-fg', __('Aucun', 'printgestion')],
             'silent' => ['bg-red text-red-fg', __('Muette', 'printgestion')],
@@ -780,17 +775,17 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         ];
         echo "<div class='table-responsive'><table class='table table-sm align-middle mb-0'><thead><tr>"
             . "<th>" . $esc(__('Sonde', 'printgestion')) . "</th><th>" . $esc(__('Poste', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Version', 'printgestion')) . "</th><th>" . $esc(__('Dernier contact', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('TAG', 'printgestion')) . "</th><th>" . $esc(__('Conditions', 'printgestion')) . "</th><th></th></tr></thead><tbody>";
+            . ($admin ? "<th data-pg-admin='1'>" . $esc(__('Version', 'printgestion')) . "</th>" : '') . "<th>" . $esc(__('Dernier contact', 'printgestion')) . "</th>"
+            . ($admin ? "<th data-pg-admin='1'>" . $esc(__('TAG', 'printgestion')) . "</th>" : '') . "<th>" . $esc(__('Conditions', 'printgestion')) . "</th><th></th></tr></thead><tbody>";
         foreach ($agents as $agent) {
             $check           = self::checkAgent($entity, $agent);
             [$class, $label] = $contact[$check['contact']];
             $agent_tag       = trim((string) ($agent['tag'] ?? ''));
             echo "<tr><td><a href='" . $esc(Agent::getFormURLWithID((int) $agent['id'])) . "'>" . $esc($agent['name']) . "</a></td>"
                 . "<td>" . self::getHostHtml($agent) . "</td>"
-                . "<td>" . $esc(self::getAgentVersion($agent) ?: '—') . "</td>"
+                . ($admin ? "<td data-pg-admin='1'>" . $esc(self::getAgentVersion($agent) ?: '—') . "</td>" : '')
                 . "<td class='text-nowrap'>" . $esc(empty($agent['last_contact']) ? '—' : Html::convDateTime((string) $agent['last_contact'])) . " <span class='badge {$class}'>" . $esc($label) . "</span></td>"
-                . "<td>" . ($agent_tag !== '' ? "<code>" . $esc($agent_tag) . "</code>" : '—') . "</td><td class='small'>";
+                . ($admin ? "<td data-pg-admin='1'>" . ($agent_tag !== '' ? "<code>" . $esc($agent_tag) . "</code>" : '—') . "</td>" : '') . "<td class='small'>";
             if (empty($check['blocking']) && empty($check['warnings'])) {
                 echo "<span class='text-success'><i class='ti ti-circle-check me-1'></i>" . $esc(__('Prête', 'printgestion')) . "</span>";
             }
@@ -1180,29 +1175,35 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
 
         $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $id  = (int) $entity->getID();
-        // Prérequis de GLPI Inventory manquants : pas d'accès à un nouveau raccordement, raison affichée.
         $prerequisites = PluginPrintgestionCollectsetup::getPrerequisites();
         echo "<div class='card mb-3'><div class='card-header d-flex align-items-center'><h3 class='card-title mb-0'>" . $esc(__('3. Raccorder les imprimantes', 'printgestion')) . "</h3>";
         if (Session::haveRight(self::$rightname, UPDATE)) {
             if (empty($prerequisites['blocking'])) {
                 echo "<a class='btn btn-primary ms-auto' href='" . $esc(self::getPageURL(null, $id)) . "'><i class='ti ti-plug-connected me-1'></i>" . $esc(__('Nouveau raccordement', 'printgestion')) . "</a>";
             } else {
-                echo "<button type='button' class='btn btn-primary ms-auto' disabled title='" . $esc(__('Prérequis de GLPI Inventory manquants : voir ci-dessous.', 'printgestion')) . "'><i class='ti ti-plug-connected me-1'></i>" . $esc(__('Nouveau raccordement', 'printgestion')) . "</button>";
+                echo "<button type='button' class='btn btn-primary ms-auto' disabled><i class='ti ti-plug-connected me-1'></i>" . $esc(__('Nouveau raccordement', 'printgestion')) . "</button>";
             }
         }
         echo "</div><div class='card-body'>";
         self::showPrerequisites($prerequisites, false);
-        echo "<p class='text-muted small'>" . $esc(__('Assistant pas à pas, sur place : sonde présente, adresses des imprimantes, configuration de la collecte dans GLPI Inventory, puis vérification adresse par adresse avant de partir.', 'printgestion')) . "</p>";
+
         $rows = iterator_to_array($DB->request([
             'FROM'  => self::getTable(),
             'WHERE' => ['entities_id' => $id],
             'ORDER' => ['id DESC'],
             'LIMIT' => 10,
         ]), false);
-        if (empty($rows)) {
-            echo "<p class='text-muted mb-0'>" . $esc(__('Aucun raccordement pour cette entité.', 'printgestion')) . "</p>";
-        } else {
-            self::showTable($rows, false);
+        $open   = array_values(array_filter($rows, static fn(array $row) => in_array($row['status'], [self::STATUS_OPEN, self::STATUS_CONFIGURED, self::STATUS_TRIGGERED], true)));
+        $closed = array_values(array_filter($rows, static fn(array $row) => !in_array($row['status'], [self::STATUS_OPEN, self::STATUS_CONFIGURED, self::STATUS_TRIGGERED], true)));
+        if (!empty($open)) {
+            echo "<h4 class='mb-2'>" . $esc(__('Raccordements en cours', 'printgestion')) . "</h4>";
+            self::showTable($open, false);
+        }
+        PluginPrintgestionAgentdeploy::showEntityAgents($id);
+        if (!empty($closed) && PluginPrintgestionUi::isAdmin()) {
+            ob_start();
+            self::showTable($closed, false);
+            echo PluginPrintgestionUi::adminDetails(sprintf(__('Raccordements terminés ou abandonnés (%d)', 'printgestion'), count($closed)), (string) ob_get_clean());
         }
         echo "</div></div>";
     }
