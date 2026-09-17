@@ -368,6 +368,10 @@ Raccordement :
   plugin seulement (droit de configuration en modification) : c'est une décision commerciale, pas une question de
   site, et le technicien ne la voit pas. Elle se change à tout moment, sans toucher à la sonde ; les sous-entités
   sans réglage propre en héritent. La liste sous le réglage indique, tâche par tâche, le prochain relevé.
+- **« Fréquence des relevés hors service »** (onglet de l'entité, journal du plugin, tâche `PrintgestionCollectSchedule`
+  en erreur) : GLPI Inventory a changé la structure de sa table des tâches (`datetime_start`/`datetime_end`) —
+  mettre à jour Print Gestion avant de compter sur des relevés périodiques ; le plugin écrit directement dans cette
+  table, faute d'une voie du plugin voisin.
 - **Relevés moins fréquents que prévu** : la sonde ne reçoit ses jobs qu'à son contact, à la fréquence d'inventaire
   globale de GLPI (Administration → Inventaire, 24 h par défaut). Pour des relevés toutes les N heures, la régler à 1
   heure (tous les agents contacteront GLPI toutes les heures). Vérifier aussi l'action automatique

@@ -559,7 +559,12 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 $report(4, [['error', sprintf(__('Découverte refusée, la sonde ne remplit plus les conditions de l\'étape 1 : %s', 'printgestion'), implode(' ', $agent_errors))]]);
                 return $back;
             }
-            $report(4, PluginPrintgestionCollectsetup::trigger($racc)['events']);
+            try {
+                $report(4, PluginPrintgestionCollectsetup::trigger($racc)['events']);
+            } catch (RuntimeException $e) {
+                // Garde-fou de la fréquence des relevés (structure de GLPI Inventory) : erreur franche, pas de page cassée.
+                $flash('error', $e->getMessage());
+            }
             return $back;
         }
 
@@ -569,7 +574,12 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 return $back;
             }
             $before = $racc->getResultCounts();
-            $report(4, PluginPrintgestionCollectsetup::verify($racc)['events']);
+            try {
+                $report(4, PluginPrintgestionCollectsetup::verify($racc)['events']);
+            } catch (RuntimeException $e) {
+                $flash('error', $e->getMessage());
+                return $back;
+            }
             $after   = $racc->getResultCounts();
             $summary = sprintf(__('Vérification : %s.', 'printgestion'), self::formatCounts($after));
             if ($after != $before) {

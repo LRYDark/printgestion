@@ -221,12 +221,44 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
      * @param ?int[] $entities_ids seulement les tâches de ces entités ; null : toutes
      * @return array tasks_id => ['id', 'name', 'entities_id', 'datetime_start', 'datetime_end', 'jobs' => int[]]
      */
+    /**
+     * Garde-fou. Ce code écrit directement dans la table des tâches de GLPI Inventory (colonne `datetime_start`,
+     * `datetime_end` lue), en contournant le code du plugin voisin, parce que celui-ci refuse toute modification
+     * d'une tâche active et annule ses jobs à la désactivation. Une version de GLPI Inventory qui renommerait ces
+     * colonnes doit produire une erreur visible — tâche automatique en erreur, journal du plugin, écran —, jamais
+     * un silence. À reprendre par une voie du plugin voisin le jour où elle existera.
+     *
+     * @throws RuntimeException colonnes attendues absentes
+     */
+    public static function assertInventoryTaskColumns(): void {
+        global $DB;
+        static $checked = false;
+
+        if ($checked) {
+            return;
+        }
+        $table = PluginGlpiinventoryTask::getTable();
+        foreach (['datetime_start', 'datetime_end'] as $column) {
+            if (!$DB->fieldExists($table, $column, false)) {  // sans le cache de colonnes de GLPI : une structure qui change doit être vue
+                $message = sprintf(
+                    __('Fréquence des relevés hors service : la table %1$s de GLPI Inventory n\'a plus la colonne « %2$s » attendue. GLPI Inventory a changé de structure : mettre à jour Print Gestion avant tout relevé périodique.', 'printgestion'),
+                    $table,
+                    $column
+                );
+                PluginPrintgestionLogger::error('collectfrequency', $message);
+                throw new RuntimeException($message);
+            }
+        }
+        $checked = true;
+    }
+
     public static function getManagedTasks(?array $entities_ids = null): array {
         global $DB;
 
         if (!PluginPrintgestionCollectsetup::isAvailable()) {
             return [];
         }
+        self::assertInventoryTaskColumns();
         $ids = [];
         foreach ($DB->request(['SELECT' => ['discovery_tasks', 'inventory_tasks'], 'FROM' => PluginPrintgestionRaccordement::getTable()]) as $row) {
             foreach (['discovery_tasks', 'inventory_tasks'] as $field) {
@@ -321,7 +353,8 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
             if ($desired !== null && $current !== null && abs(strtotime($desired) - strtotime($current)) < MINUTE_TIMESTAMP) {
                 continue;
             }
-            // Écriture directe : GLPI Inventory refuse de modifier une tâche active et annule ses jobs à la désactivation.
+            // Écriture directe (voir assertInventoryTaskColumns) : GLPI Inventory refuse de modifier une tâche active et
+            // annule ses jobs à la désactivation.
             $DB->update(PluginGlpiinventoryTask::getTable(), ['datetime_start' => $desired], ['id' => $tasks_id]);
             $desired === null ? $stats['released']++ : $stats['deferred']++;
         }
@@ -336,6 +369,7 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
         if (empty($tasks_ids) || !PluginPrintgestionCollectsetup::isAvailable()) {
             return;
         }
+        self::assertInventoryTaskColumns();
         $DB->update(PluginGlpiinventoryTask::getTable(), ['datetime_start' => null], ['id' => $tasks_ids, 'datetime_end' => null]);
     }
 
@@ -413,7 +447,12 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
             $contact,
             self::getSilentDaysForEntity($entities_id)
         )) . "</p>";
-        $tasks = self::getManagedTasks([$entities_id]);
+        try {
+            $tasks = self::getManagedTasks([$entities_id]);
+        } catch (RuntimeException $e) {
+            echo PluginPrintgestionUi::statusLine('error', __('Fréquence des relevés hors service — GLPI Inventory a changé de structure, Print Gestion est à mettre à jour', 'printgestion'));
+            return;
+        }
         if (!empty($tasks)) {
             $details .= "<ul class='small mb-0'>";
             foreach ($tasks as $task) {
