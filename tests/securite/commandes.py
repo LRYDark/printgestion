@@ -136,6 +136,16 @@ def scenario_commande_non_transmise():
         verifier("renvoi serveur toujours en panne : échec signalé, commande toujours enregistrée",
                  (valeur(f"SELECT CONCAT(status, '/', attempts) FROM {ORDRES} WHERE id = {ordre_id}"), "en échec" in message), ("failed/2", True))
 
+        # Réponse du serveur mail rendue telle quelle par GLPI : un nom d'hôte contenant une balise doit ressortir
+        # échappé. Le lecteur de messages retire les balises puis désencode : « <b>pgtest » n'y survit qu'échappé
+        # (PHP tronque l'hôte au premier « / », d'où une balise ouvrante seule dans le message).
+        sql("UPDATE glpi_configs SET value = '<b>pgtest</b>.exemple.test' WHERE context = 'core' AND name = 'smtp_host';")
+        try:
+            message = renvoyer(ordre_id)
+        finally:
+            sql("UPDATE glpi_configs SET value = '127.0.0.1' WHERE context = 'core' AND name = 'smtp_host';")
+        constat("erreur du serveur mail affichée échappée (nom d'hôte avec balise)", ok_ko("<b>pgtest" in message), message[:160])
+
         smtp(config.SMTP_PORT)
         nom = valeur(f"SELECT filename FROM glpi_documents WHERE id = {ordre[0][3]}")
         depuis = time.time()
@@ -147,7 +157,7 @@ def scenario_commande_non_transmise():
         depuis = time.time()
         renvoyer(ordre_id)
         time.sleep(1)
-        verifier("second renvoi : rien n'est renvoyé", (mails_achats(depuis), valeur(f"SELECT attempts FROM {ORDRES} WHERE id = {ordre_id}")), ([], "3"))
+        verifier("second renvoi : rien n'est renvoyé", (mails_achats(depuis), valeur(f"SELECT attempts FROM {ORDRES} WHERE id = {ordre_id}")), ([], "4"))  # 4 : dont le renvoi du contrôle d'échappement
         _, page, _ = WEB.get(config.FRONT + "/dashboard_expeditions.php")
         constat("carte des commandes non transmises disparue une fois transmise", ok_ko("Commandes non transmises aux Achats" not in page))
     finally:

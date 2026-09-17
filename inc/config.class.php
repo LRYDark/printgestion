@@ -1679,8 +1679,10 @@ HTML;
                     self::$last_mail_error
                 )
             );
+            // Réponse du serveur mail (bannière, nom d'hôte, message du relais) : rendue telle quelle par GLPI
+            // (`message|raw`), donc échappée ici comme toute donnée externe.
             Session::addMessageAfterRedirect(
-                __('Erreur envoi mail Print Gestion : ', 'printgestion') . self::$last_mail_error,
+                htmlspecialchars(__('Erreur envoi mail Print Gestion : ', 'printgestion') . self::$last_mail_error, ENT_QUOTES, 'UTF-8'),
                 true, ERROR
             );
         }
