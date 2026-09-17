@@ -83,7 +83,7 @@ class PluginPrintgestionConfighealth {
             'status' => $inventory_ok
                 ? sprintf(__('Actif, version %s.', 'printgestion'), $prerequisites['version'])
                 : __('Absent, inactif ou inutilisable.', 'printgestion'),
-            'breaks' => __('Aucune imprimante ne remonte en mode central : rien ne dit aux sondes quelles plages IP scanner.', 'printgestion'),
+            'breaks' => __('Aucune imprimante ne remonte : rien ne dit aux sondes quelles plages IP scanner.', 'printgestion'),
             'fix'    => __('Configuration → Plugins → Marketplace, rechercher « GLPI Inventory »', 'printgestion'),
             'url'    => Plugin::getSearchURL(),
             'detail' => implode('<br>', array_map($esc, array_merge($prerequisites['blocking'], $prerequisites['warnings']))),

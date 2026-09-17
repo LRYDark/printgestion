@@ -1496,10 +1496,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             self::checkItem($inventory_on, __('Inventaire GLPI', 'printgestion'), $esc($inventory_on
                 ? __('Activé.', 'printgestion')
                 : __('Désactivé (Administration → Inventaire) : aucun inventaire ne peut être reçu.', 'printgestion'))),
+            // Un seul texte sur GLPI Inventory, celui des prérequis (Collectsetup::getPrerequisites) : la carte Santé le reprend tel quel.
             self::checkItem(empty($inventory['blocking']), __('Plugin GLPI Inventory', 'printgestion'), $esc(implode(' ', array_merge(
-                [Plugin::isPluginActive('glpiinventory')
-                    ? sprintf(__('Actif (version %s) : tâches de découverte et d\'inventaire réseau disponibles.', 'printgestion'), $inventory['version'])
-                    : __('Absent ou inactif : il envoie aux sondes les plages IP à scanner, sans lui aucune imprimante ne remonte. À installer et activer avant de déployer (Configuration → Plugins).', 'printgestion')],
+                empty($inventory['blocking']) ? [sprintf(__('Actif, version %s.', 'printgestion'), $inventory['version'])] : [],
                 $inventory['blocking'],
                 $inventory['warnings']
             )))),
