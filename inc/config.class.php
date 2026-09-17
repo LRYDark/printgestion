@@ -780,7 +780,24 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 __("Sans inventaire depuis ce nombre de jours, une imprimante (ou l'agent qui l'inventorie) est signalée muette dans l'écran « Contrôle de la remontée » : elle ne peut plus déclencher d'alerte toner.", 'printgestion')
             );
         echo "<input type='number' min='1' max='365' class='form-control' name='silent_days' value='"
-            . PluginPrintgestionCollect::getSilentDays() . "'></div>";
+            . PluginPrintgestionCollect::getSilentDays() . "'>";
+        // Réglage natif voisin, affiché et jamais redéfini : GLPI nettoie (supprime) un agent sans contact après ce délai.
+        // L'alerte « sonde muette » doit arriver avant : seuil du plugin plus court que le délai natif.
+        $stale_days = (int) Config::getConfigurationValue('inventory', 'stale_agents_delay');
+        $inventory_url = $CFG_GLPI['root_doc'] . '/front/inventory.conf.php';
+        echo "<div class='form-hint'>" . ($stale_days > 0
+            ? sprintf(htmlspecialchars(__('GLPI nettoie un agent sans contact après %1$d jours (%2$s). Ce seuil doit rester plus court.', 'printgestion'), ENT_QUOTES, 'UTF-8'),
+                $stale_days, "<a href='" . htmlspecialchars($inventory_url, ENT_QUOTES, 'UTF-8') . "'>" . htmlspecialchars(__('Administration → Inventaire, nettoyage des agents', 'printgestion'), ENT_QUOTES, 'UTF-8') . "</a>")
+            : sprintf(htmlspecialchars(__('GLPI ne nettoie pas les agents sans contact (%s).', 'printgestion'), ENT_QUOTES, 'UTF-8'),
+                "<a href='" . htmlspecialchars($inventory_url, ENT_QUOTES, 'UTF-8') . "'>" . htmlspecialchars(__('Administration → Inventaire, nettoyage des agents', 'printgestion'), ENT_QUOTES, 'UTF-8') . "</a>")) . "</div>";
+        if ($stale_days > 0 && PluginPrintgestionCollect::getSilentDays() >= $stale_days) {
+            echo "<div class='alert alert-warning mt-2 mb-0'>" . htmlspecialchars(sprintf(
+                __('Seuil de %1$d jours ≥ délai de nettoyage de GLPI (%2$d jours) : l\'alerte « sonde muette » arriverait après que GLPI a supprimé l\'agent — et une sonde éteinte pendant des congés serait effacée avant d\'être signalée. Baisser ce seuil, ou allonger le délai dans GLPI.', 'printgestion'),
+                PluginPrintgestionCollect::getSilentDays(),
+                $stale_days
+            ), ENT_QUOTES, 'UTF-8') . "</div>";
+        }
+        echo "</div>";
 
         echo "</div></div></div>";
 

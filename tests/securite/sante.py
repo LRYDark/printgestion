@@ -174,6 +174,26 @@ def main():
         statut, page, _ = WEB.get(config.FRONT + "/dashboard_billing.php?pg_period=current&pg_view=printer&pg_contract=1&pg_counter=1&pg_activity=1")
         constat("critères cochés par défaut ; l'export Excel les porte", ok_ko(all("checked" in case(n).group(0) for n in ("contract", "counter", "activity")) and "contract=1" in page))
 
+        section("10. Sondes muettes : délai natif de nettoyage affiché à côté, avertissement si le seuil le dépasse")
+        delai = valeur("SELECT IFNULL((SELECT value FROM glpi_configs WHERE context = 'inventory' AND name = 'stale_agents_delay'), '')")
+        seuil = valeur("SELECT silent_days FROM glpi_plugin_printgestion_configs WHERE id = 1")
+        sql("INSERT INTO glpi_configs (context, name, value) VALUES ('inventory', 'stale_agents_delay', '2') ON DUPLICATE KEY UPDATE value = '2';")
+        sql("UPDATE glpi_plugin_printgestion_configs SET silent_days = 3 WHERE id = 1;")
+        page, _ = carte()
+        constat("délai natif affiché avec son lien, seuil 3 ≥ délai 2 : avertissement « arriverait après que GLPI a supprimé l'agent »",
+                ok_ko("nettoie un agent sans contact après 2 jours" in page and "inventory.conf.php" in page and "arriverait après que GLPI a supprimé" in page))
+        sql("UPDATE glpi_configs SET value = '10' WHERE context = 'inventory' AND name = 'stale_agents_delay';")
+        page, _ = carte()
+        constat("seuil 3 < délai 10 : pas d'avertissement", ok_ko("après 10 jours" in page and "arriverait après" not in page))
+        sql("UPDATE glpi_configs SET value = '0' WHERE context = 'inventory' AND name = 'stale_agents_delay';")
+        page, _ = carte()
+        constat("délai natif à 0 : « GLPI ne nettoie pas les agents », pas d'avertissement", ok_ko("ne nettoie pas les agents" in page and "arriverait après" not in page))
+        if delai == "":
+            sql("DELETE FROM glpi_configs WHERE context = 'inventory' AND name = 'stale_agents_delay';")
+        else:
+            sql(f"UPDATE glpi_configs SET value = {lib.q(delai)} WHERE context = 'inventory' AND name = 'stale_agents_delay';")
+        sql(f"UPDATE glpi_plugin_printgestion_configs SET silent_days = {int(seuil)} WHERE id = 1;")
+
         section("7. Profils")
         lecture = CTX.profil(4, "Profil test configuration en lecture", {"plugin_printgestion_config": 1})
         CTX.utilisateur("test-config-lecture", lecture, 0)
