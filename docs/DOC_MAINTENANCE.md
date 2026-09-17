@@ -124,9 +124,27 @@ Décisions projet (à ne pas régresser) :
 
 ## 6. Dépannage
 
+### Carte « Santé de la configuration » (à ouvrir en premier)
+
+En tête de Configuration → Print Gestion (droit de configuration du plugin). Contrôles automatiques, relus à chaque
+affichage ; la carte ne bloque rien. Tout vert : une ligne « Configuration : complète ».
+
+| Contrôle | Rouge quand | Corriger |
+|---|---|---|
+| Inventaire GLPI activé (obligatoire) | « Activer l'inventaire » décoché | Administration → Inventaire |
+| Plugin GLPI Inventory (obligatoire) | absent, inactif, version trop ancienne, fichiers ou tâche `taskscheduler` manquants | Configuration → Plugins → Marketplace |
+| Actions automatiques en mode CLI avec un cron système (obligatoire) | une action active est en mode « GLPI », ou aucune action en mode « CLI » n'a tourné depuis une heure (cron système arrêté ou absent) | Configuration → Actions automatiques, mode CLI pour chaque action ; crontab du compte du serveur web : `* * * * * php <GLPI>/front/cron.php` |
+| Type de document xlsx autorisé (obligatoire) | extension xlsx sans « Autoriser l'import » : Gesconso non archivé, aucune commande | Configuration → Intitulés → Types de document |
+| Règle d'affectation par TAG présente et active (obligatoire) | règle absente ou désactivée | bouton de la carte (créer ou activer) |
+| Sauvegarde de `config/glpicrypt.key` (recommandé) | jamais : non vérifiable automatiquement, rappel permanent | sauvegarde du serveur, avec la base |
+| Journal du plugin inscriptible (recommandé) | dossier ou fichier non inscriptible | droits du serveur web sur `files/_log` |
+
+Le mode CLI est le prérequis le plus souvent négligé : en mode « GLPI », les actions ne tournent que quand quelqu'un
+navigue (relevés irréguliers, alertes en retard, commande non transmise jamais signalée).
+
 ### Journal applicatif (à consulter en premier)
 
-Vérifier qu'il s'écrit vraiment : Configuration → Print Gestion → carte « Journal du plugin » → « Écrire une entrée
+Vérifier qu'il s'écrit vraiment : Configuration → Print Gestion → carte « Santé de la configuration », ligne « Journal du plugin inscriptible » → « Écrire une entrée
 de test et la relire ». « Non inscriptible » ou échec du test : droits d'écriture du compte du serveur web sur
 `files/_log` (ou disque plein) ; en attendant, chaque trace part dans le journal d'erreurs du serveur web, préfixée
 `[printgestion] journal … non inscriptible`. Un fichier `printgestion.log` absent n'est normal que si la carte
@@ -460,6 +478,7 @@ reconduction tacite (un contrat terminé ne couvre plus rien).
 - [ ] `php tools/generate_apercu.php` exécuté si gabarits modifiés ; aperçu relu.
 - [ ] Test d'un envoi de chaque circuit modifié (unitaire, groupé, commande, crons).
 - [ ] « Qui est notifié ? » cohérent avec l'attendu.
+- [ ] Carte « Santé de la configuration » : « Configuration : complète » sur le serveur cible.
 - [ ] Pas de nouvelle table/colonne oubliée pour les instances existantes (§2).
 - [ ] Aucune donnée PHP écrite dans un `<script>` exécuté : `PluginPrintgestionUi::jsonData()` (§5).
 - [ ] Écran du module Déploiement : le technicien (droit Déploiement seul) voit l'état et l'action ; commandes, propriétés, chemins de menu, noms de règles et versions seulement pour l'administrateur (`PluginPrintgestionUi::statusLine()`, `adminDetails()`, `infoButton()`, `data-pg-admin`). Nouvel écran : l'ajouter à `tests/securite/interface.py`.

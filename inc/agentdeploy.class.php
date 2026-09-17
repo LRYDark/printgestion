@@ -1083,9 +1083,10 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     /**
      * Bouton qui rend la règle d'affectation par TAG opérante, selon son état et les droits : « Créer la règle
      * d'affectation par TAG » si aucune n'existe, « Activer la règle » si elle est désactivée ; chaîne vide si une
-     * règle est active ou sans le droit. Confirmation : la règle sert à tous les clients.
+     * règle est active ou sans le droit. Confirmation : la règle sert à tous les clients. Bouton seul, à placer dans
+     * un formulaire (jeton CSRF) envoyé à un contrôleur qui traite create_tag_rule et activate_tag_rule.
      */
-    public static function getTagRuleForm(int $entities_id, array $status): string {
+    public static function getTagRuleButton(array $status): string {
         if ($status['active'] !== null) {
             return '';
         }
@@ -1099,9 +1100,18 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         } else {
             return '';
         }
-        return "<form method='post' action='" . $esc(self::getPageURL()) . "' class='mt-2'>" . Html::hidden('entities_id', ['value' => $entities_id])
-            . "<button type='submit' name='{$name}' value='1' data-pg-submit-once='1' class='btn btn-primary' onclick=\"return confirm(" . $esc(json_encode($confirm)) . ");\">"
-            . "<i class='ti ti-list-check me-1'></i>" . $esc($label) . "</button>" . Html::closeForm(false);
+        return "<button type='submit' name='{$name}' value='1' data-pg-submit-once='1' class='btn btn-primary' formnovalidate onclick=\"return confirm(" . $esc(json_encode($confirm)) . ");\">"
+            . "<i class='ti ti-list-check me-1'></i>" . $esc($label) . "</button>";
+    }
+
+    /** Même bouton dans son propre formulaire, envoyé à la page Installeur (onglet de l'entité, carte Prérequis). */
+    public static function getTagRuleForm(int $entities_id, array $status): string {
+        $button = self::getTagRuleButton($status);
+        if ($button === '') {
+            return '';
+        }
+        return "<form method='post' action='" . htmlspecialchars(self::getPageURL(), ENT_QUOTES, 'UTF-8') . "' class='mt-2'>"
+            . Html::hidden('entities_id', ['value' => $entities_id]) . $button . Html::closeForm(false);
     }
 
     /** État de la règle en une phrase : absente, désactivée, active et sa position, règles jouées avant elle. */

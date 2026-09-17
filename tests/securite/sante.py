@@ -1,0 +1,137 @@
+"""Carte « Santé de la configuration » : contrôles automatiques de l'environnement, en tête de la configuration.
+
+Chaque contrôle obligatoire est mis en défaut puis rétabli : ligne rouge, bannière impossible à manquer, page non
+bloquée (le formulaire reste là). Actions automatiques : vert seulement sans action active en mode GLPI ET avec une
+action en mode CLI lancée dans l'heure. Sauvegarde de glpicrypt.key : ligne « non vérifiable automatiquement »,
+jamais une case à cocher. Tout vert : une ligne « Configuration : complète », détail replié. Profils : lecture seule
+du droit de configuration → carte sans bouton ; sans ce droit → pas de carte.
+"""
+import re
+import sys
+
+import config
+import donnees as d
+import lib
+from lib import WEB, constat, ok_ko, section, sql, valeur
+
+ONGLET = "/ajax/common.tabs.php?_target=%2Ffront%2Fconfig.form.php&_itemtype=Config&_glpi_tab=PluginPrintgestionConfig%241&id=1"
+CTX = lib.Contexte()
+
+
+def carte():
+    _, page, _ = WEB.get(ONGLET, ajax=True)
+    etats = dict(re.findall(r"data-pg-health='(\w+)' data-pg-state='(\w+)'", page))
+    return page, etats
+
+
+def bandeau(page):
+    return "alert alert-danger" in page and "prérequis obligatoire" in page
+
+
+def main():
+    d.verifier_instance()
+    cron = lib.lignes("SELECT id, mode, IFNULL(lastrun, 'NULL') FROM glpi_crontasks")
+    inventaire = valeur("SELECT value FROM glpi_configs WHERE context = 'inventory' AND name = 'enabled_inventory'")
+    xlsx = lib.lignes("SELECT id, is_uploadable FROM glpi_documenttypes WHERE ext = 'xlsx'")
+    etat_glpiinventory = valeur("SELECT state FROM glpi_plugins WHERE directory = 'glpiinventory'")
+    try:
+        lib.connecter_admin()
+
+        section("1. Position et contenu")
+        page, etats = carte()
+        constat("carte « Santé de la configuration » en tête, avant les modules", ok_ko(0 <= page.find("Santé de la configuration") < page.find("Activation des modules")))
+        constat("7 contrôles : 5 obligatoires, 2 recommandés", ok_ko(list(etats) == ["inventory", "glpiinventory", "cron", "xlsx", "tag_rule", "glpicrypt", "log"]), str(etats))
+        constat("glpicrypt.key : « non vérifiable automatiquement », état neutre, rien à cocher dans la carte",
+                ok_ko(etats.get("glpicrypt") == "manual" and "Non vérifiable automatiquement" in page
+                      and "type='checkbox'" not in page[page.find("pg-config-health"):page.find("Activation des modules")]))
+        constat("mode CLI expliqué dans le bouton d'information", ok_ko("modal" in page and "le plus souvent négligé" in page))
+        constat("ancienne carte « Journal du plugin » rattachée : une seule occurrence du bouton de test", ok_ko(page.count("name='test_log'") == 1 and etats.get("log") == "ok"))
+
+        section("2. Actions automatiques : mode CLI et cron système")
+        sql("UPDATE glpi_crontasks SET mode = 1 WHERE name = 'queuednotification';")
+        page, etats = carte()
+        constat("action active en mode GLPI : rouge, nombre d'actions et nom", ok_ko(etats.get("cron") == "error" and "en mode GLPI" in page and "queuednotification" in page and bandeau(page)))
+        sql("UPDATE glpi_crontasks SET mode = 2, lastrun = '2020-01-01 00:00:00';")
+        page, etats = carte()
+        constat("tout en mode CLI, aucune exécution depuis longtemps : rouge « le cron système ne tourne pas »",
+                ok_ko(etats.get("cron") == "error" and "il ne tourne pas" in page))
+        maintenant = lib.php_glpi("echo date('Y-m-d H:i:s');").strip()
+        sql(f"UPDATE glpi_crontasks SET lastrun = '{maintenant}' WHERE name = 'queuednotification';")
+        page, etats = carte()
+        constat("mode CLI et exécution récente : vert", ok_ko(etats.get("cron") == "ok" and "cron système actif" in page), etats.get("cron"))
+
+        section("3. Autres contrôles obligatoires, un par un")
+        sql("UPDATE glpi_configs SET value = '0' WHERE context = 'inventory' AND name = 'enabled_inventory';")
+        lib.vider_cache()
+        page, etats = carte()
+        constat("inventaire désactivé : rouge, chemin Administration → Inventaire, bannière, page non bloquée",
+                ok_ko(etats.get("inventory") == "error" and "Administration → Inventaire" in page and bandeau(page) and "name='threshold_days'" in page))
+        sql(f"UPDATE glpi_configs SET value = {lib.q(inventaire)} WHERE context = 'inventory' AND name = 'enabled_inventory';")
+        lib.vider_cache()
+
+        sql("UPDATE glpi_documenttypes SET is_uploadable = 0 WHERE ext = 'xlsx';")
+        page, etats = carte()
+        constat("xlsx non autorisé : rouge, « aucune commande ne part », chemin Types de document",
+                ok_ko(etats.get("xlsx") == "error" and "aucune commande ne part" in page and "Types de document" in page and bandeau(page)))
+        for ident, autorise in xlsx:
+            sql(f"UPDATE glpi_documenttypes SET is_uploadable = {autorise} WHERE id = {ident};")
+
+        sql("UPDATE glpi_plugins SET state = 4 WHERE directory = 'glpiinventory';")
+        lib.vider_cache()
+        page, etats = carte()
+        constat("GLPI Inventory désactivé : rouge, chemin Marketplace", ok_ko(etats.get("glpiinventory") == "error" and "Marketplace" in page and bandeau(page)))
+        sql(f"UPDATE glpi_plugins SET state = {etat_glpiinventory} WHERE directory = 'glpiinventory';")
+        lib.vider_cache()
+
+        section("4. Règle d'affectation par TAG : bouton de la carte")
+        lib.supprimer_regles_tag()
+        page, etats = carte()
+        constat("règle absente : rouge, bouton « Créer la règle d'affectation par TAG » avec confirmation",
+                ok_ko(etats.get("tag_rule") == "error" and "name='create_tag_rule'" in page and "confirm(" in page and bandeau(page)))
+        WEB.post(config.FRONT + "/config.form.php", [("create_tag_rule", "1")])
+        message = WEB.messages()
+        page, etats = carte()
+        constat("clic : règle créée, ligne verte, bouton disparu", ok_ko(etats.get("tag_rule") == "ok" and "create_tag_rule" not in page and "Règle créée" in message), message[:120])
+        sql("UPDATE glpi_rules r JOIN glpi_ruleactions a ON a.rules_id = r.id SET r.is_active = 0 "
+            "WHERE r.sub_type = 'RuleImportEntity' AND a.field = '_affect_entity_by_tag';")
+        page, etats = carte()
+        constat("règle désactivée : rouge « Présente mais désactivée », bouton « Activer la règle »",
+                ok_ko(etats.get("tag_rule") == "error" and "Présente mais désactivée" in page and "name='activate_tag_rule'" in page))
+        WEB.post(config.FRONT + "/config.form.php", [("activate_tag_rule", "1")])
+        page, etats = carte()
+        constat("clic : règle activée, ligne verte", ok_ko(etats.get("tag_rule") == "ok"), WEB.messages()[:120])
+
+        section("5. Tout vert : une ligne")
+        constat("état complet (hors rappel non vérifiable)", ok_ko(all(e in ("ok", "manual") for e in etats.values())), str(etats))
+        constat("« Configuration : complète », détail replié derrière un chevron, aucune bannière",
+                ok_ko("Configuration : complète" in page and not bandeau(page)
+                      and page.find("Configuration : complète") < page.find("class='collapse'") < page.find("data-pg-health=")))
+
+        section("6. Profils")
+        lecture = CTX.profil(4, "Profil test configuration en lecture", {"plugin_printgestion_config": 1})
+        CTX.utilisateur("test-config-lecture", lecture, 0)
+        lib.supprimer_regles_tag()
+        CTX.connecter("test-config-lecture")
+        page, etats = carte()
+        constat("droit de configuration en lecture : carte visible, sans bouton de règle ni de test du journal",
+                ok_ko(etats.get("tag_rule") == "error" and "create_tag_rule" not in page and "test_log" not in page))
+        sans = CTX.profil(4, "Profil test sans configuration du plugin", {"plugin_printgestion_config": 0})
+        CTX.utilisateur("test-config-sans", sans, 0)
+        CTX.connecter("test-config-sans")
+        page, etats = carte()
+        constat("sans droit de configuration du plugin : aucune carte", ok_ko("Santé de la configuration" not in page and not etats))
+    finally:
+        for ident, mode, lastrun in cron:
+            sql(f"UPDATE glpi_crontasks SET mode = {mode}, lastrun = {'NULL' if lastrun == 'NULL' else lib.q(lastrun)} WHERE id = {ident};")
+        sql(f"UPDATE glpi_configs SET value = {lib.q(inventaire)} WHERE context = 'inventory' AND name = 'enabled_inventory';")
+        for ident, autorise in xlsx:
+            sql(f"UPDATE glpi_documenttypes SET is_uploadable = {autorise} WHERE id = {ident};")
+        sql(f"UPDATE glpi_plugins SET state = {etat_glpiinventory} WHERE directory = 'glpiinventory';")
+        lib.supprimer_regles_tag()
+        lib.vider_cache()
+        CTX.nettoyer()
+    return lib.bilan()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

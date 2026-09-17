@@ -26,8 +26,14 @@ if (isset($_POST['activate_contract_alerts'])) {
     if (empty($result['done']) && empty($result['errors'])) {
         Session::addMessageAfterRedirect(__('Les alertes de contrat natives étaient déjà actives.', 'printgestion'), false, INFO);
     }
+} elseif (isset($_POST['create_tag_rule']) || isset($_POST['activate_tag_rule'])) {
+    // Bouton de la carte « Santé de la configuration » : droits vérifiés par createTagRule() et activateTagRule().
+    $result = isset($_POST['activate_tag_rule'])
+        ? PluginPrintgestionAgentdeploy::activateTagRule()
+        : PluginPrintgestionAgentdeploy::createTagRule();
+    Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : WARNING);
 } elseif (isset($_POST['test_log'])) {
-    // Bouton de la carte « Journal du plugin » (dans le formulaire de configuration) : aucun réglage enregistré.
+    // Bouton de la ligne « Journal du plugin » de la carte « Santé de la configuration » : aucun réglage enregistré.
     if (PluginPrintgestionLogger::writeTestEntry(getUserName((int) Session::getLoginUserID()))) {
         Session::addMessageAfterRedirect(__('Journal du plugin : entrée de test écrite et relue dans le fichier.', 'printgestion'), false, INFO);
     } else {
