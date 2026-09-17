@@ -122,7 +122,9 @@ class PluginPrintgestionConfig extends CommonDBTM {
 
     /**
      * Schéma de référence 1.0.0. Appelé UNIQUEMENT par
-     * PluginPrintgestionSchema::migrateTo100(). Toute évolution ultérieure du
+     * PluginPrintgestionSchema::migrateTo100(). Schéma de la 1.0.0, figé : ne jamais y retirer une colonne (les
+     * étapes suivantes la lisent, ex. le chiffrement des anciennes clés) — une colonne se supprime dans l'étape qui
+     * la retire (1.6.8 pour api_*, tracking_frequency, plugin_gestion_enabled, billing_require_*). Toute évolution ultérieure du
      * schéma est une nouvelle étape de PluginPrintgestionSchema, jamais une
      * modification de cette méthode.
      */
@@ -160,11 +162,16 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 `gabarit_commercial` int {$default_key_sign} DEFAULT NULL,
                 `gabarit_rappel` int {$default_key_sign} DEFAULT NULL,
                 `gabarit_courtoisie` int {$default_key_sign} DEFAULT NULL,
-                `gls_client_id` varchar(255) DEFAULT NULL,
-                `gls_client_secret` varchar(255) DEFAULT NULL,
-                `gls_secret_date` timestamp NULL DEFAULT NULL,
+                `api_ups` varchar(255) DEFAULT NULL,
+                `api_gls` varchar(255) DEFAULT NULL,
+                `api_chronopost` varchar(255) DEFAULT NULL,
+                `tracking_frequency` int NOT NULL DEFAULT '4',
+                `plugin_gestion_enabled` tinyint NOT NULL DEFAULT '0',
                 `wrong_printer_auto_reassign_days` int NOT NULL DEFAULT '7',
                 `wrong_printer_lookback_days` int NOT NULL DEFAULT '30',
+                `billing_require_contract` tinyint NOT NULL DEFAULT '1',
+                `billing_require_counter` tinyint NOT NULL DEFAULT '1',
+                `billing_require_activity` tinyint NOT NULL DEFAULT '1',
                 `default_pages_per_cartridge` int NOT NULL DEFAULT '5000',
                 `enable_contrats` tinyint NOT NULL DEFAULT '1',
                 `enable_toner` tinyint NOT NULL DEFAULT '1',
@@ -186,6 +193,9 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 'emails_commercial'                => "text DEFAULT NULL",
                 'wrong_printer_auto_reassign_days' => "int NOT NULL DEFAULT '7'",
                 'wrong_printer_lookback_days'      => "int NOT NULL DEFAULT '30'",
+                'billing_require_contract'         => "tinyint NOT NULL DEFAULT '1'",
+                'billing_require_counter'          => "tinyint NOT NULL DEFAULT '1'",
+                'billing_require_activity'         => "tinyint NOT NULL DEFAULT '1'",
                 'default_pages_per_cartridge'      => "int NOT NULL DEFAULT '5000'",
                 'gabarit_planif_group'             => "int {$default_key_sign} DEFAULT NULL",
                 'gabarit_courtoisie'               => "int {$default_key_sign} DEFAULT NULL",
