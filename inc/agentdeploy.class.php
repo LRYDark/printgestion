@@ -967,14 +967,19 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             return ['ok' => false, 'message' => __('TAG non enregistré : modification refusée par GLPI.', 'printgestion')];
         }
         $message = sprintf(__('TAG « %s » enregistré sur l\'entité.', 'printgestion'), $tag);
-        // Sans règle d'affectation par TAG, le TAG ne sert à rien : même clic, la règle générique est créée une fois
-        // pour toutes les entités (si le compte en a les droits), sinon l'administrateur est prévenu.
-        if (empty(self::getTagRuleStatus()['rules'])) {
-            if (self::canCreateTagRule()) {
-                $rule     = self::createTagRule();
-                $message .= ' ' . $rule['message'];
+        // Sans règle d'affectation par TAG active, le TAG ne sert à rien (une règle désactivée n'affecte rien) : même
+        // clic, la règle générique est créée ou activée pour toutes les entités si le compte en a les droits, sinon
+        // l'administrateur est prévenu.
+        $status = self::getTagRuleStatus();
+        if ($status['active'] === null) {
+            if (empty($status['rules']) && self::canCreateTagRule()) {
+                $message .= ' ' . self::createTagRule()['message'];
+            } elseif (!empty($status['rules']) && self::canActivateTagRule()) {
+                $message .= ' ' . self::activateTagRule()['message'];
             } else {
-                $message .= ' ' . __('Règle d\'affectation par TAG absente : l\'administrateur doit la créer, les équipements n\'arriveraient pas dans cette entité.', 'printgestion');
+                $message .= ' ' . (empty($status['rules'])
+                    ? __('Règle d\'affectation par TAG absente : l\'administrateur doit la créer, les équipements n\'arriveraient pas dans cette entité.', 'printgestion')
+                    : __('Règle d\'affectation par TAG désactivée : l\'administrateur doit l\'activer, les équipements n\'arriveraient pas dans cette entité.', 'printgestion'));
             }
         }
         return ['ok' => true, 'message' => $message];
@@ -983,6 +988,33 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     /** Droit de créer la règle d'affectation par TAG : administrateur du plugin ET droit natif sur les règles d'import. */
     public static function canCreateTagRule(): bool {
         return Session::haveRight('plugin_printgestion_config', UPDATE) && Session::haveRight('rule_import', CREATE);
+    }
+
+    /** Droit d'activer la règle d'affectation par TAG désactivée : administrateur du plugin ET droit natif de modifier les règles d'import. */
+    public static function canActivateTagRule(): bool {
+        return Session::haveRight('plugin_printgestion_config', UPDATE) && Session::haveRight('rule_import', UPDATE);
+    }
+
+    /**
+     * Active, sur clic explicite d'un administrateur, la règle d'affectation par TAG présente mais désactivée (la
+     * première dans l'ordre des règles). Rien n'est créé ni déplacé ; sans effet si une règle est déjà active.
+     *
+     * @return array ['ok' => bool, 'message' => string]
+     */
+    public static function activateTagRule(): array {
+        if (!self::canActivateTagRule()) {
+            return ['ok' => false, 'message' => __('Activation de la règle réservée à l\'administrateur (droit de configuration du plugin et droit de modifier les règles d\'import).', 'printgestion')];
+        }
+        $status = self::getTagRuleStatus();
+        if ($status['active'] !== null || empty($status['rules'])) {
+            return ['ok' => false, 'message' => self::describeTagRule($status)];
+        }
+        $rules_id = (int) $status['rules'][0]['id'];
+        if (!(new RuleImportEntity())->update(['id' => $rules_id, 'is_active' => 1])) {
+            PluginPrintgestionLogger::error('agentdeploy', sprintf('Règle d\'affectation par TAG %d non activée : refusée par GLPI.', $rules_id));
+            return ['ok' => false, 'message' => __('Règle non activée : refusée par GLPI (détail dans le journal du plugin).', 'printgestion')];
+        }
+        return ['ok' => true, 'message' => __('Règle activée. ', 'printgestion') . self::describeTagRule(self::getTagRuleStatus())];
     }
 
     /**
@@ -1031,13 +1063,28 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         return ['ok' => true, 'message' => __('Règle créée. ', 'printgestion') . self::describeTagRule(self::getTagRuleStatus())];
     }
 
-    /** Bouton « Créer la règle d'affectation par TAG » (confirmation : la règle sert à tous les clients). */
-    public static function getCreateTagRuleForm(int $entities_id): string {
-        $esc     = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        $confirm = __('Créer la règle d\'affectation par TAG ? Elle servira à TOUS les clients : chaque équipement inventorié ira dans l\'entité dont le TAG est le sien.', 'printgestion');
+    /**
+     * Bouton qui rend la règle d'affectation par TAG opérante, selon son état et les droits : « Créer la règle
+     * d'affectation par TAG » si aucune n'existe, « Activer la règle » si elle est désactivée ; chaîne vide si une
+     * règle est active ou sans le droit. Confirmation : la règle sert à tous les clients.
+     */
+    public static function getTagRuleForm(int $entities_id, array $status): string {
+        if ($status['active'] !== null) {
+            return '';
+        }
+        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        if (empty($status['rules']) && self::canCreateTagRule()) {
+            [$name, $label, $confirm] = ['create_tag_rule', __('Créer la règle d\'affectation par TAG', 'printgestion'),
+                __('Créer la règle d\'affectation par TAG ? Elle servira à TOUS les clients : chaque équipement inventorié ira dans l\'entité dont le TAG est le sien.', 'printgestion')];
+        } elseif (!empty($status['rules']) && self::canActivateTagRule()) {
+            [$name, $label, $confirm] = ['activate_tag_rule', __('Activer la règle', 'printgestion'),
+                __('Activer la règle d\'affectation par TAG ? Elle servira à TOUS les clients : chaque équipement inventorié ira dans l\'entité dont le TAG est le sien.', 'printgestion')];
+        } else {
+            return '';
+        }
         return "<form method='post' action='" . $esc(self::getPageURL()) . "' class='mt-2'>" . Html::hidden('entities_id', ['value' => $entities_id])
-            . "<button type='submit' name='create_tag_rule' value='1' data-pg-submit-once='1' class='btn btn-primary' onclick=\"return confirm(" . $esc(json_encode($confirm)) . ");\">"
-            . "<i class='ti ti-list-check me-1'></i>" . $esc(__('Créer la règle d\'affectation par TAG', 'printgestion')) . "</button>" . Html::closeForm(false);
+            . "<button type='submit' name='{$name}' value='1' data-pg-submit-once='1' class='btn btn-primary' onclick=\"return confirm(" . $esc(json_encode($confirm)) . ");\">"
+            . "<i class='ti ti-list-check me-1'></i>" . $esc($label) . "</button>" . Html::closeForm(false);
     }
 
     /** État de la règle en une phrase : absente, désactivée, active et sa position, règles jouées avant elle. */
@@ -1045,7 +1092,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         if ($status['active'] === null) {
             return empty($status['rules'])
                 ? __('Aucune règle d\'affectation par TAG.', 'printgestion')
-                : sprintf(__('Règle déjà présente mais désactivée (%s) : à activer dans Administration → Règles, rien n\'a été recréé.', 'printgestion'), implode(', ', array_column($status['rules'], 'name')));
+                : sprintf(__('Règle présente mais désactivée (%s) : elle n\'affecte rien, les équipements n\'iront pas dans la bonne entité. Rien n\'a été recréé.', 'printgestion'), implode(', ', array_column($status['rules'], 'name')));
         }
         $text = sprintf(__('Règle « %1$s » active, position %2$d.', 'printgestion'), $status['active']['name'], (int) $status['active']['ranking']);
         if (!$status['tag_criterion']) {
@@ -1102,29 +1149,41 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             $checks[] = self::checkItem($rule_ok, __('Règle d\'affectation par TAG', 'printgestion'), $rule_detail);
             $details  = "<div class='row g-3'>" . implode('', $checks) . "</div>";
         }
+        $rule_disabled = $rule['active'] === null && !empty($rule['rules']);
         echo PluginPrintgestionUi::statusLine(
             $tag_ok && $rule_ok ? 'ok' : 'error',
-            $tag_ok && $rule_ok ? __('Rattachement : correct', 'printgestion') : __('Configuration incomplète — contactez l\'administrateur', 'printgestion'),
+            match (true) {
+                $tag_ok && $rule_ok => __('Rattachement : correct', 'printgestion'),
+                $rule_disabled      => __('Règle d\'affectation présente mais désactivée — les équipements n\'iront pas dans la bonne entité', 'printgestion'),
+                default             => __('Configuration incomplète — contactez l\'administrateur', 'printgestion'),
+            },
             $details
         );
 
-        // Action : aucune règle d'affectation par TAG et droit de la créer (administrateur) — bouton visible, clic confirmé.
-        $no_rule = empty($rule['rules']);
-        if ($no_rule && self::canCreateTagRule() && !($tag === '' && $can_tag)) {
-            echo self::getCreateTagRuleForm($id);
+        // Action : règle d'affectation par TAG absente ou désactivée, et droit de la créer ou de l'activer
+        // (administrateur) — bouton visible, clic confirmé. Sans objet si le formulaire du TAG ci-dessous la traite.
+        $rule_form = self::getTagRuleForm($id, $rule);
+        if ($rule_form !== '' && !($tag === '' && $can_tag)) {
+            echo $rule_form;
         }
 
-        // Action : TAG absent et droit natif de modifier l'entité (la règle est créée du même clic si elle manque).
+        // Action : TAG absent et droit natif de modifier l'entité (la règle est créée ou activée du même clic si besoin).
         if ($tag === '' && $can_tag) {
-            $proposed = self::normalizeTag((string) $entity->fields['name']);
-            $with_rule = $no_rule && self::canCreateTagRule();
+            $proposed  = self::normalizeTag((string) $entity->fields['name']);
+            $with_rule = $rule_form !== '';
             echo "<form method='post' action='" . $esc(self::getPageURL()) . "' class='row g-2 align-items-end mt-1'>"
                 . Html::hidden('entities_id', ['value' => $id])
                 . "<div class='col-sm-6 col-lg-4'><label class='form-label'>" . $esc(__('TAG proposé (nom de l\'entité)', 'printgestion')) . "</label>"
                 . "<input type='text' class='form-control' name='tag' maxlength='100' pattern='[A-Za-z0-9][A-Za-z0-9._-]*' required value='" . $esc($proposed) . "'></div>"
                 . "<div class='col-auto'><button type='submit' name='create_tag' value='1' data-pg-submit-once='1' class='btn btn-primary'"
-                . ($with_rule ? " onclick=\"return confirm(" . $esc(json_encode(__('Créer le TAG de cette entité ET la règle d\'affectation par TAG, qui servira ensuite à TOUS les clients ?', 'printgestion'))) . ");\"" : '')
-                . "><i class='ti ti-tag me-1'></i>" . $esc($with_rule ? __('Créer le TAG et la règle d\'affectation', 'printgestion') : __('Créer le TAG', 'printgestion')) . "</button></div>"
+                . ($with_rule ? " onclick=\"return confirm(" . $esc(json_encode($rule_disabled
+                    ? __('Créer le TAG de cette entité ET activer la règle d\'affectation par TAG, qui servira ensuite à TOUS les clients ?', 'printgestion')
+                    : __('Créer le TAG de cette entité ET la règle d\'affectation par TAG, qui servira ensuite à TOUS les clients ?', 'printgestion'))) . ");\"" : '')
+                . "><i class='ti ti-tag me-1'></i>" . $esc(match (true) {
+                    !$with_rule    => __('Créer le TAG', 'printgestion'),
+                    $rule_disabled => __('Créer le TAG et activer la règle d\'affectation', 'printgestion'),
+                    default        => __('Créer le TAG et la règle d\'affectation', 'printgestion'),
+                }) . "</button></div>"
                 . Html::closeForm(false);
         }
         echo "</div></div>";
@@ -1394,9 +1453,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             $prerequisites_ok ? __('Prérequis : corrects', 'printgestion') : __('Configuration incomplète — contactez l\'administrateur', 'printgestion'),
             "<div class='row g-3'>" . implode('', $checks) . "</div>"
         );
-        if (empty($rule['rules']) && self::canCreateTagRule()) {
-            echo self::getCreateTagRuleForm(-1);
-        }
+        echo self::getTagRuleForm(-1, $rule);
         echo "</div></div>";
     }
 

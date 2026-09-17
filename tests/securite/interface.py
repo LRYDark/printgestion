@@ -6,7 +6,8 @@ règles ou de plugin, chemins de menu, numéros de version) n'arrive dans sa pag
 (témoin) les reçoit. Toujours visibles pour tous : TAG déjà utilisé par une autre entité. Action « Créer le TAG » :
 TAG proposé depuis le nom, refusé s'il est déjà porté par une autre entité. Règle d'affectation par TAG : créée par un
 administrateur seulement, une seule, structure native vérifiée par le moteur de règles de GLPI ; bouton visible (hors
-chevron) tant qu'elle manque, et créée du même clic que le TAG quand c'est l'administrateur qui crée le TAG.
+chevron) tant qu'elle manque, et créée du même clic que le TAG quand c'est l'administrateur qui crée le TAG. Une règle
+présente mais désactivée compte comme absente : état rouge, bouton « Activer la règle ».
 """
 import re
 import sys
@@ -201,6 +202,50 @@ def main():
         sql(f"UPDATE glpi_entities SET tag = '' WHERE id = {d.SITE_A2};")
         WEB.post(config.FRONT + "/agentdeploy.php", [("entities_id", str(d.SITE_A2)), ("tag", "SITETESTA2"), ("create_tag", "1")])
         constat("règle existante : nouveau TAG sans seconde règle", ok_ko(regles() == 1 and valeur(f"SELECT tag FROM glpi_entities WHERE id = {d.SITE_A2}") == "SITETESTA2"))
+
+        section("7. Règle présente mais désactivée : comptée comme absente")
+        actives = lambda: int(valeur("SELECT COUNT(DISTINCT r.id) FROM glpi_rules r JOIN glpi_ruleactions a ON a.rules_id = r.id "  # noqa: E731
+                                     "WHERE r.sub_type = 'RuleImportEntity' AND a.field = '_affect_entity_by_tag' AND r.is_active = 1"))
+        sql("UPDATE glpi_rules r JOIN glpi_ruleactions a ON a.rules_id = r.id SET r.is_active = 0 "
+            "WHERE r.sub_type = 'RuleImportEntity' AND a.field = '_affect_entity_by_tag';")
+        desactivee = "Règle d&#039;affectation présente mais désactivée — les équipements n&#039;iront pas dans la bonne entité"
+        for compte in ("test-technicien", "test-technicien-entite"):
+            CTX.connecter(compte)
+            _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+            constat(f"{compte} : état rouge « règle présente mais désactivée », sans bouton d'activation ni détail réservé",
+                    ok_ko(desactivee in page and "Rattachement : correct" not in page and "activate_tag_rule" not in page and not trouves(page)),
+                    ", ".join(trouves(page)))
+        sql(f"UPDATE glpi_entities SET tag = '' WHERE id = {d.SITE_A2};")
+        WEB.post(config.FRONT + "/agentdeploy.php", [("entities_id", str(d.SITE_A2)), ("tag", "SITETESTA2"), ("create_tag", "1")])
+        message = WEB.messages()
+        constat("technicien qui crée un TAG : règle laissée désactivée, « l'administrateur doit l'activer »",
+                ok_ko(actives() == 0 and "administrateur doit l" in message and "activer" in message), message[:160])
+        WEB.post(config.FRONT + "/agentdeploy.php", [("entities_id", str(d.CLIENT_A)), ("activate_tag_rule", "1")])
+        constat("technicien : activation refusée", ok_ko(actives() == 0), WEB.messages()[:120])
+        lib.connecter_admin()
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+        constat("administrateur : même état rouge, bouton « Activer la règle » visible hors chevron avec confirmation, pas de bouton de création",
+                ok_ko(desactivee in page and bouton_visible(page, "activate_tag_rule") and "confirm(" in page and "create_tag_rule" not in page))
+        _, page, _ = WEB.get(config.FRONT + "/agentdeploy.php")
+        constat("page Installeur, carte Prérequis : « Activer la règle » visible, prérequis non corrects",
+                ok_ko(bouton_visible(contenu(page), "activate_tag_rule") and "Prérequis : corrects" not in page))
+        sql(f"UPDATE glpi_entities SET tag = '' WHERE id = {d.SITE_A2};")
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.SITE_A2), ajax=True)
+        constat("administrateur, entité sans TAG : « Créer le TAG et activer la règle d'affectation »",
+                ok_ko("Créer le TAG et activer la règle d" in page and "activate_tag_rule" not in page))
+        WEB.post(config.FRONT + "/agentdeploy.php", [("entities_id", str(d.SITE_A2)), ("tag", "SITETESTA2"), ("create_tag", "1")])
+        message = WEB.messages()
+        constat("clic : TAG enregistré et règle activée, sans seconde règle",
+                ok_ko(actives() == 1 and regles() == 1 and "Règle activée" in message), message[:160])
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+        constat("règle active : plus de bouton, rattachement correct", ok_ko("activate_tag_rule" not in page and "create_tag_rule" not in page and "Rattachement : correct" in page))
+        sql("UPDATE glpi_rules r JOIN glpi_ruleactions a ON a.rules_id = r.id SET r.is_active = 0 "
+            "WHERE r.sub_type = 'RuleImportEntity' AND a.field = '_affect_entity_by_tag';")
+        WEB.post(config.FRONT + "/agentdeploy.php", [("entities_id", str(d.CLIENT_A)), ("activate_tag_rule", "1")])
+        message = WEB.messages()
+        affectee = lib.php_glpi("$c = new RuleImportEntityCollection(); $out = $c->processAllRules(['tag' => 'CLIENT-TEST-A'], [], []); echo $out['entities_id'] ?? 'aucune';")
+        constat("bouton « Activer la règle » : règle active, moteur natif de nouveau opérant",
+                ok_ko(actives() == 1 and "Règle activée" in message and affectee.strip() == str(d.CLIENT_A)), f"{message[:100]} / {affectee.strip()}")
     finally:
         for (ident,) in lib.lignes("SELECT DISTINCT r.id FROM glpi_rules r JOIN glpi_ruleactions a ON a.rules_id = r.id "
                                    "WHERE r.sub_type = 'RuleImportEntity' AND a.field = '_affect_entity_by_tag'"):

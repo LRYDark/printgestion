@@ -16,9 +16,12 @@ Session::checkRight('plugin_printgestion_deploiement', READ);
 
 $page = PluginPrintgestionAgentdeploy::getPageURL();
 
-if (isset($_POST['create_tag_rule'])) {
-    // Règle générique d'affectation par TAG : administrateur (droits vérifiés par createTagRule()), clic explicite.
-    $result = PluginPrintgestionAgentdeploy::createTagRule();
+if (isset($_POST['create_tag_rule']) || isset($_POST['activate_tag_rule'])) {
+    // Règle générique d'affectation par TAG : administrateur (droits vérifiés par createTagRule() et
+    // activateTagRule()), clic explicite.
+    $result = isset($_POST['activate_tag_rule'])
+        ? PluginPrintgestionAgentdeploy::activateTagRule()
+        : PluginPrintgestionAgentdeploy::createTagRule();
     Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : WARNING);
     $entities_id = (int) ($_POST['entities_id'] ?? -1);
     Html::redirect($entities_id >= 0

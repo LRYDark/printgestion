@@ -230,8 +230,11 @@ Une fois pour tout le parc :
    d'une entité, bloc 1, ou page Installeur GLPI Agent, carte Prérequis), ou simplement « Créer le TAG et la règle
    d'affectation » sur la première entité sans TAG : une seule règle pour tous les clients, créée en dernière
    position ; si d'autres règles actives passent avant, le chevron du bloc 1 les nomme : les vérifier ou déplacer la
-   nouvelle. Le bouton disparaît dès qu'une règle portant cette action existe, même désactivée. Un technicien qui
-   crée un TAG sans règle existante n'obtient que le TAG, avec le message « l'administrateur doit la créer ».
+   nouvelle. Une règle présente mais **désactivée** compte comme absente (elle n'affecte rien) : état rouge « Règle
+   d'affectation présente mais désactivée », et bouton « Activer la règle » (ou « Créer le TAG et activer la règle
+   d'affectation ») à la place du bouton de création ; les boutons ne disparaissent qu'avec une règle active. Un
+   technicien qui crée un TAG sans règle active n'obtient que le TAG, avec le message « l'administrateur doit la
+   créer » ou « doit l'activer ».
 3. Print Gestion → Collecte SNMP / Déploiement Agent → Installeur GLPI Agent : « Récupérer depuis GitHub » pour
    chaque fichier utile (MSI Windows ; installeur Perl Linux ; les deux paquets macOS). Sans accès Internet sur le
    serveur : déposer le fichier dans le dossier indiqué, choisir lequel, puis vérifier son empreinte.
