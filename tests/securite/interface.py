@@ -124,6 +124,11 @@ def main():
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
         visible = lib.texte(page).strip()
         constat("onglet de l'entité : quelques lignes seulement pour le technicien", ok_ko(len(visible) < 900), f"{len(visible)} caractères : {visible[:200]}")
+        constat("onglet de l'entité : aucun réglage de fréquence pour le technicien (ni champ, ni bouton, ni texte)",
+                ok_ko("name='frequency'" not in page and "save_frequency" not in page and "Relevés des imprimantes" not in page and "Fréquence" not in page))
+        WEB.post(config.FRONT + "/collectfrequency.php", [("entities_id", str(d.CLIENT_A)), ("frequency", "hourly"), ("modifier", "2"), ("save_frequency", "1")])
+        constat("technicien : enregistrement direct de la fréquence refusé",
+                ok_ko(valeur(f"SELECT COUNT(*) FROM glpi_plugin_printgestion_collectfrequencies WHERE entities_id = {d.CLIENT_A} AND frequency = 'hourly'") == "0"))
 
         section("2. Administrateur (témoin) : détails présents, repliés")
         lib.connecter_admin()
@@ -312,14 +317,12 @@ def main():
         avant = historique(d.CLIENT_A)
         for url, cas in (("", "vide"), ("http://localhost", "locale"), ("http://127.0.0.1/glpi", "locale (127.0.0.1)"), ("glpi.exemple.test", "sans schéma")):
             sql(f"UPDATE glpi_configs SET value = {lib.q(url)} WHERE context = 'core' AND name = 'url_base';")
-            lib.vider_cache()
             _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
             statut, octets = telecharger(d.CLIENT_A)
             constat(f"URL {cas} : « déploiement bloqué », « Contactez l'administrateur », aucun lien, accès direct refusé",
                     ok_ko(bloque in page and "Contactez l" in lib.texte(page) and lien not in page and not octets.startswith(b"PK") and historique(d.CLIENT_A) == avant
                           and not trouves(page)), f"HTTP {statut} ; {', '.join(trouves(page))}")
         sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
-        lib.vider_cache()
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
         statut, octets = telecharger(d.CLIENT_A)
         constat("URL rétablie : lien présent, paquet servi", ok_ko(bloque not in page and lien in page and octets.startswith(b"PK")), f"HTTP {statut}")
@@ -328,7 +331,6 @@ def main():
         rien = "Rien ne remontera pour l&#039;instant — contactez l&#039;administrateur"
         constat("environnement correct : aucune ligne « Rien ne remontera »", ok_ko(rien not in page))
         sql("UPDATE glpi_plugins SET state = 4 WHERE directory = 'glpiinventory';")
-        lib.vider_cache()
         CTX.connecter("test-technicien")
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
         constat("GLPI Inventory désactivé, technicien : ligne rouge « Rien ne remontera… contactez l'administrateur », téléchargement toujours possible, aucun détail réservé",
@@ -342,7 +344,6 @@ def main():
         constat("action automatique en mode GLPI : cause listée aussi (Actions automatiques)", ok_ko(rien in page and "crontask" in page))
         sql("UPDATE glpi_crontasks SET mode = 2 WHERE name = 'queuednotification';")
         sql(f"UPDATE glpi_plugins SET state = {etat_glpiinventory} WHERE directory = 'glpiinventory';")
-        lib.vider_cache()
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
         constat("environnement rétabli : ligne disparue", ok_ko(rien not in page))
 
@@ -376,7 +377,6 @@ def main():
         for ident, mode, lastrun in cron:
             sql(f"UPDATE glpi_crontasks SET mode = {mode}, lastrun = {'NULL' if lastrun == 'NULL' else lib.q(lastrun)} WHERE id = {ident};")
         sql(f"UPDATE glpi_plugins SET state = {etat_glpiinventory} WHERE directory = 'glpiinventory';")
-        lib.vider_cache()
         sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
         lib.supprimer_regles_tag()
         sql(f"DELETE FROM glpi_agents WHERE id = {agent};")

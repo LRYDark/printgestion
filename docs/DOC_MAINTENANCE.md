@@ -364,9 +364,10 @@ Raccordement :
 
 ### Fréquence des relevés d'imprimantes
 
-- **Où** : onglet « Déploiement Agent » de l'entité, bloc 2 (droit Déploiement en modification). Elle se change à
-  tout moment, sans toucher à la sonde ; les sous-entités sans réglage propre en héritent. La liste sous le réglage
-  indique, tâche par tâche, le prochain relevé.
+- **Où** : onglet « Déploiement Agent » de l'entité, bloc 2, chevron « Fréquence des relevés » — administrateur du
+  plugin seulement (droit de configuration en modification) : c'est une décision commerciale, pas une question de
+  site, et le technicien ne la voit pas. Elle se change à tout moment, sans toucher à la sonde ; les sous-entités
+  sans réglage propre en héritent. La liste sous le réglage indique, tâche par tâche, le prochain relevé.
 - **Relevés moins fréquents que prévu** : la sonde ne reçoit ses jobs qu'à son contact, à la fréquence d'inventaire
   globale de GLPI (Administration → Inventaire, 24 h par défaut). Pour des relevés toutes les N heures, la régler à 1
   heure (tous les agents contacteront GLPI toutes les heures). Vérifier aussi l'action automatique

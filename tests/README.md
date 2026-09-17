@@ -51,6 +51,14 @@ php -S 127.0.0.1:8089 -t "$PG_TEST_GLPI_DIR/public" "$PG_TEST_GLPI_DIR/public/in
 python3 tests/securite/lancer.py             # tous les tests, ou : lancer.py harnais bl
 ```
 
+Les tests de l'installeur (`interface.py`, `harnais.py`) ont besoin des installeurs GLPI Agent dans
+`files/_plugins/printgestion/agent` de l'instance : page « Installeur GLPI Agent » → « Récupérer depuis GitHub »
+pour chaque fichier, ou `PluginPrintgestionAgentdeploy::fetchFromGitHub('windows'|'linux'|'macos-arm64'|'macos-x86_64')`.
+
+Le harnais ne vide jamais le cache de GLPI : en GLPI 11, la configuration et l'état des plugins sont relus en base à
+chaque requête, et un `bin/console cache:clear` pendant les tests efface le conteneur Symfony compilé — une requête
+servie pendant sa reconstruction tombe en erreur 500 (constaté une fois, non reproductible à la demande).
+
 Le serveur SMTP de l'instance est réglé sur 127.0.0.1 par `donnees.py` : aucun mail ne sort.
 
 ## Tests
@@ -61,5 +69,13 @@ Le serveur SMTP de l'instance est réglé sur 127.0.0.1 par `donnees.py` : aucun
 | `bl.py` | BL : entité de l'imprimante ou parente seulement, jamais une entité sœur ni un autre client |
 | `gesconso.py` | Aucune commande aux Achats sans le fichier Gesconso joint |
 | `parcours.py` | Chaque page et point d'entrée : ni erreur PHP ou SQL, ni page blanche |
+| `entites.py` | Entité des données : figée sur les données commerciales, suit l'imprimante pour les données techniques, transferts, lignes orphelines |
+| `commandes.py` | Commandes aux Achats : proposition en échec jamais « réussie », commande enregistrée avant l'envoi, renvoi d'une commande non transmise |
+| `journal.py` | Journal du plugin : écriture réelle vérifiée, dossier non inscriptible signalé, jamais un faux succès |
+| `prerequis.py` | Borne de version de GLPI Inventory : plus ancienne bloquante, plus récente avertissement |
+| `interface.py` | Écrans du module Déploiement par profil : technicien état et action seulement ; TAG, règle d'affectation, blocages du téléchargement (TAG, règle, URL), environnement, limite de temps de la vérification, paquet relu |
+| `sante.py` | Carte « Santé de la configuration » : chaque contrôle mis en défaut puis rétabli, URL confirmée par un agent, profils |
+| `suivi_gls.py` | Suivi GLS : nettoyage du numéro, repli unique sur E_404_01, lots de 10, réponses simulées |
+| `modules.py` | Interrupteurs de modules : chaque point d'entrée en 404 quand son module est désactivé, fermé par défaut |
 
 Chaque constat est `OK`, `KO`, `À NOTER` ou `NON CONCLUANT` ; `lancer.py` résume et relève les erreurs des journaux GLPI.

@@ -14,7 +14,9 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
     || !PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
     throw new NotFoundHttpException();
 }
+// Décision commerciale (pas une question de site) : réglée par l'administrateur du plugin seulement.
 Session::checkRight('plugin_printgestion_deploiement', UPDATE);
+Session::checkRight('plugin_printgestion_config', UPDATE);
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !isset($_POST['save_frequency'])) {
     throw new NotFoundHttpException();
 }

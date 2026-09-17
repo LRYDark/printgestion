@@ -68,21 +68,17 @@ def main():
 
         section("3. Autres contrôles obligatoires, un par un")
         sql("UPDATE glpi_configs SET value = '0' WHERE context = 'inventory' AND name = 'enabled_inventory';")
-        lib.vider_cache()
         page, etats = carte()
         constat("inventaire désactivé : rouge, chemin Administration → Inventaire, bannière, page non bloquée",
                 ok_ko(etats.get("inventory") == "error" and "Administration → Inventaire" in page and bandeau(page) and "name='threshold_days'" in page))
         sql(f"UPDATE glpi_configs SET value = {lib.q(inventaire)} WHERE context = 'inventory' AND name = 'enabled_inventory';")
-        lib.vider_cache()
 
         for url, cas in (("http://localhost", "locale"), ("glpi.exemple.test", "sans schéma"), ("", "vide")):
             sql(f"UPDATE glpi_configs SET value = {lib.q(url)} WHERE context = 'core' AND name = 'url_base';")
-            lib.vider_cache()
             page, etats = carte()
             constat(f"URL de l'application {cas} : rouge, lien vers Configuration → Générale, bannière",
                     ok_ko(etats.get("app_url") == "error" and "config.form.php" in page and bandeau(page)), str(etats.get("app_url")))
         sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
-        lib.vider_cache()
 
         sql("UPDATE glpi_documenttypes SET is_uploadable = 0 WHERE ext = 'xlsx';")
         page, etats = carte()
@@ -92,11 +88,9 @@ def main():
             sql(f"UPDATE glpi_documenttypes SET is_uploadable = {autorise} WHERE id = {ident};")
 
         sql("UPDATE glpi_plugins SET state = 4 WHERE directory = 'glpiinventory';")
-        lib.vider_cache()
         page, etats = carte()
         constat("GLPI Inventory désactivé : rouge, chemin Marketplace", ok_ko(etats.get("glpiinventory") == "error" and "Marketplace" in page and bandeau(page)))
         sql(f"UPDATE glpi_plugins SET state = {etat_glpiinventory} WHERE directory = 'glpiinventory';")
-        lib.vider_cache()
 
         section("4. Règle d'affectation par TAG : bouton de la carte")
         lib.supprimer_regles_tag()
@@ -130,7 +124,6 @@ def main():
         constat("aucun agent depuis que l'URL est en place : « jamais confirmée », état d'attente (horloge), carte non repliée",
                 ok_ko(etats.get("app_url") == "pending" and "jamais confirmée" in page and "Configuration : complète" not in page and not bandeau(page)))
         sql("UPDATE glpi_configs SET value = 'https://glpi2.exemple.test' WHERE context = 'core' AND name = 'url_base';")
-        lib.vider_cache()
         page, etats = carte()  # premier affichage : le mémo repart de l'heure GLPI (pas NOW() de la base : fuseau différent)
         depuis = lambda: valeur("SELECT value FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'url_base_seen_since'")  # noqa: E731
         sql(f"UPDATE glpi_agents SET last_contact = {lib.q(depuis())} - INTERVAL 1 MINUTE WHERE id = {agent};")
@@ -141,7 +134,6 @@ def main():
         page, etats = carte()
         constat("contact postérieur au changement : confirmée de nouveau", ok_ko(etats.get("app_url") == "ok" and "confirmée par un agent le" in page))
         sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
-        lib.vider_cache()
         page, etats = carte()
         sql(f"UPDATE glpi_agents SET last_contact = {lib.q(depuis())} + INTERVAL 1 MINUTE WHERE id = {agent};")
         page, etats = carte()
@@ -171,7 +163,6 @@ def main():
         sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
         sql(f"DELETE FROM glpi_agents WHERE id = {agent};")
         lib.supprimer_regles_tag()
-        lib.vider_cache()
         CTX.nettoyer()
     return lib.bilan()
 

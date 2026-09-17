@@ -79,7 +79,7 @@ printgestion/
 | `Agentsetting` | Sondes : dernière version connue de GLPI Agent (GitHub, saisie), conformité, réglages de mise à jour par sonde, paquet de consigne, imprimantes collectées, statut du PC sonde ; onglet de la fiche Agent et page « Sondes » |
 | `Agentalert` | Alertes « sonde sans contact » et « imprimante qui ne remonte plus » (tâche quotidienne), réglages et action dans « Agent cleanup », cartes du tableau de bord |
 | `NotificationTargetAgentalert` | Notifications natives des alertes de sondes (sonde sans contact, imprimantes qui ne remontent plus) |
-| `Collectfrequency` | Fréquence des relevés d'imprimantes par entité (héritée, quotidienne par défaut) : réglage de l'onglet de l'entité, planification des tâches GLPI Inventory des raccordements, seuil « muette » des imprimantes |
+| `Collectfrequency` | Fréquence des relevés d'imprimantes par entité (héritée, quotidienne par défaut) : décision commerciale, réglée par l'administrateur du plugin seulement (chevron « Fréquence des relevés » sous les installeurs, droit de configuration en modification ; le technicien n'en voit ni texte, ni champ, ni bouton), planification des tâches GLPI Inventory des raccordements, seuil « muette » des imprimantes |
 | `NotificationTargetDemande` | Notifications natives GLPI des demandes d'envoi (proposée, relance, exportée) |
 | `Contractalert` | État et activation des alertes de contrat natives GLPI |
 | `Snmpmapping` | Mapping constructeur + propriété SNMP → modèle de cartouche + couleur |

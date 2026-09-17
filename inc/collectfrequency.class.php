@@ -367,15 +367,28 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
 
     /** Onglet « Déploiement Agent » de l'entité : fréquence des relevés, modifiable avant de générer le paquet. */
     /** Fréquence des relevés dans l'onglet de l'entité : une ligne et le réglage ; explications pour l'administrateur. */
+    /**
+     * Fréquence des relevés de l'entité : décision commerciale, pas une question de site. Le technicien n'en voit
+     * rien (ni texte, ni champ, ni bouton) ; l'administrateur la règle dans un chevron fermé, sous les installeurs.
+     */
     public static function showForEntity(Entity $entity): void {
+        if (!PluginPrintgestionUi::isAdmin()) {
+            return;
+        }
+        ob_start();
+        self::showAdminBlock($entity);
+        echo PluginPrintgestionUi::adminDetails(__('Fréquence des relevés', 'printgestion'), (string) ob_get_clean());
+    }
+
+    private static function showAdminBlock(Entity $entity): void {
         $esc         = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $entities_id = (int) $entity->getID();
         $current     = self::getForEntity($entities_id);
         $contact     = self::getContactHours();
 
-        echo "<div class='d-flex flex-wrap align-items-end gap-2 mt-3'><div class='me-2'><i class='ti ti-clock me-1'></i>"
+        echo "<div class='d-flex flex-wrap align-items-end gap-2'><div class='me-2'><i class='ti ti-clock me-1'></i>"
             . $esc(sprintf(__('Relevés des imprimantes : %1$s (%2$s)', 'printgestion'), self::getLabel($current['frequency'], $current['modifier']), self::getSourceLabel($current))) . "</div>";
-        if (Session::haveRight(self::$rightname, UPDATE)) {
+        if (Session::haveRight('plugin_printgestion_config', UPDATE)) {
             echo "<form method='post' action='" . $esc(self::getFormURL()) . "' class='d-flex flex-wrap gap-2 align-items-end'>" . Html::hidden('entities_id', ['value' => $entities_id]);
             echo "<select class='form-select form-select-sm w-auto' name='frequency'>";
             foreach (['daily' => __('Tous les N jours', 'printgestion'), 'hourly' => __('Toutes les N heures', 'printgestion')] as $value => $label) {
@@ -391,9 +404,6 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
         }
         echo "</div>";
 
-        if (!PluginPrintgestionUi::isAdmin()) {
-            return;
-        }
         $details = '';
         if ($current['hours'] < $contact) {
             $details .= "<div class='alert alert-warning'>" . $esc(sprintf(__('GLPI ne contacte les agents que toutes les %d h (Administration > Inventaire, fréquence d\'inventaire) : les relevés ne seront pas plus fréquents. Réglez-la à 1 heure pour permettre des relevés plus rapprochés.', 'printgestion'), $contact)) . "</div>";
@@ -420,7 +430,8 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
             }
             $details .= "</ul>";
         }
-        echo PluginPrintgestionUi::adminDetails(__('Fréquence : détail', 'printgestion'), $details);
+        // Déjà dans le chevron « Fréquence des relevés » : le détail suit, sans second chevron.
+        echo "<div class='mt-2'>" . $details . "</div>";
     }
 
     static function uninstall(Migration $migration) {

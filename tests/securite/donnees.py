@@ -150,7 +150,6 @@ def charger():
     sql("INSERT INTO glpi_configs (context, name, value) VALUES ('inventory', 'enabled_inventory', '1') ON DUPLICATE KEY UPDATE value = '1';")
     for nom, val in CORE.items():
         sql(f"INSERT INTO glpi_configs (context, name, value) VALUES ('core', '{nom}', '{val}') ON DUPLICATE KEY UPDATE value = '{val}';")
-    lib.vider_cache()
     for tache in ("PrintgestionSnapshotReadings", "PrintgestionCheckAlerts"):
         print(f"tâche {tache} : {lib.tache(tache)[:120]}")
     print(lib.sql("SELECT (SELECT COUNT(*) FROM glpi_entities) AS entites, (SELECT COUNT(*) FROM glpi_printers) AS imprimantes, "

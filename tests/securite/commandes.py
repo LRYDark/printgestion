@@ -76,7 +76,6 @@ ORDRES = "glpi_plugin_printgestion_purchaseorders"
 
 def smtp(port):
     sql(f"UPDATE glpi_configs SET value = '{port}' WHERE context = 'core' AND name = 'smtp_port';")
-    lib.vider_cache()
 
 
 def mails_achats(depuis):

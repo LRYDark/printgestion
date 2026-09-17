@@ -122,12 +122,10 @@ def supprimer_regles_tag():
         php_glpi(f"(new RuleImportEntity())->delete(['id' => {int(ident)}], true);")
 
 
-def vider_cache():
-    """Vide le cache de GLPI (configuration, conteneur), puis attend la revalidation d'OPcache : le serveur PHP
-    garde l'ancien conteneur compilé quelques secondes, et une requête pendant ce temps échoue sur un fichier
-    supprimé (« Failed opening required …/_cache/… »). Même précaution que deployer.sh."""
-    subprocess.run([config.PHP, "bin/console", "cache:clear", "-n"], cwd=config.GLPI_DIR, capture_output=True)
-    time.sleep(3)
+# Pas de vidage de cache dans le harnais : en GLPI 11, $CFG_GLPI (contextes core et inventory), les valeurs de
+# Config::getConfigurationValues() et l'état des plugins sont relus en base à chaque requête (src/Config.php,
+# loadLegacyConfiguration). Un « bin/console cache:clear » efface aussi le conteneur Symfony compilé, et une requête
+# servie pendant sa reconstruction tombe en erreur 500 : à ne jamais faire pendant que des tests tournent.
 
 
 # ── Session HTTP ─────────────────────────────────────────────────────────────

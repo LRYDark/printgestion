@@ -38,6 +38,10 @@ class PluginPrintgestionConfighealth {
 
         // En tête : une URL fausse rend chaque agent déployé injoignable par GLPI, sans réparation à distance. Sa
         // syntaxe se vérifie d'ici ; qu'elle soit joignable depuis un réseau client, seul un agent qui remonte le prouve.
+        // Limite connue : un agent prouve l'URL avec laquelle IL a été configuré, pas celle réglée aujourd'hui. Si
+        // l'URL change et que d'anciens agents continuent de remonter (installés avec l'ancienne, encore valide), la
+        // ligne passe au vert en prouvant l'ancienne valeur. Sans objet au pilote (aucun agent) ; à garder en tête
+        // le jour où l'URL change avec des agents en place.
         $url_issue = PluginPrintgestionAgentdeploy::getApplicationUrlIssue();
         $confirmed = $url_issue === '' ? self::getUrlConfirmation((string) ($CFG_GLPI['url_base'] ?? '')) : null;
         $checks[]  = [
