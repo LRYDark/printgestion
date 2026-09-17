@@ -106,6 +106,22 @@ def php_glpi(code):
     return res.stdout
 
 
+def creer_regle_tag():
+    """Règle d'affectation par TAG de GLPI (structure native), pour les tests qui ont besoin d'un rattachement complet."""
+    return int(php_glpi(
+        "$id = (new RuleImportEntity())->add(['name' => 'Affectation par TAG (test)', 'sub_type' => 'RuleImportEntity', 'match' => 'AND', "
+        "'condition' => 0, 'is_active' => 1, 'entities_id' => 0, 'is_recursive' => 1]); "
+        "(new RuleCriteria())->add(['rules_id' => $id, 'criteria' => 'tag', 'condition' => Rule::REGEX_MATCH, 'pattern' => '/^(.*)$/']); "
+        "(new RuleAction())->add(['rules_id' => $id, 'action_type' => 'regex_result', 'field' => '_affect_entity_by_tag', 'value' => '#0']); echo $id;"
+    ).strip())
+
+
+def supprimer_regles_tag():
+    for (ident,) in lignes("SELECT DISTINCT r.id FROM glpi_rules r JOIN glpi_ruleactions a ON a.rules_id = r.id "
+                           "WHERE r.sub_type = 'RuleImportEntity' AND a.field = '_affect_entity_by_tag'"):
+        php_glpi(f"(new RuleImportEntity())->delete(['id' => {int(ident)}], true);")
+
+
 def vider_cache():
     subprocess.run([config.PHP, "bin/console", "cache:clear", "-n"], cwd=config.GLPI_DIR, capture_output=True)
 

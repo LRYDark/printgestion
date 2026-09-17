@@ -403,8 +403,13 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
 
     // ── Paquet Windows ────────────────────────────────────────────────────────
 
-    /** Motifs empêchant de produire le paquet d'une entité pour un système ; vide si prêt. */
-    public static function getPackageBlockers(Entity $entity, string $platform = 'windows'): array {
+    /**
+     * Motifs de rattachement qui bloquent le déploiement : TAG absent, inutilisable ou porté par plusieurs entités ;
+     * règle d'affectation par TAG absente ou désactivée. Seul blocage de l'écran de l'entité, parce que c'est le
+     * seul geste irréversible : les règles d'affectation d'entité ne jouent qu'au premier import, une imprimante
+     * remontée sans elles reste dans la mauvaise entité (transfert manuel, une par une).
+     */
+    public static function getAttachmentBlockers(Entity $entity): array {
         $blockers = [];
         $tag      = trim((string) ($entity->fields['tag'] ?? ''));
         if ($tag === '') {
@@ -414,6 +419,18 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         } elseif (countElementsInTable(Entity::getTable(), ['tag' => $tag]) > 1) {
             $blockers[] = sprintf(__('TAG « %s » porté par plusieurs entités : GLPI rattacherait les équipements à la première trouvée.', 'printgestion'), $tag);
         }
+        $rule = self::getTagRuleStatus();
+        if ($rule['active'] === null) {
+            $blockers[] = empty($rule['rules'])
+                ? __('Aucune règle d\'affectation par TAG : les équipements découverts arriveraient dans l\'entité par défaut.', 'printgestion')
+                : __('Règle d\'affectation par TAG désactivée : elle n\'affecte rien, les équipements découverts arriveraient dans l\'entité par défaut.', 'printgestion');
+        }
+        return $blockers;
+    }
+
+    /** Motifs empêchant de produire le paquet d'une entité pour un système ; vide si prêt. */
+    public static function getPackageBlockers(Entity $entity, string $platform = 'windows'): array {
+        $blockers = self::getAttachmentBlockers($entity);
 
         $server = self::getServerUrl();
         if ($server['error'] !== '') {
@@ -1155,10 +1172,15 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             match (true) {
                 $tag_ok && $rule_ok => __('Rattachement : correct', 'printgestion'),
                 $rule_disabled      => __('Règle d\'affectation présente mais désactivée — les équipements n\'iront pas dans la bonne entité', 'printgestion'),
-                default             => __('Configuration incomplète — contactez l\'administrateur', 'printgestion'),
+                $tag === ''         => __('TAG de l\'entité absent', 'printgestion'),
+                default             => __('Rattachement incomplet', 'printgestion'),
             },
             $details
         );
+        echo "</div></div>";
+
+        // Actions qui lèvent le blocage du rattachement, affichées dans le bloc 2 à côté du blocage.
+        ob_start();
 
         // Action : règle d'affectation par TAG absente ou désactivée, et droit de la créer ou de l'activer
         // (administrateur) — bouton visible, clic confirmé. Sans objet si le formulaire du TAG ci-dessous la traite.
@@ -1186,7 +1208,10 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 }) . "</button></div>"
                 . Html::closeForm(false);
         }
-        echo "</div></div>";
+        $fix_html = (string) ob_get_clean();
+        // L'utilisateur lève lui-même tout le blocage : TAG absent qu'il peut créer (ou TAG correct), règle active ou
+        // qu'il peut créer ou activer. Sinon « Contactez l'administrateur ».
+        $can_fix = ($tag_ok || ($tag === '' && $can_tag)) && ($rule['active'] !== null || $rule_form !== '');
 
         // ── 2. Télécharger l'installeur ──
         $version   = self::getServedVersion();
@@ -1198,10 +1223,18 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         }
         echo "<div class='card mb-3'><div class='card-header d-flex align-items-center'><h3 class='card-title mb-0'>" . $esc(__('2. Télécharger l\'installeur', 'printgestion')) . "</h3>"
             . "<div class='ms-auto'>" . PluginPrintgestionUi::infoButton(__('Contenu des paquets d\'installation', 'printgestion'), $admin ? self::getPackageDetailsHtml($tag, $version) : '') . "</div></div><div class='card-body'>";
-        $all_blockers = array_values(array_unique(array_merge(...array_values($blockers))));
+        $attachment   = self::getAttachmentBlockers($entity);
+        $all_blockers = array_values(array_diff(array_unique(array_merge(...array_values($blockers))), $attachment));
+        $list         = static fn(array $items) => "<ul class='mb-0'>" . implode('', array_map(static fn(string $b) => '<li>' . $esc($b) . '</li>', $items)) . "</ul>";
+        if (!empty($attachment)) {
+            // Seul blocage de l'écran : geste irréversible (règles d'affectation jouées au premier import seulement).
+            echo PluginPrintgestionUi::statusLine('error', __('Configuration incomplète — le déploiement est bloqué', 'printgestion'), $list($attachment));
+            echo "<p class='mb-1'>" . $esc(__('Les imprimantes seraient rattachées au mauvais client, sans correction possible ensuite.', 'printgestion'))
+                . ($can_fix ? '' : ' ' . $esc(__('Contactez l\'administrateur.', 'printgestion'))) . "</p>";
+            echo $fix_html;
+        }
         if (!empty($all_blockers)) {
-            echo PluginPrintgestionUi::statusLine('error', __('Installeur indisponible — contactez l\'administrateur', 'printgestion'),
-                "<ul class='mb-0'>" . implode('', array_map(static fn(string $b) => '<li>' . $esc($b) . '</li>', $all_blockers)) . "</ul>");
+            echo PluginPrintgestionUi::statusLine('error', __('Installeur indisponible — contactez l\'administrateur', 'printgestion'), $list($all_blockers));
         }
         echo "<div class='d-flex flex-wrap gap-2 my-2'>";
         foreach ($platforms as $platform => $label) {

@@ -478,7 +478,14 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
      la première qui correspond ; créée par `Agentdeploy::createTagRule()` seulement sur clic explicite d'un administrateur — droit de configuration du plugin et droit natif `rule_import` en création —, une seule règle générique, jamais recréée ni déplacée ; règle désactivée = règle absente : `getTagRuleForm()` rend « Créer la règle d'affectation par TAG » si aucune n'existe, « Activer la règle » (`activateTagRule()`, droit de configuration du plugin et `rule_import` en modification, première règle désactivée dans l'ordre, rien de créé ni déplacé) si elle est désactivée, rien si une est active ; bouton visible hors chevron, aussi dans la carte Prérequis de la page Installeur ; `createTag()` crée ou active la règle dans le même clic quand l'auteur du TAG en a les droits, sinon enregistre le TAG seul et signale la règle manquante ou désactivée) ; plugin GLPI Inventory ; agents de l'entité
      (`glpi_agents.entities_id`) : version et conformité, dernier contact et « muet », TAG différent de celui de
      l'entité, modules découverte et inventaire réseau ;
-  2. installeur : boutons Windows, Linux et macOS (actifs dès que leurs fichiers officiels sont vérifiés), commande
+  2. installeur : **déploiement bloqué** tant que `getAttachmentBlockers()` renvoie un motif (TAG absent,
+     inutilisable ou porté par plusieurs entités ; règle d'affectation par TAG absente ou désactivée) — seul blocage de
+     l'écran, parce que c'est le seul geste irréversible : les règles d'entité ne jouent qu'au premier import. Message
+     « Configuration incomplète — le déploiement est bloqué » ; « Contactez l'administrateur » seulement si
+     l'utilisateur ne peut pas lever lui-même tout le blocage ; les actions qui le lèvent (formulaire du TAG, bouton
+     créer ou activer la règle) sont affichées juste en dessous. Même contrôle côté serveur : `getPackageBlockers()`
+     inclut ces motifs, `agentdeploy.download.php` refuse le paquet (URL directe comprise). Boutons Windows, Linux et
+     macOS (actifs dès que leurs fichiers officiels sont vérifiés et le rattachement complet), commande
      Windows et propriétés MSI expliquées, commande Linux, procédure macOS et son `local.cfg` (phase 6).
 - **Paquet Windows** (`front/agentdeploy.download.php`, droit `deploiement` READ et accès à l'entité) : ZIP généré
   à la demande dans `GLPI_TMP_DIR` et supprimé en fin de requête : MSI officiel (stocké, empreinte recalculée

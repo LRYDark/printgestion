@@ -312,9 +312,13 @@ def scenario_ecritures_get():
     constat("dashboard_billing.php en GET : lignes de l'utilisateur recalculées dans la table matérialisée", "À NOTER" if avant != apres else "OK",
             f"HTTP {statut}, table {'réécrite' if avant != apres else 'inchangée'} (période, entité et vue lues dans la requête ; pas de jeton en GET)")
     historique = lambda: valeur(f"SELECT COUNT(*) FROM glpi_logs WHERE itemtype = 'Entity' AND items_id = {d.CLIENT_A}")  # noqa: E731
-    avant = historique()
-    WEB.telecharger(config.FRONT + f"/agentdeploy.download.php?entities_id={d.CLIENT_A}&os=windows")
-    apres = historique()
+    lib.creer_regle_tag()  # rattachement complet : sans règle active, le téléchargement est bloqué
+    try:
+        avant = historique()
+        WEB.telecharger(config.FRONT + f"/agentdeploy.download.php?entities_id={d.CLIENT_A}&os=windows")
+        apres = historique()
+    finally:
+        lib.supprimer_regles_tag()
     constat("agentdeploy.download.php en GET : téléchargement tracé dans l'historique de l'entité", "À NOTER" if apres != avant else "OK", f"{avant} → {apres} ligne(s)")
     etat = lambda: (valeur(f"SELECT COUNT(*) FROM glpi_plugin_printgestion_printer_thresholds WHERE printers_id = {d.IMP_A1}"), etat_expedition(IDS["EA"]))  # noqa: E731
     avant = etat()

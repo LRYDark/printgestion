@@ -32,9 +32,12 @@ if (!isset($builders[$os])) {
 
 $package = call_user_func($builders[$os], $entity);
 if (!$package['ok']) {
+    // Rattachement incomplet (TAG, règle d'affectation absente ou désactivée) : déploiement bloqué, même par l'URL.
     Session::addMessageAfterRedirect(implode('<br>', array_map(
         static fn(string $error) => htmlspecialchars($error, ENT_QUOTES, 'UTF-8'),
-        $package['errors']
+        empty(PluginPrintgestionAgentdeploy::getAttachmentBlockers($entity))
+            ? $package['errors']
+            : [__('Configuration incomplète — le déploiement est bloqué. Les imprimantes seraient rattachées au mauvais client, sans correction possible ensuite. Contactez l\'administrateur.', 'printgestion')]
     )), false, ERROR);
     Html::redirect(Entity::getFormURLWithID($entities_id) . '&forcetab=' . urlencode('PluginPrintgestionAgentdeploy$1'));
 }

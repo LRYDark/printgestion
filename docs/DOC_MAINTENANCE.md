@@ -252,7 +252,9 @@ Pour chaque client :
 
 1. Fiche de l'entité → Informations avancées : renseigner le TAG (lettres, chiffres, point, tiret, soulignement ;
    unique), **avant le premier inventaire** : les règles d'entité ne jouent qu'au premier import.
-2. Onglet « Déploiement Agent » de l'entité : corriger ce qui n'est pas vert, régler la fréquence des relevés
+2. Onglet « Déploiement Agent » de l'entité : corriger ce qui n'est pas vert (le téléchargement reste bloqué tant que
+   le TAG manque ou que la règle d'affectation par TAG est absente ou désactivée : une imprimante remontée avant
+   resterait dans la mauvaise entité, à transférer à la main), régler la fréquence des relevés
    d'imprimantes (quotidienne par défaut, toutes les N heures ou tous les N jours), puis télécharger le paquet du
    système du PC sonde (Windows, Linux ou macOS).
 3. Sur place : suivre `LISEZMOI.txt`, puis vérifier dans l'onglet que l'agent apparaît avec un contact récent et la

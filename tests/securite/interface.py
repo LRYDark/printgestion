@@ -7,7 +7,8 @@ règles ou de plugin, chemins de menu, numéros de version) n'arrive dans sa pag
 TAG proposé depuis le nom, refusé s'il est déjà porté par une autre entité. Règle d'affectation par TAG : créée par un
 administrateur seulement, une seule, structure native vérifiée par le moteur de règles de GLPI ; bouton visible (hors
 chevron) tant qu'elle manque, et créée du même clic que le TAG quand c'est l'administrateur qui crée le TAG. Une règle
-présente mais désactivée compte comme absente : état rouge, bouton « Activer la règle ».
+présente mais désactivée compte comme absente : état rouge, bouton « Activer la règle ». Téléchargement de l'installeur
+bloqué (écran et URL directe) tant que le TAG manque ou que la règle est absente ou désactivée.
 """
 import re
 import sys
@@ -138,7 +139,7 @@ def main():
         CTX.connecter("test-technicien")
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.SITE_A2), ajax=True)
         constat("technicien sans droit de modifier l'entité : pas de « Créer le TAG », « contactez l'administrateur »",
-                ok_ko("Créer le TAG" not in page and "contactez l" in lib.texte(page)))
+                ok_ko("Créer le TAG" not in page and "contactez l" in lib.texte(page).lower()))
         lib.connecter_admin()
         profil_tag = CTX.profil(6, "Profil test technicien (Déploiement et entité)", {"plugin_printgestion_deploiement": 3, "plugin_printgestion_config": 0, "entity": 3})
         CTX.utilisateur("test-technicien-entite", profil_tag, d.CLIENT_A)
@@ -246,10 +247,55 @@ def main():
         affectee = lib.php_glpi("$c = new RuleImportEntityCollection(); $out = $c->processAllRules(['tag' => 'CLIENT-TEST-A'], [], []); echo $out['entities_id'] ?? 'aucune';")
         constat("bouton « Activer la règle » : règle active, moteur natif de nouveau opérant",
                 ok_ko(actives() == 1 and "Règle activée" in message and affectee.strip() == str(d.CLIENT_A)), f"{message[:100]} / {affectee.strip()}")
+
+        section("8. Téléchargement bloqué tant que le rattachement est incomplet")
+        historique = lambda entite: int(valeur(f"SELECT COUNT(*) FROM glpi_logs WHERE itemtype = 'Entity' AND items_id = {entite}"))  # noqa: E731
+        telecharger = lambda entite: WEB.telecharger(config.FRONT + f"/agentdeploy.download.php?entities_id={entite}&os=windows")  # noqa: E731
+        bloque, lien = "Configuration incomplète — le déploiement est bloqué", "agentdeploy.download.php"
+        sql("UPDATE glpi_rules r JOIN glpi_ruleactions a ON a.rules_id = r.id SET r.is_active = 0 "
+            "WHERE r.sub_type = 'RuleImportEntity' AND a.field = '_affect_entity_by_tag';")
+        CTX.connecter("test-technicien")
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+        constat("règle désactivée, technicien : « déploiement bloqué … Contactez l'administrateur », aucun lien de téléchargement",
+                ok_ko(bloque in page and "sans correction possible ensuite. Contactez l" in lib.texte(page) and lien not in page and not trouves(page)),
+                ", ".join(trouves(page)))
+        avant = historique(d.CLIENT_A)
+        statut, octets = telecharger(d.CLIENT_A)
+        constat("technicien, URL directe : aucun paquet, aucun téléchargement tracé", ok_ko(not octets.startswith(b"PK") and historique(d.CLIENT_A) == avant),
+                f"HTTP {statut}, {len(octets)} octets")
+        lib.connecter_admin()
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+        constat("administrateur : même blocage, bouton « Activer la règle » juste après, sans « Contactez l'administrateur »",
+                ok_ko(bloque in page and lien not in page and bouton_visible(page, "activate_tag_rule") and page.count("name='activate_tag_rule'") == 1
+                      and page.find(bloque) < page.find("activate_tag_rule") and "Contactez l" not in lib.texte(page)))
+        statut, octets = telecharger(d.CLIENT_A)
+        constat("administrateur, URL directe : bloqué aussi", ok_ko(not octets.startswith(b"PK") and historique(d.CLIENT_A) == avant), f"HTTP {statut}")
+        lib.supprimer_regles_tag()
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+        constat("règle absente : même blocage, bouton « Créer la règle d'affectation par TAG »",
+                ok_ko(bloque in page and lien not in page and bouton_visible(page, "create_tag_rule")))
+        statut, octets = telecharger(d.CLIENT_A)
+        constat("règle absente, URL directe : bloqué", ok_ko(not octets.startswith(b"PK") and historique(d.CLIENT_A) == avant), f"HTTP {statut}")
+        WEB.post(config.FRONT + "/agentdeploy.php", [("entities_id", str(d.CLIENT_A)), ("create_tag_rule", "1")])
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+        constat("règle créée : blocage levé, liens de téléchargement présents", ok_ko(bloque not in page and lien in page))
+        statut, octets = telecharger(d.CLIENT_A)
+        constat("rattachement complet : paquet Windows servi et tracé (pas de faux blocage)", ok_ko(octets.startswith(b"PK") and historique(d.CLIENT_A) == avant + 1),
+                f"HTTP {statut}, {len(octets)} octets")
+        sql(f"UPDATE glpi_entities SET tag = '' WHERE id = {d.SITE_A2};")
+        CTX.connecter("test-technicien-entite")
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.SITE_A2), ajax=True)
+        constat("TAG absent, technicien qui peut le créer : blocage, formulaire « Créer le TAG » à côté, sans « Contactez l'administrateur »",
+                ok_ko(bloque in page and lien not in page and page.find(bloque) < page.find("name='create_tag'") and "Contactez l" not in lib.texte(page)))
+        avant = historique(d.SITE_A2)
+        statut, octets = telecharger(d.SITE_A2)
+        constat("TAG absent, URL directe : bloqué", ok_ko(not octets.startswith(b"PK") and historique(d.SITE_A2) == avant), f"HTTP {statut}")
+        CTX.connecter("test-technicien")
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.SITE_A2), ajax=True)
+        constat("TAG absent, technicien sans droit : blocage et « Contactez l'administrateur »",
+                ok_ko(bloque in page and lien not in page and "Contactez l" in lib.texte(page) and "name='create_tag'" not in page))
     finally:
-        for (ident,) in lib.lignes("SELECT DISTINCT r.id FROM glpi_rules r JOIN glpi_ruleactions a ON a.rules_id = r.id "
-                                   "WHERE r.sub_type = 'RuleImportEntity' AND a.field = '_affect_entity_by_tag'"):
-            lib.php_glpi(f"(new RuleImportEntity())->delete(['id' => {int(ident)}], true);")
+        lib.supprimer_regles_tag()
         sql(f"DELETE FROM glpi_agents WHERE id = {agent};")
         for entite, tag in tags.items():
             sql(f"UPDATE glpi_entities SET tag = {lib.q(tag) if tag else 'NULL'} WHERE id = {entite};")
