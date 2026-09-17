@@ -45,8 +45,8 @@ def main():
         section("1. Position et contenu")
         page, etats = carte()
         constat("carte « Santé de la configuration » en tête, avant les modules", ok_ko(0 <= page.find("Santé de la configuration") < page.find("Activation des modules")))
-        constat("8 contrôles : 6 obligatoires, 2 recommandés, l'URL de l'application en tête",
-                ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "cron", "xlsx", "tag_rule", "glpicrypt", "log"]), str(etats))
+        constat("9 contrôles : 7 obligatoires, 2 recommandés, l'URL de l'application en tête",
+                ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "cron", "xlsx", "notifications", "tag_rule", "glpicrypt", "log"]), str(etats))
         constat("glpicrypt.key : « non vérifiable automatiquement », état neutre, rien à cocher dans la carte",
                 ok_ko(etats.get("glpicrypt") == "manual" and "Non vérifiable automatiquement" in page
                       and "type='checkbox'" not in page[page.find("pg-config-health"):page.find("Activation des modules")]))
@@ -90,6 +90,12 @@ def main():
             constat(f"URL de l'application {cas} : rouge, lien vers Configuration → Générale, bannière",
                     ok_ko(etats.get("app_url") == "error" and "config.form.php" in page and bandeau(page)), str(etats.get("app_url")))
         sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
+
+        sql("UPDATE glpi_configs SET value = '0' WHERE context = 'core' AND name = 'use_notifications';")
+        page, etats = carte()
+        constat("notifications GLPI désactivées : rouge, « aucune notification native ne part », lien vers l'écran natif, bannière",
+                ok_ko(etats.get("notifications") == "error" and "setup.notification.php" in page and bandeau(page)))
+        sql("UPDATE glpi_configs SET value = '1' WHERE context = 'core' AND name = 'use_notifications';")
 
         sql("UPDATE glpi_documenttypes SET is_uploadable = 0 WHERE ext = 'xlsx';")
         page, etats = carte()
@@ -222,6 +228,7 @@ def main():
             sql(f"UPDATE glpi_documenttypes SET is_uploadable = {autorise} WHERE id = {ident};")
         sql(f"UPDATE glpi_plugins SET state = {etat_glpiinventory} WHERE directory = 'glpiinventory';")
         sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
+        sql("UPDATE glpi_configs SET value = '1' WHERE context = 'core' AND name = 'use_notifications';")
         sql(f"DELETE FROM glpi_agents WHERE id = {agent};")
         lib.supprimer_regles_tag()
         CTX.nettoyer()

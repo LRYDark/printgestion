@@ -116,6 +116,20 @@ class PluginPrintgestionConfighealth {
             'detail' => '',
         ];
 
+        // Les notifications natives du plugin (commande non transmise, demandes, sondes, contrats) n'existent qu'avec ce réglage.
+        $notif_on = (int) ($CFG_GLPI['use_notifications'] ?? 0) === 1;
+        $checks[] = [
+            'key'    => 'notifications',
+            'group'  => 'required',
+            'label'  => __('Notifications GLPI activées', 'printgestion'),
+            'state'  => $notif_on ? self::STATE_OK : self::STATE_ERROR,
+            'status' => $notif_on ? __('Activées.', 'printgestion') : __('Désactivées.', 'printgestion'),
+            'breaks' => __('Aucune notification native ne part : commande non transmise aux Achats, demandes d\'envoi, sondes et imprimantes muettes, alertes de contrat — sans qu\'aucun écran ne le dise.', 'printgestion'),
+            'fix'    => __('Configuration → Notifications → Configuration des notifications, « Activer le suivi »', 'printgestion'),
+            'url'    => $CFG_GLPI['root_doc'] . '/front/setup.notification.php',
+            'detail' => '',
+        ];
+
         $rule     = PluginPrintgestionAgentdeploy::getTagRuleStatus();
         $rule_ok  = $rule['active'] !== null;
         $checks[] = [

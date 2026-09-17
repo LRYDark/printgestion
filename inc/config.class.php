@@ -669,6 +669,8 @@ class PluginPrintgestionConfig extends CommonDBTM {
     // ─────────────────────────────────────────────────────────────
 
     static function showConfigForm() {
+        global $CFG_GLPI;
+
         if (!Session::haveRight(self::$rightname, READ)) {
             return false;
         }
