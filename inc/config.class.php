@@ -1210,8 +1210,8 @@ HTML;
         foreach ($tracking_rows as $row) {
             if ((int) $row['frequency'] > HOUR_TIMESTAMP) {
                 echo "<p class='text-warning mb-0'><i class='ti ti-alert-triangle me-1'></i>" . $esc(sprintf(
-                    __('Le suivi des colis demande un passage toutes les heures : la fréquence réglée dans GLPI (toutes les %s) est plus longue. Elle se règle dans la fiche de la tâche, le plugin ne la corrige pas.', 'printgestion'),
-                    Html::timestampToString((int) $row['frequency'], false)
+                    __('Le suivi des colis demande un passage toutes les heures : la fréquence réglée dans GLPI (%s) est plus longue. Elle se règle dans la fiche de la tâche, le plugin ne la corrige pas.', 'printgestion'),
+                    PluginPrintgestionConfighealth::formatFrequency((int) $row['frequency'])
                 )) . "</p>";
             }
         }

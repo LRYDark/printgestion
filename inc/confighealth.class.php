@@ -201,6 +201,23 @@ class PluginPrintgestionConfighealth {
         return $rows;
     }
 
+    /** Fréquence lisible : « chaque minute », « toutes les 4 heures », « tous les 7 jours ». */
+    public static function formatFrequency(int $seconds): string {
+        if ($seconds > 0 && $seconds % DAY_TIMESTAMP === 0) {
+            $n = intdiv($seconds, DAY_TIMESTAMP);
+            return $n === 1 ? __('chaque jour', 'printgestion') : sprintf(__('tous les %d jours', 'printgestion'), $n);
+        }
+        if ($seconds > 0 && $seconds % HOUR_TIMESTAMP === 0) {
+            $n = intdiv($seconds, HOUR_TIMESTAMP);
+            return $n === 1 ? __('chaque heure', 'printgestion') : sprintf(__('toutes les %d heures', 'printgestion'), $n);
+        }
+        if ($seconds > 0 && $seconds % MINUTE_TIMESTAMP === 0) {
+            $n = intdiv($seconds, MINUTE_TIMESTAMP);
+            return $n === 1 ? __('chaque minute', 'printgestion') : sprintf(__('toutes les %d minutes', 'printgestion'), $n);
+        }
+        return sprintf(__('toutes les %s', 'printgestion'), Html::timestampToString($seconds, false));
+    }
+
     /**
      * Encart en lecture seule d'une ou plusieurs tâches : une ligne par tâche et un lien « Configurer dans GLPI »
      * vers sa fiche. Une tâche en mode Interne (GLPI) est dite en toutes lettres, car elle ne partira pas de façon
@@ -220,7 +237,7 @@ class PluginPrintgestionConfighealth {
             $html .= "<tr><td title='" . $esc($row['name']) . "'>" . $esc($row['description']) . "</td>"
                 . "<td>" . $esc(CronTask::getStateName((int) $row['state'])) . "</td>"
                 . "<td class='" . ($is_internal ? 'text-danger fw-bold' : '') . "'>" . $esc($is_internal ? __('Interne (GLPI)', 'printgestion') : __('CLI', 'printgestion')) . "</td>"
-                . "<td>" . $esc(sprintf(__('toutes les %s', 'printgestion'), Html::timestampToString((int) $row['frequency'], false))) . "</td>"
+                . "<td>" . $esc(self::formatFrequency((int) $row['frequency'])) . "</td>"
                 . "<td>" . $esc(!empty($row['lastrun']) ? Html::convDateTime((string) $row['lastrun']) : __('jamais', 'printgestion')) . "</td>"
                 . "<td><a href='" . $esc(CronTask::getFormURLWithID((int) $row['id'])) . "'>" . $esc(__('Configurer dans GLPI', 'printgestion')) . "</a></td></tr>";
         }

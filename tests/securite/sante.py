@@ -166,8 +166,8 @@ def main():
                       and "Configurer dans GLPI" in page and "Dernière exécution" in page))
         sql("UPDATE glpi_crontasks SET mode = 1, frequency = 14400 WHERE name = 'PrintgestionTrackingUpdate';")
         page, _ = carte()
-        constat("mode Interne dit en toutes lettres ; fréquence de 4 h signalée comme trop longue pour le suivi, sans la corriger",
-                ok_ko("Interne (GLPI)" in page and "ne partiront pas de façon fiable" in page and "est plus longue" in page
+        constat("mode Interne dit en toutes lettres ; fréquence « toutes les 4 heures » signalée comme trop longue pour le suivi, sans la corriger",
+                ok_ko("Interne (GLPI)" in page and "ne partiront pas de façon fiable" in page and "est plus longue" in page and "toutes les 4 heures" in page
                       and valeur("SELECT frequency FROM glpi_crontasks WHERE name = 'PrintgestionTrackingUpdate'") == "14400"))
         sql(f"UPDATE glpi_crontasks SET mode = {tache[1]}, frequency = {tache[2]} WHERE name = 'PrintgestionTrackingUpdate';")
 
