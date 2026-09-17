@@ -504,9 +504,13 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
   l'historique de l'entité. Aucun identifiant, jeton ni secret : URL du serveur et TAG seulement.
 - **Commande** : `msiexec /i "<MSI>" SERVER="…" TAG="…" ADDLOCAL="feat_AGENT,feat_NETINV" HTTPD_TRUST="127.0.0.1/32[,…]"
   SNMP_RETRIES="2" RUNNOW="1" EXECMODE="1" QUICKINSTALL="1" /l*v "%TEMP%\GLPI-Agent-install.log"`, sans `/quiet`
-  (assistant standard prérempli), jamais lancée par PowerShell. `SERVER` : réglage, sinon
-  `<url_base>/plugins/glpiinventory/` si GLPI Inventory est actif, sinon `<url_base>/` (inventaire du poste
-  seulement). `HTTPD_TRUST` garde toujours `127.0.0.1/32` (interface locale de l'agent).
+  (assistant standard prérempli), jamais lancée par PowerShell. `SERVER` : réglage, sinon `<url_base>/`, l'URL
+  de l'application GLPI (Configuration → Générale), racine comprise. Jamais `…/plugins/glpiinventory/` : GLPI 11
+  reçoit les agents à sa racine (`CatchInventoryAgentRequestListener`) et GLPI Inventory y greffe ses tâches
+  réseau par hooks ; le chemin du plugin ne répondait que par une route de compatibilité du plugin, qui tombe en
+  404 dès qu'il est désactivé ou nettoyé, sans réparation possible à distance. Vérifié avec GLPI Agent 1.19
+  contre GLPI 11.0.8 (`tests/securite/interface.py` relit `commande-cmd.txt` du paquet). `HTTPD_TRUST` garde
+  toujours `127.0.0.1/32` (interface locale de l'agent).
 - **Installeurs servis** (page « Installeur GLPI Agent », `front/agentdeploy.php` ; lecture `deploiement`, actions
   `config` UPDATE) : version servie (`DEFAULT_VERSION` = 1.19, épinglable) ; quatre fichiers officiels
   (`Agentdeploy::getAssets()`) : MSI Windows, installeur Perl Linux, paquets macOS Apple Silicon et Intel. Chacun

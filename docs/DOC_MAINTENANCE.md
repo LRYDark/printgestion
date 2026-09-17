@@ -238,8 +238,9 @@ Une ligne « absente du dernier import » n'est pas perdue : elle redevient acti
 
 Une fois pour tout le parc :
 
-1. Installer et activer le plugin **GLPI Inventory avant de déployer les sondes** : l'adresse du serveur donnée
-   aux agents en dépend (`…/plugins/glpiinventory/`) ; un agent installé avant serait à réinstaller. Versions
+1. Installer et activer le plugin **GLPI Inventory avant de déployer les sondes** : c'est lui qui donne aux
+   sondes les plages IP à scanner. L'adresse donnée aux agents est l'URL de l'application GLPI (Configuration →
+   Générale), indépendante du plugin : un agent déjà installé n'est pas à reprendre si le plugin change. Versions
    : 1.6.0 minimum (bloquant en dessous), validée avec 1.6.10 ; plus récente, simple avertissement, avec sa tâche
    automatique `taskscheduler` programmée et le cron de GLPI qui tourne.
 2. Créer la règle d'affectation d'entité par TAG (Administration → Règles → Règles d'affectation d'un élément

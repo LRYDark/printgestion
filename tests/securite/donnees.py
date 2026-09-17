@@ -107,7 +107,10 @@ INSERT INTO glpi_useremails (users_id, is_default, is_dynamic, email) VALUES ({A
 """
 
 CORE = {"smtp_mode": "1", "smtp_host": "127.0.0.1", "smtp_port": str(config.SMTP_PORT), "use_notifications": "1", "notifications_mailing": "1",
-        "admin_email": "glpi@exemple.test", "from_email": "glpi@exemple.test"}
+        "admin_email": "glpi@exemple.test", "from_email": "glpi@exemple.test",
+        # URL de l'application inventée (domaine .test réservé) : les paquets d'agent la contiennent, et une URL
+        # vide ou locale bloque le téléchargement.
+        "url_base": "https://glpi.exemple.test"}
 
 
 def empreinte():

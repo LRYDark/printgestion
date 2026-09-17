@@ -10,8 +10,10 @@ chevron) tant qu'elle manque, et créée du même clic que le TAG quand c'est l'
 présente mais désactivée compte comme absente : état rouge, bouton « Activer la règle ». Téléchargement de l'installeur
 bloqué (écran et URL directe) tant que le TAG manque ou que la règle est absente ou désactivée.
 """
+import io
 import re
 import sys
+import zipfile
 from html.parser import HTMLParser
 
 import config
@@ -282,6 +284,12 @@ def main():
         statut, octets = telecharger(d.CLIENT_A)
         constat("rattachement complet : paquet Windows servi et tracé (pas de faux blocage)", ok_ko(octets.startswith(b"PK") and historique(d.CLIENT_A) == avant + 1),
                 f"HTTP {statut}, {len(octets)} octets")
+        commande = ""
+        if octets.startswith(b"PK"):
+            with zipfile.ZipFile(io.BytesIO(octets)) as paquet:
+                commande = paquet.read("commande-cmd.txt").decode("utf-8", "replace")
+        constat("SERVER= du paquet : URL de l'application GLPI, racine comprise, jamais le chemin du plugin GLPI Inventory",
+                ok_ko(f'SERVER="{d.CORE["url_base"]}/"' in commande and "glpiinventory" not in commande), commande[:160])
         sql(f"UPDATE glpi_entities SET tag = '' WHERE id = {d.SITE_A2};")
         CTX.connecter("test-technicien-entite")
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.SITE_A2), ajax=True)

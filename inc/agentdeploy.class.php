@@ -121,11 +121,15 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     }
 
     /**
-     * URL du serveur donnée à l'agent : réglage, sinon point d'entrée du plugin GLPI Inventory
-     * s'il est actif (tâches de découverte et d'inventaire réseau), sinon l'URL de GLPI
-     * (inventaire du poste seulement).
+     * URL du serveur donnée à l'agent : réglage (surcharge), sinon l'URL de l'application GLPI
+     * (Configuration → Générale), racine comprise. Jamais le chemin du plugin GLPI Inventory : GLPI 11 reçoit
+     * les agents nativement à sa racine (CatchInventoryAgentRequestListener) et GLPI Inventory y greffe ses
+     * tâches réseau par hooks ; « /plugins/glpiinventory/ » ne marchait que par une route de compatibilité du
+     * plugin, qui disparaît avec lui (plugin désactivé ou nettoyé : 404 sur chaque agent, irréparable à
+     * distance). Vérifié avec GLPI Agent 1.19 contre GLPI 11.0.8 : les deux valeurs répondent, seule la racine
+     * ne dépend de rien.
      *
-     * @return array ['url' => string, 'source' => 'config'|'glpiinventory'|'glpi', 'error' => string]
+     * @return array ['url' => string, 'source' => 'config'|'glpi', 'error' => string]
      */
     public static function getServerUrl(): array {
         global $CFG_GLPI;
@@ -141,9 +145,6 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'source' => 'glpi',
                 'error'  => __('URL de GLPI non renseignée (Configuration → Générale → URL de l\'application) : l\'agent ne saurait pas où envoyer ses inventaires.', 'printgestion'),
             ];
-        }
-        if (Plugin::isPluginActive('glpiinventory')) {
-            return ['url' => $base . '/plugins/glpiinventory/', 'source' => 'glpiinventory', 'error' => ''];
         }
         return ['url' => $base . '/', 'source' => 'glpi', 'error' => ''];
     }
@@ -1412,9 +1413,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         // Adresses et version.
         $server   = self::getServerUrl();
         $sources  = [
-            'config'        => __('réglée ici', 'printgestion'),
-            'glpiinventory' => __('automatique : point d\'entrée du plugin GLPI Inventory', 'printgestion'),
-            'glpi'          => __('automatique : URL de GLPI (plugin GLPI Inventory absent, aucune tâche réseau)', 'printgestion'),
+            'config' => __('réglée ici', 'printgestion'),
+            'glpi'   => __('automatique : URL de l\'application GLPI (Configuration → Générale)', 'printgestion'),
         ];
         $host     = (string) parse_url((string) ($CFG_GLPI['url_base'] ?? ''), PHP_URL_HOST);
         $resolved = $host !== '' ? gethostbyname($host) : '';
