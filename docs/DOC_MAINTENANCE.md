@@ -126,6 +126,13 @@ Décisions projet (à ne pas régresser) :
 
 ### Journal applicatif (à consulter en premier)
 
+Vérifier qu'il s'écrit vraiment : Configuration → Print Gestion → carte « Journal du plugin » → « Écrire une entrée
+de test et la relire ». « Non inscriptible » ou échec du test : droits d'écriture du compte du serveur web sur
+`files/_log` (ou disque plein) ; en attendant, chaque trace part dans le journal d'erreurs du serveur web, préfixée
+`[printgestion] journal … non inscriptible`. Un fichier `printgestion.log` absent n'est normal que si la carte
+indique « Inscriptible ».
+
+
 Toute erreur interceptée par le plugin est écrite dans **`files/_log/printgestion.log`**, avec le
 niveau `[ERREUR]` ou `[AVERTISSEMENT]` et le contexte (`Classe::méthode` ou nom d'endpoint) :
 échecs d'envoi de mail (y compris depuis les tâches automatiques), API Sage des BL indisponible

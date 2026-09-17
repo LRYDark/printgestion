@@ -54,6 +54,7 @@ printgestion/
 | `Contractrate` | Tarifs N&B / Couleur par contrat (onglet sur fiche Contract) |
 | `Print` | Création/association imprimante ↔ contrat (4 scénarios, transactionnel) |
 | `Tonerreading` | Snapshot horodaté des niveaux toner (lit `glpi_printers_cartridgeinfos` SNMP GLPI 11) |
+| `Logger` | Journal applicatif `files/_log/printgestion.log` (écriture forcée) ; échec d'écriture vérifié et renvoyé au journal d'erreurs natif de PHP ; état et écriture de test relue pour la carte « Journal du plugin » de la configuration |
 | `Ui` | Fragments d'interface partagés : barre de statistiques ; `jsonData()`, seul passage des données PHP vers le JavaScript (bloc JSON non exécuté, drapeaux `JSON_HEX_*`) |
 | `Entityscope` | Entité des données client (1.6.5, 1.6.6) : entité à écrire à la création ; données techniques qui suivent l'imprimante ou le contrat ; données commerciales figées ; lignes orphelines (`findOrphans()`) ; tâche de contrôle `PrintgestionEntityScope` |
 | `Cartridgehistory` | Détection automatique des changements de cartouche (hausse de niveau ≥ `detection_delta` %) |

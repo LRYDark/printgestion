@@ -1241,11 +1241,36 @@ HTML;
         }
 
         self::showOrphansCard();
+        self::showLogCard($canedit);
 
         // Rouvrir la table/tr/td attendue par showFormButtons avant de fermer
         echo '<table><tr><td>';
         $config->showFormButtons(['candel' => false]);
         return true;
+    }
+
+    /**
+     * Journal du plugin : chemin, état et écriture de test relue (le bouton est dans le formulaire de configuration,
+     * traité par config.form.php avant tout enregistrement de réglage).
+     */
+    protected static function showLogCard(bool $canedit): void {
+        $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $status = PluginPrintgestionLogger::getStatus();
+        $ok     = $status['dir_writable'] && $status['writable'];
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Journal du plugin', 'printgestion')) . "</h3></div><div class='card-body'>";
+        echo "<p class='mb-2'><code>" . $esc($status['path']) . "</code> "
+            . ($ok
+                ? "<span class='badge bg-green text-green-fg'>" . $esc(__('Inscriptible', 'printgestion')) . "</span>"
+                : "<span class='badge bg-red text-red-fg'>" . $esc(__('Non inscriptible : aucune trace ne sera écrite ici', 'printgestion')) . "</span>")
+            . "</p>";
+        echo "<p class='text-muted small mb-2'>" . $esc($status['exists']
+            ? sprintf(__('%1$s octets, dernière écriture le %2$s.', 'printgestion'), number_format($status['size'], 0, ',', ' '), Html::convDateTime($status['modified']))
+            : __('Fichier pas encore créé : aucune erreur ni avertissement journalisé depuis l\'installation, ou journal non inscriptible.', 'printgestion')) . "</p>";
+        if ($canedit) {
+            echo "<button type='submit' name='test_log' value='1' class='btn btn-sm btn-outline-secondary' formnovalidate><i class='ti ti-file-check me-1'></i>"
+                . $esc(__('Écrire une entrée de test et la relire', 'printgestion')) . "</button>";
+        }
+        echo "</div></div>";
     }
 
     /**

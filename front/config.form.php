@@ -26,6 +26,16 @@ if (isset($_POST['activate_contract_alerts'])) {
     if (empty($result['done']) && empty($result['errors'])) {
         Session::addMessageAfterRedirect(__('Les alertes de contrat natives étaient déjà actives.', 'printgestion'), false, INFO);
     }
+} elseif (isset($_POST['test_log'])) {
+    // Bouton de la carte « Journal du plugin » (dans le formulaire de configuration) : aucun réglage enregistré.
+    if (PluginPrintgestionLogger::writeTestEntry(getUserName((int) Session::getLoginUserID()))) {
+        Session::addMessageAfterRedirect(__('Journal du plugin : entrée de test écrite et relue dans le fichier.', 'printgestion'), false, INFO);
+    } else {
+        Session::addMessageAfterRedirect(sprintf(
+            __('Journal du plugin : écriture impossible dans %s (droits du dossier ou disque). Les traces partent dans le journal d\'erreurs du serveur web.', 'printgestion'),
+            PluginPrintgestionLogger::getPath()
+        ), false, ERROR);
+    }
 } elseif (isset($_POST['update'])) {
     // Validation CSRF faite par CheckCsrfListener (kernel Symfony) avant ce fichier.
 
