@@ -85,9 +85,9 @@ class PluginPrintgestionBilling extends CommonDBTM {
             }
 
             // Filtres configurables côté config plugin (3 toggles, ON par défaut) :
-            //   - billing_require_contract : n'affiche que les imprimantes avec contrat
-            //   - billing_require_counter  : n'affiche que celles avec au moins un log
-            //   - billing_require_activity : n'affiche que celles avec N&B ou Couleur > 0
+            //   - contract : n'affiche que les imprimantes avec contrat
+            //   - counter  : n'affiche que celles avec au moins un log
+            //   - activity : n'affiche que celles avec N&B ou Couleur > 0
             $has_counter  = ($counters['end_nb'] > 0 || $counters['end_color'] > 0
                           || $counters['start_nb'] > 0 || $counters['start_color'] > 0);
 
