@@ -222,8 +222,8 @@ function plugin_printgestion_template_definitions(): array {
 }
 
 /**
- * Crée les gabarits de notifications par défaut (pattern plugin Gestion).
- * Les IDs sont stockés dans glpi_plugin_printgestion_configs (id=1).
+ * Crée les gabarits de notifications par défaut (pattern plugin Gestion), seulement ceux qui manquent :
+ * un gabarit existant n'est jamais réécrit. Les IDs sont stockés dans glpi_plugin_printgestion_configs (id=1).
  */
 function plugin_printgestion_create_templates() {
     global $DB;
@@ -245,21 +245,14 @@ function plugin_printgestion_create_templates() {
         ])->current();
 
         if (is_array($existing) && !empty($existing['id'])) {
+            // Gabarit existant : jamais réécrit. Sujet et contenu appartiennent à l'administrateur dès l'installation,
+            // une mise à jour du plugin ne défait pas ses modifications ; seul l'identifiant est repris dans la
+            // configuration. Un gabarit supprimé est recréé avec le texte par défaut.
             $tpl_id = (int)$existing['id'];
             // Migration : corrige itemtype='Printer' (ancienne version buggée) → 'Ticket'
             $DB->update('glpi_notificationtemplates',
                 ['itemtype' => 'Ticket'],
                 ['id' => $tpl_id, 'itemtype' => 'Printer']
-            );
-            // Rafraîchit sujet + contenu : applique le nouveau style aux gabarits
-            // existants sans avoir à désinstaller/réinstaller le plugin.
-            $DB->update('glpi_notificationtemplatetranslations',
-                [
-                    'subject'      => $tpl['subject'],
-                    'content_text' => strip_tags($tpl['html']),
-                    'content_html' => $tpl['html'],
-                ],
-                ['notificationtemplates_id' => $tpl_id, 'language' => 'fr_FR']
             );
             $config_updates[$config_field] = $tpl_id;
             continue;

@@ -13,7 +13,7 @@
    `plugin_printgestion_install()` :
    - joue les **étapes de migration de schéma** non encore appliquées (voir §2) ;
    - réenregistre les 3 crons ;
-   - **réécrit les gabarits mail** (voir §3 — écrase les éditions manuelles fr_FR).
+   - **crée les gabarits mail manquants** (voir §3 — un gabarit existant n'est jamais réécrit).
    Une erreur SQL pendant la migration **fait échouer la mise à jour** (message affiché) : corriger
    la cause puis relancer, l'étape en échec est rejouée.
 3. Incrémenter le **jeton anti-cache** des assets si `public/css/*` ou `public/js/*` a changé :
@@ -58,12 +58,12 @@ masque une erreur de migration.
 
 ## 3. Gabarits mail : source de vérité et cycle de vie
 
-- **La source de vérité est le code** : `hook.php → plugin_printgestion_template_definitions()`.
-  Les gabarits en base (`glpi_notificationtemplates`, marqueur
-  `comment = 'Created by plugin printgestion'`) sont **réécrits** (sujet + contenu fr_FR)
-  à chaque install/« Mettre à jour ».
-- Donc : **ne pas modifier les gabarits dans l'interface GLPI** (perdu à la prochaine update) —
-  modifier `hook.php`, puis « Mettre à jour » le plugin.
+- **Le texte par défaut est dans le code** : `hook.php → plugin_printgestion_template_definitions()`.
+  À l'installation, les gabarits manquants sont créés en base (`glpi_notificationtemplates`, marqueur
+  `comment = 'Created by plugin printgestion'`). **Un gabarit existant n'est jamais réécrit** : les
+  modifications faites dans l'interface GLPI (Configuration → Notifications → Modèles) survivent aux mises à jour.
+- Pour revenir au texte par défaut d'un gabarit : le supprimer dans GLPI, puis « Mettre à jour » le plugin,
+  qui le recrée et reprend son identifiant dans la configuration.
 - Après toute modification de gabarit, **régénérer l'aperçu** :
 
   ```bash

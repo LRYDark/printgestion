@@ -82,5 +82,6 @@ Le serveur SMTP de l'instance est réglé sur 127.0.0.1 par `donnees.py` : aucun
 | `sante.py` | Carte « Santé de la configuration » : chaque contrôle mis en défaut puis rétabli, URL confirmée par un agent, profils |
 | `suivi_gls.py` | Suivi GLS : nettoyage du numéro, repli unique sur E_404_01, lots de 10, réponses simulées |
 | `modules.py` | Interrupteurs de modules : chaque point d'entrée en 404 quand son module est désactivé, fermé par défaut |
+| `gabarits.py` | Gabarits de mail : un gabarit modifié par l'administrateur survit à une réinstallation ; un gabarit absent est recréé |
 
 Chaque constat est `OK`, `KO`, `À NOTER` ou `NON CONCLUANT` ; `lancer.py` résume et relève les erreurs des journaux GLPI.

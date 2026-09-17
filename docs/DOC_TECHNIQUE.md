@@ -962,8 +962,8 @@ Détails d'implémentation (tous dans `expedition.class.php` sauf mention) :
 ### 6.3 Gabarits de notification
 
 - **Source de vérité : `hook.php` → `plugin_printgestion_template_definitions()`** (fonction pure).
-- À chaque install/« Mettre à jour » du plugin, `plugin_printgestion_create_templates()` crée
-  ou **réécrit** (sujet + contenu fr_FR) les gabarits dans `glpi_notificationtemplates` /
+- À chaque install/« Mettre à jour » du plugin, `plugin_printgestion_create_templates()` crée les gabarits
+  **manquants** (jamais réécrits : les modifications de l'administrateur survivent) dans `glpi_notificationtemplates` /
   `glpi_notificationtemplatetranslations` (marqués `comment = 'Created by plugin printgestion'`).
   Les IDs sont stockés dans la config (`gabarit_planif`, `gabarit_planif_group`, `gabarit_achat`,
   `gabarit_commercial`, `gabarit_rappel`, `gabarit_courtoisie`).
