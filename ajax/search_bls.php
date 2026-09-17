@@ -81,17 +81,17 @@ foreach ($DB->request([
         'entity_name' => (string)($row['entity_name'] ?? ''),
     ];
     $seen_bls[strtoupper($bl_num)] = true;
-    // Le BL local peut être suffixé avec le client (ex: "BL203846_REINERT_JORIS").
-    // On marque aussi le préfixe brut (BL203846) comme "vu" pour éviter que
+    // Le BL local peut être suffixé avec le client (ex: "BL000123_CLIENT_TEST").
+    // On marque aussi le préfixe brut (BL000123) comme "vu" pour éviter que
     // la recherche SAGE ajoute un doublon quand l'utilisateur cherche juste
-    // "BL203846".
+    // "BL000123".
     if (preg_match('/^([A-Za-z]{2,}[0-9]{4,})/', $bl_num, $m)) {
         $seen_bls[strtoupper($m[1])] = true;
     }
 }
 
 // 2. Recherche BL SAGE (via SageApi) — uniquement si terme ressemble à un BL complet
-//    (ex: "BL203846" = 2+ lettres + 4+ chiffres). On ne retourne le BL SAGE que
+//    (ex: "BL000123" = 2+ lettres + 4+ chiffres). On ne retourne le BL SAGE que
 //    s'il n'est PAS déjà trouvé localement.
 $sage_error = false;
 if (preg_match('/^[A-Za-z]{2,}[0-9]{4,}$/', $q) && !isset($seen_bls[strtoupper($q)])) {

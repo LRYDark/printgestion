@@ -68,7 +68,7 @@ masque une erreur de migration.
 
   ```bash
   cd plugins/printgestion
-  php tools/generate_apercu.php     # → apercu_gabarits.html à la racine du plugin
+  php tools/generate_apercu.php     # → docs/apercu_gabarits.html
   ```
 
   Le générateur lit les définitions réelles (aucune BDD requise) ; si un nouveau gabarit ou une

@@ -1,6 +1,6 @@
 <?php
 /**
- * Génère apercu_gabarits.html (racine du plugin) à partir des définitions
+ * Génère docs/apercu_gabarits.html à partir des définitions
  * réelles de hook.php — aucun accès BDD, exécutable en CLI :
  *
  *   php tools/generate_apercu.php
@@ -30,7 +30,7 @@ $variants = [
         [
             'title'   => 'Envoi SIMPLE (1 cartouche, 1 client) — « Envoyer cartouche », groupe de 1, commande de 1',
             'balises' => [
-                '##printgestion.client##'    => 'ACME SARL &gt; Agence Metz',
+                '##printgestion.client##'    => 'Client test &gt; Site test A',
                 '##printgestion.printer##'   => 'Canon iR-ADV C3530i',
                 '##printgestion.toner##'     => 'tonerblack',
                 '##printgestion.level##'     => '8',
@@ -52,7 +52,7 @@ $variants = [
                 '##printgestion.count##'           => '23',
                 '##printgestion.cartridges_list##' => $li([
                     '<strong>C-EXV 49 Noir</strong> — ACME SARL — Canon iR-ADV C3530i',
-                    '<strong>TN-324 Cyan</strong> — Mairie de Thionville — Konica C258',
+                    '<strong>TN-324 Cyan</strong> — Collectivité test — Konica C258',
                     '<strong>W9050MC Noir</strong> — Cabinet Durand — HP E87640',
                     '<strong>C-EXV 54 Magenta</strong> — Garage Schmitt — Canon iR C3226i',
                     '<strong>TN-626 Jaune</strong> — SCI Les Tilleuls — Konica C450i',
@@ -63,7 +63,7 @@ $variants = [
             'title'   => 'Envoi groupé même imprimante (3 toners d\'un copieur) — mono-client',
             'attachment' => 'Commande_cartouches_10062026_1430_e5f6a7b8.xlsx',
             'balises' => [
-                '##printgestion.client##'          => 'ACME SARL &gt; Agence Metz',
+                '##printgestion.client##'          => 'Client test &gt; Site test A',
                 '##printgestion.printer##'         => 'Canon iR-ADV C3530i',
                 '##printgestion.contract##'        => 'CONTRAT-COPIE-2026',
                 '##printgestion.count##'           => '3',
@@ -89,13 +89,13 @@ $variants = [
         [
             'title'   => 'Envoi SIMPLE (info après expédition marquée envoyée — avec transporteur)',
             'balises' => [
-                '##printgestion.client##'   => 'ACME SARL &gt; Agence Metz',
+                '##printgestion.client##'   => 'Client test &gt; Site test A',
                 '##printgestion.printer##'  => 'Canon iR-ADV C3530i',
                 '##printgestion.toner##'    => 'tonerblack',
                 '##printgestion.level##'    => '8',
                 '##printgestion.days##'     => '4',
-                '##printgestion.carrier##'  => 'UPS',
-                '##printgestion.tracking##' => '1Z999AA10123456784',
+                '##printgestion.carrier##'  => 'GLS',
+                '##printgestion.tracking##' => '00TSTA1X',
             ],
         ],
         [
@@ -108,7 +108,7 @@ $variants = [
                 '##printgestion.days##'            => '2',
                 '##printgestion.cartridges_list##' => $li([
                     '<strong>Canon iR-ADV C3530i</strong> — ACME SARL — tonerblack — 8% — 4 j',
-                    '<strong>Konica C258</strong> — Mairie de Thionville — tonercyan — 5% — 2 j',
+                    '<strong>Konica C258</strong> — Collectivité test — tonercyan — 5% — 2 j',
                     '<strong>HP E87640</strong> — Cabinet Durand — tonerblack — 11% — 6 j',
                     '<strong>Canon iR C3226i</strong> — Garage Schmitt — tonermagenta — 14% — 8 j',
                 ], '… et 3 autres'),
@@ -126,7 +126,7 @@ $variants = [
                 '##printgestion.days##'            => '12',
                 '##printgestion.cartridges_list##' => $li([
                     '<strong>Canon iR-ADV C3530i</strong> — ACME SARL — tonerblack — expédiée il y a 12 j',
-                    '<strong>Konica C258</strong> — Mairie de Thionville — tonercyan — expédiée il y a 9 j',
+                    '<strong>Konica C258</strong> — Collectivité test — tonercyan — expédiée il y a 9 j',
                     '<strong>HP E87640</strong> — ACME SARL — tonerblack — expédiée il y a 8 j',
                 ]),
             ],
@@ -136,7 +136,7 @@ $variants = [
         [
             'title'   => 'Courtoisie client — REGROUPÉ par destinataire (3 imprimantes du même contact = 1 seul mail)',
             'balises' => [
-                '##printgestion.client##'        => 'ACME SARL &gt; Agence Metz',
+                '##printgestion.client##'        => 'Client test &gt; Site test A',
                 '##printgestion.printer##'       => 'Canon iR-ADV C3530i, Konica C258, HP E87640',
                 '##printgestion.count##'         => '3',
                 '##printgestion.printers_list##' => $li([
@@ -193,6 +193,6 @@ foreach ($templates as $field => $tpl) {
 
 $out .= '</body></html>';
 
-$target = dirname(__DIR__) . '/apercu_gabarits.html';
+$target = dirname(__DIR__) . '/docs/apercu_gabarits.html';
 file_put_contents($target, $out);
 echo "OK — écrit : $target\n";

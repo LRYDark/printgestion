@@ -228,8 +228,8 @@ HTML;
         $title   = __('Associer des BL (plugin Gestion)', 'printgestion');
         $close   = _sx('button', 'Close');
         $save    = _sx('button', 'Save');
-        $intro   = __('Tape un numéro de BL (ex : BL203846) puis Entrée. Les BL SAGE sont vérifiés automatiquement. Dès qu\'un BL associé est signé côté client, l\'expédition passera en livrée.', 'printgestion');
-        $label   = __('Tape le numéro de document (ex : BL154869), puis Entrée', 'printgestion');
+        $intro   = __('Tape un numéro de BL (ex : BL000123) puis Entrée. Les BL SAGE sont vérifiés automatiquement. Dès qu\'un BL associé est signé côté client, l\'expédition passera en livrée.', 'printgestion');
+        $label   = __('Tape le numéro de document (ex : BL000456), puis Entrée', 'printgestion');
         $placeholder = __('Tape au moins 2 caractères — ex: BL203...', 'printgestion');
 
         $labels = [

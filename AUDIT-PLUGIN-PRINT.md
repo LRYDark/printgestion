@@ -393,7 +393,7 @@ Générateur : `Expedition::buildPurchaseExcel`, `inc/expedition.class.php:848-8
 
 **Le double espace de la colonne E.**
 - Le plugin ne le reproduit pas : chaque morceau est nettoyé de ses espaces.
-- Dans l'exemple réel, le double espace vient très probablement d'un espace final dans le libellé de localisation d'origine (« Ecole Primaire FREINET␠ »), pas d'une règle de format.
+- Dans l'exemple réel, le double espace vient très probablement d'un espace final dans le libellé de localisation d'origine (« Lieu test␠ »), pas d'une règle de format.
 - **Recommandation** : ne pas le fabriquer. Garder le séparateur ` # ` exact et le valider par un import test côté Achats.
 - **Point à vérifier** : la longueur maximale de la désignation dans Sage 100 (usuellement 69 caractères). L'exemple en fait 67 et le plugin ne tronque pas.
 

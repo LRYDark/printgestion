@@ -39,8 +39,8 @@ printgestion/
 ├── ajax/                # endpoints AJAX (actions dashboard, envois cartouches, exports…)
 ├── public/css|js/       # assets (chargés avec jeton anti-cache ?b=N)
 ├── tools/
-│   └── generate_apercu.php  # régénère apercu_gabarits.html depuis hook.php (CLI, sans BDD)
-├── apercu_gabarits.html # aperçu HTML de tous les gabarits mail (généré)
+│   └── generate_apercu.php  # régénère docs/apercu_gabarits.html depuis hook.php (CLI, sans BDD)
+├── docs/apercu_gabarits.html # aperçu HTML de tous les gabarits mail (généré)
 └── docs/                # cette documentation
 ```
 
@@ -970,7 +970,7 @@ Détails d'implémentation (tous dans `expedition.class.php` sauf mention) :
 - L'envoi (`Config::sendMail($emails, $gabarit_id, $balises, $attachment)`) charge la traduction
   (langue session → 2 lettres → fr_FR → première dispo), substitue les balises, envoie via
   `GLPIMailer` (Symfony Mailer GLPI 11), pièce jointe optionnelle.
-- **Aperçu** : `apercu_gabarits.html` à la racine, régénérable par `php tools/generate_apercu.php`
+- **Aperçu** : `docs/apercu_gabarits.html`, régénérable par `php tools/generate_apercu.php`
   (lit les vraies définitions, aucune BDD).
 
 ### 6.4 Balises disponibles

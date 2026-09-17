@@ -47,7 +47,7 @@ Trois modules indépendants, activables par interrupteur dans la configuration :
 - **Aucune rafale de mails** : envois multi regroupés (1 mail avec liste plafonnée à 20 lignes,
   détail complet dans l'Excel joint), courtoisie regroupée par contact, crons en digest
   (1 mail par exécution).
-- 6 gabarits HTML responsive créés automatiquement, aperçu dans `apercu_gabarits.html`.
+- 6 gabarits HTML responsive créés automatiquement, aperçu dans `docs/apercu_gabarits.html`.
 
 ---
 
@@ -92,7 +92,7 @@ plugins (installation idempotente — les données sont conservées).
 |---|---|
 | [docs/DOC_TECHNIQUE.md](docs/DOC_TECHNIQUE.md) | Fonctionnement interne : architecture, modèle de données, flux toner, cycle d'expédition, circuits mail, crons, intégration moteur de recherche |
 | [docs/DOC_MAINTENANCE.md](docs/DOC_MAINTENANCE.md) | Maintenance : procédure de mise à jour, évolution du schéma, gabarits mail, règles d'envoi, gotchas GLPI 11, dépannage, checklist |
-| [apercu_gabarits.html](apercu_gabarits.html) | Aperçu visuel des gabarits mail (régénérable : `php tools/generate_apercu.php`) |
+| [docs/apercu_gabarits.html](docs/apercu_gabarits.html) | Aperçu visuel des gabarits mail (régénérable : `php tools/generate_apercu.php`) |
 
 ---
 

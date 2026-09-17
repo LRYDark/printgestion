@@ -6,7 +6,7 @@
  *   - expedition_id : int
  *   - bls           : JSON array de strings. Chaque élément est soit :
  *                     - "123"            → ID numérique dans glpi_plugin_gestion_surveys
- *                     - "sage:BL203846"  → BL présent uniquement dans SAGE, à préparer
+ *                     - "sage:BL000123"  → BL présent uniquement dans SAGE, à préparer
  *                                          d'abord via l'endpoint gestion
  *
  * Pour les "sage:..." :
