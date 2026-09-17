@@ -38,7 +38,7 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
     }
 
     public static function canView(): bool {
-        return Session::haveRight('plugin_printgestion_dashboard', READ);
+        return PluginPrintgestionConfig::isFeatureEnabled('toner') && Session::haveRight('plugin_printgestion_dashboard', READ);
     }
 
     /** Table calculée : aucune création, modification ou suppression manuelle. */

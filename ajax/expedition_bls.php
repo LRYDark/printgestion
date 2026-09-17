@@ -14,7 +14,8 @@ include('../../../inc/includes.php');
 Session::checkLoginUser();
 
 $plugin = new Plugin();
-if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
+if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')
+    || !PluginPrintgestionConfig::isFeatureEnabled('toner')) {
     http_response_code(404);
     echo json_encode(['ok' => false, 'error' => 'Plugin not active']);
     exit;

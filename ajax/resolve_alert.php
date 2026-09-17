@@ -4,7 +4,8 @@ include('../../../inc/includes.php');
 Session::checkLoginUser();
 
 $plugin = new Plugin();
-if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
+if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')
+    || !PluginPrintgestionConfig::isFeatureEnabled('toner')) {
     throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 

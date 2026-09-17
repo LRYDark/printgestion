@@ -11,6 +11,8 @@
 Print Gestion couvre 5 domaines, activables indépendamment par des **interrupteurs de modules**
 (Configuration → onglet Print Gestion) :
 
+Chaque point d'entrée de `front/` et `ajax/` vérifie **plugin actif ET module activé** dans sa garde initiale, avant toute lecture de paramètre ou test de méthode, avec la même réponse 404 que « plugin inactif » (`tests/securite/modules.py` désactive chaque module et attend 404 sur chacun de ses points d'entrée). `PluginPrintgestionConfig::isFeatureEnabled()` est **fermé par défaut** : colonne absente ou nom de module inconnu = module désactivé, jamais ouvert en silence.
+
 | Module (feature) | Contenu |
 |---|---|
 | `contrats` | Dashboard contrats d'impression, liste avec moteur de recherche natif, création/association imprimante ↔ contrat (« Créer Print »), tarifs €/page par contrat |

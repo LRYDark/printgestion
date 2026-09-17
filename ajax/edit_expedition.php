@@ -5,7 +5,8 @@ Session::checkLoginUser();
 Session::checkRight('plugin_printgestion_expedition', UPDATE);
 
 $plugin = new Plugin();
-if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
+if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')
+    || !PluginPrintgestionConfig::isFeatureEnabled('toner')) {
     http_response_code(404);
     echo json_encode(['ok' => false, 'error' => 'Plugin not active']);
     exit;

@@ -92,9 +92,11 @@ class PluginPrintgestionConfig extends CommonDBTM {
         if (!$DB->tableExists(self::getTable())) {
             return false;
         }
+        // Fermé par défaut : une colonne absente ou un nom de module mal orthographié désactive le module, il ne
+        // l'ouvre jamais en silence. Les colonnes existent avec la valeur 1 dès l'installation (schéma de référence).
         $cfg = self::getInstance();
         $col = 'enable_' . $feature;
-        return (int) ($cfg->fields[$col] ?? 1) === 1;
+        return (int) ($cfg->fields[$col] ?? 0) === 1;
     }
 
     function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {

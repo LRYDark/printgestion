@@ -10,7 +10,8 @@ include('../../../inc/includes.php');
 Session::checkLoginUser();
 
 $plugin = new Plugin();
-if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
+if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')
+    || (!PluginPrintgestionConfig::isFeatureEnabled('toner') && !PluginPrintgestionConfig::isFeatureEnabled('cout'))) {
     http_response_code(404);
     echo json_encode(['ok' => false, 'error' => 'Plugin not active']);
     exit;
@@ -19,8 +20,8 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
 // Recalcul complet des alertes (lourd : vidage et reconstruction de la table) :
 // réservé au droit de modification des alertes. Invalidation du cache de
 // facturation : droit de lecture du coût à la page.
-$can_refresh_alerts  = Session::haveRight('plugin_printgestion_dashboard', UPDATE);
-$can_refresh_billing = Session::haveRight('plugin_printgestion_billing', READ);
+$can_refresh_alerts  = PluginPrintgestionConfig::isFeatureEnabled('toner') && Session::haveRight('plugin_printgestion_dashboard', UPDATE);
+$can_refresh_billing = PluginPrintgestionConfig::isFeatureEnabled('cout') && Session::haveRight('plugin_printgestion_billing', READ);
 
 if (!$can_refresh_alerts && !$can_refresh_billing) {
     http_response_code(403);

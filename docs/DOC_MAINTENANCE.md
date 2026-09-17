@@ -485,5 +485,6 @@ reconduction tacite (un contrat terminé ne couvre plus rien).
 - [ ] Carte « Santé de la configuration » : « Configuration : complète » sur le serveur cible.
 - [ ] Pas de nouvelle table/colonne oubliée pour les instances existantes (§2).
 - [ ] Aucune donnée PHP écrite dans un `<script>` exécuté : `PluginPrintgestionUi::jsonData()` (§5).
+- [ ] Nouveau point d'entrée `front/` ou `ajax/` : garde « plugin actif ET module activé » en tête (même 404), et l'ajouter à `tests/securite/modules.py`.
 - [ ] Écran du module Déploiement : le technicien (droit Déploiement seul) voit l'état et l'action ; commandes, propriétés, chemins de menu, noms de règles et versions seulement pour l'administrateur (`PluginPrintgestionUi::statusLine()`, `adminDetails()`, `infoButton()`, `data-pg-admin`). Nouvel écran : l'ajouter à `tests/securite/interface.py`.
 - [ ] Toute nouvelle table de données client porte `entities_id` / `is_recursive`, posés à l'écriture par `PluginPrintgestionEntityscope`.
