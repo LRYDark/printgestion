@@ -355,7 +355,7 @@ class PluginPrintgestionCollectsetup {
     public static function plan(PluginPrintgestionRaccordement $racc, array $input): array {
         $plan = ['errors' => [], 'notes' => [], 'credential' => null, 'ranges' => [], 'modules' => [], 'tasks' => []];
         if (!self::isAvailable()) {
-            $plan['errors'][] = __('Plugin GLPI Inventory absent ou inactif : aucune tâche réseau ne peut être créée.', 'printgestion');
+            $plan['errors'][] = __('La collecte réseau n\'est pas disponible sur ce serveur (module d\'inventaire réseau absent ou inactif) : prévenez l\'administrateur.', 'printgestion');
             return $plan;
         }
         $agent = new Agent();
@@ -447,7 +447,7 @@ class PluginPrintgestionCollectsetup {
                 if (!($range['end'] < $start || $range['start'] > $end)) {
                     $overlap          = true;
                     $plan['errors'][] = sprintf(
-                        __('La plage à créer (%1$s – %2$s) chevaucherait la plage « %3$s » (%4$s – %5$s) : déclarez les adresses de part et d\'autre dans des raccordements séparés, ou élargissez la plage existante dans GLPI Inventory.', 'printgestion'),
+                        __('La plage à créer (%1$s – %2$s) chevaucherait la plage « %3$s » (%4$s – %5$s) : déclarez les adresses de part et d\'autre dans des raccordements séparés, ou demandez à l\'administrateur d\'élargir la plage existante.', 'printgestion'),
                         long2ip($start),
                         long2ip($end),
                         $range['name'],
@@ -479,7 +479,7 @@ class PluginPrintgestionCollectsetup {
         foreach (self::METHODS as $modulename) {
             $module = self::getModule($modulename);
             if ($module === null) {
-                $plan['errors'][] = sprintf(__('Module « %s » introuvable dans GLPI Inventory.', 'printgestion'), $modulename);
+                $plan['errors'][] = sprintf(__('Module de collecte « %s » introuvable sur ce serveur : prévenez l\'administrateur.', 'printgestion'), $modulename);
                 continue;
             }
             $plan['modules'][$modulename] = self::isModuleActiveForAgent($module, $agents_id);
@@ -498,7 +498,7 @@ class PluginPrintgestionCollectsetup {
                     $found = true;
                     if ((int) $job['is_active'] !== 1) {
                         $plan['errors'][] = sprintf(
-                            __('La tâche « %1$s » collecte déjà la plage « %2$s » avec cette sonde, mais elle est désactivée : réactivez-la dans GLPI Inventory plutôt que d\'en créer une seconde.', 'printgestion'),
+                            __('La tâche « %1$s » collecte déjà la plage « %2$s » avec cette sonde, mais elle est désactivée : demandez à l\'administrateur de la réactiver plutôt que d\'en créer une seconde.', 'printgestion'),
                             $job['task_name'],
                             $range['name']
                         );
@@ -600,7 +600,7 @@ class PluginPrintgestionCollectsetup {
             foreach (self::METHODS as $modulename) {
                 $module = self::getModule($modulename);
                 if ($module === null) {
-                    throw new DomainException(sprintf(__('module « %s » introuvable dans GLPI Inventory', 'printgestion'), $modulename));
+                    throw new DomainException(sprintf(__('module de collecte « %s » introuvable sur ce serveur', 'printgestion'), $modulename));
                 }
                 if (self::isModuleActiveForAgent($module, $agents_id)) {
                     continue;
@@ -775,7 +775,7 @@ class PluginPrintgestionCollectsetup {
         global $DB;
 
         if (!self::isAvailable()) {
-            return ['ok' => false, 'events' => [['error', __('Plugin GLPI Inventory absent ou inactif.', 'printgestion')]]];
+            return ['ok' => false, 'events' => [['error', __('La collecte réseau n\'est pas disponible sur ce serveur (module d\'inventaire réseau absent ou inactif) : prévenez l\'administrateur.', 'printgestion')]]];
         }
         $agent = new Agent();
         if (!$agent->getFromDB((int) $racc->fields['agents_id'])) {
@@ -789,10 +789,10 @@ class PluginPrintgestionCollectsetup {
         foreach ($task_ids as $tasks_id) {
             $task = new PluginGlpiinventoryTask();
             if (!$task->getFromDB($tasks_id)) {
-                return ['ok' => false, 'events' => [['error', sprintf(__('La tâche de découverte n° %d a été supprimée dans GLPI Inventory.', 'printgestion'), $tasks_id)]]];
+                return ['ok' => false, 'events' => [['error', sprintf(__('La tâche de découverte n° %d de ce raccordement a été supprimée côté serveur : recommencez l\'étape de configuration.', 'printgestion'), $tasks_id)]]];
             }
             if ((int) $task->fields['is_active'] !== 1) {
-                return ['ok' => false, 'events' => [['error', sprintf(__('La tâche « %s » a été désactivée dans GLPI Inventory : réactivez-la pour lancer la découverte.', 'printgestion'), $task->fields['name'])]]];
+                return ['ok' => false, 'events' => [['error', sprintf(__('La tâche de découverte « %s » a été désactivée côté serveur : demandez à l\'administrateur de la réactiver pour lancer la découverte.', 'printgestion'), $task->fields['name'])]]];
             }
             $tasks[] = $task;
         }
@@ -805,7 +805,7 @@ class PluginPrintgestionCollectsetup {
         }
         $pending = self::countPendingJobstates(self::getJobIds($racc, 'networkdiscovery'), (int) $agent->getID());
         if ($pending === 0) {
-            return ['ok' => false, 'events' => [['error', __('GLPI Inventory n\'a préparé aucune découverte pour cette sonde : vérifiez les dates et plages horaires de la tâche de découverte.', 'printgestion')]]];
+            return ['ok' => false, 'events' => [['error', __('Aucune découverte n\'a été préparée pour cette sonde : dates et plages horaires de la tâche de découverte à vérifier par l\'administrateur.', 'printgestion')]]];
         }
 
         $DB->update(PluginPrintgestionRaccordement::IPS_TABLE, [
@@ -824,7 +824,7 @@ class PluginPrintgestionCollectsetup {
         ])) {
             PluginPrintgestionLogger::error('collectsetup', sprintf('Raccordement #%d : découverte préparée (%d job(s)) mais statut « découverte lancée » non enregistré.', $racc->getID(), $pending));
             return ['ok' => false, 'events' => [['error', sprintf(
-                __('GLPI Inventory a préparé %d job(s), mais le raccordement n\'a pas pu passer à « découverte lancée » : relancez l\'étape.', 'printgestion'),
+                __('%d découverte(s) préparée(s), mais le raccordement n\'a pas pu passer à « découverte lancée » : relancez l\'étape.', 'printgestion'),
                 $pending
             )]]];
         }
@@ -940,7 +940,7 @@ class PluginPrintgestionCollectsetup {
         global $DB;
 
         if (!self::isAvailable()) {
-            return ['events' => [['error', __('Plugin GLPI Inventory absent ou inactif.', 'printgestion')]]];
+            return ['events' => [['error', __('La collecte réseau n\'est pas disponible sur ce serveur (module d\'inventaire réseau absent ou inactif) : prévenez l\'administrateur.', 'printgestion')]]];
         }
         $events      = [];
         $entities_id = (int) $racc->fields['entities_id'];

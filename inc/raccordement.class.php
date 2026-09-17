@@ -543,7 +543,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             $result = PluginPrintgestionCollectsetup::apply($racc, $plan);
             $report(3, $result['events']);
             if ($result['ok']) {
-                $report(3, [['success', __('Étape 3 validée : configuration de collecte en place dans GLPI Inventory.', 'printgestion')]]);
+                $report(3, [['success', __('Étape 3 validée : configuration de collecte en place.', 'printgestion')]]);
                 $report(3, [['info', PluginPrintgestionCollectfrequency::getJournalLine($entities_id)]]);
             }
             return $back;
@@ -630,8 +630,8 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 $list[] = sprintf('%s n° %s', $names[$itemtype] ?? $itemtype, implode(', ', array_map('intval', (array) $ids)));
             }
             $report($step, [['warning', empty($list)
-                ? __('Raccordement abandonné. Rien n\'avait été créé dans GLPI Inventory.', 'printgestion')
-                : sprintf(__('Raccordement abandonné. Rien n\'est supprimé : les objets créés dans GLPI Inventory restent en place (%s) ; désactivez la tâche dans GLPI Inventory si la collecte ne doit pas avoir lieu.', 'printgestion'), implode(' ; ', $list))]]);
+                ? __('Raccordement abandonné. Rien n\'avait été créé côté serveur.', 'printgestion')
+                : sprintf(__('Raccordement abandonné. Rien n\'est supprimé : les objets de collecte créés côté serveur restent en place (%s) ; l\'administrateur désactive la tâche si la collecte ne doit pas avoir lieu.', 'printgestion'), implode(' ; ', $list))]]);
             return $back;
         }
 
