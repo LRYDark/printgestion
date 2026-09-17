@@ -27,10 +27,15 @@ if ($exp === null) {
 }
 
 if ($action === 'ship') {
-    $carrier  = (string)($_POST['carrier']  ?? 'other');
+    $carrier  = (string)($_POST['carrier']  ?? '');
     $tracking = trim((string)($_POST['tracking'] ?? ''));
     $bl_id    = (int)($_POST['bl_surveys_id'] ?? 0) ?: null;
 
+    if (!in_array($carrier, PluginPrintgestionExpedition::CARRIERS, true)) {
+        // Jamais « Autre » par défaut : un transporteur non choisi n'est pas un transporteur.
+        Session::addMessageAfterRedirect(__('Choisissez le transporteur.', 'printgestion'), true, ERROR);
+        Html::back();
+    }
     if ($tracking === '') {
         Session::addMessageAfterRedirect(__('Numéro de suivi requis', 'printgestion'), true, ERROR);
         Html::back();

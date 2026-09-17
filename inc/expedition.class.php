@@ -31,6 +31,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      * en transit ET livré tant que la pose n'est pas constatée.
      */
     const ACTIVE_STATUSES = ['pending', 'shipped', 'transit', 'delivered'];
+    /** Transporteurs saisis à la main sur une expédition (annotation, pas une intégration) : aucun par défaut. */
+    const CARRIERS = ['ups', 'gls', 'chronopost', 'other'];
 
     /** Envois partis : seule leur cartouche peut avoir été posée (ailleurs que prévu). */
     const DEPARTED_STATUSES = ['shipped', 'transit', 'delivered'];
@@ -1203,8 +1205,10 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     public static function markShipped(int $expedition_id, string $carrier, string $tracking, ?int $bl_surveys_id = null): bool {
         global $DB;
 
-        $allowed = ['ups', 'gls', 'chronopost', 'other'];
-        $carrier = in_array($carrier, $allowed, true) ? $carrier : 'other';
+        // Transporteur inconnu ou non choisi : refus, jamais « Autre » en silence.
+        if (!in_array($carrier, self::CARRIERS, true)) {
+            return false;
+        }
 
         $data = [
             'statut'            => self::STATUS_SHIPPED,

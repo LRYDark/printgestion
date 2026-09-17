@@ -13,9 +13,10 @@ class PluginPrintgestionConfig extends CommonDBTM {
     static $rightname = 'plugin_printgestion_config';
 
     /** Colonnes chiffrées avec GLPIKey (déclarées au hook secured_fields dans setup.php). */
-    const SECRET_FIELDS = ['api_ups', 'api_gls', 'api_chronopost'];
+    /** Secrets chiffrés (GLPIKey), jamais réaffichés : le secret client GLS (suivi des colis, GLS seulement). */
+    const SECRET_FIELDS = ['gls_client_secret'];
     /** Jamais rendues par l'API REST (même chiffrées) : GLPI les retire de la réponse via unsetUndisclosedFields(). */
-    public static $undisclosedFields = self::SECRET_FIELDS;
+    public static $undisclosedFields = ['gls_client_id', 'gls_client_secret'];
 
     static private $_instance = null;
 
@@ -159,9 +160,9 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 `gabarit_commercial` int {$default_key_sign} DEFAULT NULL,
                 `gabarit_rappel` int {$default_key_sign} DEFAULT NULL,
                 `gabarit_courtoisie` int {$default_key_sign} DEFAULT NULL,
-                `api_ups` varchar(255) DEFAULT NULL,
-                `api_gls` varchar(255) DEFAULT NULL,
-                `api_chronopost` varchar(255) DEFAULT NULL,
+                `gls_client_id` varchar(255) DEFAULT NULL,
+                `gls_client_secret` varchar(255) DEFAULT NULL,
+                `gls_secret_date` timestamp NULL DEFAULT NULL,
                 `tracking_frequency` int NOT NULL DEFAULT '4',
                 `wrong_printer_auto_reassign_days` int NOT NULL DEFAULT '7',
                 `wrong_printer_lookback_days` int NOT NULL DEFAULT '30',
@@ -1184,39 +1185,37 @@ function printgestionToggleMode(role, useUsers) {
 </script>
 HTML;
 
-        // ── Transporteurs / API ───────────────────────────────────
-        // Clés chiffrées (GLPIKey) et jamais réaffichées, même partiellement.
+        // ── Suivi GLS (identifiant client et secret, rien d'autre : les URL sont des constantes du code) ──
+        $gls_id     = (string) ($config->fields['gls_client_id'] ?? '');
+        $gls_set    = (string) ($config->fields['gls_client_secret'] ?? '') !== '';
+        $gls_date   = (string) ($config->fields['gls_secret_date'] ?? '');
+        $esc        = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
-            . __('Transporteurs (clés API)', 'printgestion') . "</h3></div><div class='card-body'>";
+            . $esc(__('Suivi GLS', 'printgestion')) . "</h3></div><div class='card-body'>";
         echo "<p class='text-muted small mb-3'>"
-            . __('Les clés sont enregistrées chiffrées et ne sont jamais réaffichées. Un champ laissé vide conserve la clé déjà enregistrée.', 'printgestion')
+            . $esc(__('Identifiant client et secret de l\'API GLS (Piste et Trace). Des clés saisies et un dernier appel réussi : le suivi est actif, sans interrupteur. Sans clés, les expéditions GLS s\'affichent comme aujourd\'hui, transporteur et numéro saisis à la main. Le secret est enregistré chiffré et jamais réaffiché.', 'printgestion'))
             . "</p>";
-        foreach ([
-            'api_ups'        => 'UPS',
-            'api_gls'        => 'GLS',
-            'api_chronopost' => 'Chronopost',
-        ] as $field => $label) {
-            $is_set = (string)($config->fields[$field] ?? '') !== '';
-            echo "<div class='row mb-2 align-items-center'><div class='col-md-4'>"
-                . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . "</div><div class='col-md-5'>";
-            echo "<input type='password' class='form-control' name='{$field}' value='' autocomplete='new-password' placeholder='"
-                . htmlspecialchars(
-                    $is_set
-                        ? __('Clé enregistrée — saisir pour la remplacer', 'printgestion')
-                        : __('Aucune clé enregistrée', 'printgestion'),
-                    ENT_QUOTES,
-                    'UTF-8'
-                )
-                . "'>";
-            echo "</div><div class='col-md-3'>";
-            if ($is_set) {
-                echo "<div class='form-check'>"
-                    . "<input type='checkbox' class='form-check-input' name='clear_{$field}' value='1' id='clear_{$field}'>"
-                    . "<label class='form-check-label' for='clear_{$field}'>"
-                    . __('Effacer la clé', 'printgestion') . "</label></div>";
-            }
-            echo "</div></div>";
+        echo "<div class='row mb-2 align-items-center'><div class='col-md-4'>" . $esc(__('Client ID', 'printgestion')) . "</div><div class='col-md-5'>"
+            . "<input type='text' class='form-control' name='gls_client_id' maxlength='255' autocomplete='off' value='" . $esc($gls_id) . "'></div></div>";
+        echo "<div class='row mb-2 align-items-center'><div class='col-md-4'>" . $esc(__('Client Secret', 'printgestion')) . "</div><div class='col-md-5'>";
+        if ($gls_set) {
+            // Jamais réaffiché, même partiellement : un état et un bouton « Remplacer » qui dévoile le champ de saisie.
+            echo "<div class='d-flex align-items-center gap-2' id='pg-gls-secret-set'><code>••••••••</code> <span class='text-muted small'>"
+                . $esc($gls_date !== '' ? sprintf(__('défini le %s', 'printgestion'), Html::convDate($gls_date)) : __('défini', 'printgestion')) . "</span>"
+                . "<button type='button' class='btn btn-sm btn-outline-secondary' onclick=\"document.getElementById('pg-gls-secret-set').classList.add('d-none'); document.getElementById('pg-gls-secret-input').classList.remove('d-none');\">"
+                . $esc(__('Remplacer', 'printgestion')) . "</button></div>";
         }
+        echo "<input type='password' class='form-control" . ($gls_set ? " d-none" : '') . "' id='pg-gls-secret-input' name='gls_client_secret' value='' autocomplete='new-password' placeholder='"
+            . $esc($gls_set ? __('Nouveau secret : saisir pour remplacer', 'printgestion') : __('Aucun secret enregistré', 'printgestion')) . "'>";
+        echo "</div></div>";
+        if ($gls_set || $gls_id !== '') {
+            echo "<button type='submit' name='clear_gls' value='1' class='btn btn-sm btn-outline-danger' formnovalidate onclick=\"return confirm(" . $esc(json_encode(__('Retirer l\'identifiant et le secret GLS ? Les suivis déjà collectés restent en place.', 'printgestion'))) . ");\">"
+                . "<i class='ti ti-trash me-1'></i>" . $esc(__('Retirer les clés', 'printgestion')) . "</button>";
+        }
+        echo "</div></div>";
+
+        // ── Suivi : tâche automatique ──
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Suivi des expéditions : tâche automatique', 'printgestion')) . "</h3></div><div class='card-body'>";
         echo "<div class='row mb-2 align-items-center'><div class='col-md-4'>"
             . __('Fréquence tracking (heures)', 'printgestion') . "</div><div class='col-md-6'>";
         echo "<input type='number' min='1' class='form-control' name='tracking_frequency' value='"

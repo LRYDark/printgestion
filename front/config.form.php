@@ -32,6 +32,10 @@ if (isset($_POST['activate_contract_alerts'])) {
         ? PluginPrintgestionAgentdeploy::activateTagRule()
         : PluginPrintgestionAgentdeploy::createTagRule();
     Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : WARNING);
+} elseif (isset($_POST['clear_gls'])) {
+    // « Retirer les clés » GLS : identifiant et secret effacés, les suivis déjà collectés restent.
+    PluginPrintgestionConfig::getInstance()->update(['id' => 1, 'gls_client_id' => '', 'gls_client_secret' => '', 'gls_secret_date' => null]);
+    Session::addMessageAfterRedirect(__('Identifiant et secret GLS retirés : le suivi GLS est inactif, les suivis déjà collectés restent en place.', 'printgestion'), false, INFO);
 } elseif (isset($_POST['test_log'])) {
     // Bouton de la ligne « Journal du plugin » de la carte « Santé de la configuration » : aucun réglage enregistré.
     if (PluginPrintgestionLogger::writeTestEntry(getUserName((int) Session::getLoginUserID()))) {
@@ -119,27 +123,18 @@ if (isset($_POST['activate_contract_alerts'])) {
         'enable_sage'            => ((int)($_POST['enable_sage']     ?? 0) === 1) ? 1 : 0,
     ];
 
-    // Clés API transporteurs : chiffrées (GLPIKey) et jamais réaffichées.
-    // Champ vide = clé inchangée ; case « Effacer » = suppression de la clé.
-    foreach (PluginPrintgestionConfig::SECRET_FIELDS as $secret_field) {
-        if (!empty($_POST['clear_' . $secret_field])) {
-            $values[$secret_field] = '';
-            continue;
-        }
-        $submitted = trim((string)($_POST[$secret_field] ?? ''));
-        if ($submitted === '') {
-            continue;
-        }
+    // Suivi GLS : identifiant en clair (ce n'est pas un secret), secret chiffré (GLPIKey), jamais réaffiché.
+    // Secret vide = inchangé ; « Retirer les clés » est un bouton à part.
+    $values['gls_client_id'] = mb_substr(trim((string) ($_POST['gls_client_id'] ?? '')), 0, 255);
+    $submitted = trim((string) ($_POST['gls_client_secret'] ?? ''));
+    if ($submitted !== '') {
         $encrypted = (new GLPIKey())->encrypt($submitted);
         if ($encrypted === '') {
-            Session::addMessageAfterRedirect(
-                sprintf(__('Clé %s non enregistrée : chiffrement impossible (clé de chiffrement GLPI illisible).', 'printgestion'), $secret_field),
-                true,
-                ERROR
-            );
-            continue;
+            Session::addMessageAfterRedirect(__('Secret GLS non enregistré : chiffrement impossible (clé de chiffrement GLPI illisible).', 'printgestion'), true, ERROR);
+        } else {
+            $values['gls_client_secret'] = $encrypted;
+            $values['gls_secret_date']   = date('Y-m-d H:i:s');
         }
-        $values[$secret_field] = $encrypted;
     }
 
     if ($config->update($values)) {

@@ -376,11 +376,11 @@ def scenario_mail():
 # ── 6. Clés API ──────────────────────────────────────────────────────────────
 
 def scenario_cles_api():
-    section("6. Clés API transporteurs")
+    section("6. Suivi GLS : identifiant et secret")
     lib.connecter_admin()
     sortie = lib.php_glpi("$c = new PluginPrintgestionConfig(); $c->getFromDB(1); $f = $c->fields; PluginPrintgestionConfig::unsetUndisclosedFields($f); "
-                          "echo json_encode([array_values(array_intersect(array_keys($f), ['api_ups', 'api_gls', 'api_chronopost'])), array_key_exists('api_gls', $c->fields)]);")
-    constat("API REST : les colonnes de clés sont retirées de la réponse (undisclosedFields), la lecture interne garde les siennes",
+                          "echo json_encode([array_values(array_intersect(array_keys($f), ['gls_client_id', 'gls_client_secret'])), array_key_exists('gls_client_secret', $c->fields)]);")
+    constat("API REST : identifiant et secret GLS retirés de la réponse (undisclosedFields), la lecture interne garde les siens",
             ok_ko(json.loads(sortie) == [[], True]), sortie.strip())
     colonnes = [r[0] for r in lignes("SHOW COLUMNS FROM glpi_plugin_printgestion_configs")]
     choix = ", ".join(f"IFNULL(`{c}`, 'NULL')" for c in colonnes)
@@ -391,18 +391,25 @@ def scenario_cles_api():
         statut, page, _ = WEB.get(onglet, ajax=True)
         formulaire = lib.Formulaire("printgestion/front/config.form.php")
         formulaire.feed(page)
-        champs = [(n, v) for n, v in formulaire.champs if n not in ("_glpi_csrf_token", "api_ups", "update")]
+        champs = [(n, v) for n, v in formulaire.champs if n not in ("_glpi_csrf_token", "gls_client_id", "gls_client_secret", "update", "clear_gls")]
         if len(champs) < 5:
             constat("formulaire de configuration lu", "NON CONCLUANT", f"HTTP {statut}, {len(champs)} champ(s)")
             return
-        WEB.post(config.FRONT + "/config.form.php", champs + [("api_ups", CLE_TEST), ("update", "1")])
-        stockee = valeur("SELECT IFNULL(api_ups, 'NULL') FROM glpi_plugin_printgestion_configs WHERE id = 1") or ""
-        constat("clé enregistrée chiffrée, jamais en clair en base", ok_ko(stockee not in ("NULL", "", CLE_TEST) and CLE_TEST not in stockee))
+        WEB.post(config.FRONT + "/config.form.php", champs + [("gls_client_id", "ID-CLIENT-INVENTE-01"), ("gls_client_secret", CLE_TEST), ("update", "1")])
+        stockee = valeur("SELECT IFNULL(gls_client_secret, 'NULL') FROM glpi_plugin_printgestion_configs WHERE id = 1") or ""
+        constat("secret enregistré chiffré, jamais en clair en base, identifiant enregistré",
+                ok_ko(stockee not in ("NULL", "", CLE_TEST) and CLE_TEST not in stockee
+                      and valeur("SELECT gls_client_id FROM glpi_plugin_printgestion_configs WHERE id = 1") == "ID-CLIENT-INVENTE-01"))
         statut, page, _ = WEB.get(onglet, ajax=True)
-        constat("clé jamais réaffichée : absente de la page, texte d'aide générique", ok_ko(CLE_TEST not in page and "Clé enregistrée" in page))
+        constat("secret jamais réaffiché : « •••••••• défini le », boutons « Remplacer » et « Retirer les clés », aucune trace du secret",
+                ok_ko(CLE_TEST not in page and "défini le" in page and "Remplacer" in page and "Retirer les clés" in page))
         apres = lire()
-        autres = {c: (avant[c], apres[c]) for c in colonnes if c not in ("api_ups", "date_mod") and avant[c] != apres[c]}
+        autres = {c: (avant[c], apres[c]) for c in colonnes if c not in ("gls_client_id", "gls_client_secret", "gls_secret_date", "date_mod") and avant[c] != apres[c]}
         constat("enregistrement du formulaire : autres réglages inchangés (contrôle du test)", "OK" if not autres else "À NOTER", str(autres)[:300])
+        WEB.post(config.FRONT + "/config.form.php", [("clear_gls", "1")])
+        constat("« Retirer les clés » : identifiant et secret effacés, message rendu",
+                ok_ko(valeur("SELECT IFNULL(gls_client_secret, '') FROM glpi_plugin_printgestion_configs WHERE id = 1") == ""
+                      and valeur("SELECT IFNULL(gls_client_id, '') FROM glpi_plugin_printgestion_configs WHERE id = 1") == "" and "retirés" in WEB.messages()))
     finally:
         apres = lire()
         remise = ", ".join(f"`{c}` = {q(avant[c])}" for c in colonnes if c != "id" and apres[c] != avant[c])

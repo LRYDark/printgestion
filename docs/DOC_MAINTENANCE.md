@@ -427,6 +427,14 @@ quand même reçu la commande (erreur signalée par le serveur après remise du 
 4 h, la notification « Print Gestion - Commande non transmise aux Achats » part à l'administrateur et à l'auteur ;
 si le journal de la tâche `CheckAlerts` indique « non notifiées », vérifier que cette notification est active.
 
+### Suivi GLS : clés
+
+Configuration → Print Gestion → carte « Suivi GLS » : Client ID et Client Secret de l'API GLS (Piste et Trace). Le
+secret ne se relit jamais (« •••••••• défini le … », « Remplacer » pour en saisir un autre) ; « Retirer les clés »
+efface les deux et laisse les suivis collectés en place. Aucun interrupteur : des clés saisies et un dernier appel
+réussi, c'est un suivi actif ; sans clés, une expédition GLS s'affiche comme les autres (transporteur et numéro
+saisis à la main). Les autres transporteurs n'ont pas d'intégration.
+
 ### Commande refusée : « Fichier Gesconso non archivé »
 
 Rien n'a été enregistré ni envoyé aux Achats. Deux causes :

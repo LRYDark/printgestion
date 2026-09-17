@@ -69,7 +69,7 @@ Dropdown::showFromArray('carrier', [
     'gls'        => 'GLS',
     'chronopost' => 'Chronopost',
     'other'      => __('Autre', 'printgestion'),
-], ['value' => 'ups']);
+], ['value' => '', 'display_emptychoice' => true]);  // aucun transporteur présélectionné : un choix faux s'enregistrerait tout seul
 echo "</div>";
 
 echo "<div class='col-md-6'><label class='form-label'>" . __('N° de suivi', 'printgestion') . "</label>";

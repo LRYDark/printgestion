@@ -1090,6 +1090,16 @@ class PluginPrintgestionSchema {
         if ($DB->fieldExists($config, 'plugin_gestion_enabled')) {
             $migration->dropField($config, 'plugin_gestion_enabled');
         }
+        // Suivi GLS : identifiant client et secret (chiffré) remplacent les clés « UPS / GLS / Chronopost », qui
+        // n'ont jamais servi (fonctions d'appel vides).
+        $migration->addField($config, 'gls_client_id', 'varchar(255) DEFAULT NULL');
+        $migration->addField($config, 'gls_client_secret', 'varchar(255) DEFAULT NULL');
+        $migration->addField($config, 'gls_secret_date', 'timestamp NULL DEFAULT NULL');
+        foreach (['api_ups', 'api_gls', 'api_chronopost'] as $dead) {
+            if ($DB->fieldExists($config, $dead)) {
+                $migration->dropField($config, $dead);
+            }
+        }
         $migration->migrationOneTable($config);
     }
 

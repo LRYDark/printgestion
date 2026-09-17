@@ -29,7 +29,7 @@ class PluginPrintgestionReminder extends CommonGLPI {
             case 'PrintgestionCheckAlerts':
                 return ['description' => __('Print Gestion - Calcul et envoi des alertes toner', 'printgestion')];
             case 'PrintgestionTrackingUpdate':
-                return ['description' => __('Print Gestion - Mise à jour suivi transporteurs + BL', 'printgestion')];
+                return ['description' => __('Print Gestion - BL signés (plugin Gestion) → expéditions livrées', 'printgestion')];
             case 'PrintgestionProposeDemandes':
                 return ['description' => __('Print Gestion - Proposition des demandes d\'envoi à partir des alertes toner', 'printgestion')];
         }
@@ -112,10 +112,7 @@ class PluginPrintgestionReminder extends CommonGLPI {
         // 1. Plugin Gestion : BL signé → expédition delivered
         $updates += PluginPrintgestionTracking::syncDeliveredFromGestion();
 
-        // 2. API transporteurs (UPS / GLS / Chronopost)
-        $updates += PluginPrintgestionTracking::refreshFromCarriers();
-
-        // 3. Avancement des expéditions → demandes d'envoi exportées.
+        // 2. Avancement des expéditions → demandes d'envoi exportées.
         if ($updates > 0) {
             PluginPrintgestionDemande::syncFromExpeditions();
         }
