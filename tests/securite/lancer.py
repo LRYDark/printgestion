@@ -28,6 +28,19 @@ def main():
         ligne = re.findall(r"^Résultat : .*$", sortie, re.M)
         apres = donnees.empreinte()
         modifiees = [cle for cle in avant if avant[cle] != apres[cle]]
+        # Le détail de l'écart, pas seulement son nom : sans lui, un écart ponctuel ne s'explique pas.
+        for cle in modifiees:
+            if cle == "configuration":
+                colonnes = [c[0] for c in lib.lignes("SHOW COLUMNS FROM glpi_plugin_printgestion_configs")]
+                for ligne_avant, ligne_apres in zip(avant[cle], apres[cle]):
+                    for colonne, x, y in zip(colonnes, ligne_avant, ligne_apres):
+                        if x != y:
+                            print(f"    écart {cle} : {colonne} : {x!r} → {y!r}")
+            else:
+                for r in [r for r in avant[cle] if r not in apres[cle]][:5]:
+                    print(f"    écart {cle} : disparu {r}")
+                for r in [r for r in apres[cle] if r not in avant[cle]][:5]:
+                    print(f"    écart {cle} : apparu {r}")
         resume.append(f"{nom:10} code {res.returncode if not modifiees else 1} — {ligne[-1] if ligne else 'pas de bilan (voir la sortie)'}"
                       + (f" — DONNÉES DE RÉFÉRENCE MODIFIÉES : {', '.join(modifiees)}" if modifiees else ""))
     erreurs = lib.erreurs_php_depuis(tailles, attendues=("Fichier Gesconso non archivé", "panne simulee", "Proposition des demandes d'envoi", "Fréquence des relevés hors service"))
