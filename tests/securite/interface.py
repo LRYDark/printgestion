@@ -302,7 +302,24 @@ def main():
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.SITE_A2), ajax=True)
         constat("TAG absent, technicien sans droit : blocage et « Contactez l'administrateur »",
                 ok_ko(bloque in page and lien not in page and "Contactez l" in lib.texte(page) and "name='create_tag'" not in page))
+
+        section("9. URL de l'application vide, locale ou sans schéma : téléchargement bloqué, écran et accès direct")
+        avant = historique(d.CLIENT_A)
+        for url, cas in (("", "vide"), ("http://localhost", "locale"), ("http://127.0.0.1/glpi", "locale (127.0.0.1)"), ("glpi.exemple.test", "sans schéma")):
+            sql(f"UPDATE glpi_configs SET value = {lib.q(url)} WHERE context = 'core' AND name = 'url_base';")
+            lib.vider_cache()
+            _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+            statut, octets = telecharger(d.CLIENT_A)
+            constat(f"URL {cas} : « déploiement bloqué », « Contactez l'administrateur », aucun lien, accès direct refusé",
+                    ok_ko(bloque in page and "Contactez l" in lib.texte(page) and lien not in page and not octets.startswith(b"PK") and historique(d.CLIENT_A) == avant
+                          and not trouves(page)), f"HTTP {statut} ; {', '.join(trouves(page))}")
+        sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
+        lib.vider_cache()
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+        statut, octets = telecharger(d.CLIENT_A)
+        constat("URL rétablie : lien présent, paquet servi", ok_ko(bloque not in page and lien in page and octets.startswith(b"PK")), f"HTTP {statut}")
     finally:
+        sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
         lib.supprimer_regles_tag()
         sql(f"DELETE FROM glpi_agents WHERE id = {agent};")
         for entite, tag in tags.items():

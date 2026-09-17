@@ -35,7 +35,7 @@ if (!$package['ok']) {
     // Rattachement incomplet (TAG, règle d'affectation absente ou désactivée) : déploiement bloqué, même par l'URL.
     Session::addMessageAfterRedirect(implode('<br>', array_map(
         static fn(string $error) => htmlspecialchars($error, ENT_QUOTES, 'UTF-8'),
-        empty(PluginPrintgestionAgentdeploy::getAttachmentBlockers($entity))
+        empty(PluginPrintgestionAgentdeploy::getDeployBlockers($entity))
             ? $package['errors']
             : [__('Configuration incomplète — le déploiement est bloqué. Les imprimantes seraient rattachées au mauvais client, sans correction possible ensuite. Contactez l\'administrateur.', 'printgestion')]
     )), false, ERROR);

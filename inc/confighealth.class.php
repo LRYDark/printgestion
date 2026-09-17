@@ -34,6 +34,20 @@ class PluginPrintgestionConfighealth {
         $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $checks = [];
 
+        // En tête : une URL fausse rend chaque agent déployé injoignable par GLPI, sans réparation à distance.
+        $url_issue = PluginPrintgestionAgentdeploy::getApplicationUrlIssue();
+        $checks[]  = [
+            'key'    => 'app_url',
+            'group'  => 'required',
+            'label'  => __('URL de l\'application GLPI', 'printgestion'),
+            'state'  => $url_issue === '' ? self::STATE_OK : self::STATE_ERROR,
+            'status' => $url_issue === '' ? sprintf(__('Correcte : %s', 'printgestion'), (string) ($CFG_GLPI['url_base'] ?? '')) : $url_issue,
+            'breaks' => __('Un agent déployé avec une URL fausse ne contacte jamais GLPI et ne se répare pas à distance : il faut retourner sur le site. Le téléchargement des installeurs est bloqué tant qu\'elle est fausse.', 'printgestion'),
+            'fix'    => __('Configuration → Générale, « URL de l\'application »', 'printgestion'),
+            'url'    => Config::getFormURL(),
+            'detail' => '',
+        ];
+
         $inventory_on = (int) Config::getConfigurationValue('inventory', 'enabled_inventory') === 1;
         $checks[] = [
             'key'    => 'inventory',

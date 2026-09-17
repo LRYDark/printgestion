@@ -150,6 +150,35 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     }
 
     /** Adresses autorisées sur l'interface de l'agent : le poste lui-même, plus les adresses réglées. */
+    /**
+     * Défaut de l'URL de l'application GLPI (Configuration → Générale) qui rendrait tout agent déployé incapable de
+     * joindre GLPI, sans réparation à distance ; chaîne vide si rien à redire. Ce qui se vérifie d'ici : absolue
+     * avec un schéma, ni locale (localhost, 127.0.0.0/8, ::1, 0.0.0.0), ni nom sans domaine qui ne se résout pas.
+     * Qu'elle soit joignable depuis le réseau d'un client, seul un agent qui remonte le prouve (carte Santé).
+     */
+    public static function getApplicationUrlIssue(): string {
+        global $CFG_GLPI;
+
+        $url = trim((string) ($CFG_GLPI['url_base'] ?? ''));
+        if ($url === '') {
+            return __('URL de l\'application vide (Configuration → Générale) : un agent ne saurait pas où envoyer ses inventaires.', 'printgestion');
+        }
+        $parts  = parse_url($url);
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host   = strtolower(trim((string) ($parts['host'] ?? ''), '[]'));
+        if (!in_array($scheme, ['http', 'https'], true) || $host === '') {
+            return sprintf(__('URL de l\'application « %s » sans https:// (ou http://) ni nom de serveur : un agent ne peut pas l\'utiliser.', 'printgestion'), $url);
+        }
+        $ip = filter_var($host, FILTER_VALIDATE_IP);
+        if ($host === 'localhost' || $host === '::1' || $host === '0.0.0.0' || ($ip !== false && str_starts_with($host, '127.'))) {
+            return sprintf(__('URL de l\'application locale (« %s ») : un agent chez un client ne joindrait jamais GLPI.', 'printgestion'), $url);
+        }
+        if ($ip === false && !str_contains($host, '.') && gethostbyname($host) === $host) {
+            return sprintf(__('URL de l\'application avec un nom sans domaine qui ne se résout pas (« %s ») : un agent chez un client ne le trouverait pas.', 'printgestion'), $url);
+        }
+        return '';
+    }
+
     public static function getHttpdTrust(): string {
         $extra = (string) preg_replace('/\s+/', '', (string) (PluginPrintgestionConfig::getInstance()->fields['agent_httpd_trust'] ?? ''));
         return $extra !== '' ? self::LOCAL_TRUST . ',' . $extra : self::LOCAL_TRUST;
@@ -405,12 +434,13 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     // ── Paquet Windows ────────────────────────────────────────────────────────
 
     /**
-     * Motifs de rattachement qui bloquent le déploiement : TAG absent, inutilisable ou porté par plusieurs entités ;
-     * règle d'affectation par TAG absente ou désactivée. Seul blocage de l'écran de l'entité, parce que c'est le
-     * seul geste irréversible : les règles d'affectation d'entité ne jouent qu'au premier import, une imprimante
-     * remontée sans elles reste dans la mauvaise entité (transfert manuel, une par une).
+     * Motifs qui bloquent le déploiement, parce qu'ils ne se réparent pas sans retourner sur le site : TAG absent,
+     * inutilisable ou porté par plusieurs entités ; règle d'affectation par TAG absente ou désactivée (les règles
+     * d'entité ne jouent qu'au premier import : une imprimante remontée sans elles reste dans la mauvaise entité) ;
+     * URL de l'application vide, locale ou sans schéma (l'agent ne contacterait jamais GLPI, qui ne peut donc rien
+     * lui dire). Tout le reste — GLPI Inventory, cron — se répare après coup et n'est qu'un avertissement.
      */
-    public static function getAttachmentBlockers(Entity $entity): array {
+    public static function getDeployBlockers(Entity $entity): array {
         $blockers = [];
         $tag      = trim((string) ($entity->fields['tag'] ?? ''));
         if ($tag === '') {
@@ -426,15 +456,21 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 ? __('Aucune règle d\'affectation par TAG : les équipements découverts arriveraient dans l\'entité par défaut.', 'printgestion')
                 : __('Règle d\'affectation par TAG désactivée : elle n\'affecte rien, les équipements découverts arriveraient dans l\'entité par défaut.', 'printgestion');
         }
+        $url_issue = self::getApplicationUrlIssue();
+        if ($url_issue !== '') {
+            $blockers[] = $url_issue;
+        }
         return $blockers;
     }
 
     /** Motifs empêchant de produire le paquet d'une entité pour un système ; vide si prêt. */
     public static function getPackageBlockers(Entity $entity, string $platform = 'windows'): array {
-        $blockers = self::getAttachmentBlockers($entity);
+        $blockers = self::getDeployBlockers($entity);
 
         $server = self::getServerUrl();
-        if ($server['error'] !== '') {
+        if (self::getApplicationUrlIssue() !== '') {
+            // Déjà signalée comme blocage du déploiement : rien à ajouter.
+        } elseif ($server['error'] !== '') {
             $blockers[] = $server['error'];
         } elseif (!self::isValidServerUrl($server['url'])) {
             $blockers[] = __('URL du serveur donnée à l\'agent invalide (page « Installeur GLPI Agent »).', 'printgestion');
@@ -1222,7 +1258,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $fix_html = (string) ob_get_clean();
         // L'utilisateur lève lui-même tout le blocage : TAG absent qu'il peut créer (ou TAG correct), règle active ou
         // qu'il peut créer ou activer. Sinon « Contactez l'administrateur ».
-        $can_fix = ($tag_ok || ($tag === '' && $can_tag)) && ($rule['active'] !== null || $rule_form !== '');
+        $can_fix = ($tag_ok || ($tag === '' && $can_tag)) && ($rule['active'] !== null || $rule_form !== '') && self::getApplicationUrlIssue() === '';
 
         // ── 2. Télécharger l'installeur ──
         $version   = self::getServedVersion();
@@ -1234,7 +1270,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         }
         echo "<div class='card mb-3'><div class='card-header d-flex align-items-center'><h3 class='card-title mb-0'>" . $esc(__('2. Télécharger l\'installeur', 'printgestion')) . "</h3>"
             . "<div class='ms-auto'>" . PluginPrintgestionUi::infoButton(__('Contenu des paquets d\'installation', 'printgestion'), $admin ? self::getPackageDetailsHtml($tag, $version) : '') . "</div></div><div class='card-body'>";
-        $attachment   = self::getAttachmentBlockers($entity);
+        $attachment   = self::getDeployBlockers($entity);
         $all_blockers = array_values(array_diff(array_unique(array_merge(...array_values($blockers))), $attachment));
         $list         = static fn(array $items) => "<ul class='mb-0'>" . implode('', array_map(static fn(string $b) => '<li>' . $esc($b) . '</li>', $items)) . "</ul>";
         if (!empty($attachment)) {

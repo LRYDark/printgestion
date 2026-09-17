@@ -40,7 +40,8 @@ def main():
         section("1. Position et contenu")
         page, etats = carte()
         constat("carte « Santé de la configuration » en tête, avant les modules", ok_ko(0 <= page.find("Santé de la configuration") < page.find("Activation des modules")))
-        constat("7 contrôles : 5 obligatoires, 2 recommandés", ok_ko(list(etats) == ["inventory", "glpiinventory", "cron", "xlsx", "tag_rule", "glpicrypt", "log"]), str(etats))
+        constat("8 contrôles : 6 obligatoires, 2 recommandés, l'URL de l'application en tête",
+                ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "cron", "xlsx", "tag_rule", "glpicrypt", "log"]), str(etats))
         constat("glpicrypt.key : « non vérifiable automatiquement », état neutre, rien à cocher dans la carte",
                 ok_ko(etats.get("glpicrypt") == "manual" and "Non vérifiable automatiquement" in page
                       and "type='checkbox'" not in page[page.find("pg-config-health"):page.find("Activation des modules")]))
@@ -67,6 +68,15 @@ def main():
         constat("inventaire désactivé : rouge, chemin Administration → Inventaire, bannière, page non bloquée",
                 ok_ko(etats.get("inventory") == "error" and "Administration → Inventaire" in page and bandeau(page) and "name='threshold_days'" in page))
         sql(f"UPDATE glpi_configs SET value = {lib.q(inventaire)} WHERE context = 'inventory' AND name = 'enabled_inventory';")
+        lib.vider_cache()
+
+        for url, cas in (("http://localhost", "locale"), ("glpi.exemple.test", "sans schéma"), ("", "vide")):
+            sql(f"UPDATE glpi_configs SET value = {lib.q(url)} WHERE context = 'core' AND name = 'url_base';")
+            lib.vider_cache()
+            page, etats = carte()
+            constat(f"URL de l'application {cas} : rouge, lien vers Configuration → Générale, bannière",
+                    ok_ko(etats.get("app_url") == "error" and "config.form.php" in page and bandeau(page)), str(etats.get("app_url")))
+        sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
         lib.vider_cache()
 
         sql("UPDATE glpi_documenttypes SET is_uploadable = 0 WHERE ext = 'xlsx';")
@@ -127,6 +137,7 @@ def main():
         for ident, autorise in xlsx:
             sql(f"UPDATE glpi_documenttypes SET is_uploadable = {autorise} WHERE id = {ident};")
         sql(f"UPDATE glpi_plugins SET state = {etat_glpiinventory} WHERE directory = 'glpiinventory';")
+        sql(f"UPDATE glpi_configs SET value = {lib.q(d.CORE['url_base'])} WHERE context = 'core' AND name = 'url_base';")
         lib.supprimer_regles_tag()
         lib.vider_cache()
         CTX.nettoyer()

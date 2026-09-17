@@ -131,6 +131,7 @@ affichage ; la carte ne bloque rien. Tout vert : une ligne « Configuration : co
 
 | Contrôle | Rouge quand | Corriger |
 |---|---|---|
+| URL de l'application GLPI (obligatoire) | vide, `localhost` ou `127.x`, sans `https://`, ou nom sans domaine qui ne se résout pas : un agent déployé avec ne joindra jamais GLPI et ne se répare pas à distance ; le téléchargement des installeurs est bloqué | Configuration → Générale, « URL de l'application » |
 | Inventaire GLPI activé (obligatoire) | « Activer l'inventaire » décoché | Administration → Inventaire |
 | Plugin GLPI Inventory (obligatoire) | absent, inactif, version trop ancienne, fichiers ou tâche `taskscheduler` manquants | Configuration → Plugins → Marketplace |
 | Actions automatiques en mode CLI avec un cron système (obligatoire) | une action active est en mode « GLPI », ou aucune action en mode « CLI » n'a tourné depuis une heure (cron système arrêté ou absent) | Configuration → Actions automatiques, mode CLI pour chaque action ; crontab du compte du serveur web : `* * * * * php <GLPI>/front/cron.php` |
@@ -272,8 +273,9 @@ Pour chaque client :
 1. Fiche de l'entité → Informations avancées : renseigner le TAG (lettres, chiffres, point, tiret, soulignement ;
    unique), **avant le premier inventaire** : les règles d'entité ne jouent qu'au premier import.
 2. Onglet « Déploiement Agent » de l'entité : corriger ce qui n'est pas vert (le téléchargement reste bloqué tant que
-   le TAG manque ou que la règle d'affectation par TAG est absente ou désactivée : une imprimante remontée avant
-   resterait dans la mauvaise entité, à transférer à la main), régler la fréquence des relevés
+   le TAG manque, que la règle d'affectation par TAG est absente ou désactivée, ou que l'URL de l'application GLPI
+   est vide ou locale : une imprimante remontée avant resterait dans la mauvaise entité, un agent avec une URL
+   fausse ne se répare pas à distance), régler la fréquence des relevés
    d'imprimantes (quotidienne par défaut, toutes les N heures ou tous les N jours), puis télécharger le paquet du
    système du PC sonde (Windows, Linux ou macOS).
 3. Sur place : suivre `LISEZMOI.txt`, puis vérifier dans l'onglet que l'agent apparaît avec un contact récent et la
