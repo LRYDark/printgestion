@@ -222,7 +222,7 @@ Une fois pour tout le parc :
 
 1. Installer et activer le plugin **GLPI Inventory avant de déployer les sondes** : l'adresse du serveur donnée
    aux agents en dépend (`…/plugins/glpiinventory/`) ; un agent installé avant serait à réinstaller. Versions
-   prises en charge par l'assistant : série 1.6 (1.6.0 à 1.7.0 exclue, validée avec 1.6.10), avec sa tâche
+   : 1.6.0 minimum (bloquant en dessous), validée avec 1.6.10 ; plus récente, simple avertissement, avec sa tâche
    automatique `taskscheduler` programmée et le cron de GLPI qui tourne.
 2. Créer la règle d'affectation d'entité par TAG (Administration → Règles → Règles d'affectation d'un élément
    à une entité) : critère « Tag d'inventaire » vérifie l'expression régulière `/^(.*)$/`, action « Entité depuis
@@ -428,9 +428,11 @@ reconduction tacite (un contrat terminé ne couvre plus rien).
 - Bornes dans `setup.php` : `PLUGIN_PRINTGESTION_MIN_GLPI` / `MAX_GLPI` (actuel : 11.0.0 → 11.1.0).
   Après validation sur une nouvelle version GLPI, relever la borne max.
 - GLPI Inventory : bornes `GLPIINVENTORY_MIN_VERSION` / `GLPIINVENTORY_MAX_VERSION` dans
-  `inc/collectsetup.class.php` (actuel : 1.6.0 → 1.7.0 exclue, validé avec 1.6.10). Hors bornes, l'assistant de
-  raccordement est arrêté. Avant de relever une borne : refaire un raccordement complet sur une instance de test
-  (tâches, jobs, plages IP, préparation des jobs, états des jobs), puis mettre à jour `GLPIINVENTORY_TESTED_VERSION`.
+  `inc/collectsetup.class.php` (actuel : minimum 1.6.0, validé avec 1.6.10). Plus ancienne que le minimum : assistant
+  de raccordement arrêté. Plus récente que la version validée (série 1.7 comprise) : avertissement seulement, pour
+  ne jamais bloquer les techniciens à la sortie d'une version. À chaque nouvelle version : refaire un raccordement
+  complet sur une instance de test (tâches, jobs, plages IP, préparation des jobs, états des jobs), puis mettre à
+  jour `GLPIINVENTORY_TESTED_VERSION`.
 - Points sensibles à re-tester lors d'une montée GLPI :
   - `GLPIMailer` / Symfony Mailer (`Config::sendMail`, `Expedition::sendRawMail`) ;
   - moteur Search (tables matérialisées, `addDefaultWhere`, mapping itemtype) ;

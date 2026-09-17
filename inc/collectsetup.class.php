@@ -39,9 +39,9 @@ class PluginPrintgestionCollectsetup {
     const DEVICE_TYPES = ['Printer', 'NetworkEquipment', 'Unmanaged', 'Computer', 'Phone'];
 
     /**
-     * Versions de GLPI Inventory prises en charge : série 1.6, celle de GLPI 11 (1.6.0 : « GLPI v11
-     * compatibility »), borne haute exclue ; validée avec 1.6.10. L'assistant écrit dans ses tâches, jobs et
-     * plages IP : une autre série est refusée tant qu'elle n'a pas été vérifiée et ces bornes relevées.
+     * Versions de GLPI Inventory : 1.6.0 minimum (« GLPI v11 compatibility »), bloquant en dessous ; validée avec
+     * 1.6.10 ; au-delà, et à partir de la série 1.7.0 (GLPIINVENTORY_MAX_VERSION), simple avertissement
+     * (checkVersion()).
      */
     const GLPIINVENTORY_MIN_VERSION    = '1.6.0';
     const GLPIINVENTORY_MAX_VERSION    = '1.7.0';
@@ -81,17 +81,11 @@ class PluginPrintgestionCollectsetup {
             return self::$prerequisites;
         }
         $out    = ['blocking' => [], 'warnings' => [], 'version' => ''];
-        $range  = sprintf(
-            __('%1$s et suivantes, avant %2$s ; validé avec %3$s', 'printgestion'),
-            self::GLPIINVENTORY_MIN_VERSION,
-            self::GLPIINVENTORY_MAX_VERSION,
-            self::GLPIINVENTORY_TESTED_VERSION
-        );
         $plugin = new Plugin();
         if (!$plugin->getFromDBbyDir('glpiinventory') || (int) $plugin->fields['state'] === Plugin::NOTINSTALLED) {
             $out['blocking'][] = sprintf(
-                __('GLPI Inventory n\'est pas installé. Le récupérer (Configuration → Plugins → Marketplace, ou archive officielle décompressée dans le dossier plugins/glpiinventory de GLPI), puis Configuration → Plugins : « Installer », puis « Activer ». Versions prises en charge : %s.', 'printgestion'),
-                $range
+                __('GLPI Inventory envoie aux sondes les plages IP à scanner : sans lui, aucune imprimante ne remonte. L\'installer puis l\'activer dans Configuration → Plugins (version %s ou plus récente).', 'printgestion'),
+                self::GLPIINVENTORY_MIN_VERSION
             );
             return self::$prerequisites = $out;
         }
@@ -113,13 +107,9 @@ class PluginPrintgestionCollectsetup {
             return self::$prerequisites = $out;
         }
 
-        if (version_compare($out['version'], self::GLPIINVENTORY_MIN_VERSION, '<') || version_compare($out['version'], self::GLPIINVENTORY_MAX_VERSION, '>=')) {
-            $out['blocking'][] = sprintf(
-                __('GLPI Inventory %1$s n\'est pas une version prise en charge par Print Gestion (%2$s) : l\'assistant écrit dans ses tâches et ses plages IP, dont le format peut changer d\'une série à l\'autre. Installer une version prise en charge (Configuration → Plugins), ou faire vérifier cette version avant de raccorder.', 'printgestion'),
-                $out['version'],
-                $range
-            );
-        }
+        $version_check   = self::checkVersion($out['version']);
+        $out['blocking'] = array_merge($out['blocking'], $version_check['blocking']);
+        $out['warnings'] = array_merge($out['warnings'], $version_check['warnings']);
         if (!self::isAvailable()) {
             $out['blocking'][] = __('GLPI Inventory est actif mais ses classes sont introuvables (fichiers incomplets dans plugins/glpiinventory) : remettre les fichiers de la version installée.', 'printgestion');
         }
@@ -139,6 +129,33 @@ class PluginPrintgestionCollectsetup {
             }
         }
         return self::$prerequisites = $out;
+    }
+
+    /**
+     * Borne de version de GLPI Inventory : plus ancienne que la version minimale = bloquant (l'assistant y crée
+     * plages IP et tâches dans un format absent des anciennes versions) ; plus récente que la version validée,
+     * nouvelle série comprise = avertissement seulement, pour ne jamais bloquer les techniciens à la sortie
+     * d'une version de GLPI Inventory. Une version que GLPI juge incompatible n'est pas chargée : bloquée plus haut.
+     *
+     * @return array ['blocking' => string[], 'warnings' => string[]]
+     */
+    public static function checkVersion(string $version): array {
+        $out = ['blocking' => [], 'warnings' => []];
+        if (version_compare($version, self::GLPIINVENTORY_MIN_VERSION, '<')) {
+            $out['blocking'][] = sprintf(
+                __('GLPI Inventory %1$s est trop ancien pour l\'assistant, qui y crée les plages IP et les tâches des sondes : le mettre à jour en %2$s ou plus récent (Configuration → Plugins).', 'printgestion'),
+                $version,
+                self::GLPIINVENTORY_MIN_VERSION
+            );
+        } elseif (version_compare($version, self::GLPIINVENTORY_TESTED_VERSION, '>')) {
+            $out['warnings'][] = sprintf(
+                __('GLPI Inventory %1$s est plus récent que la version validée avec Print Gestion (%2$s)%3$s : le raccordement reste possible, vérifiez le premier de bout en bout (plage, tâche, imprimantes remontées).', 'printgestion'),
+                $version,
+                self::GLPIINVENTORY_TESTED_VERSION,
+                version_compare($version, self::GLPIINVENTORY_MAX_VERSION, '>=') ? __(', nouvelle série', 'printgestion') : ''
+            );
+        }
+        return $out;
     }
 
     public static function getMethodLabel(string $method): string {

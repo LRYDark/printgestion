@@ -978,7 +978,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             $esc(implode(' ', array_merge(
                 [$inventory_plugin
                     ? sprintf(__('Actif (version %s) : l\'agent recevra les tâches de découverte et d\'inventaire réseau.', 'printgestion'), $inventory_check['version'])
-                    : __('Absent ou inactif : l\'agent inventoriera son PC mais ne recevra aucune tâche réseau. Installez-le AVANT de déployer : l\'adresse du serveur donnée à l\'agent change, un agent déjà installé serait à réinstaller.', 'printgestion')],
+                    : __('Absent ou inactif : il envoie aux sondes les plages IP à scanner, sans lui aucune imprimante ne remonte. À installer et activer avant de déployer (Configuration → Plugins).', 'printgestion')],
                 $inventory_check['blocking'],
                 $inventory_check['warnings']
             )))
@@ -1202,7 +1202,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             self::checkItem(empty($inventory['blocking']), __('Plugin GLPI Inventory', 'printgestion'), $esc(implode(' ', array_merge(
                 [Plugin::isPluginActive('glpiinventory')
                     ? sprintf(__('Actif (version %s) : tâches de découverte et d\'inventaire réseau disponibles.', 'printgestion'), $inventory['version'])
-                    : __('Absent ou inactif : à installer avant de déployer les sondes (adresse du serveur des agents).', 'printgestion')],
+                    : __('Absent ou inactif : il envoie aux sondes les plages IP à scanner, sans lui aucune imprimante ne remonte. À installer et activer avant de déployer (Configuration → Plugins).', 'printgestion')],
                 $inventory['blocking'],
                 $inventory['warnings']
             )))),

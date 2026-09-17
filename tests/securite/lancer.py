@@ -12,7 +12,7 @@ import donnees
 import lib
 
 ICI = os.path.dirname(os.path.abspath(__file__))
-TESTS = ["harnais", "entites", "bl", "gesconso", "commandes", "journal", "parcours"]
+TESTS = ["harnais", "entites", "bl", "gesconso", "commandes", "journal", "prerequis", "parcours"]
 
 
 def main():
