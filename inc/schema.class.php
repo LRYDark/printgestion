@@ -1098,8 +1098,9 @@ class PluginPrintgestionSchema {
         // « Fréquence tracking » : jamais lue ; la fréquence est celle de la tâche automatique, réglée dans GLPI.
         // « URL du serveur » de l'installeur : déduite de l'URL de l'application GLPI, jamais réglée.
         // Filtres de facturation : critères de l'écran Facturation, plus un réglage.
+        // « Groupe technique » (group_tech) : jamais lu.
         foreach (['api_ups', 'api_gls', 'api_chronopost', 'tracking_frequency', 'agent_server_url',
-            'billing_require_contract', 'billing_require_counter', 'billing_require_activity'] as $dead) {
+            'billing_require_contract', 'billing_require_counter', 'billing_require_activity', 'group_tech'] as $dead) {
             if ($DB->fieldExists($config, $dead)) {
                 $migration->dropField($config, $dead);
             }

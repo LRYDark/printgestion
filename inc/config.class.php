@@ -759,8 +759,8 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 __('Délai rappel (jours)', 'printgestion'),
                 __("Nombre de jours après l'envoi d'une cartouche avant de déclencher un rappel automatique (mail + alerte dashboard) si l'installation n'a pas été détectée. Permet d'éviter les cartouches expédiées mais jamais posées.", 'printgestion')
             );
-        echo "<input type='number' min='0' class='form-control' name='reminder_days' value='"
-            . (int)($config->fields['reminder_days'] ?? 7) . "'></div>";
+        echo "<input type='number' min='1' class='form-control' name='reminder_days' value='"
+            . max(1, (int)($config->fields['reminder_days'] ?? 7)) . "'></div>";
 
         echo "<div class='col-md-3'>"
             . $label_with_tip(
@@ -981,6 +981,18 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 'emptylabel'          => '-----',
             ]);
             echo "</div></div>";
+            if ($role === 'planif') {
+                // Envoi groupé (plusieurs cartouches d'un coup) : gabarit à part (Expedition), enregistré ici.
+                echo "<div class='row mb-3 align-items-center'><div class='col-md-4'><label class='form-label mb-0'>"
+                    . __('Gabarit envoi groupé (plusieurs cartouches)', 'printgestion') . "</label></div><div class='col-md-8'>";
+                Dropdown::show('NotificationTemplate', [
+                    'name'                => 'gabarit_planif_group',
+                    'value'               => (int)($config->fields['gabarit_planif_group'] ?? 0),
+                    'display_emptychoice' => true,
+                    'emptylabel'          => '-----',
+                ]);
+                echo "</div></div>";
+            }
 
             // Destinataires : label + switch + panneau dynamique
             echo "<div class='row align-items-start'><div class='col-md-4'><label class='form-label mb-0'>"
