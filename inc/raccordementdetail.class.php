@@ -4,7 +4,7 @@
  * (module Collecte SNMP / Déploiement Agent, phase 3).
  *
  * Étape 2 : déclarés pour chaque adresse et gardés en attente. Le lieu accepte une saisie hiérarchique
- * (« FC Metz > Bâtiment B > Étage 4 > Bureau 3 ») ou plate ; les niveaux manquants sont créés dans
+ * (« Siège > Bâtiment B > Étage 4 > Bureau 3 ») ou plate ; les niveaux manquants sont créés dans
  * l'entité du client, comme le formulaire natif des lieux. Le contrat est choisi parmi ceux de l'entité.
  *
  * Étape 5 : appliqués seulement aux imprimantes réellement remontées dans l'entité du raccordement,
@@ -482,7 +482,7 @@ class PluginPrintgestionRaccordementdetail {
         };
 
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('2 bis. Lieu, commentaire et contrat des imprimantes', 'printgestion')) . "</h3></div><div class='card-body'>";
-        echo "<p class='text-muted small'>" . $esc(__('Gardés en attente, puis appliqués à l\'étape 5 seulement aux imprimantes réellement remontées dans cette entité. Lieu : chemin complet (« FC Metz > Bâtiment B > Étage 4 > Bureau 3 ») ou nom simple ; les niveaux manquants sont créés dans l\'entité. Contrat : ceux de l\'entité.', 'printgestion')) . "</p>";
+        echo "<p class='text-muted small'>" . $esc(__('Gardés en attente, puis appliqués à l\'étape 5 seulement aux imprimantes réellement remontées dans cette entité. Lieu : chemin complet (« Siège > Bâtiment B > Étage 4 > Bureau 3 ») ou nom simple ; les niveaux manquants sont créés dans l\'entité. Contrat : ceux de l\'entité.', 'printgestion')) . "</p>";
         if ($editable) {
             echo "<form method='post' action='" . $esc(PluginPrintgestionRaccordement::getPageURL()) . "'>" . Html::hidden('id', ['value' => (int) $racc->getID()]);
             echo "<datalist id='" . $esc($list_id) . "'>";

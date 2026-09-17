@@ -625,7 +625,7 @@ revérifiée à chaque requête (hors périmètre : 404). Lieu, commentaire et c
   étape 1.6.2). Valeurs par défaut qui complètent les adresses sans valeur ; jusqu'à 64 adresses ligne à ligne,
   au-delà seulement celles qui ont une imprimante ou des valeurs. Remplacer la liste d'adresses garde les valeurs
   des adresses restantes.
-  - Lieu : chemin « FC Metz > Bâtiment B > Étage 4 > Bureau 3 » ou nom simple, autocomplétion sur les lieux de
+  - Lieu : chemin « Siège > Bâtiment B > Étage 4 > Bureau 3 » ou nom simple, autocomplétion sur les lieux de
     l'entité. Niveaux manquants créés dans l'entité, non récursifs, cherchés par nom + parent + entité (la clé
     unique de `glpi_locations`), comme le formulaire natif ; 10 niveaux et 255 caractères par niveau au plus.
   - Contrat : ceux de l'entité et, récursifs, de ses entités parentes (ni supprimés ni modèles).
