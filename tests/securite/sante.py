@@ -53,18 +53,29 @@ def main():
         constat("mode CLI expliqué dans le bouton d'information", ok_ko("modal" in page and "le plus souvent négligé" in page))
         constat("ancienne carte « Journal du plugin » rattachée : une seule occurrence du bouton de test", ok_ko(page.count("name='test_log'") == 1 and etats.get("log") == "ok"))
 
-        section("2. Actions automatiques : mode CLI et cron système")
-        sql("UPDATE glpi_crontasks SET mode = 1 WHERE name = 'queuednotification';")
-        page, etats = carte()
-        constat("action active en mode GLPI : rouge, nombre d'actions et nom", ok_ko(etats.get("cron") == "error" and "en mode GLPI" in page and "queuednotification" in page and bandeau(page)))
-        sql("UPDATE glpi_crontasks SET mode = 2, lastrun = '2020-01-01 00:00:00';")
-        page, etats = carte()
-        constat("tout en mode CLI, aucune exécution depuis longtemps : rouge « le cron système ne tourne pas »",
-                ok_ko(etats.get("cron") == "error" and "il ne tourne pas" in page))
+        section("2. Actions automatiques : témoin du cron système, périmètre du plugin, bascule explicite")
         maintenant = lib.php_glpi("echo date('Y-m-d H:i:s');").strip()
-        sql(f"UPDATE glpi_crontasks SET lastrun = '{maintenant}' WHERE name = 'queuednotification';")
+        autres = lambda: lib.lignes("SELECT name, mode FROM glpi_crontasks WHERE itemtype NOT LIKE 'PluginPrintgestion%' ORDER BY name")  # noqa: E731
+        sql("UPDATE glpi_crontasks SET lastrun = NULL WHERE name = 'PrintgestionTemoinCron';")
+        sql("UPDATE glpi_crontasks SET mode = 1 WHERE itemtype LIKE 'PluginPrintgestion%' AND name <> 'PrintgestionTemoinCron';")
         page, etats = carte()
-        constat("mode CLI et exécution récente : vert", ok_ko(etats.get("cron") == "ok" and "cron système actif" in page), etats.get("cron"))
+        constat("témoin jamais passé : rouge « Aucun cron système détecté », aucune bascule proposée même avec des tâches en Interne",
+                ok_ko(etats.get("cron") == "error" and "Aucun cron système détecté" in page and "switch_plugin_tasks_cli" not in page and bandeau(page)))
+        constat("détail : GLPI_SYSTEM_CRON, les 8 tâches du plugin et le témoin avec leur fiche, queuednotification en lecture seule",
+                ok_ko("GLPI_SYSTEM_CRON" in page and page.count("Configurer dans GLPI") >= 10 and "queuednotification" in page and "Témoin du cron" in page))
+        sql(f"UPDATE glpi_crontasks SET lastrun = '{maintenant}' WHERE name = 'PrintgestionTemoinCron';")
+        page, etats = carte()
+        constat("témoin passé, tâches du plugin en Interne : « Mode Interne — rien ne partira de façon fiable », bouton de bascule (clic explicite)",
+                ok_ko(etats.get("cron") == "error" and "Mode Interne — rien ne partira de façon fiable" in page and "switch_plugin_tasks_cli" in page and "confirm(" in page))
+        avant_autres = autres()
+        WEB.post(config.FRONT + "/config.form.php", [("switch_plugin_tasks_cli", "1")])
+        constat("bascule : les tâches du plugin en CLI, les tâches de GLPI et des autres plugins intactes",
+                ok_ko(valeur("SELECT COUNT(*) FROM glpi_crontasks WHERE itemtype LIKE 'PluginPrintgestion%' AND mode = 1") == "0" and autres() == avant_autres),
+                WEB.messages()[:120])
+        page, etats = carte()
+        constat("cron système prouvé et tâches du plugin en CLI : vert", ok_ko(etats.get("cron") == "ok" and "Cron système actif" in page))
+        constat("le témoin n'accepte que le mode CLI (allowmode) : jamais de bascule à faire sur lui",
+                ok_ko(valeur("SELECT CONCAT(mode, '/', allowmode) FROM glpi_crontasks WHERE name = 'PrintgestionTemoinCron'") == "2/2"))
 
         section("3. Autres contrôles obligatoires, un par un")
         sql("UPDATE glpi_configs SET value = '0' WHERE context = 'inventory' AND name = 'enabled_inventory';")

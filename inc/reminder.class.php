@@ -32,6 +32,8 @@ class PluginPrintgestionReminder extends CommonGLPI {
                 return ['description' => __('Print Gestion - BL signés (plugin Gestion) → expéditions livrées', 'printgestion')];
             case 'PrintgestionProposeDemandes':
                 return ['description' => __('Print Gestion - Proposition des demandes d\'envoi à partir des alertes toner', 'printgestion')];
+            case 'PrintgestionTemoinCron':
+                return ['description' => __('Print Gestion - Témoin du cron système : ne fait rien d\'autre que dater son passage (mode CLI seulement)', 'printgestion')];
         }
         return [];
     }
@@ -98,6 +100,18 @@ class PluginPrintgestionReminder extends CommonGLPI {
         }
 
         return ($alerts_sent > 0 || $reminders_sent > 0) ? 1 : 0;
+    }
+
+    /**
+     * Témoin du cron système. Née en mode CLI, sans autre mode possible, toutes les minutes : sans cron système
+     * elle ne tourne jamais et ne coûte rien ; avec, sa dernière exécution prouve en quelques minutes que le cron
+     * système passe (carte « Santé de la configuration »). Elle ne fait rien d'autre.
+     */
+    static function cronPrintgestionTemoinCron(CronTask $task = null) {
+        if ($task !== null) {
+            $task->log(__('Passage du cron système constaté.', 'printgestion'));
+        }
+        return 1;
     }
 
     /**
@@ -190,6 +204,13 @@ class PluginPrintgestionReminder extends CommonGLPI {
             ['state' => CronTask::STATE_WAITING]
         );
         // Horaire, enregistrée DÉSACTIVÉE (voir cronPrintgestionProposeDemandes).
+        // Témoin du cron système : CLI seulement (aucune bascule possible), chaque minute.
+        CronTask::Register(
+            self::class,
+            'PrintgestionTemoinCron',
+            MINUTE_TIMESTAMP,
+            ['state' => CronTask::STATE_WAITING, 'mode' => CronTask::MODE_EXTERNAL, 'allowmode' => CronTask::MODE_EXTERNAL]
+        );
         // Register() ne modifie pas une tâche existante : l'état choisi par
         // l'administrateur est conservé aux mises à jour.
         CronTask::Register(

@@ -32,6 +32,16 @@ if (isset($_POST['activate_contract_alerts'])) {
         ? PluginPrintgestionAgentdeploy::activateTagRule()
         : PluginPrintgestionAgentdeploy::createTagRule();
     Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : WARNING);
+} elseif (isset($_POST['switch_plugin_tasks_cli'])) {
+    // Bascule explicite des tâches du plugin en CLI (carte Santé) : jamais celles de GLPI ni d'un autre plugin.
+    $switched = $DB->update('glpi_crontasks', ['mode' => CronTask::MODE_EXTERNAL], [
+        'itemtype'  => ['LIKE', 'PluginPrintgestion%'],
+        'mode'      => CronTask::MODE_INTERNAL,
+        'allowmode' => ['&', CronTask::MODE_EXTERNAL],
+    ]);
+    Session::addMessageAfterRedirect($switched
+        ? __('Tâches de Print Gestion passées en mode CLI. Les tâches de GLPI et des autres plugins sont inchangées.', 'printgestion')
+        : __('Aucune tâche de Print Gestion à basculer.', 'printgestion'), false, INFO);
 } elseif (isset($_POST['clear_gls'])) {
     // « Retirer les clés » GLS : identifiant et secret effacés, les suivis déjà collectés restent.
     PluginPrintgestionConfig::getInstance()->update(['id' => 1, 'gls_client_id' => '', 'gls_client_secret' => '', 'gls_secret_date' => null]);

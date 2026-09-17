@@ -109,7 +109,8 @@ def main():
     # Environnement « correct » le temps du test : actions automatiques en CLI avec une exécution récente (sinon
     # l'onglet dit, à raison, que rien ne remontera). État d'origine rétabli à la fin.
     cron = lib.lignes("SELECT id, mode, IFNULL(lastrun, 'NULL') FROM glpi_crontasks")
-    sql("UPDATE glpi_crontasks SET mode = 2; UPDATE glpi_crontasks SET lastrun = NOW() WHERE name = 'queuednotification';")
+    sql("UPDATE glpi_crontasks SET mode = 2 WHERE itemtype LIKE 'PluginPrintgestion%';")
+    sql("UPDATE glpi_crontasks SET lastrun = " + lib.q(lib.php_glpi("echo date('Y-m-d H:i:s');").strip()) + " WHERE name = 'PrintgestionTemoinCron';")  # heure de GLPI
     etat_glpiinventory = valeur("SELECT state FROM glpi_plugins WHERE directory = 'glpiinventory'")
     try:
         lib.connecter_admin()
@@ -343,10 +344,10 @@ def main():
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
         constat("administrateur : même ligne, détail replié avec la cause et le lien vers l'écran GLPI",
                 ok_ko(rien in page and "data-pg-admin" in page and "Marketplace" in page and "config.form.php" not in page[page.find(rien):page.find(rien) + 200]))
-        sql("UPDATE glpi_crontasks SET mode = 1 WHERE name = 'queuednotification';")
+        sql("UPDATE glpi_crontasks SET mode = 1 WHERE name = 'PrintgestionCheckAlerts';")
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
-        constat("action automatique en mode GLPI : cause listée aussi (Actions automatiques)", ok_ko(rien in page and "crontask" in page))
-        sql("UPDATE glpi_crontasks SET mode = 2 WHERE name = 'queuednotification';")
+        constat("tâche du plugin en mode Interne : cause listée aussi (Actions automatiques)", ok_ko(rien in page and "crontask" in page))
+        sql("UPDATE glpi_crontasks SET mode = 2 WHERE name = 'PrintgestionCheckAlerts';")
         sql(f"UPDATE glpi_plugins SET state = {etat_glpiinventory} WHERE directory = 'glpiinventory';")
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
         constat("environnement rétabli : ligne disparue", ok_ko(rien not in page))
