@@ -121,23 +121,19 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     }
 
     /**
-     * URL du serveur donnée à l'agent : réglage (surcharge), sinon l'URL de l'application GLPI
-     * (Configuration → Générale), racine comprise. Jamais le chemin du plugin GLPI Inventory : GLPI 11 reçoit
+     * URL du serveur donnée à l'agent : toujours l'URL de l'application GLPI (Configuration → Générale), racine
+     * comprise — déduite, jamais réglée dans le plugin (l'ancienne surcharge « URL du serveur » est supprimée en 1.6.8). Jamais le chemin du plugin GLPI Inventory : GLPI 11 reçoit
      * les agents nativement à sa racine (CatchInventoryAgentRequestListener) et GLPI Inventory y greffe ses
      * tâches réseau par hooks ; « /plugins/glpiinventory/ » ne marchait que par une route de compatibilité du
      * plugin, qui disparaît avec lui (plugin désactivé ou nettoyé : 404 sur chaque agent, irréparable à
      * distance). Vérifié avec GLPI Agent 1.19 contre GLPI 11.0.8 : les deux valeurs répondent, seule la racine
      * ne dépend de rien.
      *
-     * @return array ['url' => string, 'source' => 'config'|'glpi', 'error' => string]
+     * @return array ['url' => string, 'source' => 'glpi', 'error' => string]
      */
     public static function getServerUrl(): array {
         global $CFG_GLPI;
 
-        $override = trim((string) (PluginPrintgestionConfig::getInstance()->fields['agent_server_url'] ?? ''));
-        if ($override !== '') {
-            return ['url' => $override, 'source' => 'config', 'error' => ''];
-        }
         $base = rtrim((string) ($CFG_GLPI['url_base'] ?? ''), '/');
         if ($base === '') {
             return [
@@ -214,15 +210,11 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
      */
     public static function saveSettings(array $input): array {
         $version = trim((string) ($input['agent_version'] ?? ''));
-        $url     = trim((string) ($input['agent_server_url'] ?? ''));
         $trust   = (string) preg_replace('/\s+/', '', (string) ($input['agent_httpd_trust'] ?? ''));
 
         $errors = [];
         if ($version !== '' && !preg_match('/^\d+\.\d+(\.\d+)?$/', $version)) {
             $errors[] = __('Version invalide (exemple : 1.19).', 'printgestion');
-        }
-        if ($url !== '' && !self::isValidServerUrl($url)) {
-            $errors[] = __('URL du serveur invalide : https://…, sans espace ni guillemet.', 'printgestion');
         }
         if ($trust !== '' && !self::isValidTrustList($trust)) {
             $errors[] = __('Adresses autorisées invalides : adresses IPv4 ou plages CIDR séparées par des virgules.', 'printgestion');
@@ -236,7 +228,6 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         if (!$config->update([
             'id'                => (int) $config->getID(),
             'agent_version'     => $version,
-            'agent_server_url'  => $url,
             'agent_httpd_trust' => $trust,
         ])) {
             return [__('Paramètres de l\'installeur non enregistrés.', 'printgestion')];
@@ -1463,8 +1454,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         // Adresses et version.
         $server   = self::getServerUrl();
         $sources  = [
-            'config' => __('réglée ici', 'printgestion'),
-            'glpi'   => __('automatique : URL de l\'application GLPI (Configuration → Générale)', 'printgestion'),
+            'glpi' => __('URL de l\'application GLPI (Configuration → Générale), jamais réglée ici', 'printgestion'),
         ];
         $host     = (string) parse_url((string) ($CFG_GLPI['url_base'] ?? ''), PHP_URL_HOST);
         $resolved = $host !== '' ? gethostbyname($host) : '';
@@ -1482,8 +1472,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             echo "<form method='post' action='" . $esc($page) . "' class='row g-3 align-items-end'>";
             echo "<div class='col-md-3'><label class='form-label'>" . $esc(__('Version épinglée (vide : dernière vérifiée)', 'printgestion')) . "</label>"
                 . "<input type='text' class='form-control' name='agent_version' value='" . $esc($config->fields['agent_version'] ?? '') . "' placeholder='" . $esc(self::DEFAULT_VERSION) . "'></div>";
-            echo "<div class='col-md-5'><label class='form-label'>" . $esc(__('URL du serveur (vide : automatique)', 'printgestion')) . "</label>"
-                . "<input type='text' class='form-control' name='agent_server_url' value='" . $esc($config->fields['agent_server_url'] ?? '') . "' placeholder='https://…'></div>";
+            // Adresse du serveur : déduite de l'URL de l'application, affichée, jamais saisie ici.
+            echo "<div class='col-md-5'><label class='form-label'>" . $esc(__('Adresse du serveur donnée aux agents (déduite)', 'printgestion')) . "</label>"
+                . "<div><code>" . $esc($server['url'] !== '' ? $server['url'] : '—') . "</code> <a href='" . $esc(Config::getFormURL()) . "' class='small'>" . $esc(__('Configuration → Générale, « URL de l\'application »', 'printgestion')) . "</a></div></div>";
             echo "<div class='col-md-4'><label class='form-label'>" . $esc(__('Adresses autorisées en plus du poste (IPv4, CIDR)', 'printgestion')) . "</label>"
                 . "<input type='text' class='form-control' name='agent_httpd_trust' value='" . $esc($config->fields['agent_httpd_trust'] ?? '') . "' placeholder='203.0.113.10'></div>";
             echo "<div class='col-12'><button type='submit' data-pg-submit-once='1' name='save_settings' value='1' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button></div>";

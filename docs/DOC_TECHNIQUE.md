@@ -528,7 +528,7 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
   `glpi-agent-<version>.sha256` de la release). Une description par fichier (`installer.json` pour le MSI,
   `installer-linux.json`, `installer-macos-arm64.json`, `installer-macos-x86_64.json`), une seule version en cache,
   dossier supprimé à la désinstallation.
-- **Réglages** (`glpi_plugin_printgestion_configs`, étape 1.6.0) : `agent_version`, `agent_server_url`,
+- **Réglages** (`glpi_plugin_printgestion_configs`, étape 1.6.0 ; `agent_server_url` supprimée en 1.6.8, l'adresse est déduite de l'URL de l'application) : `agent_version`,
   `agent_httpd_trust` ; vides : automatiques.
 - **Limites vérifiées** : « Demander le statut » et « Demander un inventaire » (natifs) sont des requêtes du
   serveur vers la sonde sur le port 62354, aux adresses du réseau local du poste (`Agent::guessAddresses()`) :
