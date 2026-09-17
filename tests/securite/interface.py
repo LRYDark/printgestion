@@ -4,7 +4,8 @@ Le technicien (droit Déploiement, sans droit de configuration du plugin) voit l
 élément réservé (attribut data-pg-admin) et aucun détail technique (commande msiexec, propriétés du MSI, noms de
 règles ou de plugin, chemins de menu, numéros de version) n'arrive dans sa page, même replié. L'administrateur
 (témoin) les reçoit. Toujours visibles pour tous : TAG déjà utilisé par une autre entité. Action « Créer le TAG » :
-TAG proposé depuis le nom, refusé s'il est déjà porté par une autre entité.
+TAG proposé depuis le nom, refusé s'il est déjà porté par une autre entité. Règle d'affectation par TAG : créée par un
+administrateur seulement, une seule, structure native vérifiée par le moteur de règles de GLPI.
 """
 import re
 import sys
@@ -115,7 +116,32 @@ def main():
                 ok_ko(valeur(f"SELECT IFNULL(tag, '') FROM glpi_entities WHERE id = {d.SITE_A2}") == "" and "déjà utilisé" in message), message[:120])
         WEB.post(config.FRONT + "/agentdeploy.php", [("entities_id", str(d.SITE_A2)), ("tag", "SITETESTA2"), ("create_tag", "1")])
         constat("TAG proposé : enregistré sur l'entité", ok_ko(valeur(f"SELECT tag FROM glpi_entities WHERE id = {d.SITE_A2}") == "SITETESTA2"))
+
+        section("5. Règle d'affectation par TAG : administrateur, clic explicite, une seule règle")
+        regles = lambda: int(valeur("SELECT COUNT(DISTINCT r.id) FROM glpi_rules r JOIN glpi_ruleactions a ON a.rules_id = r.id "  # noqa: E731
+                                    "WHERE r.sub_type = 'RuleImportEntity' AND a.field = '_affect_entity_by_tag'"))
+        constat("instance de test : aucune règle d'affectation par TAG au départ", "OK" if regles() == 0 else "NON CONCLUANT", str(regles()))
+        WEB.post(config.FRONT + "/agentdeploy.php", [("entities_id", str(d.CLIENT_A)), ("create_tag_rule", "1")])
+        constat("technicien (même avec le droit de modifier l'entité) : création refusée", ok_ko(regles() == 0), WEB.messages()[:120])
+        lib.connecter_admin()
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+        constat("administrateur : bouton « Créer la règle d'affectation par TAG » dans le chevron, avec confirmation",
+                ok_ko("create_tag_rule" in page and "confirm(" in page))
+        WEB.post(config.FRONT + "/agentdeploy.php", [("entities_id", str(d.CLIENT_A)), ("create_tag_rule", "1")])
+        regle = lib.lignes("SELECT r.id, r.is_active, c.criteria, c.`condition`, c.pattern, a.action_type, a.value FROM glpi_rules r "
+                           "JOIN glpi_rulecriterias c ON c.rules_id = r.id JOIN glpi_ruleactions a ON a.rules_id = r.id "
+                           "WHERE r.sub_type = 'RuleImportEntity' AND a.field = '_affect_entity_by_tag'")
+        constat("clic de l'administrateur : une règle active, critère tag /^(.*)$/ (expression régulière), action regex_result #0",
+                ok_ko(len(regle) == 1 and regle[0][1:] == ["1", "tag", "6", "/^(.*)$/", "regex_result", "#0"]), str(regle))
+        affectee = lib.php_glpi("$c = new RuleImportEntityCollection(); $out = $c->processAllRules(['tag' => 'CLIENT-TEST-A'], [], []); echo $out['entities_id'] ?? 'aucune';")
+        constat("moteur de règles natif : un inventaire au TAG CLIENT-TEST-A est affecté à Client test A", ok_ko(affectee.strip() == str(d.CLIENT_A)), affectee.strip())
+        WEB.post(config.FRONT + "/agentdeploy.php", [("entities_id", str(d.CLIENT_A)), ("create_tag_rule", "1")])
+        message = WEB.messages()
+        constat("second clic : aucune seconde règle, état de la règle existante rendu", ok_ko(regles() == 1 and "active, position" in message), message[:140])
     finally:
+        for (ident,) in lib.lignes("SELECT DISTINCT r.id FROM glpi_rules r JOIN glpi_ruleactions a ON a.rules_id = r.id "
+                                   "WHERE r.sub_type = 'RuleImportEntity' AND a.field = '_affect_entity_by_tag'"):
+            lib.php_glpi(f"(new RuleImportEntity())->delete(['id' => {int(ident)}], true);")
         sql(f"DELETE FROM glpi_agents WHERE id = {agent};")
         for entite, tag in tags.items():
             sql(f"UPDATE glpi_entities SET tag = {lib.q(tag) if tag else 'NULL'} WHERE id = {entite};")

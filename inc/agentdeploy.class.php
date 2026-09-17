@@ -7,7 +7,8 @@
  * l'entité : aucun identifiant, aucun jeton, aucun secret. Tout le reste se configure dans GLPI.
  *
  * Réutilise le natif sans le réafficher : champ TAG de l'entité, règle d'affectation d'entité
- * « Entity from TAG » (vérifiée, jamais créée par le plugin), fiche Agent (lien seulement).
+ * « Entity from TAG » (vérifiée ; créée seulement sur clic explicite d'un administrateur, une seule pour tous les
+ * clients), fiche Agent (lien seulement).
  * Installeur : MSI officiel, récupéré par le serveur sur GitHub avec vérification de l'empreinte
  * SHA-256 publiée, ou déposé à la main puis vérifié ; toujours servi par le plugin, jamais par
  * un lien direct vers GitHub, qui peut être bloqué chez le client.
@@ -968,6 +969,77 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         return ['ok' => true, 'message' => sprintf(__('TAG « %s » enregistré sur l\'entité.', 'printgestion'), $tag)];
     }
 
+    /** Droit de créer la règle d'affectation par TAG : administrateur du plugin ET droit natif sur les règles d'import. */
+    public static function canCreateTagRule(): bool {
+        return Session::haveRight('plugin_printgestion_config', UPDATE) && Session::haveRight('rule_import', CREATE);
+    }
+
+    /**
+     * Crée, sur clic explicite d'un administrateur, LA règle générique d'affectation par TAG, commune à tous les
+     * clients : critère « Inventory tag » expression régulière /^(.*)$/, action « Entity from TAG » = #0 (structure
+     * de RuleImportEntity, GLPI 11). Jamais une règle par client ; jamais recréée si une règle portant cette action
+     * existe déjà, active ou non : l'état est alors rendu tel quel. Créée active, en dernière position : l'ordre des
+     * règles existantes n'est jamais modifié (les règles jouées avant elle sont signalées).
+     *
+     * @return array ['ok' => bool, 'message' => string]
+     */
+    public static function createTagRule(): array {
+        global $DB;
+
+        if (!self::canCreateTagRule()) {
+            return ['ok' => false, 'message' => __('Création de la règle réservée à l\'administrateur (droit de configuration du plugin et droit de créer des règles d\'import).', 'printgestion')];
+        }
+        $status = self::getTagRuleStatus();
+        if (!empty($status['rules'])) {
+            return ['ok' => false, 'message' => self::describeTagRule($status)];
+        }
+
+        $DB->beginTransaction();
+        try {
+            $rules_id = (int) (new RuleImportEntity())->add([
+                'name'         => __('Affectation par TAG (Print Gestion)', 'printgestion'),
+                'description'  => __('Entité dont le TAG est celui de l\'inventaire reçu. Règle unique pour tous les clients, créée depuis Print Gestion.', 'printgestion'),
+                'sub_type'     => RuleImportEntity::class,
+                'match'        => Rule::AND_MATCHING,
+                'condition'    => 0,
+                'is_active'    => 1,
+                'entities_id'  => 0,
+                'is_recursive' => 1,
+            ]);
+            if ($rules_id <= 0
+                || (int) (new RuleCriteria())->add(['rules_id' => $rules_id, 'criteria' => 'tag', 'condition' => Rule::REGEX_MATCH, 'pattern' => '/^(.*)$/']) <= 0
+                || (int) (new RuleAction())->add(['rules_id' => $rules_id, 'action_type' => 'regex_result', 'field' => '_affect_entity_by_tag', 'value' => '#0']) <= 0) {
+                throw new RuntimeException('Règle, critère ou action refusé par GLPI.');
+            }
+            $DB->commit();
+        } catch (Throwable $e) {
+            $DB->rollBack();
+            PluginPrintgestionLogger::error('agentdeploy', 'Règle d\'affectation par TAG non créée : rien n\'a été enregistré.', $e);
+            return ['ok' => false, 'message' => __('Règle non créée : refusée par GLPI, rien n\'a été enregistré (détail dans le journal du plugin).', 'printgestion')];
+        }
+        return ['ok' => true, 'message' => __('Règle créée. ', 'printgestion') . self::describeTagRule(self::getTagRuleStatus())];
+    }
+
+    /** État de la règle en une phrase : absente, désactivée, active et sa position, règles jouées avant elle. */
+    public static function describeTagRule(array $status): string {
+        if ($status['active'] === null) {
+            return empty($status['rules'])
+                ? __('Aucune règle d\'affectation par TAG.', 'printgestion')
+                : sprintf(__('Règle déjà présente mais désactivée (%s) : à activer dans Administration → Règles, rien n\'a été recréé.', 'printgestion'), implode(', ', array_column($status['rules'], 'name')));
+        }
+        $text = sprintf(__('Règle « %1$s » active, position %2$d.', 'printgestion'), $status['active']['name'], (int) $status['active']['ranking']);
+        if (!$status['tag_criterion']) {
+            $text .= ' ' . sprintf(__('Sans critère « %s » : à vérifier.', 'printgestion'), __('Inventory tag'));
+        }
+        if (!empty($status['earlier'])) {
+            $text .= ' ' . sprintf(
+                __('Règles actives jouées avant elle (la première qui correspond l\'emporte) : %s. À vérifier ou déplacer dans Administration → Règles.', 'printgestion'),
+                implode(', ', array_map(static fn(array $r) => $r['name'] . ' (' . (int) $r['ranking'] . ')', $status['earlier']))
+            );
+        }
+        return $text;
+    }
+
     /**
      * Onglet « Déploiement Agent » de la fiche Entité, trois blocs. Technicien : l'état et l'action. Administrateur :
      * les mêmes, plus les détails techniques repliés (chevron fermé) ou en fenêtre (bouton « i »).
@@ -1003,27 +1075,15 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 ? $esc(__('Vide.', 'printgestion'))
                 : "<code>" . $esc($tag) . "</code> " . (!self::isValidTag($tag) ? $esc(__('— caractères refusés dans la commande d\'installation.', 'printgestion')) : '')
                     . " <a href='" . $esc($tag_url) . "'>" . $esc(__('Modifier', 'printgestion')) . "</a>");
-            if ($rule['active'] === null) {
-                $rule_detail = $esc(sprintf(
-                    __('Aucune règle active : critère « %1$s » expression régulière /^(.*)$/, action « %2$s » = #0 (Administration → Règles → Règles d\'affectation d\'un élément à une entité).', 'printgestion'),
-                    __('Inventory tag'),
-                    __('Entity from TAG')
-                ));
-                if (!empty($rule['rules'])) {
-                    $rule_detail .= ' ' . $esc(sprintf(__('Présente mais désactivée : %s.', 'printgestion'), implode(', ', array_column($rule['rules'], 'name'))));
-                }
-            } else {
-                $rule_detail = $esc(sprintf(__('« %1$s », position %2$d.', 'printgestion'), $rule['active']['name'], (int) $rule['active']['ranking']))
-                    . " <a href='" . $esc(RuleImportEntity::getFormURLWithID((int) $rule['active']['id'])) . "'>" . $esc(__('Voir', 'printgestion')) . "</a>";
-                if (!$rule['tag_criterion']) {
-                    $rule_detail .= ' ' . $esc(sprintf(__('Sans critère « %s ».', 'printgestion'), __('Inventory tag')));
-                }
-                if (!empty($rule['earlier'])) {
-                    $rule_detail .= ' ' . $esc(sprintf(
-                        __('Jouées avant elle (la première qui correspond l\'emporte) : %s.', 'printgestion'),
-                        implode(', ', array_map(static fn(array $r) => $r['name'] . ' (' . (int) $r['ranking'] . ')', $rule['earlier']))
-                    ));
-                }
+            $rule_detail = $esc(self::describeTagRule($rule));
+            if ($rule['active'] !== null) {
+                $rule_detail .= " <a href='" . $esc(RuleImportEntity::getFormURLWithID((int) $rule['active']['id'])) . "'>" . $esc(__('Voir', 'printgestion')) . "</a>";
+            } elseif (empty($rule['rules']) && self::canCreateTagRule()) {
+                // Engage tout GLPI : administrateur, clic explicite confirmé, une seule règle générique.
+                $confirm = __('Créer la règle d\'affectation par TAG pour TOUS les clients (critère « Inventory tag », action « Entity from TAG ») ?', 'printgestion');
+                $rule_detail .= "<form method='post' action='" . $esc(self::getPageURL()) . "' class='mt-2'>" . Html::hidden('entities_id', ['value' => $id])
+                    . "<button type='submit' name='create_tag_rule' value='1' data-pg-submit-once='1' class='btn btn-sm btn-outline-primary' onclick=\"return confirm(" . $esc(json_encode($confirm)) . ");\">"
+                    . "<i class='ti ti-list-check me-1'></i>" . $esc(__('Créer la règle d\'affectation par TAG', 'printgestion')) . "</button>" . Html::closeForm(false);
             }
             $checks[] = self::checkItem($rule_ok, __('Règle d\'affectation par TAG', 'printgestion'), $rule_detail);
             $details  = "<div class='row g-3'>" . implode('', $checks) . "</div>";
@@ -1279,9 +1339,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 $inventory['blocking'],
                 $inventory['warnings']
             )))),
-            self::checkItem($rule['active'] !== null, __('Règle d\'affectation par TAG', 'printgestion'), $esc($rule['active'] !== null
-                ? sprintf(__('Règle « %1$s » active (position %2$d).', 'printgestion'), $rule['active']['name'], (int) $rule['active']['ranking'])
-                : sprintf(__('Aucune règle active : critère « %1$s » expression régulière /^(.*)$/, action « %2$s » = #0, à créer à la main.', 'printgestion'), __('Inventory tag'), __('Entity from TAG')))),
+            self::checkItem($rule['active'] !== null, __('Règle d\'affectation par TAG', 'printgestion'), $esc(self::describeTagRule($rule))),
             self::checkItem($with_tag > 0, __('Entités avec un TAG', 'printgestion'), $esc(sprintf(__('%d entité(s) ont un TAG renseigné.', 'printgestion'), $with_tag))),
         ];
 

@@ -475,7 +475,7 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
   1. état du rattachement : TAG (vide : avertissement bloquant et lien vers « Informations avancées » ; caractères
      hors `[A-Za-z0-9._-]` ou TAG porté par plusieurs entités : paquet refusé) ; règle `RuleImportEntity` portant
      l'action `_affect_entity_by_tag` (active, position, règles actives jouées avant elle — le moteur s'arrête à
-     la première qui correspond ; jamais créée par le plugin) ; plugin GLPI Inventory ; agents de l'entité
+     la première qui correspond ; créée par `Agentdeploy::createTagRule()` seulement sur clic explicite d'un administrateur — droit de configuration du plugin et droit natif `rule_import` en création —, une seule règle générique, jamais recréée ni déplacée) ; plugin GLPI Inventory ; agents de l'entité
      (`glpi_agents.entities_id`) : version et conformité, dernier contact et « muet », TAG différent de celui de
      l'entité, modules découverte et inventaire réseau ;
   2. installeur : boutons Windows, Linux et macOS (actifs dès que leurs fichiers officiels sont vérifiés), commande

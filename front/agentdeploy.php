@@ -16,6 +16,16 @@ Session::checkRight('plugin_printgestion_deploiement', READ);
 
 $page = PluginPrintgestionAgentdeploy::getPageURL();
 
+if (isset($_POST['create_tag_rule'])) {
+    // Règle générique d'affectation par TAG : administrateur (droits vérifiés par createTagRule()), clic explicite.
+    $result = PluginPrintgestionAgentdeploy::createTagRule();
+    Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : WARNING);
+    $entities_id = (int) ($_POST['entities_id'] ?? -1);
+    Html::redirect($entities_id >= 0
+        ? Entity::getFormURLWithID($entities_id) . '&forcetab=' . urlencode('PluginPrintgestionAgentdeploy$1')
+        : $page);
+}
+
 if (isset($_POST['create_tag'])) {
     // « Créer le TAG » de l'onglet de l'entité : droit Déploiement (ci-dessus) et droit natif de modifier l'entité
     // (vérifié par createTag()). Jeton CSRF déjà validé par CheckCsrfListener avant ce fichier.
