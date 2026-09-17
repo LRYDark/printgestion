@@ -19,7 +19,7 @@ Chaque point d'entrée de `front/` et `ajax/` vérifie **plugin actif ET module 
 | `toner` | Relevés SNMP des niveaux toner, calcul d'alertes intelligent, cycle d'expédition des cartouches, commandes achats (Excel), notifications mail, suivi transporteurs |
 | `cout` | Coût à la page par imprimante / par client sur une période (compteurs `glpi_printerlogs` × tarifs contrat) |
 | `deploiement` | Collecte SNMP / Déploiement Agent (techniciens) : contrôle de la remontée, déploiement de GLPI Agent par entité client |
-| `sage` | Référentiel Sage : import par fichier, correspondance entité ↔ client Sage |
+| `sage` | Référentiel Sage : import par fichier des adresses de livraison et des articles, pour vérification |
 
 Un sous-onglet du menu n'est visible que si **sa feature est activée ET le droit READ correspondant est présent**
 (`visibilité = feature ∧ droit`). Un module désactivé ne consomme aucune ressource (les crons sortent immédiatement).
@@ -68,7 +68,7 @@ printgestion/
 | `Demande` / `Demandeline` | Demande d'envoi (en-tête client + site, lignes) : statuts, contrôles avant validation, historique natif |
 | `Guard` | Verrous anti-double-envoi (envoi en cours, demande ouverte, garde après pose, ticket récent) |
 | `Sageimport` | Import du référentiel Sage par fichier : analyse, prévisualisation, rapport d'écarts, validation |
-| `Sage` | Correspondances Sage (code client d'une entité, hérité du parent) + onglet « Print Gestion — Sage » de l'entité |
+| `Sage` | Règle Gesconso : code client = nom de l'entité en forme de code (hérité du parent le plus proche), intitulé de livraison = première ligne des commentaires de l'entité (jamais hérité) ; vérifications contre les référentiels importés |
 | `Gesconso` | Fichier de commande Gesconso (9 colonnes), contrôles bloquants avant écriture, archivage en Document |
 | `Snmpadapter` | Service (classe simple, sans table) : lecture fiable des niveaux SNMP — sentinelles, états bruts max/used/remaining, application des règles par constructeur |
 | `Snmprule` | Règle de lecture SNMP par constructeur (ignorer / inverser une propriété) : table, carte de configuration, droit de configuration du plugin |
@@ -112,9 +112,7 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_expeditions` | Expéditions de cartouches (statuts, transporteur, group_id, users) |
 | `glpi_plugin_printgestion_demandes` | Demandes d'envoi : client (entité), site de livraison, statut, mode et contact de livraison, validation, annulation |
 | `glpi_plugin_printgestion_demandelines` | Lignes de demande : imprimante, toner, cartouche, quantité, prix unitaire, contrat, statut |
-| `glpi_plugin_printgestion_sageclients` | Clients Sage importés (code, intitulé, présent au dernier import) |
-| `glpi_plugin_printgestion_entitysageclients` | Correspondance entité GLPI → client Sage (une entité = un client ; un client = plusieurs entités) |
-| `glpi_plugin_printgestion_sagedeliveries` | Adresses de livraison Sage (plusieurs par client), clé rapprochée de `Location.code` |
+| `glpi_plugin_printgestion_sagedeliveries` | Adresses de livraison Sage (plusieurs par client) : vérification des intitulés de livraison, avertissement seulement |
 | `glpi_plugin_printgestion_sagearticles` | Articles Sage (référence rapprochée de `CartridgeItem.ref`) |
 | `glpi_plugin_printgestion_sageimports` | Trace des imports (référentiel, fichier, auteur, volumes) |
 | `glpi_plugin_printgestion_snmprules` | Règles de lecture SNMP par constructeur (ignorer / inverser une propriété) — nommée `snmpadapters` avant la 1.5.5 |
@@ -351,7 +349,7 @@ une autre entité, jamais la même machine : un envoi d'un client ne bloque pas 
   les motifs. Sinon, en transaction : cartouche résolue, contrat et prix mis à jour (0 sous contrat, prix 0
   hérité retiré d'une ligne passée hors contrat), lignes et demande « validée », valideur et date.
 - **Contrôles avant export** (`Demande::prepareExport()`, carte « Contrôles avant export Gesconso » de la
-  fiche) : lignes validées passées dans `Gesconso::prepare()` — code client Sage, adresse de livraison,
+  fiche) : lignes validées passées dans `Gesconso::prepare()` — code client Sage, intitulé de livraison,
   référence article, prix. Une seule ligne en défaut empêche d'exporter la demande, avec la liste des lignes.
   Affichés dès la proposition, à titre indicatif.
 - **Export** (`front/demande.export.php`, `Demande::exportDemandes()`, droit validation UPDATE) : un fichier
@@ -376,26 +374,29 @@ une autre entité, jamais la même machine : un envoi d'un client ne bloque pas 
   Sage », droit `sage` UPDATE). Formats : xlsx, xls, ods, csv (encodage et séparateur détectés). Première
   feuille, ligne 1 = en-têtes, reconnus sans casse ni accent, libellés ou noms de champs Sage :
 
-  | Référentiel | Colonnes (obligatoires en gras) | Rapprochement GLPI |
+  | Référentiel | Colonnes (obligatoires en gras) | Rôle |
   |---|---|---|
-  | Clients | **Code client** (`CT_Num`), **Intitulé** (`CT_Intitule`) | Entité, par la table de correspondance du plugin |
-  | Adresses de livraison | **Code client**, **Intitulé livraison** (`LI_Intitule`), Code adresse (`LI_No`), Adresse, Code postal, Ville | Lieu dont le champ natif `Code` vaut le code adresse (à défaut : l'intitulé) |
-  | Articles | **Référence** (`AR_Ref`), Désignation (`AR_Design`) | Cartouche dont la référence (`CartridgeItem.ref`) vaut la référence |
+  | Adresses de livraison | **Code client**, **Intitulé livraison** (`LI_Intitule`), Code adresse (`LI_No`), Adresse, Code postal, Ville | Vérification : un intitulé absent des adresses de son client donne un avertissement |
+  | Articles | **Référence** (`AR_Ref`), Désignation (`AR_Design`) | Vérification bloquante : cartouche dont la référence (`CartridgeItem.ref`) est absente du dernier import |
 
+- **Règle Gesconso** (`Sage::describeRule()`), sans table de correspondance ni onglet : le **code client** est le
+  nom de l'entité de l'imprimante s'il a la forme d'un code client Sage (`Sage::CODE_PATTERN` : majuscules,
+  chiffres, « . _ - », 17 caractères au plus, sans espace), sinon celui de l'entité parente la plus proche dont
+  le nom a cette forme ; l'**intitulé de livraison** est la première ligne non vide du champ « Commentaires » de
+  l'entité de l'imprimante, jamais hérité : vide, la ligne est bloquée. La règle appliquée est affichée sur la
+  fiche de la demande (« Export Gesconso (Sage) » : d'où viennent le code et l'intitulé, ce qui bloque, lien vers
+  l'entité). `registration_number` (SIRET) n'est pas utilisé.
 - **Déroulé** : analyse (contrôles : colonnes obligatoires, valeurs manquantes, doublons — bloquants ; codes
   clients en minuscules ou avec espaces — avertissement), prévisualisation (nouvelles, modifiées, inchangées,
-  absentes) et **rapport d'écarts** (entités à imprimantes sans code client ; adresses sans lieu GLPI ou sans
-  client connu ; imprimantes sans adresse résolue ; cartouches sans référence ou de référence absente du
-  fichier), puis validation en transaction. L'analyse attend en session : rien n'est écrit avant validation.
+  absentes) et **rapport d'écarts** (adresses : codes clients d'aucune entité à imprimantes ; entités à
+  imprimantes sans code, sans intitulé, ou dont l'intitulé n'est pas une adresse de leur client dans le
+  fichier ; articles : cartouches sans référence ou de référence absente du fichier), puis validation en
+  transaction. L'analyse attend en session : rien n'est écrit avant validation. L'import ne modifie aucun
+  objet GLPI.
 - **Aucune suppression** : une ligne absente d'un nouvel import passe `is_in_last_import = 0` et ne sert plus
-  à l'export. L'import ne modifie aucun objet GLPI ; seules les correspondances entité ↔ client cochées
-  (suggestion : entité de même nom) ou choisies à la validation sont écrites.
-- **Périmètre** : une correspondance n'est acceptée que vers une entité du périmètre de l'utilisateur (sinon
-  même refus qu'une entité inexistante) ; suggestions, correspondances affichées (« entité hors de votre
-  périmètre ») et rapport d'écarts limités à ses entités.
-- **Code client d'une entité** (`Sage::getClientForEntity()`) : correspondance propre, sinon celle de
-  l'ancêtre le plus proche. Modifiable sur l'onglet « Print Gestion — Sage » de l'entité ; chaque changement
-  est tracé dans l'historique natif de l'entité. `registration_number` (SIRET) n'est pas utilisé.
+  à la vérification.
+- **Périmètre** : rapport d'écarts limité aux entités de l'utilisateur ; le nom d'une entité hors de son
+  périmètre n'y apparaît jamais.
 
 ### Fichier Gesconso (`inc/gesconso.class.php`)
 
@@ -405,8 +406,8 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
 | Col | En-tête | Source |
 |---|---|---|
 | A | `Devis` | Date de la demande (commande directe : date du jour), **vraie date Excel** `jj/mm/aaaa` |
-| B | `Intitule Client` | Code client Sage de l'entité de l'imprimante (propre ou hérité) |
-| C | `Intitule Livraison` | Intitulé de l'adresse Sage du client dont le code est porté par le lieu de l'imprimante ou un parent |
+| B | `Intitule Client` | Code client Sage = nom de l'entité de l'imprimante s'il a la forme d'un code, sinon celui du parent le plus proche (`Sage::getClientForEntity()`) |
+| C | `Intitule Livraison` | Première ligne des commentaires de l'entité de l'imprimante, jamais héritée (`Sage::getDeliveryLabelForEntity()`) |
 | D | `Consommable` | `CartridgeItem.ref` (vérifiée dans le référentiel articles s'il a été importé) |
 | E | `Designation` | n° série + séparateur + nom du lieu + séparateur + nom de la cartouche ; séparateur (`' # '`) et longueur max (69) configurables, troncature avec avertissement |
 | F | `Quantite` | Entier |
@@ -414,10 +415,12 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
 | H | `Fournisseur` | Vide |
 | I | `Complement livraison` | Commande directe : commentaire du lieu ; demande : contact et commentaire de livraison |
 
-- **Contrôles bloquants** (`Gesconso::prepare()`) : code client absent ou absent du dernier import, adresse de
-  livraison absente, référence article absente (cartouche non résolue, référence vide, ou inconnue du
-  référentiel articles importé), prix 0 hors contrat. Une ligne en défaut n'est jamais écrite : l'appelant
-  refuse l'export entier avec la liste des lignes en défaut.
+- **Contrôles bloquants** (`Gesconso::prepare()`) : code client absent (aucun nom d'entité en forme de code),
+  intitulé de livraison absent (commentaires de l'entité vides), référence article absente (cartouche non
+  résolue, référence vide, ou inconnue du référentiel articles importé), prix 0 hors contrat. Une ligne en
+  défaut n'est jamais écrite : l'appelant refuse l'export entier avec la liste des lignes en défaut.
+  Avertissements, non bloquants : référentiel (articles, adresses) jamais importé ; intitulé de livraison absent
+  des adresses importées du client.
 - Codes et références écrits en texte explicite (zéros de tête conservés) ; cellules vides non écrites.
 - **Transmission aux Achats** (`inc/purchaseorder.class.php`, table `purchaseorders`, étape 1.6.7) : commande
   directe et export de demandes ENREGISTRENT d'abord (expéditions, fichier archivé, ligne de transmission
@@ -1013,7 +1016,7 @@ demandes validées est en service. Une mise à jour du plugin ne change pas l'é
 | `plugin_printgestion_expedition` | Expéditions (UPDATE pour agir) |
 | `plugin_printgestion_validation` | Demandes d'envoi : READ voir, UPDATE modifier / valider / annuler (file aussi visible avec `dashboard` READ, sans agir) |
 | `plugin_printgestion_deploiement` | Collecte SNMP / Déploiement Agent : READ voir et télécharger l'installeur et les paquets de consigne, page « Sondes », onglet de la fiche Agent, cartes du tableau de bord ; UPDATE raccorder des imprimantes, régler la fréquence des relevés de l'entité, régler la mise à jour des sondes, marquer le PC sonde ; « Contrôle de la remontée » |
-| `plugin_printgestion_sage` | Référentiel Sage : READ onglet Sage de l'entité, UPDATE import et correspondances |
+| `plugin_printgestion_sage` | Référentiel Sage : UPDATE import des référentiels (adresses, articles) ; READ sans écran propre |
 | `plugin_printgestion_billing` | Coût à la page : écrans et onglet de la fiche imprimante (prix et coûts ; jamais le seul droit sur l'imprimante) |
 | `plugin_printgestion_config` | Configuration du plugin + mappings SNMP ; onglet « Print Gestion » des cartouches (liaisons SNMP) : READ voir, UPDATE enregistrer, toujours avec le droit natif sur la cartouche |
 

@@ -12,7 +12,6 @@ Constats OK / KO / À NOTER / NON CONCLUANT ; tout ce qui est créé ou modifié
 7. Dossier tests/ du plugin : jamais servi par le serveur web.
 8. Verrou anti-double-envoi : un n° de série partagé avec un autre client ne bloque rien et ne révèle rien.
 """
-import hashlib
 import json
 import os
 import re
@@ -201,32 +200,20 @@ def scenario_cloisonnement():
             ok_ko(sorted(r[2] for r in crees) == [str(d.SITE_A1)] * 2), str(crees))
     sql(f"DELETE FROM glpi_locations WHERE id = {lieu_b};")
 
-    # Import Sage (compte de Client test A avec le droit « Référentiel Sage ») : jamais de lien vers une entité hors périmètre.
-    fichier = "Code client;Intitulé\nTSTCLI01;CLIENT TEST RACINE\nTSTCLI98;SITE TEST A2\nTSTCLI99;CLIENT TEST B\n".encode("utf-8")
-    statut, _, entetes = WEB.envoyer_fichier(config.FRONT + "/sageimport.php", [("analyze", "1"), ("type", "clients")], "file", "clients-test.csv", fichier)
+    # Import des adresses Sage (compte de Client test A avec le droit « Référentiel Sage ») : le rapport d'écarts ne nomme
+    # jamais une entité hors périmètre (Client test B, Site test C1 sans intitulé) ; rien n'est écrit avant validation.
+    fichier = "Code client;Intitulé livraison;Code adresse\nTSTCLI01;Adresse test 1;TSTLIV01\nTSTCLIC;Livraison test C;TSTLIVC1\n".encode("utf-8")
+    statut, _, entetes = WEB.envoyer_fichier(config.FRONT + "/sageimport.php", [("analyze", "1"), ("type", "deliveries")], "file", "adresses-test.csv", fichier)
     jeton = re.search(r"preview=([0-9a-f]+)", (entetes.get("Location") if entetes else "") or "")
     if jeton is None:
         constat("import Sage : fichier de test analysé", "NON CONCLUANT", f"HTTP {statut}")
     else:
         _, apercu, _ = WEB.get(config.FRONT + f"/sageimport.php?preview={jeton.group(1)}")
-        constat("import Sage, prévisualisation : aucune entité de Client test B proposée ni nommée", ok_ko("Client test B" not in apercu and "Site test A2" in apercu),
-                "suggestion « même nom » attendue pour Site test A2 (témoin)")
-        empreinte = lambda code: hashlib.sha1(code.encode()).hexdigest()  # noqa: E731
-        mappings_avant = valeur("SELECT COUNT(*) FROM glpi_plugin_printgestion_entitysageclients")
-        WEB.post(config.FRONT + "/sageimport.php", [("apply", "1"), ("token", jeton.group(1)),
-                                                   ("link_code[" + empreinte("TSTCLI99") + "]", "TSTCLI99"), ("link[" + empreinte("TSTCLI99") + "]", str(b))])
-        constat("import Sage : lien vers Client test B refusé, rien écrit",
-                ok_ko(valeur(f"SELECT COUNT(*) FROM glpi_plugin_printgestion_entitysageclients WHERE entities_id = {b}") == "0"
-                      and valeur("SELECT COUNT(*) FROM glpi_plugin_printgestion_sageclients WHERE code = 'TSTCLI99'") == "0"))
-        WEB.post(config.FRONT + "/sageimport.php", [("apply", "1"), ("token", jeton.group(1)),
-                                                   ("link_code[" + empreinte("TSTCLI98") + "]", "TSTCLI98"), ("link[" + empreinte("TSTCLI98") + "]", str(d.SITE_A2))])
-        constat("témoin import Sage : lien vers Site test A2 (périmètre du compte) enregistré",
-                ok_ko(valeur(f"SELECT COUNT(*) FROM glpi_plugin_printgestion_entitysageclients WHERE entities_id = {d.SITE_A2}") == "1"), f"liaisons {mappings_avant} → "
-                + str(valeur("SELECT COUNT(*) FROM glpi_plugin_printgestion_entitysageclients")))
-        sql(f"DELETE FROM glpi_plugin_printgestion_entitysageclients WHERE entities_id IN ({d.SITE_A2}, {b});"
-            "DELETE FROM glpi_plugin_printgestion_sageclients WHERE code IN ('TSTCLI98', 'TSTCLI99');"
-            "DELETE FROM glpi_plugin_printgestion_sageimports WHERE filename = 'clients-test.csv';"
-            "UPDATE glpi_plugin_printgestion_sageclients SET is_in_last_import = 1 WHERE code = 'TSTCLI01';")
+        constat("import des adresses, rapport d'écarts : Client test A nommé (intitulé absent du fichier), jamais Client test B ni Site test C1 (hors périmètre)",
+                ok_ko("Client test A (2 imprimante(s))" in apercu and "Client test B" not in apercu and "Site test C1" not in apercu))
+        adresses_avant = valeur("SELECT COUNT(*) FROM glpi_plugin_printgestion_sagedeliveries")
+        WEB.post(config.FRONT + "/sageimport.php", [("abandon", "1"), ("token", jeton.group(1))])
+        constat("import abandonné : référentiel des adresses inchangé", ok_ko(valeur("SELECT COUNT(*) FROM glpi_plugin_printgestion_sagedeliveries") == adresses_avant))
 
 
 # ── 3. Points d'entrée sans droit ────────────────────────────────────────────

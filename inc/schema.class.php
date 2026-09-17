@@ -1105,6 +1105,11 @@ class PluginPrintgestionSchema {
             }
         }
         $migration->migrationOneTable($config);
+        foreach (['glpi_plugin_printgestion_entitysageclients', 'glpi_plugin_printgestion_sageclients'] as $table) {
+            if ($DB->tableExists($table)) {
+                $migration->dropTable($table);
+            }
+        }
     }
 
     private static function migrateTo166(Migration $migration): void {

@@ -21,7 +21,7 @@ MODULES = {
     "cout": ["front/dashboard_billing.php", "ajax/printer_costs.php", "ajax/export_excel.php"],
     "deploiement": ["front/agentdeploy.php", "front/agentdeploy.download.php", "front/collect.php", "front/collectfrequency.php",
                     "front/raccordement.php", "front/sonde.consigne.php", "front/sondes.php"],
-    "sage": ["front/sage.form.php", "front/sageimport.php"],
+    "sage": ["front/sageimport.php"],
 }
 TABLE = "glpi_plugin_printgestion_configs"
 

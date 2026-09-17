@@ -1804,6 +1804,8 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             __('Site de livraison', 'printgestion'),
             $site !== '' ? $esc($site) : "<span class='text-warning'>" . $esc(__('Imprimantes sans lieu', 'printgestion')) . '</span>'
         );
+        // Règle Gesconso appliquée à l'entité : d'où viennent le code client et l'intitulé de livraison, et ce qui bloque.
+        $field(__('Export Gesconso (Sage)', 'printgestion'), PluginPrintgestionSage::renderRule((int) $f['entities_id']), 'col-12');
         if ($editable) {
             $field(__('Mode de livraison', 'printgestion'), Dropdown::showFromArray(
                 'delivery_mode',

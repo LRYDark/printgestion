@@ -6,8 +6,9 @@
  * Nom Gesconso_JJMMAAAA_HHMM.xlsx, une feuille « Export », ligne 1 = en-têtes, EXACTEMENT
  * 9 colonnes, une ligne par cartouche :
  *   A Devis                 date de la demande, vraie date Excel (jj/mm/aaaa)
- *   B Intitule Client       code client Sage (correspondance entité, héritée du parent)
- *   C Intitule Livraison    intitulé de l'adresse de livraison Sage (lieu via Location.code)
+ *   B Intitule Client       code client Sage = nom de l'entité de l'imprimante s'il a la forme
+ *                           d'un code, sinon celui du parent le plus proche (PluginPrintgestionSage)
+ *   C Intitule Livraison    première ligne des commentaires de l'entité de l'imprimante, jamais héritée
  *   D Consommable           référence article Sage (CartridgeItem.ref)
  *   E Designation           n° série <séparateur> lieu <séparateur> libellé cartouche,
  *                           tronquée à la longueur maximale avec avertissement
@@ -16,7 +17,7 @@
  *   H Fournisseur           vide
  *   I Complement livraison  texte libre
  *
- * Aucune ligne n'est écrite si son code client, son adresse de livraison ou sa référence
+ * Aucune ligne n'est écrite si son code client, son intitulé de livraison ou sa référence
  * article manque : prepare() la renvoie en erreur, à l'appelant de refuser l'export.
  */
 
@@ -92,9 +93,13 @@ class PluginPrintgestionGesconso {
         $separator = self::getSeparator();
         $max       = self::getDesignationMax();
 
-        $check_articles = PluginPrintgestionSage::hasReferential(PluginPrintgestionSageimport::TABLE_ARTICLES);
+        $check_articles   = PluginPrintgestionSage::hasReferential(PluginPrintgestionSageimport::TABLE_ARTICLES);
+        $check_deliveries = PluginPrintgestionSage::hasReferential(PluginPrintgestionSageimport::TABLE_DELIVERIES);
         if (!$check_articles && !empty($lines)) {
             $out['warnings'][] = __('Référentiel articles Sage non importé : l\'existence des références dans Sage n\'est pas vérifiée.', 'printgestion');
+        }
+        if (!$check_deliveries && !empty($lines)) {
+            $out['warnings'][] = __('Référentiel des adresses de livraison Sage non importé : les intitulés de livraison ne sont pas vérifiés.', 'printgestion');
         }
 
         foreach ($lines as $line) {
@@ -108,25 +113,16 @@ class PluginPrintgestionGesconso {
                 continue;
             }
 
-            // Code client et adresse de livraison.
-            $entities_id = (int) $printer->fields['entities_id'];
-            $client      = PluginPrintgestionSage::getClientForEntity($entities_id);
-            $delivery    = null;
-            if ($client === null) {
+            // Code client = nom d'entité en forme de code (hérité du parent), intitulé de livraison = commentaires de l'entité.
+            $rule = PluginPrintgestionSage::describeRule((int) $printer->fields['entities_id']);
+            if ($rule['client'] === null) {
                 $errors[] = sprintf(
-                    __('code client Sage absent pour l\'entité « %s » (onglet « Print Gestion — Sage » de l\'entité, ou import des clients).', 'printgestion'),
-                    Dropdown::getDropdownName('glpi_entities', $entities_id)
+                    __('code client Sage absent : ni le nom de l\'entité « %s » ni celui d\'une entité parente n\'a la forme d\'un code client (majuscules et chiffres, sans espace).', 'printgestion'),
+                    $rule['entity_name']
                 );
-            } elseif (!$client['is_in_last_import']) {
-                $errors[] = sprintf(__('code client Sage %s absent du dernier import des clients.', 'printgestion'), $client['code']);
-            } else {
-                $delivery = PluginPrintgestionSage::getDeliveryForLocation((int) $printer->fields['locations_id'], $client['code']);
-                if ($delivery === null) {
-                    $errors[] = sprintf(
-                        __('adresse de livraison absente : ni le lieu de l\'imprimante ni ses parents ne portent le code d\'une adresse du client %s (champ « Code » du lieu, import des adresses).', 'printgestion'),
-                        $client['code']
-                    );
-                }
+            }
+            if ($rule['label'] === '') {
+                $errors[] = sprintf(__('intitulé de livraison absent : champ « Commentaires » de l\'entité « %s » vide.', 'printgestion'), $rule['entity_name']);
             }
 
             // Référence article.
@@ -172,6 +168,13 @@ class PluginPrintgestionGesconso {
                 continue;
             }
 
+            if ($rule['known'] === false) {
+                $out['warnings'][] = $label . ' : ' . sprintf(
+                    __('intitulé de livraison « %1$s » absent des adresses importées du client %2$s : Sage peut refuser la ligne.', 'printgestion'),
+                    $rule['label'],
+                    $rule['client']['code']
+                );
+            }
             // Désignation : n° série, lieu, libellé cartouche. Espaces intérieurs conservés.
             $serial = trim((string) $printer->fields['serial']);
             if ($serial === '') {
@@ -201,8 +204,8 @@ class PluginPrintgestionGesconso {
 
             $out['rows'][$key] = [
                 'devis'       => substr((string) $line['date'], 0, 10),
-                'client'      => $client['code'],
-                'livraison'   => (string) $delivery['label'],
+                'client'      => $rule['client']['code'],
+                'livraison'   => $rule['label'],
                 'consommable' => $ref,
                 'designation' => $designation,
                 'quantite'    => $quantity,

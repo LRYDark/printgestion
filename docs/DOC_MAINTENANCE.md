@@ -227,12 +227,14 @@ concernent aucun client. Ne jamais supprimer une expédition ni une demande.
 
 ### Importer ou mettre à jour le référentiel Sage
 
-1. Exporter de Sage un fichier par référentiel (clients, adresses de livraison, articles) avec les colonnes
-   décrites dans la doc technique (« Référentiel Sage ») ; l'écran de dépôt les rappelle.
+1. Exporter de Sage un fichier par référentiel (adresses de livraison, articles) avec les colonnes décrites
+   dans la doc technique (« Référentiel Sage ») ; l'écran de dépôt les rappelle.
 2. Print Gestion → Référentiel Sage → Import du référentiel : déposer, **analyser**, lire le rapport d'écarts, valider.
-3. Ordre conseillé : clients (et correspondances entités), puis adresses, puis articles.
-4. Corriger les écarts dans GLPI : champ « Code » des lieux, référence des cartouches, correspondance
-   entité ↔ client (onglet « Print Gestion — Sage » de l'entité), puis relancer l'analyse pour vérifier.
+3. Le code client et l'intitulé de livraison ne s'importent pas : ils se lisent sur l'entité (nom en forme de
+   code client Sage, hérité du parent le plus proche ; première ligne des commentaires = intitulé de livraison,
+   jamais hérité). Le rapport d'écarts liste les entités à imprimantes sans code, sans intitulé, ou dont
+   l'intitulé n'est pas une adresse de leur client dans le fichier.
+4. Corriger dans GLPI : nom ou commentaires de l'entité, référence des cartouches, puis relancer l'analyse.
 
 Une ligne « absente du dernier import » n'est pas perdue : elle redevient active si elle réapparaît.
 
@@ -452,14 +454,16 @@ Relancer la commande une fois la cause réglée : aucune expédition n'est rest�
 
 Chaque ligne en défaut est listée avec son motif (`Gesconso::prepare()`) :
 
-- **code client Sage absent** : lier l'entité (ou un parent) à un client, onglet « Print Gestion — Sage »
-  de l'entité, ou importer les clients ;
-- **adresse de livraison absente** : renseigner le champ « Code » du lieu de l'imprimante (ou d'un parent)
-  avec le code adresse Sage du client, ou importer les adresses ;
+- **code client Sage absent** : ni le nom de l'entité ni celui d'un parent n'a la forme d'un code client
+  (majuscules et chiffres, sans espace) : nommer l'entité cliente par son code Sage ;
+- **intitulé de livraison absent** : champ « Commentaires » de l'entité de l'imprimante vide : y mettre
+  l'intitulé de l'adresse de livraison Sage (première ligne) ;
 - **référence article absente** : référence de la cartouche vide, cartouche non résolue, ou référence
   absente du dernier import articles.
 
-Aucun fichier n'est jamais produit avec une ligne incomplète.
+Aucun fichier n'est jamais produit avec une ligne incomplète. Avertissement non bloquant : « intitulé de livraison
+absent des adresses importées du client » — vérifier l'orthographe des commentaires de l'entité, ou réimporter les
+adresses ; Sage peut refuser la ligne.
 
 **Prix vide** : normal hors contrat (les Achats le renseignent). Prix 0 uniquement si l'imprimante a un
 contrat **en cours** dont le type est coché dans « Contrats — consommables inclus ». Une ligne attendue

@@ -5,14 +5,14 @@
  * Aucune liaison directe avec Sage : un fichier exporté de Sage (xlsx, xls, ods ou csv) est
  * déposé à la main, analysé, prévisualisé avec son rapport d'écarts, puis validé. Un
  * référentiel par fichier :
- *   - clients               : code client Sage ↔ entité GLPI (table de correspondance du plugin) ;
- *   - adresses de livraison : plusieurs par client, ↔ lieux GLPI par Location.code ;
+ *   - adresses de livraison : plusieurs par client (code client, intitulé, code adresse) ;
  *   - articles              : référence Sage ↔ CartridgeItem.ref.
- * L'import ne modifie aucun objet GLPI : seules les correspondances entité ↔ client
- * cochées à la validation sont écrites. Les écarts (lieux sans code, cartouches sans
- * référence connue…) sont signalés pour être corrigés dans GLPI.
+ * Ni l'un ni l'autre ne décide de rien : le code client est le nom de l'entité et l'intitulé de
+ * livraison ses commentaires (PluginPrintgestionSage) ; les référentiels servent à vérifier. L'import
+ * ne modifie aucun objet GLPI. Les écarts (entités sans code ou sans intitulé, intitulés absents du
+ * fichier, cartouches sans référence connue…) sont signalés pour être corrigés dans GLPI.
  * Une ligne absente d'un import suivant n'est jamais supprimée : elle est marquée absente
- * (is_in_last_import = 0) et ne sert plus à l'export.
+ * (is_in_last_import = 0) et ne sert plus à la vérification.
  */
 
 if (!defined('GLPI_ROOT')) {
@@ -23,12 +23,9 @@ class PluginPrintgestionSageimport extends CommonDBTM {
 
     static $rightname = 'plugin_printgestion_config';
 
-    const TYPE_CLIENTS    = 'clients';
     const TYPE_DELIVERIES = 'deliveries';
     const TYPE_ARTICLES   = 'articles';
 
-    const TABLE_CLIENTS    = 'glpi_plugin_printgestion_sageclients';
-    const TABLE_MAPPING    = 'glpi_plugin_printgestion_entitysageclients';
     const TABLE_DELIVERIES = 'glpi_plugin_printgestion_sagedeliveries';
     const TABLE_ARTICLES   = 'glpi_plugin_printgestion_sagearticles';
 
@@ -57,7 +54,6 @@ class PluginPrintgestionSageimport extends CommonDBTM {
 
     public static function getTypeLabels(): array {
         return [
-            self::TYPE_CLIENTS    => __('Clients', 'printgestion'),
             self::TYPE_DELIVERIES => __('Adresses de livraison', 'printgestion'),
             self::TYPE_ARTICLES   => __('Articles', 'printgestion'),
         ];
@@ -65,7 +61,6 @@ class PluginPrintgestionSageimport extends CommonDBTM {
 
     public static function getReferentialTable(string $type): string {
         return [
-            self::TYPE_CLIENTS    => self::TABLE_CLIENTS,
             self::TYPE_DELIVERIES => self::TABLE_DELIVERIES,
             self::TYPE_ARTICLES   => self::TABLE_ARTICLES,
         ][$type];
@@ -79,12 +74,6 @@ class PluginPrintgestionSageimport extends CommonDBTM {
     public static function getColumns(string $type): array {
         $client_code = ['code client', 'ct num', 'numero client', 'n client', 'code tiers', 'numero tiers', 'tiers'];
         switch ($type) {
-            case self::TYPE_CLIENTS:
-                return [
-                    'code' => ['label' => __('Code client', 'printgestion'), 'required' => true, 'aliases' => $client_code],
-                    'name' => ['label' => __('Intitulé', 'printgestion'), 'required' => true,
-                               'aliases' => ['intitule', 'ct intitule', 'intitule client', 'raison sociale', 'nom']],
-                ];
             case self::TYPE_DELIVERIES:
                 return [
                     'client_code' => ['label' => __('Code client', 'printgestion'), 'required' => true, 'aliases' => $client_code],
@@ -119,8 +108,6 @@ class PluginPrintgestionSageimport extends CommonDBTM {
     /** Clé d'unicité d'une ligne, insensible à la casse comme la base. */
     public static function rowKey(string $type, array $row): string {
         switch ($type) {
-            case self::TYPE_CLIENTS:
-                return mb_strtoupper((string) $row['code']);
             case self::TYPE_DELIVERIES:
                 return mb_strtoupper((string) $row['client_code']) . '|' . mb_strtoupper((string) $row['address_key']);
             default:
@@ -228,7 +215,7 @@ class PluginPrintgestionSageimport extends CommonDBTM {
             }
             $seen[$key] = $line_no;
 
-            $code = $type === self::TYPE_CLIENTS ? $row['code'] : ($row['client_code'] ?? null);
+            $code = $row['client_code'] ?? null;
             if ($code !== null && preg_match('/[a-z\s]/u', $code)) {
                 $out['warnings'][] = sprintf(
                     __('Ligne %1$d : code client « %2$s » avec minuscules ou espaces (Gesconso attend le code Sage tel quel, en majuscules sans espace) : importé sans modification.', 'printgestion'),
@@ -253,13 +240,12 @@ class PluginPrintgestionSageimport extends CommonDBTM {
      *
      * @return array ['created' => array[], 'updated' => [['row', 'changes', 'reactivated']],
      *                'unchanged' => int, 'absent' => array[],
-     *                'gaps' => [['title', 'level' (warning|info), 'items' => string[]]],
-     *                'clients' => [['code', 'name', 'entities' => string[], 'suggested' => int]]]
+     *                'gaps' => [['title', 'level' (warning|info), 'items' => string[]]]]
      */
     public static function computePreview(string $type, array $rows): array {
         global $DB;
 
-        $preview = ['created' => [], 'updated' => [], 'unchanged' => 0, 'absent' => [], 'gaps' => [], 'clients' => []];
+        $preview = ['created' => [], 'updated' => [], 'unchanged' => 0, 'absent' => [], 'gaps' => []];
         $fields  = array_keys(self::getColumns($type));
 
         $existing = [];
@@ -296,55 +282,62 @@ class PluginPrintgestionSageimport extends CommonDBTM {
         }
 
         switch ($type) {
-            case self::TYPE_CLIENTS:
-                $preview['clients'] = self::previewClientLinks($rows);
-                $preview['gaps'][]  = [
-                    'title' => __('Entités avec imprimantes sans code client Sage, ni propre ni hérité (correspondances actuelles)', 'printgestion'),
-                    'level' => 'warning',
-                    'items' => self::entitiesWithoutClient(),
-                ];
-                break;
-
             case self::TYPE_DELIVERIES:
-                $known_clients = [];
-                foreach ($DB->request(['SELECT' => ['code'], 'FROM' => self::TABLE_CLIENTS, 'WHERE' => ['is_in_last_import' => 1]]) as $client) {
-                    $known_clients[mb_strtoupper((string) $client['code'])] = true;
+                // Ce que l'export produira pour chaque entité à imprimantes (périmètre de l'utilisateur), face au fichier.
+                $in_file = [];
+                foreach ($rows as $row) {
+                    $in_file[mb_strtoupper($row['client_code']) . '|' . mb_strtoupper($row['label'])] = true;
                 }
-                $location_codes = [];
-                $keys           = array_values(array_unique(array_column($rows, 'address_key')));
-                foreach (array_chunk($keys, 1000) as $chunk) {
-                    foreach ($DB->request(['SELECT' => ['code'], 'FROM' => 'glpi_locations', 'WHERE' => ['code' => $chunk]]) as $location) {
-                        $location_codes[mb_strtoupper((string) $location['code'])] = true;
+                $entities     = self::entitiesWithPrinters();
+                $entity_codes = [];
+                foreach ($entities as $entity) {
+                    if ($entity['code'] !== null) {
+                        $entity_codes[mb_strtoupper($entity['code'])] = true;
                     }
                 }
                 $unknown_client = [];
-                $no_location    = [];
                 foreach ($rows as $row) {
-                    $label = sprintf('%s — %s (%s)', $row['client_code'], $row['label'], $row['address_key']);
-                    if (!isset($known_clients[mb_strtoupper($row['client_code'])])) {
-                        $unknown_client[] = $label;
+                    if (!isset($entity_codes[mb_strtoupper($row['client_code'])])) {
+                        $unknown_client[] = sprintf('%s — %s (%s)', $row['client_code'], $row['label'], $row['address_key']);
                     }
-                    if (!isset($location_codes[mb_strtoupper($row['address_key'])])) {
-                        $no_location[] = $label;
+                }
+                $no_code     = [];
+                $no_label    = [];
+                $not_in_file = [];
+                foreach ($entities as $entity) {
+                    $where = sprintf(__('%1$s (%2$d imprimante(s))', 'printgestion'), $entity['completename'], $entity['nb']);
+                    if ($entity['code'] === null) {
+                        $no_code[] = $where;
+                    }
+                    if ($entity['label'] === '') {
+                        $no_label[] = $where;
+                    }
+                    if ($entity['code'] !== null && $entity['label'] !== ''
+                        && !isset($in_file[mb_strtoupper($entity['code']) . '|' . mb_strtoupper($entity['label'])])) {
+                        $not_in_file[] = sprintf('%s — %s « %s »', $where, $entity['code'], $entity['label']);
                     }
                 }
                 $preview['gaps'][] = [
-                    'title' => __('Adresses dont le client est absent du référentiel clients', 'printgestion'),
+                    'title' => __('Adresses dont le code client n\'est le code d\'aucune entité à imprimantes de votre périmètre', 'printgestion'),
                     'level' => 'warning',
                     'items' => $unknown_client,
                 ];
                 $preview['gaps'][] = [
-                    'title' => __('Adresses sans lieu GLPI portant leur code (renseigner le champ « Code » du lieu)', 'printgestion'),
+                    'title' => __('Entités avec imprimantes sans code client Sage (ni leur nom ni celui d\'un parent n\'a la forme d\'un code) : export bloqué', 'printgestion'),
                     'level' => 'warning',
-                    'items' => $no_location,
+                    'items' => $no_code,
                 ];
                 $preview['gaps'][] = [
-                    'title' => __('Imprimantes dont le client est connu mais sans adresse de livraison résolue avec ce fichier', 'printgestion'),
+                    'title' => __('Entités avec imprimantes sans intitulé de livraison (champ « Commentaires » vide) : export bloqué', 'printgestion'),
                     'level' => 'warning',
-                    'items' => self::printersWithoutDelivery($rows),
+                    'items' => $no_label,
+                ];
+                $preview['gaps'][] = [
+                    'title' => __('Entités avec imprimantes dont l\'intitulé de livraison n\'est pas une adresse de leur client dans ce fichier', 'printgestion'),
+                    'level' => 'warning',
+                    'items' => $not_in_file,
                 ];
                 break;
-
             default:
                 $refs = [];
                 foreach ($rows as $row) {
@@ -391,164 +384,33 @@ class PluginPrintgestionSageimport extends CommonDBTM {
         return $preview;
     }
 
-    /** Correspondances actuelles de chaque code du fichier, et suggestion d'entité de même nom. */
-    private static function previewClientLinks(array $rows): array {
+    /**
+     * Entités portant des imprimantes (périmètre de l'utilisateur), avec la règle Gesconso appliquée :
+     * code client (nom d'entité en forme de code, hérité) et intitulé de livraison (commentaires).
+     *
+     * @return array[] ['id', 'completename', 'nb', 'code' => ?string, 'label' => string]
+     */
+    private static function entitiesWithPrinters(): array {
         global $DB;
-
-        $mapped          = [];
-        $mapped_entities = [];
-        foreach ($DB->request([
-            'SELECT'     => ['c.code', 'm.entities_id', 'e.completename'],
-            'FROM'       => self::TABLE_MAPPING . ' AS m',
-            'INNER JOIN' => [
-                self::TABLE_CLIENTS . ' AS c' => ['ON' => ['m' => 'plugin_printgestion_sageclients_id', 'c' => 'id']],
-            ],
-            'LEFT JOIN'  => [
-                'glpi_entities AS e' => ['ON' => ['m' => 'entities_id', 'e' => 'id']],
-            ],
-        ]) as $link) {
-            // Nom d'une entité hors du périmètre de l'utilisateur jamais affiché.
-            $mapped[mb_strtoupper((string) $link['code'])][] = Session::haveAccessToEntity((int) $link['entities_id'])
-                ? (string) $link['completename']
-                : __('entité hors de votre périmètre', 'printgestion');
-            $mapped_entities[(int) $link['entities_id']] = true;
-        }
-
-        // Suggestions par nom : entités du périmètre de l'utilisateur seulement.
-        $by_name = [];
-        foreach ($DB->request(['SELECT' => ['id', 'name'], 'FROM' => 'glpi_entities']) as $entity) {
-            if (!isset($mapped_entities[(int) $entity['id']]) && Session::haveAccessToEntity((int) $entity['id'])) {
-                $by_name[self::normalizeLabel((string) $entity['name'])][] = (int) $entity['id'];
-            }
-        }
 
         $out = [];
-        foreach ($rows as $row) {
-            $item = [
-                'code'      => $row['code'],
-                'name'      => $row['name'],
-                'entities'  => $mapped[mb_strtoupper($row['code'])] ?? [],
-                'suggested' => 0,
-            ];
-            if (empty($item['entities'])) {
-                $candidates = $by_name[self::normalizeLabel($row['name'])] ?? [];
-                if (count($candidates) === 1) {
-                    $item['suggested'] = $candidates[0];
-                }
-            }
-            $out[] = $item;
-        }
-        return $out;
-    }
-
-    /** Correspondances entité → code client actuelles (entités_id => code). */
-    private static function currentEntityCodes(): array {
-        global $DB;
-
-        $codes = [];
-        foreach ($DB->request([
-            'SELECT'     => ['m.entities_id', 'c.code'],
-            'FROM'       => self::TABLE_MAPPING . ' AS m',
-            'INNER JOIN' => [
-                self::TABLE_CLIENTS . ' AS c' => ['ON' => ['m' => 'plugin_printgestion_sageclients_id', 'c' => 'id']],
-            ],
-        ]) as $link) {
-            $codes[(int) $link['entities_id']] = (string) $link['code'];
-        }
-        return $codes;
-    }
-
-    /** Code client résolu (propre ou hérité) d'une entité, d'après une table entités_id => code. */
-    private static function resolveEntityCode(int $entities_id, array $codes, array &$cache): ?string {
-        if (!array_key_exists($entities_id, $cache)) {
-            $cache[$entities_id] = $codes[$entities_id] ?? null;
-            if ($cache[$entities_id] === null) {
-                // Ancêtre le plus proche = celui qui a lui-même le plus d'ancêtres.
-                $best_depth = -1;
-                foreach (array_keys(getAncestorsOf('glpi_entities', $entities_id)) as $ancestor) {
-                    $ancestor = (int) $ancestor;
-                    if (!isset($codes[$ancestor])) {
-                        continue;
-                    }
-                    $depth = count(getAncestorsOf('glpi_entities', $ancestor));
-                    if ($depth > $best_depth) {
-                        $best_depth          = $depth;
-                        $cache[$entities_id] = $codes[$ancestor];
-                    }
-                }
-            }
-        }
-        return $cache[$entities_id];
-    }
-
-    /** Entités portant des imprimantes et sans code client, ni propre ni hérité. */
-    private static function entitiesWithoutClient(): array {
-        global $DB;
-
-        $codes = self::currentEntityCodes();
-        $cache = [];
-        $out   = [];
         foreach ($DB->request([
             'SELECT'     => ['e.id', 'e.completename', new QueryExpression('COUNT(`p`.`id`) AS `nb`')],
             'FROM'       => 'glpi_printers AS p',
             'INNER JOIN' => ['glpi_entities AS e' => ['ON' => ['p' => 'entities_id', 'e' => 'id']]],
-            // Rapport limité aux entités de l'utilisateur.
+            // Rapport limité aux entités de l'utilisateur : jamais le nom d'une entité hors de son périmètre.
             'WHERE'      => ['p.is_deleted' => 0, 'p.is_template' => 0] + getEntitiesRestrictCriteria('p', '', '', true),
             'GROUPBY'    => ['e.id', 'e.completename'],
             'ORDER'      => ['e.completename'],
         ]) as $entity) {
-            if (self::resolveEntityCode((int) $entity['id'], $codes, $cache) === null) {
-                $out[] = sprintf(__('%1$s (%2$d imprimante(s))', 'printgestion'), $entity['completename'], $entity['nb']);
-            }
-        }
-        return $out;
-    }
-
-    /**
-     * Imprimantes dont l'entité a un code client mais dont aucun lieu (le leur, puis les
-     * parents) ne porte le code d'une adresse de ce client dans le fichier analysé.
-     */
-    private static function printersWithoutDelivery(array $rows): array {
-        global $DB;
-
-        $addresses = [];
-        foreach ($rows as $row) {
-            $addresses[mb_strtoupper($row['client_code']) . '|' . mb_strtoupper($row['address_key'])] = true;
-        }
-        $locations = [];
-        foreach ($DB->request(['SELECT' => ['id', 'locations_id', 'code'], 'FROM' => 'glpi_locations']) as $location) {
-            $locations[(int) $location['id']] = [(int) $location['locations_id'], trim((string) $location['code'])];
-        }
-
-        $codes = self::currentEntityCodes();
-        $cache = [];
-        $out   = [];
-        foreach ($DB->request([
-            'SELECT'     => ['p.id', 'p.name', 'p.entities_id', 'p.locations_id', 'e.completename'],
-            'FROM'       => 'glpi_printers AS p',
-            'INNER JOIN' => ['glpi_entities AS e' => ['ON' => ['p' => 'entities_id', 'e' => 'id']]],
-            // Rapport limité aux entités de l'utilisateur.
-            'WHERE'      => ['p.is_deleted' => 0, 'p.is_template' => 0] + getEntitiesRestrictCriteria('p', '', '', true),
-            'ORDER'      => ['e.completename', 'p.name'],
-        ]) as $printer) {
-            $client_code = self::resolveEntityCode((int) $printer['entities_id'], $codes, $cache);
-            if ($client_code === null) {
-                continue; // signalé par le rapport des clients
-            }
-            $found   = false;
-            $current = (int) $printer['locations_id'];
-            $guard   = 0;
-            while ($current > 0 && isset($locations[$current]) && $guard++ < 50) {
-                [$parent, $code] = $locations[$current];
-                if ($code !== '' && isset($addresses[mb_strtoupper($client_code) . '|' . mb_strtoupper($code)])) {
-                    $found = true;
-                    break;
-                }
-                $current = $parent;
-            }
-            if (!$found) {
-                $out[] = sprintf('%s — %s (%s)', $printer['completename'], $printer['name'], $client_code);
-            }
+            $rule  = PluginPrintgestionSage::describeRule((int) $entity['id']);
+            $out[] = [
+                'id'           => (int) $entity['id'],
+                'completename' => (string) $entity['completename'],
+                'nb'           => (int) $entity['nb'],
+                'code'         => $rule['client']['code'] ?? null,
+                'label'        => $rule['label'],
+            ];
         }
         return $out;
     }
@@ -558,58 +420,21 @@ class PluginPrintgestionSageimport extends CommonDBTM {
     /**
      * Applique un import analysé et prévisualisé, tout ou rien (transaction) : création ou
      * mise à jour des lignes du fichier, lignes absentes marquées absentes (jamais
-     * supprimées), correspondances entité ↔ client choisies (clients), trace de l'import.
+     * supprimées), trace de l'import. Aucun objet GLPI modifié.
      *
-     * @param array $links CODE CLIENT EN MAJUSCULES => entities_id (import clients uniquement).
      * @return array ['ok' => bool, 'errors' => string[], 'counts' => array]
      */
-    public static function apply(string $type, array $rows, array $links, string $filename): array {
+    public static function apply(string $type, array $rows, string $filename): array {
         global $DB;
 
-        $counts = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'absent' => 0, 'linked' => 0];
-        $errors = [];
-
-        if ($type === self::TYPE_CLIENTS && !empty($links)) {
-            $codes_in_file = [];
-            foreach ($rows as $row) {
-                $codes_in_file[mb_strtoupper($row['code'])] = $row;
-            }
-            $current  = self::currentEntityCodes();
-            $entities = [];
-            foreach ($links as $code => $entities_id) {
-                $entity = new Entity();
-                if (!isset($codes_in_file[$code])) {
-                    $errors[] = sprintf(__('Code client %s absent du fichier.', 'printgestion'), $code);
-                } elseif (!$entity->getFromDB($entities_id) || !Session::haveAccessToEntity($entities_id)) {
-                    // Hors périmètre de l'utilisateur : même refus qu'une entité inexistante.
-                    $errors[] = sprintf(__('Code client %s : entité introuvable ou hors de votre périmètre.', 'printgestion'), $code);
-                } elseif (isset($entities[$entities_id])) {
-                    $errors[] = sprintf(
-                        __('L\'entité %1$s est choisie pour deux codes clients (%2$s et %3$s) : une entité n\'a qu\'un client.', 'printgestion'),
-                        $entity->fields['completename'],
-                        $entities[$entities_id],
-                        $code
-                    );
-                } elseif (isset($current[$entities_id]) && mb_strtoupper($current[$entities_id]) !== $code) {
-                    $errors[] = sprintf(
-                        __('L\'entité %1$s est déjà liée au client %2$s : changez-la depuis son onglet « Print Gestion — Sage ».', 'printgestion'),
-                        $entity->fields['completename'],
-                        $current[$entities_id]
-                    );
-                }
-                $entities[$entities_id] = $code;
-            }
-        }
-        if (!empty($errors)) {
-            return ['ok' => false, 'errors' => $errors, 'counts' => $counts];
-        }
+        $counts = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'absent' => 0];
 
         $table  = self::getReferentialTable($type);
         $fields = array_keys(self::getColumns($type));
         $now    = $_SESSION['glpi_currenttime'];
 
         try {
-            PluginPrintgestionDemande::transactional(function () use ($type, $rows, $links, $filename, $table, $fields, $now, &$counts) {
+            PluginPrintgestionDemande::transactional(function () use ($type, $rows, $filename, $table, $fields, $now, &$counts) {
                 global $DB;
 
                 $existing = [];
@@ -652,31 +477,6 @@ class PluginPrintgestionSageimport extends CommonDBTM {
                     }
                 }
 
-                foreach ($links as $code => $entities_id) {
-                    if (!isset($ids[$code])) {
-                        continue;
-                    }
-                    $already = countElementsInTable(self::TABLE_MAPPING, [
-                        'entities_id'                        => (int) $entities_id,
-                        'plugin_printgestion_sageclients_id' => $ids[$code],
-                    ]);
-                    if ($already > 0) {
-                        continue;
-                    }
-                    $DB->insert(self::TABLE_MAPPING, [
-                        'entities_id'                        => (int) $entities_id,
-                        'plugin_printgestion_sageclients_id' => $ids[$code],
-                        'date_creation'                      => $now,
-                        'date_mod'                           => $now,
-                    ]);
-                    PluginPrintgestionSage::logOnEntity((int) $entities_id, sprintf(
-                        __('Print Gestion : liée au client Sage %1$s (import du fichier %2$s).', 'printgestion'),
-                        $code,
-                        $filename
-                    ));
-                    $counts['linked']++;
-                }
-
                 $DB->insert(self::getTable(), [
                     'type'          => $type,
                     'filename'      => mb_substr($filename, 0, 255),
@@ -685,7 +485,7 @@ class PluginPrintgestionSageimport extends CommonDBTM {
                     'nb_updated'    => $counts['updated'],
                     'nb_unchanged'  => $counts['unchanged'],
                     'nb_absent'     => $counts['absent'],
-                    'nb_linked'     => $counts['linked'],
+                    'nb_linked'     => 0,
                     'date_creation' => $now,
                 ]);
             });
@@ -694,7 +494,7 @@ class PluginPrintgestionSageimport extends CommonDBTM {
             return [
                 'ok'     => false,
                 'errors' => [__('Import annulé (erreur technique, détail dans le journal printgestion) : rien n\'a été modifié.', 'printgestion')],
-                'counts' => ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'absent' => 0, 'linked' => 0],
+                'counts' => ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'absent' => 0],
             ];
         }
 
@@ -728,9 +528,8 @@ class PluginPrintgestionSageimport extends CommonDBTM {
             . "<th>" . $esc(__('Colonnes (obligatoires en gras) et en-têtes acceptés', 'printgestion')) . "</th>"
             . "<th>" . $esc(__('Rapprochement GLPI', 'printgestion')) . "</th></tr></thead><tbody>";
         $matching = [
-            self::TYPE_CLIENTS    => __('Entité, par la correspondance du plugin (choisie à la validation ou sur l\'onglet « Print Gestion — Sage » de l\'entité) ; une sous-entité hérite du client de son parent.', 'printgestion'),
-            self::TYPE_DELIVERIES => __('Lieu GLPI dont le champ « Code » vaut le code adresse (à défaut de colonne code adresse : l\'intitulé livraison).', 'printgestion'),
-            self::TYPE_ARTICLES   => __('Cartouche GLPI dont la référence vaut la référence article.', 'printgestion'),
+            self::TYPE_DELIVERIES => __('Vérification seulement : l\'export prend le code client dans le nom de l\'entité (ou d\'un parent) et l\'intitulé de livraison dans ses commentaires ; un intitulé absent des adresses de son client donne un avertissement.', 'printgestion'),
+            self::TYPE_ARTICLES   => __('Cartouche GLPI dont la référence vaut la référence article ; une référence absente du référentiel bloque la ligne.', 'printgestion'),
         ];
         foreach (self::getTypeLabels() as $type => $label) {
             $columns = [];
@@ -832,9 +631,6 @@ class PluginPrintgestionSageimport extends CommonDBTM {
         echo "<form method='post' action='" . $esc(self::getPageURL()) . "'>";
         echo Html::hidden('token', ['value' => (string) $pending['token']]);
 
-        if ($preview !== null && $type === self::TYPE_CLIENTS) {
-            self::showClientLinks($preview['clients']);
-        }
 
         echo "<div class='d-flex gap-2 mt-3'>";
         if ($preview !== null) {
@@ -847,49 +643,6 @@ class PluginPrintgestionSageimport extends CommonDBTM {
         Html::closeForm();
 
         echo "</div></div>";
-    }
-
-    /**
-     * Codes du fichier sans entité liée : suggestion (entité de même nom, cochée) ou choix
-     * d'une entité. Les correspondances existantes sont affichées sans être modifiables ici.
-     */
-    private static function showClientLinks(array $clients): void {
-        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-
-        $unmapped = array_values(array_filter($clients, static fn(array $c) => empty($c['entities'])));
-        echo "<h4 class='mt-3'>" . $esc(sprintf(
-            __('Correspondance entité ↔ client (%1$d code(s) sans entité sur %2$d)', 'printgestion'),
-            count($unmapped),
-            count($clients)
-        )) . "</h4>";
-        echo "<p class='text-muted small'>" . $esc(__('Les correspondances existantes se modifient depuis l\'onglet « Print Gestion — Sage » de l\'entité. Une sous-entité hérite du client de son parent : ne liez que l\'entité de plus haut niveau du client.', 'printgestion')) . "</p>";
-        if (empty($unmapped)) {
-            return;
-        }
-
-        echo "<div class='table-responsive'><table class='table table-sm'><thead><tr>"
-            . "<th>" . $esc(__('Code client', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Intitulé', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Lier à l\'entité', 'printgestion')) . "</th></tr></thead><tbody>";
-        $dropdowns = 0;
-        foreach ($unmapped as $client) {
-            $field = 'link[' . sha1(mb_strtoupper($client['code'])) . ']';
-            echo "<tr><td><code>" . $esc($client['code']) . "</code></td><td>" . $esc($client['name']) . "</td><td>";
-            echo Html::hidden('link_code[' . sha1(mb_strtoupper($client['code'])) . ']', ['value' => $client['code']]);
-            if ($client['suggested'] > 0) {
-                echo "<label class='form-check mb-0'><input type='checkbox' class='form-check-input' name='{$field}' value='"
-                    . (int) $client['suggested'] . "' checked> "
-                    . $esc(sprintf(__('%s (même nom)', 'printgestion'), Dropdown::getDropdownName('glpi_entities', $client['suggested'])))
-                    . "</label>";
-            } elseif ($dropdowns < self::LIST_MAX) {
-                Entity::dropdown(['name' => $field, 'value' => -1, 'display_emptychoice' => true, 'emptylabel' => '-----', 'width' => '100%']);
-                $dropdowns++;
-            } else {
-                echo "<span class='text-muted small'>" . $esc(__('À lier depuis l\'onglet de l\'entité', 'printgestion')) . "</span>";
-            }
-            echo "</td></tr>";
-        }
-        echo "</tbody></table></div>";
     }
 
     /** Derniers imports réalisés. */
@@ -914,15 +667,14 @@ class PluginPrintgestionSageimport extends CommonDBTM {
             . "<th>" . $esc(__('Fichier', 'printgestion')) . "</th><th>" . $esc(__('Par', 'printgestion')) . "</th>"
             . "<th class='text-end'>" . $esc(__('Nouvelles', 'printgestion')) . "</th><th class='text-end'>" . $esc(__('Modifiées', 'printgestion')) . "</th>"
             . "<th class='text-end'>" . $esc(__('Inchangées', 'printgestion')) . "</th><th class='text-end'>" . $esc(__('Absentes', 'printgestion')) . "</th>"
-            . "<th class='text-end'>" . $esc(__('Entités liées', 'printgestion')) . "</th></tr></thead><tbody>";
+            . "</tr></thead><tbody>";
         foreach ($imports as $import) {
             echo "<tr><td>" . $esc(Html::convDateTime((string) $import['date_creation'])) . "</td>"
                 . "<td>" . $esc(self::getTypeLabels()[$import['type']] ?? $import['type']) . "</td>"
                 . "<td>" . $esc($import['filename']) . "</td>"
                 . "<td>" . $esc(getUserName((int) $import['users_id'])) . "</td>"
                 . "<td class='text-end'>" . (int) $import['nb_created'] . "</td><td class='text-end'>" . (int) $import['nb_updated'] . "</td>"
-                . "<td class='text-end'>" . (int) $import['nb_unchanged'] . "</td><td class='text-end'>" . (int) $import['nb_absent'] . "</td>"
-                . "<td class='text-end'>" . (int) $import['nb_linked'] . "</td></tr>";
+                . "<td class='text-end'>" . (int) $import['nb_unchanged'] . "</td><td class='text-end'>" . (int) $import['nb_absent'] . "</td></tr>";
         }
         echo "</tbody></table></div></div>";
     }
@@ -935,7 +687,9 @@ class PluginPrintgestionSageimport extends CommonDBTM {
 
     static function uninstall(Migration $migration) {
         global $DB;
-        foreach ([self::TABLE_MAPPING, self::TABLE_CLIENTS, self::TABLE_DELIVERIES, self::TABLE_ARTICLES, self::getTable()] as $table) {
+        // Les deux premières (correspondance entité ↔ client) ne sont plus créées depuis 1.6.8 : IF EXISTS.
+        foreach (['glpi_plugin_printgestion_entitysageclients', 'glpi_plugin_printgestion_sageclients',
+            self::TABLE_DELIVERIES, self::TABLE_ARTICLES, self::getTable()] as $table) {
             $DB->doQuery('DROP TABLE IF EXISTS `' . $table . '`');
         }
         return true;

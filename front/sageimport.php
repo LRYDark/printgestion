@@ -78,21 +78,7 @@ if (isset($_POST['apply']) || isset($_POST['abandon'])) {
         Html::redirect($page . '?preview=' . $pending['token']);
     }
 
-    // Correspondances entité ↔ client cochées ou choisies (clés : empreinte du code).
-    $links = [];
-    $codes = (array) ($_POST['link_code'] ?? []);
-    foreach ((array) ($_POST['link'] ?? []) as $hash => $entities_id) {
-        if (isset($codes[$hash]) && (int) $entities_id > 0) {
-            $links[mb_strtoupper((string) $codes[$hash])] = (int) $entities_id;
-        }
-    }
-
-    $result = PluginPrintgestionSageimport::apply(
-        (string) $pending['type'],
-        (array) $pending['rows'],
-        $pending['type'] === PluginPrintgestionSageimport::TYPE_CLIENTS ? $links : [],
-        (string) $pending['filename']
-    );
+    $result = PluginPrintgestionSageimport::apply((string) $pending['type'], (array) $pending['rows'], (string) $pending['filename']);
     if (!$result['ok']) {
         $flash(array_merge([__('Import non réalisé :', 'printgestion')], $result['errors']), ERROR);
         Html::redirect($page . '?preview=' . $pending['token']);
@@ -101,12 +87,11 @@ if (isset($_POST['apply']) || isset($_POST['abandon'])) {
     unset($_SESSION[$key]);
     $counts = $result['counts'];
     $flash([sprintf(
-        __('Import réalisé : %1$d nouvelle(s), %2$d modifiée(s), %3$d inchangée(s), %4$d marquée(s) absente(s), %5$d entité(s) liée(s).', 'printgestion'),
+        __('Import réalisé : %1$d nouvelle(s), %2$d modifiée(s), %3$d inchangée(s), %4$d marquée(s) absente(s).', 'printgestion'),
         $counts['created'],
         $counts['updated'],
         $counts['unchanged'],
-        $counts['absent'],
-        $counts['linked']
+        $counts['absent']
     )], INFO);
     Html::redirect($page);
 }

@@ -92,9 +92,6 @@ function plugin_init_printgestion() {
                 Plugin::registerClass('PluginPrintgestionCartridgesnmp', ['addtabon' => 'CartridgeItem']); // binding SNMP
                 Plugin::registerClass('PluginPrintgestionPrinterThresholdsTab', ['addtabon' => 'Printer']); // seuils d'alerte
             }
-            if (PluginPrintgestionConfig::isFeatureEnabled('sage')) {
-                Plugin::registerClass('PluginPrintgestionSage', ['addtabon' => 'Entity']); // code client Sage
-            }
             if (PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
                 Plugin::registerClass('PluginPrintgestionAgentdeploy', ['addtabon' => 'Entity']); // Déploiement Agent
                 Plugin::registerClass('PluginPrintgestionAgentsetting', ['addtabon' => 'Agent']); // conformité, mise à jour
