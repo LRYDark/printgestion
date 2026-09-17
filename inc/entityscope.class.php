@@ -53,11 +53,6 @@ class PluginPrintgestionEntityscope {
     /** @var array<string, array{entities_id: int, is_recursive: int}> */
     private static array $cache = [];
 
-    /** Toutes les tables qui portent l'entité d'une donnée client, hors demandes (entité native). */
-    public static function getTables(): array {
-        return array_merge(self::PRINTER_TABLES, array_keys(self::CONTRACT_TABLES), array_keys(self::FROZEN_TABLES));
-    }
-
     /**
      * Entité et récursivité d'une imprimante, à écrire sur une ligne qui lui est rattachée. Imprimante
      * introuvable : entité racine, non récursive (visible des seuls comptes de la racine), avec une trace.

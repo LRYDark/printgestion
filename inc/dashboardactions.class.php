@@ -27,38 +27,6 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
     }
 
     /**
-     * Produit les attributs data-pc-* à injecter sur un <tr> de dashboard_expeditions.
-     * $exp est une ligne de SELECT sur glpi_plugin_printgestion_expeditions.
-     */
-    public static function rowDataAttributesForExpedition(array $exp): string {
-        $attrs = [
-            'data-pc-row'            => '1',
-            'data-pc-source'         => 'expedition',
-            'data-pc-printers-id'    => (int)$exp['printers_id'],
-            'data-pc-printer-name'   => (string)($exp['printer_name'] ?? ''),
-            'data-pc-entity-name'    => (string)($exp['entity_name'] ?? ''),
-            'data-pc-property'       => (string)$exp['toner_property'],
-            'data-pc-level'          => (int)($exp['level_at_alert'] ?? 0),
-            'data-pc-days'           => 0,
-            'data-pc-cartridge'      => '',
-            'data-pc-has-expedition' => '1',
-            'data-pc-expedition-id'  => (int)$exp['id'],
-            'data-pc-exp-statut'     => (string)$exp['statut'],
-            'data-pc-exp-carrier'    => (string)($exp['transport_carrier'] ?? ''),
-            'data-pc-exp-tracking'   => (string)($exp['transport_number'] ?? ''),
-        ];
-        return self::serializeAttrs($attrs);
-    }
-
-    protected static function serializeAttrs(array $attrs): string {
-        $out = '';
-        foreach ($attrs as $k => $v) {
-            $out .= ' ' . $k . "='" . htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8') . "'";
-        }
-        return $out;
-    }
-
-    /**
      * Rend le HTML des modals + le context-menu + le JS.
      * À appeler UNE FOIS en fin de page (avant Html::footer()).
      *

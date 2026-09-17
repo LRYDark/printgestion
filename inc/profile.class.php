@@ -187,10 +187,6 @@ class PluginPrintgestionProfile extends Profile {
         }
     }
 
-    static function changeProfile() {
-        self::initProfile();
-    }
-
     static function createFirstAccess($profiles_id) {
         self::addDefaultProfileInfos($profiles_id, [
             'plugin_printgestion_contrats'   => ALLSTANDARDRIGHT,
