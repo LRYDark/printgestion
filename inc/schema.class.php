@@ -384,7 +384,7 @@ class PluginPrintgestionSchema {
             `tracking_suffix` varchar(8) NULL DEFAULT NULL,
             `tracking_status` varchar(32) NULL DEFAULT NULL,
             `tracking_label` varchar(255) NULL DEFAULT NULL,
-            `tracking_event_date` timestamp NULL DEFAULT NULL,
+            `tracking_event_datetime` varchar(40) NULL DEFAULT NULL,
             `tracking_event_place` varchar(255) NULL DEFAULT NULL,
             `tracking_checked_at` timestamp NULL DEFAULT NULL,
             `tracking_failures` int NOT NULL DEFAULT 0,
@@ -613,7 +613,6 @@ class PluginPrintgestionSchema {
             ['cartridge_type' => null, 'cartridgeitemtypes_id' => null, 'id' => '7', 'manufacturer' => null, 'snmp_property' => 'maintenancekit', 'toner_color' => 'other'],
         ],
     ];
-
 
     /** Version de schéma enregistrée en base, null si aucune. */
     public static function getInstalledVersion(): ?string {

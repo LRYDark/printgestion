@@ -32,7 +32,9 @@ main** : relevés (`tests/securite/etat_installation.py`) sur une base installé
 puis générés (`tests/securite/schema_depuis_etat.py`). Le relevé de référence est dans le dépôt
 (`tests/securite/reference/etat-ancien-chemin.json`) et la preuve se rejoue : `tests/securite/comparer_etats.py`
 entre ce relevé et celui d'une installation neuve rend **zéro écart** (tables, colonnes, types, index, défauts, jeux de
-caractères, lignes de référence, tâches, notifications, gabarits, droits). `installation.py` le vérifie à chaque passe.
+caractères, lignes de référence, tâches, notifications, gabarits, droits), hors les écarts volontaires déclarés dans
+`installation.py` avec leur raison (en 1.0.0 : la date d'événement GLS gardée telle que GLS l'envoie). `installation.py`
+le vérifie à chaque passe.
 
 - La version installée est dans `glpi_configs` (contexte `plugin:printgestion`, clé `schema_version`).
 - **Désinstallation** : toutes les tables du plugin (vivantes et anciennes), les tâches automatiques, les notifications

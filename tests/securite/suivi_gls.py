@@ -277,7 +277,7 @@ def main():
         def lignes_suivi():
             return {r[1].split("-")[-1]: dict(zip(("id", "group", "state", "key", "suffix", "status", "label", "event", "place", "checked", "failures", "statut", "parcels"), r))
                     for r in lib.lignes(f"SELECT id, group_id, tracking_state, IFNULL(tracking_key, ''), IFNULL(tracking_suffix, ''), IFNULL(tracking_status, ''), "
-                                        f"IFNULL(tracking_label, ''), IFNULL(tracking_event_date, ''), IFNULL(tracking_event_place, ''), IFNULL(tracking_checked_at, ''), "
+                                        f"IFNULL(tracking_label, ''), IFNULL(tracking_event_datetime, ''), IFNULL(tracking_event_place, ''), IFNULL(tracking_checked_at, ''), "
                                         f"tracking_failures, statut, IFNULL(tracking_parcels, '[]') FROM {EXP} WHERE group_id LIKE 'test-gls-%'")}
 
         tailles = lib.tailles_journaux()
@@ -291,9 +291,9 @@ def main():
                  (6, [sorted(["00TSTA1XAA", "00TSTB2Y", "00TSTZ9QAA", "00TSTM4W", "00TSTW5V", "00TSTN2P"]), ["00TSTA1X", "00TSTZ9Q"]], "", ""))
         verifier("A : repli mémorisé (clé 00TSTA1X, suffixe AA), livré → final", (suivi["A"]["key"], suivi["A"]["suffix"], suivi["A"]["status"], suivi["A"]["state"]),
                  ("00TSTA1X", "AA", "DELIVERED", "final"))
-        verifier("B : en transit, dernier événement trié sur sa date (le plus récent), lieu et libellé français",
-                 (suivi["B"]["state"], suivi["B"]["status"], suivi["B"]["label"], suivi["B"]["place"], suivi["B"]["event"][:10]),
-                 ("tracked", "INTRANSIT", "Colis en transit", "00001 Dépôt test FR", "2026-09-17"))
+        verifier("B : en transit, dernier événement trié sur sa date (le plus récent), date gardée telle que GLS l'envoie (décalage compris), lieu et libellé",
+                 (suivi["B"]["state"], suivi["B"]["status"], suivi["B"]["label"], suivi["B"]["place"], suivi["B"]["event"]),
+                 ("tracked", "INTRANSIT", "Colis en transit", "00001 Dépôt test FR", "2026-09-17T09:00:00+0200"))
         verifier("Z : inconnu après repli → « unknown », un échec compté, saisie nettoyée gardée comme clé", (suivi["Z"]["state"], suivi["Z"]["failures"], suivi["Z"]["key"]), ("unknown", "1", "00TSTZ9QAA"))
         verifier("M : multi-colis, statut de tête = le moins avancé, les deux colis mémorisés",
                  (suivi["M"]["status"], suivi["M"]["state"], len(json.loads(suivi["M"]["parcels"]))), ("INDELIVERY", "tracked", 2))
@@ -319,7 +319,8 @@ def main():
         sql(f"UPDATE {EXP} SET tracking_checked_at = '{il_y_a(25 * 3600)}' WHERE group_id = 'test-gls-Z';")
         r = tache(reponses)
         verifier("Z non reconnu : absent des appels", any("00TSTZ9Q" in c or "00TSTZ9QAA" in c for c in r["calls"]), False)
-        sql(f"UPDATE {EXP} SET tracking_event_date = '{il_y_a(31 * 86400)}', tracking_checked_at = '{il_y_a(2 * 3600)}' WHERE group_id = 'test-gls-B';")
+        iso_il_y_a = lambda secondes: lib.php_glpi(f"echo date('c', time() - {secondes});").strip()  # noqa: E731
+        sql(f"UPDATE {EXP} SET tracking_event_datetime = '{iso_il_y_a(31 * 86400)}', tracking_checked_at = '{il_y_a(2 * 3600)}' WHERE group_id = 'test-gls-B';")
         r = tache(reponses)
         suivi = lignes_suivi()
         verifier("B sans mouvement depuis 31 jours : « sans nouvelles », non interrogé", (suivi["B"]["state"], any("00TSTB2Y" in c for c in r["calls"])), ("silent", False))
@@ -374,17 +375,17 @@ def main():
         lib.connecter_admin()
         profil = CTX.profil(6, "Profil test technicien (expéditions)", {"plugin_printgestion_expedition": 1, "plugin_printgestion_dashboard": 1, "plugin_printgestion_config": 0})
         CTX.utilisateur("test-technicien-gls", profil, d.RACINE)
-        deux_colis = json.dumps([{"unitno": "90000000012", "status": "NOTDELIVERED", "date": "2026-09-17 11:00:00", "place": "00000 Ville test FR"},
-                                 {"unitno": "90000000011", "status": "DELIVERED", "date": "2026-09-17 10:00:00", "place": ""}])
+        deux_colis = json.dumps([{"unitno": "90000000012", "status": "NOTDELIVERED", "datetime": "2026-09-17T11:00:00+0200", "place": "00000 Ville test FR"},
+                                 {"unitno": "90000000011", "status": "DELIVERED", "datetime": "2026-09-17T10:00:00+0200", "place": ""}])
         lignes_exp = [
-            ("tonerblack", "00TSTB2YBB", "tracked", "00TSTB2Y", "BB", "INDELIVERY", "Colis en cours de livraison", "2026-09-17 09:00:00", "00001 Dépôt test FR", ""),
-            ("tonercyan", "00TSTN2PAA", "tracked", "00TSTN2P", "AA", "NOTDELIVERED", "Destinataire absent", "2026-09-17 11:00:00", "00000 Ville test FR", deux_colis),
+            ("tonerblack", "00TSTB2YBB", "tracked", "00TSTB2Y", "BB", "INDELIVERY", "Colis en cours de livraison", "2026-09-17T09:00:00+0200", "00001 Dépôt test FR", ""),
+            ("tonercyan", "00TSTN2PAA", "tracked", "00TSTN2P", "AA", "NOTDELIVERED", "Destinataire absent", "2026-09-17T11:00:00+0200", "00000 Ville test FR", deux_colis),
             ("tonermagenta", "00TSTZ9QAA", "unrecognized", "00TSTZ9QAA", "", "", "", "", "", ""),
-            ("toneryellow", "00TSTA1X", "final", "00TSTA1X", "", "DELIVERED", "Colis livré", "2026-09-16 15:00:00", "00000 Ville test FR", ""),
+            ("toneryellow", "00TSTA1X", "final", "00TSTA1X", "", "DELIVERED", "Colis livré", "2026-09-16T15:00:00+0200", "00000 Ville test FR", ""),
         ]
         for prop, numero, etat, cle, suffixe, code, libelle, date, lieu, colis in lignes_exp:
             sql(f"INSERT INTO {EXP} (printers_id, toner_property, toner_color, statut, level_at_alert, date_alert, date_shipped, users_id_tech, group_id, "
-                f"transport_carrier, transport_number, entities_id, tracking_state, tracking_key, tracking_suffix, tracking_status, tracking_label, tracking_event_date, "
+                f"transport_carrier, transport_number, entities_id, tracking_state, tracking_key, tracking_suffix, tracking_status, tracking_label, tracking_event_datetime, "
                 f"tracking_event_place, tracking_checked_at, tracking_parcels) VALUES (2, '{prop}', 'black', 'shipped', 10, NOW(), NOW(), {d.ADMIN_ID}, 'test-gls-aff', 'gls', '{numero}', 0, "
                 f"'{etat}', '{cle}', {lib.q(suffixe) if suffixe else 'NULL'}, {lib.q(code) if code else 'NULL'}, {lib.q(libelle) if libelle else 'NULL'}, "
                 f"{lib.q(date) if date else 'NULL'}, {lib.q(lieu) if lieu else 'NULL'}, NOW(), {lib.q(colis) if colis else 'NULL'});")
@@ -403,9 +404,10 @@ def main():
         for nom, connexion in (("admin", lib.connecter_admin), ("technicien", lambda: CTX.connecter("test-technicien-gls"))):
             connexion()
             page = avec[nom] = ecran(f"expeditions-avec-cles-{nom}")
-            verifier(f"avec des clés, {nom} : ligne de suivi (libellé, date), description redondante omise, lieu et numéro interrogé derrière le chevron, saisie brute conservée",
+            heure_locale = lib.php_glpi("echo (new DateTime('2026-09-17T09:00:00+0200'))->setTimezone(new DateTimeZone(date_default_timezone_get()))->format('Y-m-d H:i');").strip()
+            verifier(f"avec des clés, {nom} : ligne de suivi (libellé, date dérivée en heure locale), description redondante omise, lieu et numéro interrogé derrière le chevron, saisie brute conservée",
                      ("data-pg-gls='tracked'" in page, "En cours de livraison" in page, "Colis en cours de livraison" in page, "00001 Dépôt test FR" in page,
-                      "Numéro interrogé : 00TSTB2Y" in page, "00TSTB2YBB" in page), (True, True, False, True, True, True))
+                      "Numéro interrogé : 00TSTB2Y" in page, "00TSTB2YBB" in page, heure_locale in page), (True, True, False, True, True, True, True))
             verifier(f"{nom} : deux colis → décompte « 2 colis — 1 non livré, 1 livré », tête = le moins avancé, les deux colis derrière le chevron",
                      ("2 colis" in page, "1 non livré, 1 livré" in page, "90000000011" in page and "90000000012" in page, "à signaler aux Achats" in page), (True, True, True, True))
             verifier(f"{nom} : jamais le code brut, anomalie en rouge « à signaler aux Achats », « non reconnu », livré en vert, l'autre transporteur sans ligne",

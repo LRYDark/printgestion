@@ -19,6 +19,10 @@
  *
  * Le code de statut fait foi (énumération fermée de la spécification) ; le libellé français d'événement ne sert
  * qu'à l'affichage. Un code hors énumération est traité comme non final et journalisé.
+ *
+ * La date du dernier événement est stockée telle que GLS l'envoie (ISO 8601 avec son décalage, tracking_event_datetime) :
+ * l'heure locale de l'affichage et la comparaison de la règle des 30 jours en sont dérivées à la lecture. Une
+ * information jetée à l'écriture ne se retrouve jamais.
  */
 
 if (!defined('GLPI_ROOT')) {
@@ -234,7 +238,7 @@ class PluginPrintgestionGlstracking {
 
         $by_key = [];
         foreach ($DB->request([
-            'SELECT' => ['id', 'transport_number', 'tracking_key', 'tracking_state', 'tracking_event_date', 'tracking_checked_at', 'tracking_failures'],
+            'SELECT' => ['id', 'transport_number', 'tracking_key', 'tracking_state', 'tracking_event_datetime', 'tracking_checked_at', 'tracking_failures'],
             'FROM'   => self::TABLE,
             'WHERE'  => [
                 'transport_carrier' => 'gls',
@@ -253,8 +257,8 @@ class PluginPrintgestionGlstracking {
                 && strtotime((string) $row['tracking_checked_at']) > strtotime($now) - self::UNKNOWN_RETRY) {
                 continue; // numéro non reconnu : pas avant 24 h
             }
-            if ($state === self::STATE_TRACKED && $row['tracking_event_date'] !== null
-                && strtotime((string) $row['tracking_event_date']) < strtotime($now) - self::SILENT_DAYS * DAY_TIMESTAMP) {
+            $last_event = self::toTimestamp((string) ($row['tracking_event_datetime'] ?? ''));
+            if ($state === self::STATE_TRACKED && $last_event !== null && $last_event < strtotime($now) - self::SILENT_DAYS * DAY_TIMESTAMP) {
                 $DB->update(self::TABLE, ['tracking_state' => self::STATE_SILENT, 'tracking_checked_at' => $now], ['id' => (int) $row['id']]);
                 continue;
             }
@@ -292,7 +296,7 @@ class PluginPrintgestionGlstracking {
                 'tracking_suffix'      => $result['suffix'] !== null ? mb_substr((string) $result['suffix'], 0, 8) : null,
                 'tracking_status'      => mb_substr($status, 0, 32),
                 'tracking_label'       => mb_substr($event['description'], 0, 255),
-                'tracking_event_date'  => $event['date'],
+                'tracking_event_datetime' => mb_substr($event['datetime'], 0, 40),
                 'tracking_event_place' => mb_substr($event['place'], 0, 255),
                 'tracking_failures'    => 0,
                 'tracking_state'       => self::isFinal($status) ? self::STATE_FINAL : self::STATE_TRACKED,
@@ -334,27 +338,39 @@ class PluginPrintgestionGlstracking {
         foreach ($parcels as $parcel) {
             $event = self::lastEvent($parcel);
             $out[] = [
-                'unitno' => (string) ($parcel['unitno'] ?? ''),
-                'status' => strtoupper(trim((string) ($parcel['status'] ?? ''))),
-                'date'   => $event['date'],
-                'place'  => $event['place'],
+                'unitno'   => (string) ($parcel['unitno'] ?? ''),
+                'status'   => strtoupper(trim((string) ($parcel['status'] ?? ''))),
+                'datetime' => $event['datetime'],
+                'place'    => $event['place'],
             ];
         }
-        usort($out, static fn(array $a, array $b): int => self::rank($a['status']) <=> self::rank($b['status']) ?: strcmp((string) $b['date'], (string) $a['date']));
+        usort($out, static fn(array $a, array $b): int => self::rank($a['status']) <=> self::rank($b['status'])
+            ?: ((self::toTimestamp($b['datetime']) ?? 0) <=> (self::toTimestamp($a['datetime']) ?? 0)));
         return $out;
     }
 
-    /** Dernier événement (date, lieu, description) : événements triés sur eventDateTime, jamais sur leur ordre. */
+    /** Dernier événement (date telle que GLS la donne, lieu, description) : événements triés sur eventDateTime, jamais sur leur ordre. */
     private static function lastEvent(array $parcel): array {
         $events = array_values(array_filter((array) ($parcel['events'] ?? []), 'is_array'));
-        usort($events, static fn(array $a, array $b) => strcmp((string) ($b['eventDateTime'] ?? ''), (string) ($a['eventDateTime'] ?? '')));
+        usort($events, static fn(array $a, array $b) => (self::toTimestamp((string) ($b['eventDateTime'] ?? '')) ?? 0) <=> (self::toTimestamp((string) ($a['eventDateTime'] ?? '')) ?? 0));
         $last = $events[0] ?? [];
-        $date = (string) ($last['eventDateTime'] ?? $parcel['statusDateTime'] ?? '');
         return [
-            'date'        => self::toLocalDateTime($date),
+            'datetime'    => trim((string) ($last['eventDateTime'] ?? $parcel['statusDateTime'] ?? '')),
             'place'       => trim(implode(' ', array_filter([(string) ($last['postalCode'] ?? ''), (string) ($last['city'] ?? ''), (string) ($last['country'] ?? '')]))),
             'description' => trim((string) ($last['description'] ?? '')),
         ];
+    }
+
+    /** Instant d'une date ISO 8601 avec décalage ; null si vide ou illisible. */
+    public static function toTimestamp(string $iso): ?int {
+        if (trim($iso) === '') {
+            return null;
+        }
+        try {
+            return (new DateTime($iso))->getTimestamp();
+        } catch (Throwable $e) {
+            return null;
+        }
     }
 
     // ── Affichage ─────────────────────────────────────────────────────────────
@@ -423,9 +439,10 @@ class PluginPrintgestionGlstracking {
                 $text = '<strong' . ($describe['level'] === 'anomaly' ? " class='text-danger'" : '') . '>'
                     . $esc(sprintf(__('%d colis', 'printgestion'), count($parcels))) . '</strong> — ' . $esc(implode(', ', $parts));
                 foreach ($parcels as $p) {
+                    $local     = self::toLocalDateTime((string) ($p['datetime'] ?? ''));
                     $details[] = trim(sprintf('%s — %s%s%s', $p['unitno'] !== '' ? $p['unitno'] : __('colis', 'printgestion'),
                         self::describeStatus((string) $p['status'])['label'],
-                        !empty($p['date']) ? ' — ' . Html::convDateTime((string) $p['date']) : '',
+                        $local !== null ? ' — ' . Html::convDateTime($local) : '',
                         !empty($p['place']) ? ' — ' . $p['place'] : ''));
                 }
             } else {
@@ -436,8 +453,9 @@ class PluginPrintgestionGlstracking {
                     $text .= ' — ' . $esc($event);
                 }
             }
-            if (!empty($exp['tracking_event_date'])) {
-                $text .= ' — ' . $esc(Html::convDateTime((string) $exp['tracking_event_date']));
+            $local = self::toLocalDateTime((string) ($exp['tracking_event_datetime'] ?? ''));
+            if ($local !== null) {
+                $text .= ' — ' . $esc(Html::convDateTime($local));
             }
             if ($describe['level'] === 'anomaly') {
                 $text .= " <span class='text-danger'>" . $esc(__('(à signaler aux Achats)', 'printgestion')) . '</span>';
@@ -468,7 +486,7 @@ class PluginPrintgestionGlstracking {
         return self::renderLine($expedition->fields, (string) $expeditions_id);
     }
 
-    /** ISO 8601 avec décalage (« 2024-10-07T10:46:14+0200 ») → heure du serveur ; null si illisible. */
+    /** ISO 8601 avec décalage (« 2024-10-07T10:46:14+0200 ») → heure du serveur, pour l'affichage seulement ; null si illisible. */
     public static function toLocalDateTime(string $iso): ?string {
         if (trim($iso) === '') {
             return null;
