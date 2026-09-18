@@ -409,7 +409,7 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
 | B | `Intitule Client` | Code client Sage = nom de l'entité de l'imprimante s'il a la forme d'un code, sinon celui du parent le plus proche (`Sage::getClientForEntity()`) |
 | C | `Intitule Livraison` | Première ligne des commentaires de l'entité de l'imprimante, jamais héritée (`Sage::getDeliveryLabelForEntity()`) |
 | D | `Consommable` | `CartridgeItem.ref` (vérifiée dans le référentiel articles s'il a été importé) |
-| E | `Designation` | n° série + séparateur + nom du lieu + séparateur + nom de la cartouche ; séparateur (`' # '`) et longueur max (69) configurables, troncature avec avertissement |
+| E | `Designation` | n° série, nom du lieu, nom de la cartouche, joints par le séparateur (`' # '`) en omettant les parties vides (jamais de séparateur orphelin) ; longueur max (69) configurable, troncature avec avertissement |
 | F | `Quantite` | Entier |
 | G | `Prix` | 0 sous contrat ; vide ou prix saisi hors contrat — **jamais 0 hors contrat** |
 | H | `Fournisseur` | Vide |
@@ -420,7 +420,10 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
   résolue, référence vide, ou inconnue du référentiel articles importé), prix 0 hors contrat. Une ligne en
   défaut n'est jamais écrite : l'appelant refuse l'export entier avec la liste des lignes en défaut.
   Avertissements, non bloquants : référentiel (articles, adresses) jamais importé ; intitulé de livraison absent
-  des adresses importées du client.
+  des adresses importées du client ; imprimante sans lieu. Ces deux derniers sont aussi rendus en **notices**
+  typées par ligne (`prepare()['notices']`) : l'écran « Envoyer aux Achats » et le sous-formulaire « Commander »
+  en affichent le décompte (« 3 lignes avec une adresse de livraison non reconnue », « 2 lignes sans lieu sur
+  l'imprimante ») avec la liste derrière « voir », avant le clic ; la confirmation d'envoi le rappelle.
 - Codes et références écrits en texte explicite (zéros de tête conservés) ; cellules vides non écrites.
 - **Transmission aux Achats** (`inc/purchaseorder.class.php`, table `purchaseorders`, étape 1.6.7) : commande
   directe et export de demandes ENREGISTRENT d'abord (expéditions, fichier archivé, ligne de transmission

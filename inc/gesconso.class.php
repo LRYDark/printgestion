@@ -10,8 +10,9 @@
  *                           d'un code, sinon celui du parent le plus proche (PluginPrintgestionSage)
  *   C Intitule Livraison    première ligne des commentaires de l'entité de l'imprimante, jamais héritée
  *   D Consommable           référence article Sage (CartridgeItem.ref)
- *   E Designation           n° série <séparateur> lieu <séparateur> libellé cartouche,
- *                           tronquée à la longueur maximale avec avertissement
+ *   E Designation           n° série <séparateur> lieu <séparateur> libellé cartouche, parties vides
+ *                           omises (jamais de séparateur orphelin), tronquée à la longueur maximale
+ *                           avec avertissement
  *   F Quantite              entier
  *   G Prix                  0 sous contrat ; vide ou prix saisi hors contrat, jamais 0
  *   H Fournisseur           vide
@@ -19,6 +20,9 @@
  *
  * Aucune ligne n'est écrite si son code client, son intitulé de livraison ou sa référence
  * article manque : prepare() la renvoie en erreur, à l'appelant de refuser l'export.
+ * Ce qui n'empêche pas d'écrire la ligne mais mérite d'être vu AVANT l'envoi (intitulé absent
+ * des adresses importées, imprimante sans lieu) est rendu en « notices », par type et par
+ * ligne : les écrans d'envoi en font un décompte, la personne décide.
  */
 
 if (!defined('GLPI_ROOT')) {
@@ -86,10 +90,64 @@ class PluginPrintgestionGesconso {
      * @return array ['rows' => key => ligne du fichier, 'errors' => key => string[] (bloquants),
      *                'warnings' => string[]]
      */
+    /** Types de « notices » (ce qui mérite d'être vu avant l'envoi sans bloquer) : type => [clé de ligne => libellé]. */
+    public static function emptyNotices(): array {
+        return ['address' => [], 'location' => []];
+    }
+
+    /** Fusion de notices (plusieurs demandes sur un même écran d'envoi). */
+    public static function mergeNotices(array $into, array $from): array {
+        foreach (self::emptyNotices() as $kind => $_) {
+            $into[$kind] = ($into[$kind] ?? []) + ($from[$kind] ?? []);
+        }
+        return $into;
+    }
+
+    /**
+     * Décompte par type, prêt à afficher : [['kind', 'count', 'text', 'items' => libellés]] pour les types non vides.
+     */
+    public static function noticesSummary(array $notices): array {
+        $texts = [
+            'address'  => static fn(int $n) => sprintf(_n('%d ligne avec une adresse de livraison non reconnue', '%d lignes avec une adresse de livraison non reconnue', $n, 'printgestion'), $n),
+            'location' => static fn(int $n) => sprintf(_n('%d ligne sans lieu sur l\'imprimante', '%d lignes sans lieu sur l\'imprimante', $n, 'printgestion'), $n),
+        ];
+        $out = [];
+        foreach ($texts as $kind => $text) {
+            $items = array_values($notices[$kind] ?? []);
+            if (!empty($items)) {
+                $out[] = ['kind' => $kind, 'count' => count($items), 'text' => $text(count($items)), 'items' => $items];
+            }
+        }
+        return $out;
+    }
+
+    /** Le décompte en HTML : une ligne par type, la liste des lignes derrière « voir ». Chaîne vide s'il n'y a rien. */
+    public static function renderNoticesSummary(array $notices, string $id): string {
+        $esc     = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $summary = self::noticesSummary($notices);
+        if (empty($summary)) {
+            return '';
+        }
+        $html = "<div class='alert alert-warning py-2 mb-3' data-pg-notices='1'><div class='fw-bold mb-1'>"
+            . $esc(__('À voir avant l\'envoi (n\'empêche pas la commande) :', 'printgestion')) . "</div>";
+        foreach ($summary as $entry) {
+            $target = $esc($id . '-' . $entry['kind']);
+            $html  .= "<div><i class='ti ti-alert-triangle me-1'></i>" . $esc($entry['text'])
+                . " <a class='small' data-bs-toggle='collapse' href='#{$target}' role='button' aria-expanded='false' aria-controls='{$target}'>"
+                . $esc(__('voir', 'printgestion')) . "</a>"
+                . "<ul class='collapse small mb-1' id='{$target}'>";
+            foreach ($entry['items'] as $item) {
+                $html .= '<li>' . $esc($item) . '</li>';
+            }
+            $html .= "</ul></div>";
+        }
+        return $html . "</div>";
+    }
+
     public static function prepare(array $lines): array {
         global $DB;
 
-        $out       = ['rows' => [], 'errors' => [], 'warnings' => []];
+        $out       = ['rows' => [], 'errors' => [], 'warnings' => [], 'notices' => self::emptyNotices()];
         $separator = self::getSeparator();
         $max       = self::getDesignationMax();
 
@@ -174,6 +232,7 @@ class PluginPrintgestionGesconso {
                     $rule['label'],
                     $rule['client']['code']
                 );
+                $out['notices']['address'][$key] = $label;
             }
             // Désignation : n° série, lieu, libellé cartouche. Espaces intérieurs conservés.
             $serial = trim((string) $printer->fields['serial']);
@@ -190,8 +249,16 @@ class PluginPrintgestionGesconso {
                 ])->current()
                 : null;
             $location_name = is_array($location) ? trim((string) $location['name']) : '';
-
-            $designation = implode($separator, [$serial, $location_name, $cartridge_name]);
+            if ($location_name === '') {
+                // Le toner arrivera chez un client qui ne saura pas de quelle machine il s'agit : à voir avant l'envoi.
+                $out['warnings'][] = $label . ' : ' . __('lieu absent de la fiche imprimante : la désignation ne dira pas où est la machine.', 'printgestion');
+                $out['notices']['location'][$key] = $label;
+            }
+            // Parties non vides seulement : jamais de séparateur orphelin dans un fichier qui part chez les Achats.
+            $designation = implode($separator, array_values(array_filter(
+                [$serial, $location_name, $cartridge_name],
+                static fn(string $part) => $part !== ''
+            )));
             if (mb_strlen($designation) > $max) {
                 $out['warnings'][] = sprintf(
                     __('%1$s : désignation tronquée à %2$d caractères (« %3$s »).', 'printgestion'),

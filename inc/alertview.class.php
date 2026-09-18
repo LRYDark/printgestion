@@ -208,6 +208,26 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
         $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         switch ($ma->getAction()) {
             case 'pg_order':
+                // Avant le clic : ce qui ferait refuser la commande, et ce qui mérite d'être vu (décompte, liste).
+                $items = [];
+                foreach (($ma->getItems()[self::class] ?? []) as $id) {
+                    $row = new self();
+                    if ($row->getFromDB((int) $id) && PluginPrintgestionSecurity::canAccessPrinter((int) $row->fields['printers_id'])) {
+                        $items[] = ['printers_id' => (int) $row->fields['printers_id'], 'property' => (string) $row->fields['toner_property']];
+                    }
+                }
+                $preview = PluginPrintgestionExpedition::previewPurchaseOrder($items);
+                if (!empty($preview['errors'])) {
+                    echo "<div class='alert alert-danger py-2'><div class='fw-bold'>" . $esc(sprintf(
+                        _n('%d cartouche ne peut pas être écrite dans le fichier Gesconso : la commande sera refusée.', '%d cartouches ne peuvent pas être écrites dans le fichier Gesconso : la commande sera refusée.', count($preview['errors']), 'printgestion'),
+                        count($preview['errors'])
+                    )) . "</div><ul class='small mb-0'>";
+                    foreach (array_slice($preview['errors'], 0, 20) as $message) {
+                        echo '<li>' . $esc($message) . '</li>';
+                    }
+                    echo "</ul></div>";
+                }
+                echo PluginPrintgestionGesconso::renderNoticesSummary($preview['notices'], 'pg-order-notices');
                 echo "<p class='text-muted small'>" . $esc(__('Une commande pour les toners cochés : fichier Gesconso envoyé aux Achats, une expédition par toner. Refusée en entier si une ligne est verrouillée (envoi ou demande en cours, garde, ticket) ou sans référence, code client ou adresse de livraison : rien n\'est alors enregistré.', 'printgestion')) . "</p>";
                 echo "<div class='form-check'><input type='checkbox' class='form-check-input' name='send_planif' value='1' id='pg-ma-planif'>"
                     . "<label class='form-check-label' for='pg-ma-planif'>" . $esc(__('Prévenir la planification (logistique)', 'printgestion')) . "</label></div>";

@@ -128,8 +128,17 @@ echo "<p class='text-muted small'>"
 if (empty($rows)) {
     echo "<div class='text-muted'>" . $esc(__('Aucune demande validée en attente d\'export.', 'printgestion')) . "</div>";
 } else {
+    // Ce qui mérite d'être vu avant l'envoi, toutes demandes exportables confondues : décompte, liste, et rappel dans la confirmation.
+    $notices = PluginPrintgestionGesconso::emptyNotices();
+    foreach ($rows as $row) {
+        if (empty($row['export']['gesconso']['errors']) && !empty($row['export']['lines'])) {
+            $notices = PluginPrintgestionGesconso::mergeNotices($notices, $row['export']['gesconso']['notices'] ?? []);
+        }
+    }
+    $summary = PluginPrintgestionGesconso::noticesSummary($notices);
     $confirm = json_encode(
-        __('Envoyer le fichier aux Achats ? Les demandes cochées passeront à « exportée ».', 'printgestion'),
+        __('Envoyer le fichier aux Achats ? Les demandes cochées passeront à « exportée ».', 'printgestion')
+            . (empty($summary) ? '' : ' ' . implode(', ', array_column($summary, 'text')) . '.'),
         JSON_UNESCAPED_UNICODE
     );
     echo "<form method='post' action='" . $esc($page) . "'>";
@@ -171,6 +180,7 @@ if (empty($rows)) {
     }
     echo "</tbody></table></div>";
 
+    echo PluginPrintgestionGesconso::renderNoticesSummary($notices, 'pg-export-notices');
     echo "<div class='d-flex flex-wrap gap-2 mt-3'>";
     echo "<button type='submit' name='send' value='1' class='btn btn-success'"
         . " onclick=\"return window.confirm(" . $esc($confirm) . ");\">"

@@ -4,8 +4,12 @@
    « Commander ») : refusée, aucun envoi, aucun document, aucun mail aux Achats, cause affichée.
 2. Même cas, export de demandes validées (« Envoyer aux Achats ») : refusé, demande restée validée, aucun mail.
 3. Type .xlsx autorisé : commande passée, mail aux Achats avec le fichier Gesconso .xlsx joint.
+4. Ce qui mérite d'être vu avant l'envoi : désignation sans segment vide pour une imprimante sans lieu ; décompte des
+   lignes « adresse non reconnue » et « sans lieu » sur l'écran « Envoyer aux Achats » et dans le sous-formulaire
+   « Commander », liste derrière « voir » ; rien de tout cela pour une ligne sans réserve.
 Remet en place le type de document et supprime ce qu'il crée.
 """
+import json
 import sys
 import time
 
@@ -88,6 +92,39 @@ def main():
         verifier("commande passée : un envoi et un document archivé",
                  (int(apres["envois"]) - int(avant["envois"]), int(apres["documents"]) - int(avant["documents"])), (1, 1))
         verifier("mail aux Achats avec le fichier Gesconso .xlsx joint", any(any((f or "").endswith(".xlsx") for f in fichiers) for _, fichiers in mails), True)
+
+        section("4. À voir avant l'envoi : décompte, pas de blocage")
+        ligne = {"key": "p8", "label": "Imprimante 8", "printers_id": d.IMP_A1, "cartridgeitems_id": d.CARTOUCHE_NOIR, "quantity": 1,
+                 "unit_price": "10.00", "under_contract": False, "date": "2026-09-18 12:00:00", "complement": ""}
+        prepare = json.loads(lib.php_glpi("echo json_encode(PluginPrintgestionGesconso::prepare(json_decode(" + json.dumps(json.dumps([ligne])) + ", true)));"))
+        verifier("imprimante sans lieu : désignation « n° série # cartouche », sans segment vide",
+                 prepare["rows"]["p8"]["designation"], "TSTSN0008 # Toner test noir A")
+        verifier("notices typées : adresse non reconnue et lieu absent, sur la ligne",
+                 (sorted(prepare["notices"]["address"]), sorted(prepare["notices"]["location"])), (["p8"], ["p8"]))
+        sql("INSERT INTO glpi_plugin_printgestion_demandes (name, entities_id, locations_id, statut, delivery_mode, users_id_validate, date_validate, date_creation, date_mod) "
+            f"VALUES ('Demande test notices', {d.CLIENT_A}, 0, 'validated', 'direct', {d.ADMIN_ID}, NOW(), NOW(), NOW());")
+        demande = int(valeur("SELECT MAX(id) FROM glpi_plugin_printgestion_demandes WHERE name = 'Demande test notices'"))
+        CTX.crees["demandes"].append(demande)
+        sql("INSERT INTO glpi_plugin_printgestion_demandelines (plugin_printgestion_demandes_id, printers_id, toner_property, cartridgeitems_id, quantity, is_under_contract, "
+            "contracts_id, level_at_proposal, statut, date_creation, date_mod, entities_id) "
+            f"VALUES ({demande}, {d.IMP_A1}, 'tonerblack', {d.CARTOUCHE_NOIR}, 1, 1, {d.CONTRAT_A}, 12, 'validated', NOW(), NOW(), {d.CLIENT_A});")
+        _, page, _ = WEB.get(config.FRONT + f"/demande.export.php?demandes[]={demande}")
+        verifier("écran « Envoyer aux Achats » : décompte des deux réserves, liste derrière « voir », demande cochable",
+                 ("1 ligne avec une adresse de livraison non reconnue" in page, "1 ligne sans lieu sur l" in page,
+                  f"Demande #{demande}" in page[page.find("data-pg-notices"):], f"value='{demande}' checked" in page), (True, True, True, True))
+        verifier("la confirmation d'envoi rappelle le décompte", "non reconnue" in page[page.find("window.confirm"):page.find("window.confirm") + 400], True)
+        # Imprimante 10 : même modèle que la 1 (cartouche résolue), sans lieu, intitulé de son entité absent du référentiel.
+        alerte_10 = valeur(f"SELECT id FROM glpi_plugin_printgestion_alertview WHERE printers_id = {d.IMP_SITE_A1} AND toner_property = 'tonerblack'")
+        _, sous_formulaire, _ = WEB.post("/ajax/dropdownMassiveAction.php", [("action", "PluginPrintgestionAlertview:pg_order"), (f"items[PluginPrintgestionAlertview][{alerte_10}]", alerte_10),
+                                                                              ("is_deleted", "0")], ajax=True)
+        verifier("sous-formulaire « Commander », imprimante sans lieu : décompte des deux réserves avant le clic",
+                 ("1 ligne avec une adresse de livraison non reconnue" in sous_formulaire, "1 ligne sans lieu sur l" in sous_formulaire,
+                  "sera refusée" in sous_formulaire), (True, True, False))
+        alerte_1 = valeur(f"SELECT id FROM glpi_plugin_printgestion_alertview WHERE printers_id = {d.IMP_BAS} AND toner_property = 'tonerblack'")
+        _, sous_formulaire, _ = WEB.post("/ajax/dropdownMassiveAction.php", [("action", "PluginPrintgestionAlertview:pg_order"), (f"items[PluginPrintgestionAlertview][{alerte_1}]", alerte_1),
+                                                                              ("is_deleted", "0")], ajax=True)
+        verifier("sous-formulaire « Commander », imprimante avec lieu et adresse connue : aucune réserve affichée",
+                 ("data-pg-notices" in sous_formulaire, "Envoyer la commande" in sous_formulaire), (False, True))
     finally:
         for ident, autorise in xlsx:
             sql(f"UPDATE glpi_documenttypes SET is_uploadable = {autorise} WHERE id = {ident};")

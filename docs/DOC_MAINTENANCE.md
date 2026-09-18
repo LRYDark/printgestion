@@ -461,9 +461,14 @@ Chaque ligne en défaut est listée avec son motif (`Gesconso::prepare()`) :
 - **référence article absente** : référence de la cartouche vide, cartouche non résolue, ou référence
   absente du dernier import articles.
 
-Aucun fichier n'est jamais produit avec une ligne incomplète. Avertissement non bloquant : « intitulé de livraison
-absent des adresses importées du client » — vérifier l'orthographe des commentaires de l'entité, ou réimporter les
-adresses ; Sage peut refuser la ligne.
+Aucun fichier n'est jamais produit avec une ligne incomplète. Deux avertissements non bloquants, comptés sur l'écran
+d'envoi (« Envoyer aux Achats », sous-formulaire « Commander ») avec la liste des lignes derrière « voir », pour
+décider avant le clic :
+
+- **intitulé de livraison absent des adresses importées du client** : vérifier l'orthographe des commentaires de
+  l'entité, ou réimporter les adresses ; Sage peut refuser la ligne ;
+- **lieu absent de la fiche imprimante** : la désignation ne dira pas où est la machine ; renseigner le lieu de
+  l'imprimante dans GLPI.
 
 **Prix vide** : normal hors contrat (les Achats le renseignent). Prix 0 uniquement si l'imprimante a un
 contrat **en cours** dont le type est coché dans « Contrats — consommables inclus ». Une ligne attendue

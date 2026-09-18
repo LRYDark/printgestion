@@ -315,6 +315,55 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      * couverture contrat. Le contenu du fichier est construit par
      * PluginPrintgestionGesconso::prepare().
      */
+    /**
+     * Aperçu d'une commande directe, sans écriture ni verrou : ce qui empêcherait d'écrire le fichier Gesconso
+     * (référence non résolue, ligne en erreur) et ce qui mérite d'être vu avant l'envoi (notices). Affiché dans le
+     * sous-formulaire « Commander » avant le clic.
+     *
+     * @param array $items [['printers_id', 'property']]
+     * @return array ['errors' => string[], 'notices' => notices de Gesconso::prepare()]
+     */
+    public static function previewPurchaseOrder(array $items): array {
+        global $DB;
+
+        $errors = [];
+        $lines  = [];
+        $names  = [];
+        $ids    = array_values(array_unique(array_map(static fn(array $i) => (int) $i['printers_id'], $items)));
+        if (!empty($ids)) {
+            foreach ($DB->request(['SELECT' => ['id', 'name'], 'FROM' => 'glpi_printers', 'WHERE' => ['id' => $ids]]) as $printer) {
+                $names[(int) $printer['id']] = (string) $printer['name'];
+            }
+        }
+        foreach ($items as $item) {
+            $printers_id = (int) $item['printers_id'];
+            $property    = (string) $item['property'];
+            $label       = sprintf('%s — %s', $names[$printers_id] ?? ('#' . $printers_id), $property);
+            $ref         = PluginPrintgestionSnmpmapping::resolveCartridge($printers_id, $property);
+            if ($ref['cartridgeitems_id'] <= 0) {
+                $errors[] = $label . ' : ' . $ref['message'];
+                continue;
+            }
+            $row     = self::buildPurchaseRowData($printers_id, $property, (int) $ref['cartridgeitems_id']);
+            $lines[] = [
+                'key'               => $printers_id . '|' . $property,
+                'label'             => $label,
+                'printers_id'       => $printers_id,
+                'cartridgeitems_id' => (int) $ref['cartridgeitems_id'],
+                'quantity'          => 1,
+                'unit_price'        => null,
+                'under_contract'    => $row['under_contract'],
+                'date'              => date('Y-m-d'),
+                'complement'        => $row['complement'],
+            ];
+        }
+        $gesconso = empty($lines) ? ['errors' => [], 'notices' => PluginPrintgestionGesconso::emptyNotices()] : PluginPrintgestionGesconso::prepare($lines);
+        foreach ($gesconso['errors'] as $messages) {
+            $errors = array_merge($errors, $messages);
+        }
+        return ['errors' => $errors, 'notices' => $gesconso['notices']];
+    }
+
     public static function buildPurchaseRowData(int $printers_id, string $property, int $cartridgeitems_id): array {
         global $DB;
 
