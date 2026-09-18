@@ -47,10 +47,10 @@ $totalStyle = ['font' => ['bold' => true]];
 
 if ($view === 'client') {
     $sheet = $spreadsheet->getActiveSheet();
-    $sheet->setTitle('Par client');
+    $sheet->setTitle(__('Par client', 'printgestion'));
 
     $sheet->fromArray(
-        ['Client', 'Imprimantes', 'Pages N&B', 'Pages Couleur', 'Coût total (€)'],
+        [__('Client', 'printgestion'), __('Imprimantes', 'printgestion'), __('Pages N&B', 'printgestion'), __('Pages Couleur', 'printgestion'), __('Coût total (€)', 'printgestion')],
         null,
         'A1'
     );
@@ -97,8 +97,8 @@ if ($view === 'client') {
         $sheet->setTitle($clean_title);
 
         $sheet->fromArray([
-            'Imprimante', 'Contrat', 'Pages N&B', 'Pages Couleur',
-            'Tarif N&B', 'Tarif Couleur', 'Coût total (€)',
+            __('Imprimante', 'printgestion'), __('Contrat', 'printgestion'), __('Pages N&B', 'printgestion'), __('Pages Couleur', 'printgestion'),
+            __('Tarif N&B', 'printgestion'), __('Tarif Couleur', 'printgestion'), __('Coût total (€)', 'printgestion'),
         ], null, 'A1');
         $sheet->getStyle('A1:G1')->applyFromArray($headerStyle);
 

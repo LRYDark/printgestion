@@ -222,7 +222,7 @@ class PluginPrintgestionSnmpadapter {
             self::$manufacturers[(int) $row['id']] = (int) $row['manufacturers_id'];
         }
 
-        // Table absente sur une base pas encore migrée en 1.5.5 : aucune règle appliquée.
+        // Table absente (plugin non installé) : aucune règle appliquée.
         self::$rules = [];
         $table       = PluginPrintgestionSnmprule::getTable();
         if ($DB->tableExists($table)) {

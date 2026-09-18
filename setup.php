@@ -152,8 +152,8 @@ function plugin_printgestion_addDefaultWhere($itemtype) {
             . " AND `glpi_plugin_printgestion_billing_view`.`view_mode` = '" . $view . "'";
     }
 
-    // Expéditions : le moteur de recherche restreint nativement sur leur entities_id (1.6.5), figée à la
-    // création (1.6.6) ; seconde barrière explicite sur la même entité. Jamais l'entité actuelle de
+    // Expéditions : le moteur de recherche restreint nativement sur leur entities_id, figée à la
+    // création ; seconde barrière explicite sur la même entité. Jamais l'entité actuelle de
     // l'imprimante : une imprimante transférée ne fait pas passer l'historique commercial au nouveau client.
     if ($itemtype === 'PluginPrintgestionExpedition') {
         return trim((string) getEntitiesRestrictRequest('', 'glpi_plugin_printgestion_expeditions', '', '', true));
@@ -169,10 +169,22 @@ function plugin_version_printgestion() {
         'author'       => 'JCD Groupe — Joris Reinert',
         'license'      => 'GPL v3+',
         'homepage'     => 'https://www.jcd-groupe.fr',
+        // Vérifié par GLPI avant l'installation (Plugin::checkVersions) : version de GLPI, version de PHP, extensions.
+        // PhpSpreadsheet (fichiers Gesconso, imports Sage) est fourni par GLPI lui-même : rien à déclarer.
+        // GLPI Inventory n'est pas déclaré en dépendance dure : les modules contrats, toner et coût fonctionnent sans lui ;
+        // la collecte le demande, et la carte « Santé de la configuration » le dit.
         'requirements' => [
             'glpi' => [
                 'min' => PLUGIN_PRINTGESTION_MIN_GLPI,
                 'max' => PLUGIN_PRINTGESTION_MAX_GLPI,
+            ],
+            'php'  => [
+                'min'  => '8.2',
+                'exts' => [
+                    'zip'      => ['required' => true],   // archives ZIP des paquets de sonde, fichiers xlsx
+                    'mbstring' => ['required' => true],   // chaînes multioctets (codes, désignations, imports)
+                    'intl'     => ['required' => true],   // normalisation sans accent des en-têtes et libellés (Transliterator)
+                ],
             ],
         ],
     ];

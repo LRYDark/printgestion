@@ -683,11 +683,11 @@ class PluginPrintgestionSageimport extends CommonDBTM {
         return PLUGIN_PRINTGESTION_WEBDIR . '/front/sageimport.php';
     }
 
-    // Tables créées par le schéma versionné (PluginPrintgestionSchema, étape 1.4.0).
+    // Tables créées par PluginPrintgestionSchema.
 
     static function uninstall(Migration $migration) {
         global $DB;
-        // Les deux premières (correspondance entité ↔ client) ne sont plus créées depuis 1.6.8 : IF EXISTS.
+        // Les deux premières (correspondance entité ↔ client, versions de développement) ne sont plus créées : IF EXISTS.
         foreach (['glpi_plugin_printgestion_entitysageclients', 'glpi_plugin_printgestion_sageclients',
             self::TABLE_DELIVERIES, self::TABLE_ARTICLES, self::getTable()] as $table) {
             $DB->doQuery('DROP TABLE IF EXISTS `' . $table . '`');

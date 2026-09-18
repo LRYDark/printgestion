@@ -765,7 +765,8 @@ HTML;
         echo "<button type='button' class='btn btn-sm btn-outline-secondary' "
             . "data-bs-toggle='collapse' data-bs-target='#printgestion-mapping-collapse' "
             . "aria-expanded='false' aria-controls='printgestion-mapping-collapse' "
-            . "id='printgestion-mapping-toggle'>";
+            . "id='printgestion-mapping-toggle' data-label-show='" . htmlspecialchars(__('Afficher le tableau', 'printgestion'), ENT_QUOTES, 'UTF-8')
+            . "' data-label-hide='" . htmlspecialchars(__('Masquer le tableau', 'printgestion'), ENT_QUOTES, 'UTF-8') . "'>";
         echo "<i class='fa-solid fa-chevron-down me-1'></i>";
         echo "<span class='printgestion-toggle-label'>" . __('Afficher le tableau', 'printgestion') . "</span>";
         echo "</button>";
@@ -933,11 +934,11 @@ function printgestionAddMappingRow() {
     const label   = toggleBtn.querySelector('.printgestion-toggle-label');
     collapseEl.addEventListener('show.bs.collapse', function() {
         if (chevron) { chevron.classList.remove('fa-chevron-down'); chevron.classList.add('fa-chevron-up'); }
-        if (label)   { label.textContent = 'Masquer le tableau'; }
+        if (label)   { label.textContent = toggleBtn.dataset.labelHide; }
     });
     collapseEl.addEventListener('hide.bs.collapse', function() {
         if (chevron) { chevron.classList.remove('fa-chevron-up'); chevron.classList.add('fa-chevron-down'); }
-        if (label)   { label.textContent = 'Afficher le tableau'; }
+        if (label)   { label.textContent = toggleBtn.dataset.labelShow; }
     });
 })();
 </script>

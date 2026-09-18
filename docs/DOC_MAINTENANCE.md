@@ -488,7 +488,7 @@ reconduction tacite (un contrat terminé ne couvre plus rien).
 
 ## 7. Compatibilité et montée de version GLPI
 
-- Bornes dans `setup.php` : `PLUGIN_PRINTGESTION_MIN_GLPI` / `MAX_GLPI` (actuel : 11.0.0 → 11.1.0).
+- Bornes dans `setup.php` : `PLUGIN_PRINTGESTION_MIN_GLPI` / `MAX_GLPI` (actuel : 11.0.0 → 11.0.99, la série 11.1 n'étant pas testée) ; version de PHP et extensions déclarées dans `plugin_version_printgestion()`, vérifiées par GLPI avant l'installation.
   Après validation sur une nouvelle version GLPI, relever la borne max.
 - GLPI Inventory : bornes `GLPIINVENTORY_MIN_VERSION` / `GLPIINVENTORY_MAX_VERSION` dans
   `inc/collectsetup.class.php` (actuel : minimum 1.6.0, validé avec 1.6.10). Plus ancienne que le minimum : assistant

@@ -971,8 +971,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                     . '</li>';
             }
             if (count($rows) > self::MAIL_LIST_MAX) {
-                $list .= '<li>… et ' . (count($rows) - self::MAIL_LIST_MAX)
-                    . ' autres — détail complet dans le fichier Excel joint</li>';
+                $list .= '<li>' . htmlspecialchars(sprintf(__('… et %d autres — détail complet dans le fichier Excel joint', 'printgestion'), count($rows) - self::MAIL_LIST_MAX), ENT_QUOTES, 'UTF-8') . '</li>';
             }
             $list .= '</ul>';
 
@@ -1291,7 +1290,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 . '<strong>' . htmlspecialchars($it['printer'], ENT_QUOTES, 'UTF-8') . '</strong>'
                 . ' — ' . htmlspecialchars($it['client'], ENT_QUOTES, 'UTF-8')
                 . ' — ' . htmlspecialchars($it['property'], ENT_QUOTES, 'UTF-8')
-                . ' — expédiée il y a ' . (int)$it['days'] . ' j'
+                . ' — ' . htmlspecialchars(sprintf(__('expédiée il y a %d j', 'printgestion'), (int)$it['days']), ENT_QUOTES, 'UTF-8')
                 . '</li>';
         }
         if (count($items) > self::MAIL_LIST_MAX) {

@@ -71,7 +71,7 @@ foreach ($DB->request([
     if ($bl_num === '') {
         continue;
     }
-    $signed_tag = ((int)$row['signed'] === 1) ? ' [signé]' : '';
+    $signed_tag = ((int)$row['signed'] === 1) ? ' [' . __('signé', 'printgestion') . ']' : '';
     $bls[] = [
         'id'          => (int)$row['id'],
         'label'       => $bl_num . $signed_tag,

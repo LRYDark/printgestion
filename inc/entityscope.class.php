@@ -2,12 +2,12 @@
 /**
  * PluginPrintgestionEntityscope — entité des données client du plugin.
  *
- * Les tables métier portent `entities_id` et `is_recursive` (1.6.5) : GLPI restreint alors nativement
+ * Les tables métier portent `entities_id` et `is_recursive` : GLPI restreint alors nativement
  * ce qui s'appuie sur ses mécanismes (canView / canUpdate d'un objet, moteur de recherche, actions de
  * masse). Les contrôles applicatifs (PluginPrintgestionSecurity) restent en seconde barrière et lisent
  * la même entité.
  *
- * Deux règles, selon la nature de la donnée (1.6.6) :
+ * Deux règles, selon la nature de la donnée :
  *  - Technique (relevés toner, rendements, historique des cartouches, seuils, mises en veille) : la ligne
  *    suit son imprimante. Quand l'imprimante change d'entité (fiche ou transfert), ses lignes suivent
  *    aussitôt ; un tarif suit de même son contrat. La tâche quotidienne PrintgestionEntityScope recale ces

@@ -116,6 +116,9 @@ class PluginPrintgestionPrinterThresholdsTab extends CommonGLPI {
             'thresholdsUrl' => PLUGIN_PRINTGESTION_WEBDIR . '/ajax/printer_thresholds.php',
             // Jeton CSRF envoyé en en-tête X-Glpi-Csrf-Token (requête AJAX POST).
             'csrf'          => Session::getNewCSRFToken(),
+            'msgSaveError'  => __('Erreur lors de la sauvegarde', 'printgestion'),
+            'msgNetError'   => __('Erreur réseau', 'printgestion'),
+            'labelSave'     => __('Sauvegarder', 'printgestion'),
         ], 'PC_THRESHOLDS_INIT');
         echo <<<'HTML'
 <script>
@@ -146,13 +149,13 @@ class PluginPrintgestionPrinterThresholdsTab extends CommonGLPI {
           // Reload immédiat : GLPI affichera la popup flash depuis la session
           window.location.reload();
         } else {
-          alert('Erreur lors de la sauvegarde');
-          if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save me-1"></i>Sauvegarder'; }
+          alert(cfg.msgSaveError);
+          if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save me-1"></i>' + cfg.labelSave; }
         }
       })
       .catch(function() {
-        alert('Erreur réseau');
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save me-1"></i>Sauvegarder'; }
+        alert(cfg.msgNetError);
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-save me-1"></i>' + cfg.labelSave; }
       });
   });
 })();

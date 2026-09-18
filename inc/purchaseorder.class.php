@@ -1,6 +1,6 @@
 <?php
 /**
- * PluginPrintgestionPurchaseorder — transmission d'une commande aux Achats (étape 1.6.7).
+ * PluginPrintgestionPurchaseorder — transmission d'une commande aux Achats.
  *
  * Une commande (commande directe ou export de demandes validées) est d'abord ENREGISTRÉE : expéditions,
  * fichier Gesconso archivé et ligne de transmission « en attente », dans une seule transaction. Le mail

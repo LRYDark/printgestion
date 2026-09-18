@@ -55,10 +55,10 @@ Trois modules indépendants, activables par interrupteur dans la configuration :
 
 | Composant | Version |
 |---|---|
-| GLPI | 11.0.x |
-| PHP | 8.2+ (testé 8.3) |
-| Inventaire | Remontée SNMP des cartouches (`glpi_printers_cartridgeinfos`) pour le module toner |
-| Optionnel | Plugin Gestion (liaison BL signés), clés API UPS/GLS/Chronopost |
+| GLPI | 11.0.x (testé 11.0.8 ; la série 11.1 n'est pas testée, `setup.php` la refuse) |
+| PHP | 8.2 ou plus récent (testé 8.3), extensions zip, mbstring, intl |
+| GLPI Inventory | 1.6.0 ou plus récent (testé 1.6.10) : indispensable au module de collecte, sans effet sur les autres |
+| Optionnel | Plugin Gestion (BL signés → expédition livrée), identifiant et secret GLS (suivi des colis) |
 
 ---
 

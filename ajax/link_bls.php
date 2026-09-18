@@ -104,7 +104,7 @@ foreach ($bls as $raw) {
     // BL existant et du même client (entité de l'expédition ou parente, dans le périmètre de l'utilisateur) :
     // un identifiant posté, ou un BL Sage déjà présent localement dans une autre entité, est refusé.
     if (PluginPrintgestionSecurity::getBlForExpedition($bl_surveys_id, $exp) === null) {
-        $errors[] = ['bl' => $raw, 'error' => 'BL introuvable ou rattaché à un autre client'];
+        $errors[] = ['bl' => $raw, 'error' => __('BL introuvable ou rattaché à un autre client', 'printgestion')];
         continue;
     }
 
@@ -225,11 +225,11 @@ function prepareSageBl(string $bl_num, int $entities_id, ?string &$error = null)
     try {
         if (documentExiste($bl_num, $httpStatus) !== true) {
             if ($httpStatus === 404) {
-                $error = 'BL inexistant dans SAGE';
+                $error = __('BL inexistant dans SAGE', 'printgestion');
             } else {
                 // Tout code autre que 404 est une panne de l'API, pas une absence du BL.
-                $status_txt = $httpStatus === null ? 'aucune réponse' : (string)$httpStatus;
-                $error = "API SAGE en échec (HTTP {$status_txt}) : existence du BL non vérifiable";
+                $status_txt = $httpStatus === null ? __('aucune réponse', 'printgestion') : (string)$httpStatus;
+                $error = sprintf(__('API SAGE (plugin Gestion) en échec (HTTP %s) : existence du BL non vérifiable', 'printgestion'), $status_txt);
                 PluginPrintgestionLogger::error('link_bls', "API Sage : vérification du BL {$bl_num} en échec (HTTP {$status_txt}).");
             }
             return 0;
@@ -281,7 +281,7 @@ function prepareSageBl(string $bl_num, int $entities_id, ?string &$error = null)
         'date_creation'      => date('Y-m-d H:i:s'),
     ]);
     if (!$ok) {
-        $error = 'Échec insertion gestion_surveys';
+        $error = __('BL non préparé (écriture refusée par le plugin Gestion)', 'printgestion');
         return 0;
     }
 

@@ -171,7 +171,7 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
                 $slots[] = [(int)$pid, (string)$prop, $parsed];
             }
         }
-        // Entité et récursivité des imprimantes, portées par chaque relevé (cloisonnement natif, 1.6.5).
+        // Entité et récursivité des imprimantes, portées par chaque relevé (cloisonnement natif).
         $scopes = [];
         if (!empty($slots)) {
             foreach ($DB->request([

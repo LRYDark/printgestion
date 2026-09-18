@@ -23,7 +23,7 @@ function plugin_version_gestion()
         'name'         => 'Gestion — SIMULATION DE TEST (jamais en production)',
         'version'      => PLUGIN_GESTION_VERSION,
         'author'       => 'Harnais de test Print Gestion',
-        'requirements' => ['glpi' => ['min' => '11.0.0', 'max' => '11.1.0']],
+        'requirements' => ['glpi' => ['min' => '11.0.0', 'max' => '11.0.99']],
     ];
 }
 
