@@ -21,8 +21,10 @@ d'étiquette, Track ID à 8 caractères, colis de test « QAS_ ») mais sont inv
 6. Page de configuration : « Tester la connexion » absent sans clés, refus sans appel réseau, présent avec des clés.
 7. Affichage, deux profils : sans clés, l'écran des expéditions est celui d'avant le suivi (aucune ligne de suivi,
    pour l'administrateur comme pour le technicien) ; avec des clés, une ligne par expédition GLS suivie (pastille,
-   libellé, date ; lieu et numéro interrogé derrière le chevron), jamais le code brut, anomalie en rouge, « non
-   reconnu » ; identique dans les deux profils ; copies d'écran écrites hors du dépôt.
+   libellé, date ; lieu et numéro interrogé derrière le chevron), description omise quand elle répète le statut,
+   multi-colis en décompte (tête = le moins avancé, un colis par ligne derrière le chevron), jamais le code brut,
+   anomalie en rouge, « non reconnu » ; identique dans les deux profils ; copies d'écran écrites hors du dépôt.
+   Transporteurs : GLS, UPS et Autre proposés ; Chronopost lisible sur l'existant, jamais offert ni accepté à neuf.
 Clés inventées, posées puis retirées ; expéditions de test supprimées ; mémo et cache du jeton effacés à la fin.
 """
 import json
@@ -33,7 +35,7 @@ import sys
 import donnees as d
 import lib
 import config
-from lib import WEB, section, sql, verifier
+from lib import WEB, section, sql, valeur, verifier
 
 # Réponses simulées : clé connue → colis rendus (inventés). Toute autre clé : E_404_01. « PANNE… » : E_500_01.
 CONNUS = {
@@ -233,10 +235,10 @@ def main():
 
     section("5. Tâche de suivi, transporteur simulé")
     EXP = "glpi_plugin_printgestion_expeditions"
-    numeros = {"A": "00TSTA1XAA", "B": "00TSTB2Y", "Z": "00TSTZ9QAA", "M": "00TSTM4W", "W": "00TSTW5V", "P": "00TSTP0SE"}
+    numeros = {"A": "00TSTA1XAA", "B": "00TSTB2Y", "Z": "00TSTZ9QAA", "M": "00TSTM4W", "W": "00TSTW5V", "N": "00TSTN2P", "P": "00TSTP0SE"}
     try:
         # Un envoi vivant par imprimante et par consommable (index uniq_active_slot) : une propriété par expédition de test.
-        proprietes = ["tonerblack", "tonercyan", "tonermagenta", "toneryellow", "drumblack", "wastetoner"]
+        proprietes = ["tonerblack", "tonercyan", "tonermagenta", "toneryellow", "drumblack", "developerblack", "wastetoner"]
         for (lettre, numero), propriete in zip(numeros.items(), proprietes):
             statut = "installed" if lettre == "P" else "shipped"
             sql(f"INSERT INTO {EXP} (printers_id, toner_property, toner_color, statut, level_at_alert, date_alert, date_shipped, users_id_tech, group_id, "
@@ -250,6 +252,8 @@ def main():
         reponses["00TSTM4W"] = [{"requested": "00TSTM4W", "unitno": "90000000005", "status": "INDELIVERY", "statusDateTime": "2026-09-17T08:00:00+0200"},
                                 {"requested": "00TSTM4W", "unitno": "90000000006", "status": "DELIVERED", "statusDateTime": "2026-09-17T10:00:00+0200"}]
         reponses["00TSTW5V"] = [{"requested": "00TSTW5V", "unitno": "90000000007", "status": "WEIRDCODE", "statusDateTime": "2026-09-17T10:00:00+0200"}]
+        reponses["00TSTN2P"] = [{"requested": "00TSTN2P", "unitno": "90000000011", "status": "DELIVERED", "statusDateTime": "2026-09-17T10:00:00+0200"},
+                                {"requested": "00TSTN2P", "unitno": "90000000012", "status": "NOTDELIVERED", "statusDateTime": "2026-09-17T11:00:00+0200"}]
 
         def tache(plan, configure=True, avant=""):
             code = (
@@ -271,10 +275,10 @@ def main():
             return json.loads(lib.php_glpi(code))
 
         def lignes_suivi():
-            return {r[1].split("-")[-1]: dict(zip(("id", "group", "state", "key", "suffix", "status", "label", "event", "place", "checked", "failures", "statut"), r))
+            return {r[1].split("-")[-1]: dict(zip(("id", "group", "state", "key", "suffix", "status", "label", "event", "place", "checked", "failures", "statut", "parcels"), r))
                     for r in lib.lignes(f"SELECT id, group_id, tracking_state, IFNULL(tracking_key, ''), IFNULL(tracking_suffix, ''), IFNULL(tracking_status, ''), "
                                         f"IFNULL(tracking_label, ''), IFNULL(tracking_event_date, ''), IFNULL(tracking_event_place, ''), IFNULL(tracking_checked_at, ''), "
-                                        f"tracking_failures, statut FROM {EXP} WHERE group_id LIKE 'test-gls-%'")}
+                                        f"tracking_failures, statut, IFNULL(tracking_parcels, '[]') FROM {EXP} WHERE group_id LIKE 'test-gls-%'")}
 
         tailles = lib.tailles_journaux()
         lib.php_glpi("PluginPrintgestionGlsclient::resetMemo();")
@@ -282,16 +286,19 @@ def main():
         verifier("sans clés : la tâche ne fait rien, aucun appel", (r["stats"]["stopped"], r["calls"]), ("no_keys", []))
         r = tache(reponses)
         suivi = lignes_suivi()
-        verifier("premier passage : cinq expéditions vivantes interrogées en un paquet, puis le seul repli ; la posée jamais",
+        verifier("premier passage : six expéditions vivantes interrogées en un paquet, puis le seul repli ; la posée jamais",
                  (r["stats"]["checked"], [sorted(c) for c in r["calls"]], suivi["P"]["state"], suivi["P"]["checked"]),
-                 (5, [sorted(["00TSTA1XAA", "00TSTB2Y", "00TSTZ9QAA", "00TSTM4W", "00TSTW5V"]), ["00TSTA1X", "00TSTZ9Q"]], "", ""))
+                 (6, [sorted(["00TSTA1XAA", "00TSTB2Y", "00TSTZ9QAA", "00TSTM4W", "00TSTW5V", "00TSTN2P"]), ["00TSTA1X", "00TSTZ9Q"]], "", ""))
         verifier("A : repli mémorisé (clé 00TSTA1X, suffixe AA), livré → final", (suivi["A"]["key"], suivi["A"]["suffix"], suivi["A"]["status"], suivi["A"]["state"]),
                  ("00TSTA1X", "AA", "DELIVERED", "final"))
         verifier("B : en transit, dernier événement trié sur sa date (le plus récent), lieu et libellé français",
                  (suivi["B"]["state"], suivi["B"]["status"], suivi["B"]["label"], suivi["B"]["place"], suivi["B"]["event"][:10]),
                  ("tracked", "INTRANSIT", "Colis en transit", "00001 Dépôt test FR", "2026-09-17"))
         verifier("Z : inconnu après repli → « unknown », un échec compté, saisie nettoyée gardée comme clé", (suivi["Z"]["state"], suivi["Z"]["failures"], suivi["Z"]["key"]), ("unknown", "1", "00TSTZ9QAA"))
-        verifier("M : multi-colis, c'est le colis encore en cours qui est retenu", (suivi["M"]["status"], suivi["M"]["state"]), ("INDELIVERY", "tracked"))
+        verifier("M : multi-colis, statut de tête = le moins avancé, les deux colis mémorisés",
+                 (suivi["M"]["status"], suivi["M"]["state"], len(json.loads(suivi["M"]["parcels"]))), ("INDELIVERY", "tracked", 2))
+        verifier("N : un livré et un non livré → tête « non livré » (anomalie d'abord), deux colis mémorisés du moins avancé au plus avancé",
+                 (suivi["N"]["status"], [p["status"] for p in json.loads(suivi["N"]["parcels"])]), ("NOTDELIVERED", ["NOTDELIVERED", "DELIVERED"]))
         verifier("W : code non répertorié → non final, journalisé", (suivi["W"]["state"], suivi["W"]["status"], "non répertorié" in lib.journal_depuis(tailles, "printgestion.log")),
                  ("tracked", "WEIRDCODE", True))
         verifier("le suivi n'écrit jamais le statut de l'expédition", sorted({s["statut"] for k, s in suivi.items() if k != "P"}), ["shipped"])
@@ -300,7 +307,7 @@ def main():
         verifier("second passage dans l'heure : rien à interroger", (r["stats"]["checked"], r["calls"]), (0, []))
         sql(f"UPDATE {EXP} SET tracking_checked_at = DATE_SUB(tracking_checked_at, INTERVAL 2 HOUR) WHERE group_id LIKE 'test-gls-%';")
         r = tache(reponses)
-        verifier("deux heures plus tard : B, M et W réinterrogés ; A (final) jamais ; Z pas avant 24 h", sorted(r["calls"][0]), sorted(["00TSTB2Y", "00TSTM4W", "00TSTW5V"]))
+        verifier("deux heures plus tard : B, M, N et W réinterrogés ; A (final) jamais ; Z pas avant 24 h", sorted(r["calls"][0]), sorted(["00TSTB2Y", "00TSTM4W", "00TSTN2P", "00TSTW5V"]))
         # Dates absolues à l'heure de GLPI (PHP), jamais NOW() de la base : les deux horloges diffèrent.
         il_y_a = lambda secondes: lib.php_glpi(f"echo date('Y-m-d H:i:s', time() - {secondes});").strip()  # noqa: E731
         sql(f"UPDATE {EXP} SET tracking_checked_at = '{il_y_a(25 * 3600)}' WHERE group_id = 'test-gls-Z';")
@@ -367,18 +374,20 @@ def main():
         lib.connecter_admin()
         profil = CTX.profil(6, "Profil test technicien (expéditions)", {"plugin_printgestion_expedition": 1, "plugin_printgestion_dashboard": 1, "plugin_printgestion_config": 0})
         CTX.utilisateur("test-technicien-gls", profil, d.RACINE)
+        deux_colis = json.dumps([{"unitno": "90000000012", "status": "NOTDELIVERED", "date": "2026-09-17 11:00:00", "place": "00000 Ville test FR"},
+                                 {"unitno": "90000000011", "status": "DELIVERED", "date": "2026-09-17 10:00:00", "place": ""}])
         lignes_exp = [
-            ("tonerblack", "00TSTB2YBB", "tracked", "00TSTB2Y", "BB", "INDELIVERY", "Colis en cours de livraison", "2026-09-17 09:00:00", "00001 Dépôt test FR"),
-            ("tonercyan", "00TSTN1DAA", "tracked", "00TSTN1D", "AA", "NOTDELIVERED", "Destinataire absent", "2026-09-17 11:00:00", "00000 Ville test FR"),
-            ("tonermagenta", "00TSTZ9QAA", "unrecognized", "00TSTZ9QAA", "", "", "", "", ""),
-            ("toneryellow", "00TSTA1X", "final", "00TSTA1X", "", "DELIVERED", "Colis livré", "2026-09-16 15:00:00", "00000 Ville test FR"),
+            ("tonerblack", "00TSTB2YBB", "tracked", "00TSTB2Y", "BB", "INDELIVERY", "Colis en cours de livraison", "2026-09-17 09:00:00", "00001 Dépôt test FR", ""),
+            ("tonercyan", "00TSTN2PAA", "tracked", "00TSTN2P", "AA", "NOTDELIVERED", "Destinataire absent", "2026-09-17 11:00:00", "00000 Ville test FR", deux_colis),
+            ("tonermagenta", "00TSTZ9QAA", "unrecognized", "00TSTZ9QAA", "", "", "", "", "", ""),
+            ("toneryellow", "00TSTA1X", "final", "00TSTA1X", "", "DELIVERED", "Colis livré", "2026-09-16 15:00:00", "00000 Ville test FR", ""),
         ]
-        for prop, numero, etat, cle, suffixe, code, libelle, date, lieu in lignes_exp:
+        for prop, numero, etat, cle, suffixe, code, libelle, date, lieu, colis in lignes_exp:
             sql(f"INSERT INTO {EXP} (printers_id, toner_property, toner_color, statut, level_at_alert, date_alert, date_shipped, users_id_tech, group_id, "
                 f"transport_carrier, transport_number, entities_id, tracking_state, tracking_key, tracking_suffix, tracking_status, tracking_label, tracking_event_date, "
-                f"tracking_event_place, tracking_checked_at) VALUES (2, '{prop}', 'black', 'shipped', 10, NOW(), NOW(), {d.ADMIN_ID}, 'test-gls-aff', 'gls', '{numero}', 0, "
+                f"tracking_event_place, tracking_checked_at, tracking_parcels) VALUES (2, '{prop}', 'black', 'shipped', 10, NOW(), NOW(), {d.ADMIN_ID}, 'test-gls-aff', 'gls', '{numero}', 0, "
                 f"'{etat}', '{cle}', {lib.q(suffixe) if suffixe else 'NULL'}, {lib.q(code) if code else 'NULL'}, {lib.q(libelle) if libelle else 'NULL'}, "
-                f"{lib.q(date) if date else 'NULL'}, {lib.q(lieu) if lieu else 'NULL'}, NOW());")
+                f"{lib.q(date) if date else 'NULL'}, {lib.q(lieu) if lieu else 'NULL'}, NOW(), {lib.q(colis) if colis else 'NULL'});")
         sql(f"INSERT INTO {EXP} (printers_id, toner_property, toner_color, statut, level_at_alert, date_alert, date_shipped, users_id_tech, group_id, transport_carrier, "
             f"transport_number, entities_id) VALUES (2, 'drumblack', 'black', 'shipped', 10, NOW(), NOW(), {d.ADMIN_ID}, 'test-gls-aff', 'other', 'AUTRE-0001', 0);")
         sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
@@ -394,9 +403,11 @@ def main():
         for nom, connexion in (("admin", lib.connecter_admin), ("technicien", lambda: CTX.connecter("test-technicien-gls"))):
             connexion()
             page = avec[nom] = ecran(f"expeditions-avec-cles-{nom}")
-            verifier(f"avec des clés, {nom} : ligne de suivi (libellé, événement, date), lieu et numéro interrogé derrière le chevron, saisie brute conservée",
+            verifier(f"avec des clés, {nom} : ligne de suivi (libellé, date), description redondante omise, lieu et numéro interrogé derrière le chevron, saisie brute conservée",
                      ("data-pg-gls='tracked'" in page, "En cours de livraison" in page, "Colis en cours de livraison" in page, "00001 Dépôt test FR" in page,
-                      "Numéro interrogé : 00TSTB2Y" in page, "00TSTB2YBB" in page), (True, True, True, True, True, True))
+                      "Numéro interrogé : 00TSTB2Y" in page, "00TSTB2YBB" in page), (True, True, False, True, True, True))
+            verifier(f"{nom} : deux colis → décompte « 2 colis — 1 non livré, 1 livré », tête = le moins avancé, les deux colis derrière le chevron",
+                     ("2 colis" in page, "1 non livré, 1 livré" in page, "90000000011" in page and "90000000012" in page, "à signaler aux Achats" in page), (True, True, True, True))
             verifier(f"{nom} : jamais le code brut, anomalie en rouge « à signaler aux Achats », « non reconnu », livré en vert, l'autre transporteur sans ligne",
                      ("INDELIVERY" in page, "NOTDELIVERED" in page, "Non livré" in page and "à signaler aux Achats" in page, "Numéro non reconnu par GLS" in page,
                       "data-pg-gls='final'" in page, page.count("data-pg-gls=")), (False, False, True, True, True, 4))
@@ -404,6 +415,16 @@ def main():
         lignes_suivi_tech = sorted(re.findall(r"<div class='pg-gls small'.*?</div></div>|<div class='pg-gls small'[^>]*>.*?(?=</td>)", avec["technicien"], flags=re.S))
         verifier("les lignes de suivi sont les mêmes dans les deux profils (rien de réservé, rien de diagnostic)", lignes_suivi_admin == lignes_suivi_tech and len(lignes_suivi_admin) == 4, True)
         print(f"    copies d'écran : {dossier}/expeditions-*-{{admin,technicien}}.txt")
+        lib.connecter_admin()
+        en_attente = valeur(f"SELECT id FROM {EXP} WHERE printers_id = {d.IMP_POSE} AND statut = 'pending'")
+        _, formulaire, _ = WEB.get(config.FRONT + f"/expedition.form.php?id={en_attente}")
+        verifier("formulaire d'expédition : GLS, UPS et Autre proposés, Chronopost plus proposé",
+                 ("GLS" in formulaire, "UPS" in formulaire, "Autre" in formulaire, "Chronopost" in formulaire), (True, True, True, False))
+        verifier("modale « Modifier expédition » : Chronopost caché (lisible sur une ancienne expédition), jamais offert", "value='chronopost' hidden" in avec["admin"], True)
+        autre = valeur(f"SELECT id FROM {EXP} WHERE group_id = 'test-gls-aff' AND transport_carrier = 'other'")
+        _, reponse, _ = WEB.post(config.AJAX + "/edit_expedition.php", [("expedition_id", autre), ("statut", "shipped"), ("carrier", "chronopost"), ("tracking", "AUTRE-0001")], ajax=True)
+        verifier("édition : Chronopost refusé sur une expédition qui ne le portait pas, transporteur inchangé",
+                 (json.loads(reponse).get("ok"), valeur(f"SELECT transport_carrier FROM {EXP} WHERE id = {autre}")), (False, "other"))
     finally:
         lib.connecter_admin()
         remettre_cles_gls(cles_origine)

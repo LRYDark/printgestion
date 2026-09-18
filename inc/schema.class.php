@@ -57,6 +57,7 @@ class PluginPrintgestionSchema {
         '1.6.7' => 'migrateTo167',
         '1.6.8' => 'migrateTo168',
         '1.6.9' => 'migrateTo169',
+        '1.6.10' => 'migrateTo1610',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -1083,6 +1084,17 @@ class PluginPrintgestionSchema {
     /**
      * 1.6.8 (bloc 2) : réglages déduits ou doublons de GLPI retirés. Idempotente : chaque suppression teste la colonne.
      */
+    private static function migrateTo1610(Migration $migration): void {
+        global $DB;
+
+        // Envoi multi-colis : les colis d'une même clé, un par entrée (JSON), pour le décompte et le chevron.
+        $table = 'glpi_plugin_printgestion_expeditions';
+        if (!$DB->fieldExists($table, 'tracking_parcels', false)) {
+            $migration->addField($table, 'tracking_parcels', 'text DEFAULT NULL');
+        }
+        $migration->migrationOneTable($table);
+    }
+
     private static function migrateTo169(Migration $migration): void {
         global $DB;
 

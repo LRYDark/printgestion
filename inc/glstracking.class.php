@@ -46,6 +46,20 @@ class PluginPrintgestionGlstracking {
     const FINAL_STATUSES = ['DELIVERED', 'CANCELED', 'FINAL'];
     /** Anomalies : quelqu'un doit agir. Les deux seuls statuts à signaler. */
     const ANOMALY_STATUSES = ['NOTPICKEDUP', 'NOTDELIVERED'];
+    /**
+     * Avancement d'un colis, du moins avancé au plus avancé : le statut de tête d'un envoi multi-colis est le plus
+     * bas (une commande partie en trois colis n'est pas arrivée tant que le troisième traîne). Anomalies d'abord.
+     * Un code non répertorié se place au milieu, non final.
+     */
+    const STATUS_RANK = [
+        'NOTPICKEDUP' => 0, 'NOTDELIVERED' => 0, 'PLANNEDPICKUP' => 1, 'INPICKUP' => 2, 'PREADVICE' => 3, 'INWAREHOUSE' => 4,
+        'INTRANSIT' => 5, 'INDELIVERY' => 6, 'DELIVEREDPS' => 7, 'DELIVERED' => 8, 'CANCELED' => 9, 'FINAL' => 9,
+    ];
+    /** Pluriels du décompte multi-colis (« 2 livrés ») ; sinon le libellé en minuscule. */
+    const STATUS_PLURALS = [
+        'DELIVERED' => 'livrés', 'DELIVEREDPS' => 'livrés en point relais', 'NOTDELIVERED' => 'non livrés', 'NOTPICKEDUP' => 'non enlevés',
+        'CANCELED' => 'annulés', 'FINAL' => 'clos', 'PLANNEDPICKUP' => 'enlèvements planifiés',
+    ];
 
     /** État de la ligne de suivi (tracking_state). */
     const STATE_NONE         = '';
@@ -72,6 +86,31 @@ class PluginPrintgestionGlstracking {
 
     public static function isKnownStatus(string $status): bool {
         return array_key_exists($status, self::STATUS_LABELS);
+    }
+
+    public static function rank(string $status): int {
+        return self::STATUS_RANK[$status] ?? 5;
+    }
+
+    /** « 2 livrés », « 1 en cours de livraison » : le nombre et le libellé accordé. */
+    public static function countLabel(string $status, int $count): string {
+        $label = mb_strtolower(self::describeStatus($status)['label']);
+        if ($count > 1 && isset(self::STATUS_PLURALS[$status])) {
+            $label = __(self::STATUS_PLURALS[$status], 'printgestion');
+        }
+        return $count . ' ' . $label;
+    }
+
+    /**
+     * La description de l'événement n'est affichée que si elle apporte quelque chose au libellé du statut :
+     * « Colis en cours de livraison » sous « En cours de livraison » ne dit rien de plus ; « Destinataire absent »
+     * sous « Non livré », si.
+     */
+    public static function eventAddsInformation(string $label, string $description): bool {
+        $norm = static fn(string $s) => ' ' . PluginPrintgestionSageimport::normalizeLabel($s) . ' ';
+        $rest = str_replace(trim($norm($label)), ' ', $norm($description));
+        $rest = (string) preg_replace('/\b(colis|le|la|les|l|votre|vos|est|a|ete|en|de|du|des|un|une|au|aux|par|pour)\b/', ' ', $rest);
+        return strlen((string) preg_replace('/[^a-z0-9]/', '', $rest)) > 3;
     }
 
     /**
@@ -238,9 +277,10 @@ class PluginPrintgestionGlstracking {
         $id     = (int) $expedition['id'];
         $update = ['tracking_checked_at' => $now];
         if ($result['error'] === null && !empty($result['parcels'])) {
-            $parcel = self::pickParcel($result['parcels']);
-            $status = strtoupper(trim((string) ($parcel['status'] ?? '')));
-            $event  = self::lastEvent($parcel);
+            $parcels = self::summarizeParcels($result['parcels']);
+            $parcel  = self::headParcel($result['parcels']);
+            $status  = strtoupper(trim((string) ($parcel['status'] ?? '')));
+            $event   = self::lastEvent($parcel);
             if (!self::isKnownStatus($status)) {
                 PluginPrintgestionLogger::warning('gls', sprintf('Expédition #%d : code de statut GLS non répertorié « %s », traité comme non final.', $id, $status));
             }
@@ -256,6 +296,7 @@ class PluginPrintgestionGlstracking {
                 'tracking_event_place' => mb_substr($event['place'], 0, 255),
                 'tracking_failures'    => 0,
                 'tracking_state'       => self::isFinal($status) ? self::STATE_FINAL : self::STATE_TRACKED,
+                'tracking_parcels'     => json_encode($parcels, JSON_UNESCAPED_UNICODE),
             ];
         } elseif ($result['error'] === PluginPrintgestionGlsnumber::ERROR_NOT_FOUND) {
             $failures = (int) $expedition['tracking_failures'] + 1;
@@ -275,15 +316,32 @@ class PluginPrintgestionGlstracking {
     }
 
     /**
-     * Un même numéro peut rendre plusieurs colis (envoi multi-colis) : on garde celui qui reste en cours (le plus
-     * récent d'entre eux), sinon le plus récent des finaux.
+     * Colis de tête d'un envoi multi-colis : le moins avancé (STATUS_RANK), et à rang égal le plus récent. Une
+     * commande partie en trois colis n'est pas arrivée tant que le troisième traîne ; une anomalie passe devant tout.
      */
-    private static function pickParcel(array $parcels): array {
-        $sort = static fn(array $a, array $b) => strcmp((string) ($b['statusDateTime'] ?? ''), (string) ($a['statusDateTime'] ?? ''));
-        $open = array_values(array_filter($parcels, static fn(array $p) => !self::isFinal(strtoupper((string) ($p['status'] ?? '')))));
-        $pool = !empty($open) ? $open : $parcels;
-        usort($pool, $sort);
-        return $pool[0];
+    private static function headParcel(array $parcels): array {
+        usort($parcels, static function (array $a, array $b): int {
+            $ra = self::rank(strtoupper((string) ($a['status'] ?? '')));
+            $rb = self::rank(strtoupper((string) ($b['status'] ?? '')));
+            return $ra <=> $rb ?: strcmp((string) ($b['statusDateTime'] ?? ''), (string) ($a['statusDateTime'] ?? ''));
+        });
+        return $parcels[0];
+    }
+
+    /** Les colis d'une clé, un par entrée (numéro GLS, code, date et lieu du dernier événement), du moins avancé au plus avancé. */
+    private static function summarizeParcels(array $parcels): array {
+        $out = [];
+        foreach ($parcels as $parcel) {
+            $event = self::lastEvent($parcel);
+            $out[] = [
+                'unitno' => (string) ($parcel['unitno'] ?? ''),
+                'status' => strtoupper(trim((string) ($parcel['status'] ?? ''))),
+                'date'   => $event['date'],
+                'place'  => $event['place'],
+            ];
+        }
+        usort($out, static fn(array $a, array $b): int => self::rank($a['status']) <=> self::rank($b['status']) ?: strcmp((string) $b['date'], (string) $a['date']));
+        return $out;
     }
 
     /** Dernier événement (date, lieu, description) : événements triés sur eventDateTime, jamais sur leur ordre. */
@@ -349,10 +407,34 @@ class PluginPrintgestionGlstracking {
                 $badge = 'bg-secondary';
                 $label = sprintf(__('Sans nouvelles depuis 30 jours (%s)', 'printgestion'), $label);
             }
-            $text = '<strong' . ($describe['level'] === 'anomaly' ? " class='text-danger'" : '') . '>' . $esc($label) . '</strong>';
-            $event = trim((string) ($exp['tracking_label'] ?? ''));
-            if ($event !== '' && mb_strtolower($event) !== mb_strtolower($label)) {
-                $text .= ' — ' . $esc($event);
+            $parcels = json_decode((string) ($exp['tracking_parcels'] ?? ''), true);
+            $parcels = is_array($parcels) ? array_values(array_filter($parcels, 'is_array')) : [];
+            if (count($parcels) > 1 && $state !== self::STATE_SILENT) {
+                // Plusieurs colis : le décompte, jamais un seul colis qui cacherait les autres ; la tête = le moins avancé.
+                $counts = [];
+                foreach ($parcels as $p) {
+                    $counts[(string) $p['status']] = ($counts[(string) $p['status']] ?? 0) + 1;
+                }
+                uksort($counts, static fn(string $a, string $b): int => self::rank($a) <=> self::rank($b));
+                $parts = [];
+                foreach ($counts as $code => $n) {
+                    $parts[] = self::countLabel($code, $n);
+                }
+                $text = '<strong' . ($describe['level'] === 'anomaly' ? " class='text-danger'" : '') . '>'
+                    . $esc(sprintf(__('%d colis', 'printgestion'), count($parcels))) . '</strong> — ' . $esc(implode(', ', $parts));
+                foreach ($parcels as $p) {
+                    $details[] = trim(sprintf('%s — %s%s%s', $p['unitno'] !== '' ? $p['unitno'] : __('colis', 'printgestion'),
+                        self::describeStatus((string) $p['status'])['label'],
+                        !empty($p['date']) ? ' — ' . Html::convDateTime((string) $p['date']) : '',
+                        !empty($p['place']) ? ' — ' . $p['place'] : ''));
+                }
+            } else {
+                $text = '<strong' . ($describe['level'] === 'anomaly' ? " class='text-danger'" : '') . '>' . $esc($label) . '</strong>';
+                $event = trim((string) ($exp['tracking_label'] ?? ''));
+                // La description n'est affichée que si elle ajoute quelque chose au statut.
+                if ($event !== '' && self::eventAddsInformation($label, $event)) {
+                    $text .= ' — ' . $esc($event);
+                }
             }
             if (!empty($exp['tracking_event_date'])) {
                 $text .= ' — ' . $esc(Html::convDateTime((string) $exp['tracking_event_date']));
@@ -360,7 +442,7 @@ class PluginPrintgestionGlstracking {
             if ($describe['level'] === 'anomaly') {
                 $text .= " <span class='text-danger'>" . $esc(__('(à signaler aux Achats)', 'printgestion')) . '</span>';
             }
-            if ((string) ($exp['tracking_event_place'] ?? '') !== '') {
+            if ((string) ($exp['tracking_event_place'] ?? '') !== '' && count($parcels) <= 1) {
                 array_unshift($details, sprintf(__('Lieu : %s', 'printgestion'), $exp['tracking_event_place']));
             }
         }

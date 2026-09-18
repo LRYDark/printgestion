@@ -444,7 +444,9 @@ saisis à la main), et le technicien ne voit rien d'une intégration. Les autres
   (« En transit », « Livré », « Livré en point relais », « Non livré »…), l'événement en français et sa date ; le
   chevron donne le lieu, le numéro réellement interrogé s'il diffère, la dernière interrogation. « Non livré » et
   « Non enlevé » sont en rouge, « à signaler aux Achats ». « Numéro non reconnu par GLS » après trois cycles ; « Sans
-  nouvelles depuis 30 jours » quand plus rien ne bouge.
+  nouvelles depuis 30 jours » quand plus rien ne bouge. Plusieurs colis pour un numéro : « 3 colis — 2 livrés, 1 en
+  cours de livraison », le statut de tête est celui du colis le moins avancé, chaque colis derrière le chevron.
+- **Transporteurs proposés** : GLS, UPS, Autre. Chronopost se lit sur les anciennes expéditions, ne se choisit plus.
 - **Quand** : tâche `PrintgestionTrackingUpdate` (horaire), une ligne par heure au plus, dix numéros par requête,
   arrêt à 400 requêtes par jour (quota GLS 500). Un 429 arrête la journée ; cinq échecs techniques consécutifs
   arrêtent le cycle (reprise au passage suivant). Le journal `printgestion.log` (contexte `gls`) garde les échecs,
