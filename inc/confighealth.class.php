@@ -100,7 +100,7 @@ class PluginPrintgestionConfighealth {
             'fix'    => __('Sur le serveur : cron système qui lance front/cron.php chaque minute, puis GLPI_SYSTEM_CRON dans config/local_define.php ; dans GLPI : Configuration → Actions automatiques, fiche de chaque tâche', 'printgestion'),
             'url'    => CronTask::getSearchURL(),
             'detail' => self::renderCronDetail($cron),
-            'button' => $cron['switchable'] ? self::getSwitchTasksButton(count($cron['internal'])) : '',
+            'button' => !empty($cron['internal']) ? self::getSwitchTasksButton(count($cron['internal']), $cron['proven']) : '',
         ];
 
         $xlsx_ok  = (bool) Document::isValidDoc('Gesconso.xlsx');
@@ -403,7 +403,7 @@ class PluginPrintgestionConfighealth {
      * prouvé et que des tâches du plugin sont en mode Interne, un bouton propose la bascule — un clic explicite.
      *
      * @return array ['ok', 'status', 'proven', 'system_cron_declared', 'witness' => ?row, 'tasks' => rows,
-     *               'internal' => noms en mode Interne, 'queue' => ?row, 'switchable' => bool]
+     *               'internal' => noms en mode Interne, 'queue' => ?row, 'switchable' => bool (au moins une tâche en Interne)]
      */
     public static function getCronStatus(): array {
         global $DB;
@@ -461,7 +461,7 @@ class PluginPrintgestionConfighealth {
             'tasks'                => $tasks,
             'internal'             => $internal,
             'queue'                => $queue,
-            'switchable'           => $proven && !empty($internal),
+            'switchable'           => !empty($internal),
         ];
     }
 
@@ -486,11 +486,17 @@ class PluginPrintgestionConfighealth {
         return $html;
     }
 
-    /** Bouton de bascule des tâches du plugin en CLI : clic explicite, confirmé, jamais automatique. */
-    private static function getSwitchTasksButton(int $count): string {
+    /**
+     * Bouton de bascule des tâches du plugin en CLI, au bout du tableau des tâches : clic explicite, confirmé, jamais
+     * automatique. Proposé dès qu'une tâche du plugin est en mode Interne (demande de Joris) ; sans cron système prouvé,
+     * la confirmation prévient qu'en CLI plus rien ne tournera tant que le cron du serveur n'est pas en place.
+     */
+    private static function getSwitchTasksButton(int $count, bool $proven): string {
         $esc     = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        $confirm = __('Passer les tâches automatiques de Print Gestion en mode CLI ? Les tâches de GLPI et des autres plugins ne sont pas touchées.', 'printgestion');
-        return "<button type='submit' name='switch_plugin_tasks_cli' value='1' data-pg-submit-once='1' class='btn btn-primary' formnovalidate onclick=\"return confirm(" . $esc(json_encode($confirm)) . ");\">"
+        $confirm = $proven
+            ? __('Passer les tâches automatiques de Print Gestion en mode CLI ? Les tâches de GLPI et des autres plugins ne sont pas touchées.', 'printgestion')
+            : __('Aucun cron système détecté : en mode CLI, ces tâches ne tourneront plus du tout tant que le cron du serveur (front/cron.php chaque minute) n\'est pas en place. Passer quand même les tâches automatiques de Print Gestion en CLI ? Les tâches de GLPI et des autres plugins ne sont pas touchées.', 'printgestion');
+        return "<button type='submit' name='switch_plugin_tasks_cli' value='1' data-pg-submit-once='1' class='btn " . ($proven ? 'btn-primary' : 'btn-outline-primary') . "' formnovalidate onclick=\"return confirm(" . $esc(json_encode($confirm)) . ");\">"
             . "<i class='ti ti-terminal-2 me-1'></i>" . $esc(sprintf(_n('Passer la tâche de Print Gestion en CLI', 'Passer les %d tâches de Print Gestion en CLI', $count, 'printgestion'), $count)) . "</button>";
     }
 

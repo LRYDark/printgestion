@@ -66,8 +66,9 @@ def main():
         sql("UPDATE glpi_crontasks SET lastrun = NULL WHERE name = 'PrintgestionTemoinCron';")
         sql("UPDATE glpi_crontasks SET mode = 1 WHERE itemtype LIKE 'PluginPrintgestion%' AND name <> 'PrintgestionTemoinCron';")
         page, etats = carte()
-        constat("témoin jamais passé : rouge « Aucun cron système détecté », aucune bascule proposée même avec des tâches en Interne",
-                ok_ko(etats.get("cron") == "error" and "Aucun cron système détecté" in page and "switch_plugin_tasks_cli" not in page and bandeau(page)))
+        constat("témoin jamais passé : rouge « Aucun cron système détecté », bascule proposée au bout du tableau, confirmation qui prévient que rien ne tournera sans cron",
+                ok_ko(etats.get("cron") == "error" and "Aucun cron système détecté" in page and "switch_plugin_tasks_cli" in page
+                      and "ne tourneront plus du tout tant que le cron du serveur" in page and bandeau(page)))
         constat("détail : GLPI_SYSTEM_CRON, les 8 tâches du plugin et le témoin avec leur fiche, queuednotification en lecture seule",
                 ok_ko("GLPI_SYSTEM_CRON" in page and page.count("Configurer dans GLPI") >= 10 and "queuednotification" in page and "Témoin du cron" in page))
         sql(f"UPDATE glpi_crontasks SET lastrun = '{maintenant}' WHERE name = 'PrintgestionTemoinCron';")
