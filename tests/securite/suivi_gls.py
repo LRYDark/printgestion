@@ -390,7 +390,7 @@ def main():
                 f"'{etat}', '{cle}', {lib.q(suffixe) if suffixe else 'NULL'}, {lib.q(code) if code else 'NULL'}, {lib.q(libelle) if libelle else 'NULL'}, "
                 f"{lib.q(date) if date else 'NULL'}, {lib.q(lieu) if lieu else 'NULL'}, NOW(), {lib.q(colis) if colis else 'NULL'});")
         sql(f"INSERT INTO {EXP} (printers_id, toner_property, toner_color, statut, level_at_alert, date_alert, date_shipped, users_id_tech, group_id, transport_carrier, "
-            f"transport_number, entities_id) VALUES (2, 'drumblack', 'black', 'shipped', 10, NOW(), NOW(), {d.ADMIN_ID}, 'test-gls-aff', 'other', 'AUTRE-0001', 0);")
+            f"transport_number, entities_id) VALUES (2, 'drumblack', 'black', 'shipped', 10, NOW(), NOW(), {d.ADMIN_ID}, 'test-gls-aff', 'other', 'TST-AUTRE-0001', 0);")
         sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
         sans = {}
         for nom, connexion in (("admin", lib.connecter_admin), ("technicien", lambda: CTX.connecter("test-technicien-gls"))):
@@ -424,7 +424,7 @@ def main():
                  ("GLS" in formulaire, "UPS" in formulaire, "Autre" in formulaire, "Chronopost" in formulaire), (True, True, True, False))
         verifier("modale « Modifier expédition » : Chronopost caché (lisible sur une ancienne expédition), jamais offert", "value='chronopost' hidden" in avec["admin"], True)
         autre = valeur(f"SELECT id FROM {EXP} WHERE group_id = 'test-gls-aff' AND transport_carrier = 'other'")
-        _, reponse, _ = WEB.post(config.AJAX + "/edit_expedition.php", [("expedition_id", autre), ("statut", "shipped"), ("carrier", "chronopost"), ("tracking", "AUTRE-0001")], ajax=True)
+        _, reponse, _ = WEB.post(config.AJAX + "/edit_expedition.php", [("expedition_id", autre), ("statut", "shipped"), ("carrier", "chronopost"), ("tracking", "TST-AUTRE-0001")], ajax=True)
         verifier("édition : Chronopost refusé sur une expédition qui ne le portait pas, transporteur inchangé",
                  (json.loads(reponse).get("ok"), valeur(f"SELECT transport_carrier FROM {EXP} WHERE id = {autre}")), (False, "other"))
     finally:

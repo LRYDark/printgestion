@@ -153,7 +153,7 @@ def scenario_cloisonnement():
     statut, page, _ = WEB.get(config.AJAX + "/expedition_bls.php", [("expedition_id", eb)], ajax=True)
     constat("expedition_bls de l'envoi de Client test B : refusé", ok_ko(refus(statut, page)), f"HTTP {statut}")
 
-    WEB.post(config.AJAX + "/update_expedition.php", [("id", ea2), ("action", "ship"), ("carrier", "gls"), ("tracking", "SUIVI-A-1"), ("bl_surveys_id", "987654")])
+    WEB.post(config.AJAX + "/update_expedition.php", [("id", ea2), ("action", "ship"), ("carrier", "gls"), ("tracking", "TST-SUIVI-A-1"), ("bl_surveys_id", "987654")])
     enregistre = valeur(f"SELECT IFNULL(bl_surveys_id, 'NULL') FROM {EXP} WHERE id = {ea2}")
     constat("update_expedition : bl_surveys_id d'un BL inexistant refusé", ok_ko(enregistre != "987654"), f"bl_surveys_id enregistré : {enregistre}")
 
@@ -330,7 +330,7 @@ def scenario_ecritures_get():
             ok_ko(statut_ligne(exp_expediee) == "exported" and "Actualiser les statuts" in page), f"HTTP {statut}, ligne {statut_ligne(exp_expediee)}")
     WEB.post(config.FRONT + "/demande.form.php", [("id", str(demande)), ("sync_statuses", "1")])
     constat("demande.form.php en POST « Actualiser les statuts » : ligne passée à « expédiée »", ok_ko(statut_ligne(exp_expediee) == "shipped"), statut_ligne(exp_expediee))
-    WEB.post(config.AJAX + "/update_expedition.php", [("id", exp_attente), ("action", "ship"), ("carrier", "ups"), ("tracking", "SUIVI-DEMANDE-2")])
+    WEB.post(config.AJAX + "/update_expedition.php", [("id", exp_attente), ("action", "ship"), ("carrier", "ups"), ("tracking", "TST-SUIVI-DEMANDE-2")])
     constat("update_expedition (POST) : demande rattachée mise à jour aussitôt", ok_ko(statut_ligne(exp_attente) == "shipped"), statut_ligne(exp_attente))
 
 

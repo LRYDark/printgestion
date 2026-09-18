@@ -12,6 +12,8 @@ contient ni donnée réelle, ni identifiant.
 
 - **Aucune donnée réelle** : entités « Client test A », « Site test A1 », « Site test A2 », « Client test B » ;
   imprimantes `TST-…`, références `TST-REF-…`, codes Sage `TSTCLI01` / `TSTLIV01`, adresses `@exemple.test`.
+- **Rejoué à chaque passe** : « aucune donnée réelle » ne se prouve pas une fois pour toutes ; `securite/donnees_reelles.py`
+  passe les motifs de la chasse sur tout le dépôt à chaque passe, et relève les noms propres pour relecture.
 - **Aucun identifiant** : pas de mot de passe, de clé ni d'adresse de serveur, même en exemple. Tout vient des variables
   d'environnement ci-dessous. Les comptes créés par les tests reçoivent un mot de passe tiré au hasard à chaque passage.
 - **Déterministe** : `securite/donnees.py` crée tous les identifiants attendus (entités 1 à 4, imprimantes 1 à 12,
@@ -71,6 +73,7 @@ Le serveur SMTP de l'instance est réglé sur 127.0.0.1 par `donnees.py` : aucun
 
 | Fichier | Vérifie |
 |---|---|
+| `donnees_reelles.py` | **Premier fichier.** Chasse aux données réelles rejouée sur tout le dépôt : mail, IPv4 hors plages de test, hôte ou URL, téléphone, SIRET, SIREN, numéro de suivi, code client ou colis, secret, clé longue, avec la liste blanche ; noms propres relevés en paires de mots capitalisés, les nouvelles signalées À NOTER et la liste `reference/mots-capitalises.txt` réécrite |
 | `harnais.py` | XSS, cloisonnement entre clients, points d'entrée sans droit (Self-Service, central sans droit du plugin), écritures en GET, échappement des mails, clés API, dossier `tests/` non servi |
 | `bl.py` | BL : entité de l'imprimante ou parente seulement, jamais une entité sœur ni un autre client |
 | `gesconso.py` | Aucune commande aux Achats sans le fichier Gesconso joint |

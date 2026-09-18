@@ -36,7 +36,7 @@ $variants = [
                 '##printgestion.level##'     => '8',
                 '##printgestion.days##'      => '4',
                 '##printgestion.cartridge##' => 'C-EXV 49 Noir',
-                '##printgestion.contract##'  => 'CONTRAT-COPIE-2026',
+                '##printgestion.contract##'  => 'CONTRAT-TEST-2026',
                 '##printgestion.count##'     => '1',
             ],
         ],
@@ -52,10 +52,10 @@ $variants = [
                 '##printgestion.count##'           => '23',
                 '##printgestion.cartridges_list##' => $li([
                     '<strong>C-EXV 49 Noir</strong> — ACME SARL — Canon iR-ADV C3530i',
-                    '<strong>TN-324 Cyan</strong> — Collectivité test — Konica C258',
-                    '<strong>W9050MC Noir</strong> — Cabinet Durand — HP E87640',
-                    '<strong>C-EXV 54 Magenta</strong> — Garage Schmitt — Canon iR C3226i',
-                    '<strong>TN-626 Jaune</strong> — SCI Les Tilleuls — Konica C450i',
+                    '<strong>Toner test cyan</strong> — Collectivité test — Konica C258',
+                    '<strong>Toner test noir A</strong> — Client test A — TST-A-01',
+                    '<strong>Toner test magenta B</strong> — Client test B — TST-B-01',
+                    '<strong>Toner test jaune C</strong> — Site test C1 — TST-SITEC1-01',
                 ], '… et 18 autres — détail complet dans le fichier Excel joint'),
             ],
         ],
@@ -65,7 +65,7 @@ $variants = [
             'balises' => [
                 '##printgestion.client##'          => 'Client test &gt; Site test A',
                 '##printgestion.printer##'         => 'Canon iR-ADV C3530i',
-                '##printgestion.contract##'        => 'CONTRAT-COPIE-2026',
+                '##printgestion.contract##'        => 'CONTRAT-TEST-2026',
                 '##printgestion.count##'           => '3',
                 '##printgestion.cartridges_list##' => $li([
                     '<strong>C-EXV 49 Noir</strong> — tonerblack — 8% — 4 j',
@@ -109,8 +109,8 @@ $variants = [
                 '##printgestion.cartridges_list##' => $li([
                     '<strong>Canon iR-ADV C3530i</strong> — ACME SARL — tonerblack — 8% — 4 j',
                     '<strong>Konica C258</strong> — Collectivité test — tonercyan — 5% — 2 j',
-                    '<strong>HP E87640</strong> — Cabinet Durand — tonerblack — 11% — 6 j',
-                    '<strong>Canon iR C3226i</strong> — Garage Schmitt — tonermagenta — 14% — 8 j',
+                    '<strong>TST-A-01</strong> — Client test A — tonerblack — 11% — 6 j',
+                    '<strong>TST-B-01</strong> — Client test B — tonermagenta — 14% — 8 j',
                 ], '… et 3 autres'),
                 '##printgestion.count##'           => '7',
             ],

@@ -357,7 +357,7 @@ def main():
         sql(f"INSERT INTO glpi_plugin_printgestion_raccordements (entities_id, agents_id, status, users_id, date_creation, date_mod, date_configured, date_triggered) "
             f"VALUES ({d.CLIENT_A}, {agent}, 'triggered', 2, NOW(), NOW(), NOW(), {lib.q(heure(-31 * 60))});")
         racc = int(valeur("SELECT MAX(id) FROM glpi_plugin_printgestion_raccordements"))
-        sql(f"INSERT INTO glpi_plugin_printgestion_raccordementips (plugin_printgestion_raccordements_id, ip, ip_num) VALUES ({racc}, '10.99.0.31', INET_ATON('10.99.0.31'));")
+        sql(f"INSERT INTO glpi_plugin_printgestion_raccordementips (plugin_printgestion_raccordements_id, ip, ip_num) VALUES ({racc}, '192.0.2.31', INET_ATON('192.0.2.31'));")
         arretee = "Vérification arrêtée après 30 min : 1 adresse toujours sans réponse"
         _, page, _ = WEB.get(config.FRONT + f"/raccordement.php?id={racc}")
         constat("31 min après le déclenchement, administrateur : « Vérification arrêtée après 30 min », quoi faire, plus de relance automatique",

@@ -1,0 +1,286 @@
+# Paires de mots capitalisés relevées dans le dépôt par tests/securite/donnees_reelles.py ; réécrit à chaque passe.
+# Une paire nouvelle est signalée À NOTER par le harnais et se relit ici, dans le diff git. Ne pas éditer à la main.
+API GitHub
+API Sage
+API Symfony
+Accept-Language
+Achat et Planif
+Achats APRÈS
+Achats EST
+Action POST
+Adresse IP
+Adresses IP
+Alerte Print
+Alertes GLPI
+Alertes Print
+Analyse du PDF
+And Trace
+Annoncé à GLS
+Any-Latin
+App Installer
+Appel GLS
+Appeler PluginPrintgestionDashboardactions
+Apple Silicon
+Articles Sage
+Associe UN
+Associer BL
+Associer des BL
+Aucun BL
+Auto-Response
+Avec GLPI
+BL Sage
+BL de Client
+BL de Site
+Bad Request
+Bearer et Accept
+Bootstrap Modal
+Boutons Windows
+Cache GLPI
+Cache-Control
+Card CONTRAT
+Card ID
+Card IMPRIMANTE
+Card MODES
+Cartouche GLPI
+Cartouches GLPI
+Chaîne PHP
+Choisissez le PC
+Class Symfony
+Client GLS
+Client ID
+Client Secret
+Clés API
+Collecte SNMP
+Colonne Designation
+Colonne de GLPI
+Commande ENREGISTRÉE
+Commande aux Achats
+Commandes aux Achats
+Communauté SNMP
+Compound File
+Compteur Couleur
+Config GLPI
+Configuration de GLPI
+Consigne Linux
+Constats OK
+Content-Disposition
+Content-Length
+Content-Type
+Contract GLPI
+Créer Print
+Créer le TAG
+Créée ACTIVE
+Dans GLPI
+Dashboard Coût
+Date Excel
+Default WHERE
+Deploy de GLPI
+Developer ID
+Digital Notification
+Document GLPI
+Donne au PC
+Données PHP
+Données POST
+Dossier de GLPI
+Droit Déploiement
+Déploiement Agent
+Déployer GLPI
+Détail des BL
+Détermination de COULEUR
+Détermination du TOTAL
+Emails du CLIENT
+Empreinte SHA
+En GET
+Entrées ERROR
+Enumération des IDs
+Env-From
+Env-To
+Envoi MULTI
+Envoi SIMPLE
+Envoyer aux Achats
+Erreur API
+Export Excel
+Export Gesconso
+Exporter Excel
+Exporter de Sage
+Exports Sage
+Expose en JSON
+Expéditions et Coût
+Expéditions et Demandes
+Extension PHP
+Exécute du PHP
+FM Audit
+Facturation Print
+Fichier Gesconso
+Fichiers Gesconso
+Format BL
+Fragment PHP
+GLPI Agent
+GLPI Inventory
+GLPI sur Internet
+GLPI-Agent
+GLPI-Project
+GLS Track
+Gestion MailSend
+Gestion Print
+Glpi-Csrf
+Gotchas GLPI
+Helper POST
+IDs ContractType
+Identifiant BL
+Identifiants SNMP
+InnoDB DEFAULT
+Installation de GLPI
+Installer GLPI
+Installeur GLPI
+Installeur Linux
+Installez GLPI
+Internal Server
+Intitule Client
+Intitule Livraison
+Intitulé Livraison
+Inventaire GLPI
+Inventaires SNMP
+JCD Groupe
+Jamais le BL
+Jeton CSRF
+Jeton GLS
+Joris Reinert
+Latin-ASCII
+Le BL
+Le HTML
+Le JS
+Le PC
+Les BL
+Les CREATE
+Les IDs
+Lettre ET
+Liaison BL
+Liaisons BL
+Licence GPL
+Lien BL
+Lier des BL
+Link BL
+Liste les BL
+MSI Windows
+Mailer GLPI
+Mapping SNMP
+Mappings SNMP
+Modale BL
+Mode Interne
+Mode SYNC
+Module Collecte
+Module Coût
+Module Déploiement
+Navigation PAR
+Ne PAS
+Notification Card
+Notifications GLPI
+Onglet Dashboard
+Onglet Déploiement
+Onglet Liste
+Oracle Linux
+Ouvrir Terminal
+PHP de PluginPrintgestionSchema
+PHP et MySQL
+Pages Couleur
+Paquet Linux
+Paquet Windows
+Paquets Linux
+Perl Linux
+Piste et Trace
+Plage IP
+Plages IP
+Plugin GLPI
+Plugin Gestion
+Print Gestion
+Printer MIB
+Propriété SNMP
+Propriétés MSI
+Propriétés SNMP
+Prérequis GLPI
+Prérequis de GLPI
+Quota GLS
+Rapprochement GLPI
+Recherche BL
+Red Hat
+Release GLPI
+Relevés SNMP
+Remplace TOUTES
+Rend le HTML
+Rendu HTML
+Renvoi aux Achats
+Renvoyer aux Achats
+Requested-With
+Resource Not
+Rocky Linux
+Règle Gesconso
+Règle SNMP
+Récupère le HTML
+Réessais SNMP
+Référentiel Sage
+Répond en SNMP
+Réponse GLS
+Résolution STRICTE
+Résolution des IDs
+Sans GLPI
+Scripts Windows
+Secret GLS
+Segoe UI
+Self-Service
+Serveur GLPI
+Session HTTP
+Si GLPI
+Si Windows
+Si les Achats
+Silicon et Intel
+Sonde GLPI
+Sonde Print
+Sondes GLPI
+Squelette HTML
+Statut GLPI
+Statut GLS
+Statut des PC
+Statut du PC
+Statuts OUVERTS
+Suivi GLS
+Super-Admin
+Sur le Mac
+Sur le PC
+Symfony Mailer
+Système du PC
+Tableau NATIF
+Tarif Couleur
+Tarif Print
+Tarifs Print
+Terminal du Mac
+Tests de Print
+Toner Cyan
+Toner Noir
+Track And
+Track ID
+Transmission aux Achats
+Transmissions aux Achats
+Tâche PrintgestionEntityScope
+Tâche PrintgestionProposeDemandes
+Tâches GLPI
+Tâches de Print
+UPS et Autre
+Un BL
+Un GLPI
+Un SMTP
+User GLPI
+User-Agent
+Valeur SNMP
+Validation CSRF
+Version SNMP
+Version de GLPI
+Versions de GLPI
+Vérification SAGE
+Vérifier sur GitHub
+Windows Server
+Windows et Linux
+Écrit le TAG
+Écritures en GET
+Équipement SNMP
+Événements GLPI
