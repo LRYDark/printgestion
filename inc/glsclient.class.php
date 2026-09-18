@@ -78,8 +78,13 @@ class PluginPrintgestionGlsclient implements PluginPrintgestionCarrierclient {
         try {
             $this->requestToken(false);
         } catch (PluginPrintgestionCarrierexception $e) {
+            if ($e->isTechnical()) {
+                self::noteFailure($e->getMessage());
+            }
             return ['ok' => false, 'message' => $e->getMessage()];
         }
+        // Un jeton obtenu est un appel réussi : la carte Santé le sait tout de suite, sans attendre la tâche.
+        self::noteSuccess();
         return ['ok' => true, 'message' => __('Connexion établie : jeton obtenu (et jeté).', 'printgestion')];
     }
 
