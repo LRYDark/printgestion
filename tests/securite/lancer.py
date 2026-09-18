@@ -6,19 +6,21 @@ Prérequis : instance préparée par instance.sh, serveur web de l'instance et s
 import os
 import re
 import subprocess
+import time
 import sys
 
 import donnees
 import lib
 
 ICI = os.path.dirname(os.path.abspath(__file__))
-TESTS = ["harnais", "entites", "bl", "gesconso", "commandes", "journal", "prerequis", "interface", "sante", "suivi_gls", "modules", "gabarits", "parcours", "installation"]
+TESTS = ["harnais", "entites", "bl", "gesconso", "commandes", "journal", "prerequis", "interface", "sante", "suivi_gls", "modules", "gabarits", "parcours", "taches", "installation", "recette_vide"]
 
 
 def main():
     donnees.verifier_instance()
     choisis = sys.argv[1:] or TESTS
     tailles = lib.tailles_journaux()
+    depart = time.time()
     resume = []
     for nom in choisis:
         avant = donnees.empreinte()
@@ -27,8 +29,9 @@ def main():
         print(sortie)
         ligne = re.findall(r"^Résultat : .*$", sortie, re.M)
         apres = donnees.empreinte()
-        # installation.py désinstalle et réinstalle le plugin : ses données de référence repartent des lignes par défaut.
-        modifiees = [] if nom == "installation" else [cle for cle in avant if avant[cle] != apres[cle]]
+        # installation.py désinstalle et réinstalle le plugin (données de référence remises aux lignes par défaut) ;
+        # taches.py et recette_vide.py font écrire les tâches (mémos de version d'agent, vues recalculées) : c'est leur objet.
+        modifiees = [] if nom in ("installation", "recette_vide", "taches") else [cle for cle in avant if avant[cle] != apres[cle]]
         # Le détail de l'écart, pas seulement son nom : sans lui, un écart ponctuel ne s'explique pas.
         for cle in modifiees:
             if cle == "configuration":
@@ -45,6 +48,9 @@ def main():
         resume.append(f"{nom:10} code {res.returncode if not modifiees else 1} — {ligne[-1] if ligne else 'pas de bilan (voir la sortie)'}"
                       + (f" — DONNÉES DE RÉFÉRENCE MODIFIÉES : {', '.join(modifiees)}" if modifiees else ""))
     erreurs = lib.erreurs_php_depuis(tailles, attendues=("Fichier Gesconso non archivé", "panne simulee", "Proposition des demandes d'envoi", "Fréquence des relevés hors service"))
+    # Gabarits : aucune variable non résolue dans les mails capturés pendant la passe.
+    non_resolues = sorted({m for courriel in lib.mails_depuis(depart) for m in re.findall(r"##[a-z0-9_.]+##", courriel["sujet"] + courriel["html"])})
+    resume.append(f"gabarits   code {1 if non_resolues else 0} — {len(non_resolues)} variable(s) non résolue(s) dans les mails capturés" + (" : " + ", ".join(non_resolues[:10]) if non_resolues else ""))
     print("======== Synthèse")
     print("\n".join(resume))
     print(f"journaux GLPI : {len(erreurs)} erreur(s) PHP ou SQL inattendue(s)" + ("".join(f"\n    {e}" for e in erreurs[:10])))

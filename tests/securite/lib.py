@@ -342,7 +342,8 @@ def mails_depuis(instant):
                 message = email.message_from_bytes(fichier.read(), policy=email.policy.default)
             corps = message.get_body(preferencelist=("html",))
             trouves.append({"sujet": str(message["Subject"] or ""), "pour": message.get("X-Env-To", ""),
-                            "fichiers": [p.get_filename() for p in message.iter_attachments()], "html": corps.get_content() if corps else ""})
+                            "fichiers": [p.get_filename() for p in message.iter_attachments()], "html": corps.get_content() if corps else "",
+                            "pieces": {p.get_filename(): p.get_payload(decode=True) for p in message.iter_attachments() if p.get_filename()}})
     return trouves
 
 

@@ -1,8 +1,11 @@
 """Gabarits de mail du plugin : jamais réécrits par une installation ou une mise à jour.
 1. Sujet modifié par l'administrateur, puis réinstallation forcée du plugin : la modification reste.
 2. Gabarit absent (renommé pour le test) : recréé avec le texte par défaut, identifiant repris dans la configuration.
+3. Aperçu des six gabarits régénéré (tools/generate_apercu.php) : aucune variable non résolue.
 Remet tout en place : gabarit d'origine, sujet, identifiant dans la configuration, gabarit recréé supprimé.
 """
+import os
+import re
 import subprocess
 import sys
 
@@ -47,6 +50,10 @@ def main():
         verifier("identifiant du gabarit recréé repris dans la configuration", valeur(f"SELECT {champ} FROM {CONFIGS} WHERE id = 1"), recree)
         verifier("gabarit renommé (modifié par l'administrateur) laissé intact", valeur(f"SELECT subject FROM {TRAD} WHERE notificationtemplates_id = {ident} AND language = 'fr_FR'"),
                  "Sujet modifié par le test")
+        section("3. Aperçu des gabarits : aucune variable non résolue")
+        res = subprocess.run([config.PHP, "tools/generate_apercu.php"], cwd=config.PLUGIN_DIR, capture_output=True, text=True)
+        apercu = open(os.path.join(config.PLUGIN_DIR, "docs", "apercu_gabarits.html"), encoding="utf-8").read() if res.returncode == 0 else ""
+        verifier("aperçu généré, sans « ##variable## » restante", (res.returncode, sorted(set(re.findall(r"##[a-z0-9_.]+##", apercu)))), (0, []))
     finally:
         if recree not in (None, "0"):
             sql(f"DELETE FROM {TRAD} WHERE notificationtemplates_id = {recree}; DELETE FROM {TPL} WHERE id = {recree};")

@@ -84,7 +84,9 @@ Le serveur SMTP de l'instance est réglé sur 127.0.0.1 par `donnees.py` : aucun
 | `suivi_gls.py` | Suivi GLS, sans réseau : nettoyage du numéro, repli unique sur E_404_01, lots de 10 ; client (jeton, en-têtes, trois formes d'erreur, quota, aucun secret dans les messages) ; tâche (cadence, repli mémorisé, inconnu, sans nouvelles, budget, disjoncteur) ; « Tester la connexion » ; affichage dans les deux profils avec copies d'écran hors dépôt |
 | `modules.py` | Interrupteurs de modules : chaque point d'entrée en 404 quand son module est désactivé, fermé par défaut |
 | `gabarits.py` | Gabarits de mail : un gabarit modifié par l'administrateur survit à une réinstallation ; un gabarit absent est recréé |
-| `installation.py` | Installation 1.0.0 : refus par-dessus une autre version, désinstallation complète (la règle TAG reste), réinstallation identique au relevé de référence (zéro écart). **Dernier fichier** : l'instance ressort sans le jeu de données |
+| `taches.py` | Chaque tâche automatique sur la base peuplée : aucune en erreur, aucune erreur PHP ou SQL |
+| `installation.py` | Installation 1.0.0 : refus par-dessus une autre version, cycle sans notice, désinstallation complète (la règle TAG reste), réinstallation identique au relevé de référence hors écarts volontaires déclarés |
+| `recette_vide.py` | Sur le plugin fraîchement réinstallé (tables vides) : chaque écran, point d'entrée et onglet dans les deux profils et en accès direct, chaque tâche. **Dernier fichier** : l'instance ressort sans le jeu de données |
 
 Chaque constat est `OK`, `KO`, `À NOTER` ou `NON CONCLUANT` ; `lancer.py` résume et relève les erreurs des journaux GLPI.
 

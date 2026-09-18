@@ -92,6 +92,11 @@ def main():
         verifier("commande passée : un envoi et un document archivé",
                  (int(apres["envois"]) - int(avant["envois"]), int(apres["documents"]) - int(avant["documents"])), (1, 1))
         verifier("mail aux Achats avec le fichier Gesconso .xlsx joint", any(any((f or "").endswith(".xlsx") for f in fichiers) for _, fichiers in mails), True)
+        pieces = [contenu for m in lib.mails_depuis(depuis) if "Commande cartouches" in m["sujet"] for nom, contenu in m["pieces"].items() if nom.endswith(".xlsx")]
+        texte = lib.texte_xlsx(pieces[0]) if pieces else ""
+        verifier("fichier joint ouvert : les neuf en-têtes Gesconso et la ligne de la cartouche (client, intitulé, référence)",
+                 [e in texte for e in ("Devis", "Intitule Client", "Intitule Livraison", "Consommable", "Designation", "Quantite", "Prix", "Fournisseur", "Complement livraison",
+                                       "TSTCLI01", "Adresse test 1", "TST-REF-N01")], [True] * 12)
 
         section("4. À voir avant l'envoi : décompte, pas de blocage")
         ligne = {"key": "p8", "label": "Imprimante 8", "printers_id": d.IMP_A1, "cartridgeitems_id": d.CARTOUCHE_NOIR, "quantity": 1,
