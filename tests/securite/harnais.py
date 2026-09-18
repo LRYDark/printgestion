@@ -202,14 +202,14 @@ def scenario_cloisonnement():
 
     # Import des adresses Sage (compte de Client test A avec le droit « Référentiel Sage ») : le rapport d'écarts ne nomme
     # jamais une entité hors périmètre (Client test B, Site test C1 sans intitulé) ; rien n'est écrit avant validation.
-    fichier = "Code client;Intitulé livraison;Code adresse\nTSTCLI01;Adresse test 1;TSTLIV01\nTSTCLIC;Livraison test C;TSTLIVC1\n".encode("utf-8")
+    fichier = "Code client;Intitulé livraison;Code adresse\nTSTCLIC;Livraison test C;TSTLIVC1\n".encode("utf-8")
     statut, _, entetes = WEB.envoyer_fichier(config.FRONT + "/sageimport.php", [("analyze", "1"), ("type", "deliveries")], "file", "adresses-test.csv", fichier)
     jeton = re.search(r"preview=([0-9a-f]+)", (entetes.get("Location") if entetes else "") or "")
     if jeton is None:
         constat("import Sage : fichier de test analysé", "NON CONCLUANT", f"HTTP {statut}")
     else:
         _, apercu, _ = WEB.get(config.FRONT + f"/sageimport.php?preview={jeton.group(1)}")
-        constat("import des adresses, rapport d'écarts : Client test A nommé (intitulé absent du fichier), jamais Client test B ni Site test C1 (hors périmètre)",
+        constat("import des adresses, rapport d'écarts : Client test A nommé (sa paire TSTCLI01 / « Adresse test 1 » absente du fichier), jamais Client test B ni Site test C1 (hors périmètre)",
                 ok_ko("Client test A (2 imprimante(s))" in apercu and "Client test B" not in apercu and "Site test C1" not in apercu))
         adresses_avant = valeur("SELECT COUNT(*) FROM glpi_plugin_printgestion_sagedeliveries")
         WEB.post(config.FRONT + "/sageimport.php", [("abandon", "1"), ("token", jeton.group(1))])

@@ -226,8 +226,8 @@ concernent aucun client. Ne jamais supprimer une expédition ni une demande.
    dans la doc technique (« Référentiel Sage ») ; l'écran de dépôt les rappelle.
 2. Print Gestion → Référentiel Sage → Import du référentiel : déposer, **analyser**, lire le rapport d'écarts, valider.
 3. Le code client et l'intitulé de livraison ne s'importent pas : ils se lisent sur l'entité (nom en forme de
-   code client Sage, hérité du parent le plus proche ; première ligne des commentaires = intitulé de livraison,
-   jamais hérité). Le rapport d'écarts liste les entités à imprimantes sans code, sans intitulé, ou dont
+   code client Sage, hérité du parent le plus proche ; première ligne des commentaires de cette même entité porteuse =
+   intitulé de livraison). Le rapport d'écarts liste les entités à imprimantes sans code, sans intitulé, ou dont
    l'intitulé n'est pas une adresse de leur client dans le fichier.
 4. Corriger dans GLPI : nom ou commentaires de l'entité, référence des cartouches, puis relancer l'analyse.
 
@@ -465,8 +465,8 @@ Chaque ligne en défaut est listée avec son motif (`Gesconso::prepare()`) :
 
 - **code client Sage absent** : ni le nom de l'entité ni celui d'un parent n'a la forme d'un code client
   (majuscules et chiffres, sans espace) : nommer l'entité cliente par son code Sage ;
-- **intitulé de livraison absent** : champ « Commentaires » de l'entité de l'imprimante vide : y mettre
-  l'intitulé de l'adresse de livraison Sage (première ligne) ;
+- **intitulé de livraison absent** : champ « Commentaires » vide sur l'entité qui porte le code client (le message la
+  nomme) : y mettre le nom du client tel que Sage le connaît (première ligne) ;
 - **référence article absente** : référence de la cartouche vide, cartouche non résolue, ou référence
   absente du dernier import articles.
 

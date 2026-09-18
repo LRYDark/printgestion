@@ -99,22 +99,31 @@ def main():
                                        "TSTCLI01", "Adresse test 1", "TST-REF-N01")], [True] * 12)
 
         section("4. À voir avant l'envoi : décompte, pas de blocage")
-        ligne = {"key": "p8", "label": "Imprimante 8", "printers_id": d.IMP_A1, "cartridgeitems_id": d.CARTOUCHE_NOIR, "quantity": 1,
-                 "unit_price": "10.00", "under_contract": False, "date": "2026-09-18 12:00:00", "complement": ""}
-        prepare = json.loads(lib.php_glpi("echo json_encode(PluginPrintgestionGesconso::prepare(json_decode(" + json.dumps(json.dumps([ligne])) + ", true)));"))
+        def ligne(cle, imprimante):
+            return {"key": cle, "label": f"Imprimante {imprimante}", "printers_id": imprimante, "cartridgeitems_id": d.CARTOUCHE_NOIR, "quantity": 1,
+                    "unit_price": "10.00", "under_contract": False, "date": "2026-09-18 12:00:00", "complement": ""}
+        lignes_test = [ligne("p8", d.IMP_A1), ligne("p13", d.IMP_C), ligne("p14", d.IMP_SITE_C1), ligne("p15", d.IMP_D)]
+        prepare = json.loads(lib.php_glpi("echo json_encode(PluginPrintgestionGesconso::prepare(json_decode(" + json.dumps(json.dumps(lignes_test)) + ", true)), JSON_UNESCAPED_UNICODE);"))
         verifier("imprimante sans lieu : désignation « n° série # cartouche », sans segment vide",
-                 prepare["rows"]["p8"]["designation"], "TSTSN0008 # Toner test noir A")
-        verifier("notices typées : adresse non reconnue et lieu absent, sur la ligne",
-                 (sorted(prepare["notices"]["address"]), sorted(prepare["notices"]["location"])), (["p8"], ["p8"]))
+                 prepare["rows"]["p13"]["designation"], "TSTSN0013 # Toner test noir A")
+        verifier("code et intitulé lus sur la même entité : imprimante en sous-entité (Site test C1) → TSTCLIC / « Livraison test C », comme l'imprimante de TSTCLIC",
+                 ((prepare["rows"]["p14"]["client"], prepare["rows"]["p14"]["livraison"]), (prepare["rows"]["p13"]["client"], prepare["rows"]["p13"]["livraison"])),
+                 (("TSTCLIC", "Livraison test C"), ("TSTCLIC", "Livraison test C")))
+        verifier("imprimante de Client test A : code et intitulé de la racine TSTCLI01, qui porte le code (pas les commentaires de Client test A)",
+                 (prepare["rows"]["p8"]["client"], prepare["rows"]["p8"]["livraison"]), ("TSTCLI01", "Adresse test 1"))
+        verifier("entité porteuse d'un code sans commentaire (TSTCLID) : ligne bloquée, le message nomme l'entité porteuse et son code",
+                 ("p15" in prepare["errors"], "TSTCLID" in " ".join(prepare["errors"].get("p15", [])), "porte le code client TSTCLID" in " ".join(prepare["errors"].get("p15", []))), (True, True, True))
+        verifier("notices typées : adresse non reconnue (intitulé de TSTCLIC absent du référentiel) et lieu absent, sur les lignes concernées",
+                 (sorted(prepare["notices"]["address"]), sorted(prepare["notices"]["location"])), (["p13", "p14"], ["p13", "p14", "p8"]))
         sql("INSERT INTO glpi_plugin_printgestion_demandes (name, entities_id, locations_id, statut, delivery_mode, users_id_validate, date_validate, date_creation, date_mod) "
-            f"VALUES ('Demande test notices', {d.CLIENT_A}, 0, 'validated', 'direct', {d.ADMIN_ID}, NOW(), NOW(), NOW());")
+            f"VALUES ('Demande test notices', {d.CLIENT_C}, 0, 'validated', 'direct', {d.ADMIN_ID}, NOW(), NOW(), NOW());")
         demande = int(valeur("SELECT MAX(id) FROM glpi_plugin_printgestion_demandes WHERE name = 'Demande test notices'"))
         CTX.crees["demandes"].append(demande)
         sql("INSERT INTO glpi_plugin_printgestion_demandelines (plugin_printgestion_demandes_id, printers_id, toner_property, cartridgeitems_id, quantity, is_under_contract, "
             "contracts_id, level_at_proposal, statut, date_creation, date_mod, entities_id) "
-            f"VALUES ({demande}, {d.IMP_A1}, 'tonerblack', {d.CARTOUCHE_NOIR}, 1, 1, {d.CONTRAT_A}, 12, 'validated', NOW(), NOW(), {d.CLIENT_A});")
+            f"VALUES ({demande}, {d.IMP_C}, 'tonerblack', {d.CARTOUCHE_NOIR}, 1, 0, 0, 12, 'validated', NOW(), NOW(), {d.CLIENT_C});")
         _, page, _ = WEB.get(config.FRONT + f"/demande.export.php?demandes[]={demande}")
-        verifier("écran « Envoyer aux Achats » : décompte des deux réserves, liste derrière « voir », demande cochable",
+        verifier("écran « Envoyer aux Achats » (imprimante de TSTCLIC) : décompte des deux réserves, liste derrière « voir », demande cochable",
                  ("1 ligne avec une adresse de livraison non reconnue" in page, "1 ligne sans lieu sur l" in page,
                   f"Demande #{demande}" in page[page.find("data-pg-notices"):], f"value='{demande}' checked" in page), (True, True, True, True))
         verifier("la confirmation d'envoi rappelle le décompte", "non reconnue" in page[page.find("window.confirm"):page.find("window.confirm") + 400], True)
@@ -122,9 +131,9 @@ def main():
         alerte_10 = valeur(f"SELECT id FROM glpi_plugin_printgestion_alertview WHERE printers_id = {d.IMP_SITE_A1} AND toner_property = 'tonerblack'")
         _, sous_formulaire, _ = WEB.post("/ajax/dropdownMassiveAction.php", [("action", "PluginPrintgestionAlertview:pg_order"), (f"items[PluginPrintgestionAlertview][{alerte_10}]", alerte_10),
                                                                               ("is_deleted", "0")], ajax=True)
-        verifier("sous-formulaire « Commander », imprimante sans lieu : décompte des deux réserves avant le clic",
-                 ("1 ligne avec une adresse de livraison non reconnue" in sous_formulaire, "1 ligne sans lieu sur l" in sous_formulaire,
-                  "sera refusée" in sous_formulaire), (True, True, False))
+        verifier("sous-formulaire « Commander », imprimante sans lieu (intitulé de la racine, connu) : décompte de la seule réserve avant le clic",
+                 ("adresse de livraison non reconnue" in sous_formulaire, "1 ligne sans lieu sur l" in sous_formulaire,
+                  "sera refusée" in sous_formulaire), (False, True, False))
         alerte_1 = valeur(f"SELECT id FROM glpi_plugin_printgestion_alertview WHERE printers_id = {d.IMP_BAS} AND toner_property = 'tonerblack'")
         _, sous_formulaire, _ = WEB.post("/ajax/dropdownMassiveAction.php", [("action", "PluginPrintgestionAlertview:pg_order"), (f"items[PluginPrintgestionAlertview][{alerte_1}]", alerte_1),
                                                                               ("is_deleted", "0")], ajax=True)

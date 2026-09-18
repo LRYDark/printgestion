@@ -4,8 +4,10 @@
  *   - code client Sage (colonne B) : le nom de l'entité s'il a la forme d'un code client (majuscules,
  *     chiffres, « . _ - », 17 caractères au plus, sans espace), sinon celui de l'entité parente la
  *     plus proche dont le nom a cette forme ;
- *   - intitulé de livraison (colonne C) : première ligne du champ « Commentaires » de l'entité de
- *     l'imprimante, jamais hérité — vide, la ligne est bloquée à l'export.
+ *   - intitulé de livraison (colonne C) : première ligne du champ « Commentaires » de l'entité QUI PORTE LE
+ *     CODE — code et intitulé sont le code et le nom d'un seul et même client, lus sur la même entité ;
+ *     une imprimante dans une sous-entité prend les deux sur l'entité parente porteuse. Commentaires vides
+ *     sur cette entité : la ligne est bloquée à l'export.
  * Les référentiels importés par fichier (adresses de livraison, articles) ne décident de rien : ils
  * servent à vérifier (article inconnu : bloquant ; adresse inconnue : avertissement).
  *
@@ -70,7 +72,7 @@ class PluginPrintgestionSage extends CommonGLPI {
         ];
     }
 
-    /** Intitulé de livraison d'une entité : première ligne non vide de ses commentaires, '' sinon. Jamais hérité. */
+    /** Intitulé de livraison porté par une entité : première ligne non vide de ses commentaires, '' sinon. */
     public static function getDeliveryLabelForEntity(int $entities_id): string {
         $entity = new Entity();
         if (!$entity->getFromDB($entities_id)) {
@@ -106,19 +108,22 @@ class PluginPrintgestionSage extends CommonGLPI {
     }
 
     /**
-     * Règle appliquée à une entité, pour les contrôles et l'affichage.
+     * Règle appliquée à une entité, pour les contrôles et l'affichage : le code vient de l'entité porteuse (elle-même
+     * ou l'ancêtre le plus proche dont le nom est un code), l'intitulé vient de CETTE MÊME entité.
      *
-     * @return array ['entity_name' => string, 'client' => ?array (getClientForEntity), 'label' => string,
+     * @return array ['entity_name' => string, 'client' => ?array (getClientForEntity), 'carrier_name' => string
+     *                (entité porteuse du code, nom complet), 'label' => string,
      *                'known' => ?bool (isDeliveryKnown, null sans référentiel ou sans code/intitulé)]
      */
     public static function describeRule(int $entities_id): array {
         $client = self::getClientForEntity($entities_id);
-        $label  = self::getDeliveryLabelForEntity($entities_id);
+        $label  = $client !== null ? self::getDeliveryLabelForEntity($client['entities_id']) : '';
         return [
-            'entity_name' => Dropdown::getDropdownName('glpi_entities', $entities_id),
-            'client'      => $client,
-            'label'       => $label,
-            'known'       => ($client !== null && $label !== '') ? self::isDeliveryKnown($client['code'], $label) : null,
+            'entity_name'  => Dropdown::getDropdownName('glpi_entities', $entities_id),
+            'client'       => $client,
+            'carrier_name' => $client !== null ? Dropdown::getDropdownName('glpi_entities', $client['entities_id']) : '',
+            'label'        => $label,
+            'known'        => ($client !== null && $label !== '') ? self::isDeliveryKnown($client['code'], $label) : null,
         ];
     }
 
@@ -137,13 +142,17 @@ class PluginPrintgestionSage extends CommonGLPI {
                     ? sprintf(__('(nom de l\'entité parente « %s »)', 'printgestion'), Dropdown::getDropdownName('glpi_entities', $rule['client']['entities_id']))
                     : __('(nom de l\'entité)', 'printgestion')) . '</span>';
         }
-        if ($rule['label'] === '') {
+        if ($rule['client'] === null) {
+            // Sans code, pas d'intitulé à chercher : le premier message suffit.
+        } elseif ($rule['label'] === '') {
             $parts[] = "<span class='text-danger'><i class='ti ti-ban me-1'></i>"
-                . $esc(__('Intitulé de livraison : aucun — champ « Commentaires » de l\'entité vide : export bloqué.', 'printgestion'))
+                . $esc(sprintf(__('Intitulé de livraison : aucun — champ « Commentaires » de l\'entité « %s », qui porte le code, vide : export bloqué.', 'printgestion'), $rule['carrier_name']))
                 . '</span>';
         } else {
             $parts[] = $esc(__('Intitulé de livraison :', 'printgestion')) . ' <strong>' . $esc($rule['label']) . '</strong> '
-                . "<span class='text-muted'>" . $esc(__('(première ligne des commentaires de l\'entité)', 'printgestion')) . '</span>'
+                . "<span class='text-muted'>" . $esc($rule['client']['inherited']
+                    ? sprintf(__('(première ligne des commentaires de l\'entité parente « %s », qui porte le code)', 'printgestion'), $rule['carrier_name'])
+                    : __('(première ligne des commentaires de l\'entité)', 'printgestion')) . '</span>'
                 . ($rule['known'] === false
                     ? " <span class='text-warning'><i class='ti ti-alert-triangle me-1'></i>"
                         . $esc(__('absent du référentiel des adresses importé : Sage peut refuser la ligne', 'printgestion')) . '</span>'

@@ -77,7 +77,7 @@ printgestion/
 | `Demande` / `Demandeline` | Demande d'envoi (en-tête client + site, lignes) : statuts, contrôles avant validation, historique natif |
 | `Guard` | Verrous anti-double-envoi (envoi en cours, demande ouverte, garde après pose, ticket récent) |
 | `Sageimport` | Import du référentiel Sage par fichier : analyse, prévisualisation, rapport d'écarts, validation |
-| `Sage` | Règle Gesconso : code client = nom de l'entité en forme de code (hérité du parent le plus proche), intitulé de livraison = première ligne des commentaires de l'entité (jamais hérité) ; vérifications contre les référentiels importés |
+| `Sage` | Règle Gesconso : code client = nom de l'entité en forme de code (hérité du parent le plus proche), intitulé de livraison = première ligne des commentaires de cette même entité porteuse ; vérifications contre les référentiels importés |
 | `Gesconso` | Fichier de commande Gesconso (9 colonnes), contrôles bloquants avant écriture, archivage en Document |
 | `Snmpadapter` | Service (classe simple, sans table) : lecture fiable des niveaux SNMP — sentinelles, états bruts max/used/remaining, application des règles par constructeur |
 | `Snmprule` | Règle de lecture SNMP par constructeur (ignorer / inverser une propriété) : table, carte de configuration, droit de configuration du plugin |
@@ -401,7 +401,9 @@ une autre entité, jamais la même machine : un envoi d'un client ne bloque pas 
   nom de l'entité de l'imprimante s'il a la forme d'un code client Sage (`Sage::CODE_PATTERN` : majuscules,
   chiffres, « . _ - », 17 caractères au plus, sans espace), sinon celui de l'entité parente la plus proche dont
   le nom a cette forme ; l'**intitulé de livraison** est la première ligne non vide du champ « Commentaires » de
-  l'entité de l'imprimante, jamais hérité : vide, la ligne est bloquée. La règle appliquée est affichée sur la
+  **cette même entité**, celle qui porte le code : code et intitulé sont le code et le nom d'un seul client, une
+  imprimante en sous-entité prend les deux sur l'entité parente porteuse. Commentaires vides sur cette entité : la
+  ligne est bloquée. La règle appliquée est affichée sur la
   fiche de la demande (« Export Gesconso (Sage) » : d'où viennent le code et l'intitulé, ce qui bloque, lien vers
   l'entité). `registration_number` (SIRET) n'est pas utilisé.
 - **Déroulé** : analyse (contrôles : colonnes obligatoires, valeurs manquantes, doublons — bloquants ; codes
@@ -425,7 +427,7 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
 |---|---|---|
 | A | `Devis` | Date de la demande (commande directe : date du jour), **vraie date Excel** `jj/mm/aaaa` |
 | B | `Intitule Client` | Code client Sage = nom de l'entité de l'imprimante s'il a la forme d'un code, sinon celui du parent le plus proche (`Sage::getClientForEntity()`) |
-| C | `Intitule Livraison` | Première ligne des commentaires de l'entité de l'imprimante, jamais héritée (`Sage::getDeliveryLabelForEntity()`) |
+| C | `Intitule Livraison` | Première ligne des commentaires de l'entité qui porte le code, la même que la colonne B (`Sage::describeRule()`) |
 | D | `Consommable` | `CartridgeItem.ref` (vérifiée dans le référentiel articles s'il a été importé) |
 | E | `Designation` | n° série, nom du lieu, nom de la cartouche, joints par le séparateur (`' # '`) en omettant les parties vides (jamais de séparateur orphelin) ; longueur max (69) configurable, troncature avec avertissement |
 | F | `Quantite` | Entier |
@@ -434,7 +436,7 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
 | I | `Complement livraison` | Commande directe : commentaire du lieu ; demande : contact et commentaire de livraison |
 
 - **Contrôles bloquants** (`Gesconso::prepare()`) : code client absent (aucun nom d'entité en forme de code),
-  intitulé de livraison absent (commentaires de l'entité vides), référence article absente (cartouche non
+  intitulé de livraison absent (commentaires vides sur l'entité qui porte le code), référence article absente (cartouche non
   résolue, référence vide, ou inconnue du référentiel articles importé), prix 0 hors contrat. Une ligne en
   défaut n'est jamais écrite : l'appelant refuse l'export entier avec la liste des lignes en défaut.
   Avertissements, non bloquants : référentiel (articles, adresses) jamais importé ; intitulé de livraison absent

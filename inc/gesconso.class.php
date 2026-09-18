@@ -8,7 +8,8 @@
  *   A Devis                 date de la demande, vraie date Excel (jj/mm/aaaa)
  *   B Intitule Client       code client Sage = nom de l'entité de l'imprimante s'il a la forme
  *                           d'un code, sinon celui du parent le plus proche (PluginPrintgestionSage)
- *   C Intitule Livraison    première ligne des commentaires de l'entité de l'imprimante, jamais héritée
+ *   C Intitule Livraison    première ligne des commentaires de cette même entité, celle qui porte le
+ *                           code : code et intitulé sont ceux d'un seul client
  *   D Consommable           référence article Sage (CartridgeItem.ref)
  *   E Designation           n° série <séparateur> lieu <séparateur> libellé cartouche, parties vides
  *                           omises (jamais de séparateur orphelin), tronquée à la longueur maximale
@@ -179,8 +180,12 @@ class PluginPrintgestionGesconso {
                     $rule['entity_name']
                 );
             }
-            if ($rule['label'] === '') {
-                $errors[] = sprintf(__('intitulé de livraison absent : champ « Commentaires » de l\'entité « %s » vide.', 'printgestion'), $rule['entity_name']);
+            if ($rule['client'] !== null && $rule['label'] === '') {
+                $errors[] = sprintf(
+                    __('intitulé de livraison absent : champ « Commentaires » de l\'entité « %1$s », qui porte le code client %2$s, vide.', 'printgestion'),
+                    $rule['carrier_name'],
+                    $rule['client']['code']
+                );
             }
 
             // Référence article.

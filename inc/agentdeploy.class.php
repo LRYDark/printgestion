@@ -960,7 +960,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
 
     /**
      * TAG proposé pour une entité : son nom en majuscules, sans accents, sans espaces ni caractères spéciaux
-     * (« Mairie de Marly » → MAIRIEDEMARLY). Chaîne vide si le nom n'en contient aucun.
+     * (« Ville d'Exemple » → VILLEDEXEMPLE). Chaîne vide si le nom n'en contient aucun.
      */
     public static function normalizeTag(string $name): string {
         static $transliterator = null;

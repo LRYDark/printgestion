@@ -9,8 +9,9 @@ Arbre des entités (nom = code client Sage quand il en a la forme, commentaires 
     │   ├── Site test A1 (2)   imprimante 10     (imprimantes 9 à 12 sans contrat : transférables par les tests)
     │   └── Site test A2 (3)   imprimante 11
     ├── Client test B (4)      imprimante 12
-    └── TSTCLIC (5)            imprimante 13                       « Livraison test C »
-        └── Site test C1 (6)   imprimante 14                       commentaires vides : export bloqué
+    ├── TSTCLIC (5)            imprimante 13                       « Livraison test C »
+    │   └── Site test C1 (6)   imprimante 14     code ET intitulé pris sur TSTCLIC (même entité)
+    └── TSTCLID (7)            imprimante 15                       commentaires vides : export bloqué
 """
 import sys
 
@@ -18,12 +19,12 @@ import config
 import lib
 from lib import sql, valeur
 
-RACINE, CLIENT_A, SITE_A1, SITE_A2, CLIENT_B, CLIENT_C, SITE_C1 = 0, 1, 2, 3, 4, 5, 6
+RACINE, CLIENT_A, SITE_A1, SITE_A2, CLIENT_B, CLIENT_C, SITE_C1, CLIENT_D = 0, 1, 2, 3, 4, 5, 6, 7
 ENTITES = ((CLIENT_A, "Client test A", RACINE), (SITE_A1, "Site test A1", CLIENT_A), (SITE_A2, "Site test A2", CLIENT_A), (CLIENT_B, "Client test B", RACINE),
-           (CLIENT_C, "TSTCLIC", RACINE), (SITE_C1, "Site test C1", CLIENT_C))
+           (CLIENT_C, "TSTCLIC", RACINE), (SITE_C1, "Site test C1", CLIENT_C), (CLIENT_D, "TSTCLID", RACINE))
 CODE_RACINE = "TSTCLI01"
 COMMENTAIRES = {RACINE: "Adresse test 1", CLIENT_A: "Livraison test A", SITE_A1: "Livraison test A1", SITE_A2: "Livraison test A2",
-                CLIENT_B: "Livraison test B", CLIENT_C: "Livraison test C", SITE_C1: ""}
+                CLIENT_B: "Livraison test B", CLIENT_C: "Livraison test C", SITE_C1: "", CLIENT_D: ""}
 
 IMP_BAS = 1          # racine, noir à 12 % sous contrat 1 : alerte « Commander »
 IMP_DOUBLON = 5      # même n° de série que l'imprimante 1
@@ -31,7 +32,7 @@ IMP_POSE = 7         # envoi en attente, cartouche posée
 IMP_A1, IMP_A2 = 8, 9
 IMP_SITE_A1, IMP_SITE_A2 = 10, 11
 IMP_B = 12
-IMP_C, IMP_SITE_C1 = 13, 14
+IMP_C, IMP_SITE_C1, IMP_D = 13, 14, 15
 IMPRIMANTES_A = (IMP_A1, IMP_A2)
 CONTRAT_RACINE, CONTRAT_A = 1, 2
 CARTOUCHE_NOIR = 1
@@ -59,7 +60,8 @@ INSERT INTO glpi_printers (id, entities_id, name, serial, manufacturers_id, prin
  (11,{SITE_A2},'TST-A2-01','TSTSN0011',1,1,0,1,0,0,@now,'',@now,@now),
  (12,{CLIENT_B},'TST-B-01','TSTSN0012',1,1,0,1,0,0,@now,'',@now,@now),
  (13,5,'TST-C-01','TSTSN0013',1,1,0,1,0,0,@now,'',@now,@now),
- (14,6,'TST-SITEC1-01','TSTSN0014',2,2,0,1,0,0,@now,'',@now,@now);
+ (14,6,'TST-SITEC1-01','TSTSN0014',2,2,0,1,0,0,@now,'',@now,@now),
+ (15,7,'TST-D-01','TSTSN0015',1,1,0,1,0,0,@now,'',@now,@now);
 INSERT INTO glpi_printers_cartridgeinfos (printers_id, property, value, date_creation, date_mod) VALUES
  (1,'tonerblack','12',@now,@now),(1,'tonercyan','45',@now,@now),(1,'tonermagenta','WARNING',@now,@now),(1,'toneryellow','0',@now,@now),(1,'drumblack','60',@now,@now),(1,'wastetoner','100',@now,@now),(1,'fuserkit','1500impressions',@now,@now),
  (2,'tonerblack','OK',@now,@now),(2,'drumblack','OK',@now,@now),
@@ -155,7 +157,7 @@ def charger():
         if obtenu != attendu:
             sys.exit(f"Entité « {nom} » créée avec l'identifiant {obtenu}, {attendu} attendu : base non neuve.")
     sql(f"UPDATE glpi_entities SET tag = 'CLIENT-TEST-A' WHERE id = {CLIENT_A};")
-    # Chaque entité porte son intitulé de livraison (commentaires) ; Site test C1 n'en a pas : export bloqué.
+    # Intitulé de livraison = commentaires de l'entité qui porte le code : Site test C1 prend ceux de TSTCLIC ; TSTCLID n'en a pas : bloquée.
     for entite, commentaire in COMMENTAIRES.items():
         sql(f"UPDATE glpi_entities SET comment = '{commentaire}' WHERE id = {entite};")
     sql(BASE)
