@@ -139,6 +139,7 @@ affichage ; la carte ne bloque rien. Tout vert : une ligne « Configuration : co
 | Notifications GLPI activées (obligatoire) | « Activer le suivi » à Non : aucune notification native ne part (commande non transmise, demandes, sondes, contrats) | Configuration → Notifications → Configuration des notifications |
 | Règle d'affectation par TAG présente et active (obligatoire) | règle absente ou désactivée | bouton de la carte (créer ou activer) |
 | Sauvegarde de `config/glpicrypt.key` (recommandé) | non vérifiable automatiquement : « jamais vérifié », ou vérification de plus de six mois ; bouton « J'ai vérifié » (date et auteur mémorisés), la ligne revient d'elle-même au bout de six mois | sauvegarde du serveur, avec la base |
+| Suivi des colis GLS (recommandé) | clés saisies et cinq échecs techniques consécutifs ; « en attente » tant qu'aucun appel n'a réussi ; sans clés : vert, rien ne manque | carte « Suivi GLS » : Client ID, Client Secret, « Tester la connexion » ; détail : clés, dernier appel réussi, échecs (dernière erreur), quota du jour |
 | Journal du plugin inscriptible (recommandé) | dossier ou fichier non inscriptible | droits du serveur web sur `files/_log` |
 
 Le mode CLI est le prérequis le plus souvent négligé : en mode « GLPI », les actions ne tournent que quand quelqu'un
@@ -430,13 +431,25 @@ quand même reçu la commande (erreur signalée par le serveur après remise du 
 4 h, la notification « Print Gestion - Commande non transmise aux Achats » part à l'administrateur et à l'auteur ;
 si le journal de la tâche `CheckAlerts` indique « non notifiées », vérifier que cette notification est active.
 
-### Suivi GLS : clés
+### Suivi GLS : clés, test, ce qui s'affiche
 
 Configuration → Print Gestion → carte « Suivi GLS » : Client ID et Client Secret de l'API GLS (Piste et Trace). Le
 secret ne se relit jamais (« •••••••• défini le … », « Remplacer » pour en saisir un autre) ; « Retirer les clés »
-efface les deux et laisse les suivis collectés en place. Aucun interrupteur : des clés saisies et un dernier appel
-réussi, c'est un suivi actif ; sans clés, une expédition GLS s'affiche comme les autres (transporteur et numéro
-saisis à la main). Les autres transporteurs n'ont pas d'intégration.
+efface les deux, le mémo de santé et le jeton, et laisse les suivis collectés en place. « Tester la connexion »
+demande un jeton et le jette : « connexion établie » ou l'erreur. Aucun interrupteur : des clés saisies et un dernier
+appel réussi, c'est un suivi actif ; sans clés, une expédition GLS s'affiche comme les autres (transporteur et numéro
+saisis à la main), et le technicien ne voit rien d'une intégration. Les autres transporteurs n'ont pas d'intégration.
+
+- **Ce qui s'affiche** sous le numéro saisi (liste des expéditions, cartes « en retard ») : une pastille, le libellé
+  (« En transit », « Livré », « Livré en point relais », « Non livré »…), l'événement en français et sa date ; le
+  chevron donne le lieu, le numéro réellement interrogé s'il diffère, la dernière interrogation. « Non livré » et
+  « Non enlevé » sont en rouge, « à signaler aux Achats ». « Numéro non reconnu par GLS » après trois cycles ; « Sans
+  nouvelles depuis 30 jours » quand plus rien ne bouge.
+- **Quand** : tâche `PrintgestionTrackingUpdate` (horaire), une ligne par heure au plus, dix numéros par requête,
+  arrêt à 400 requêtes par jour (quota GLS 500). Un 429 arrête la journée ; cinq échecs techniques consécutifs
+  arrêtent le cycle (reprise au passage suivant). Le journal `printgestion.log` (contexte `gls`) garde les échecs,
+  les numéros raccourcis et les codes non répertoriés.
+- **Le suivi ne décide de rien** : un colis « livré » ne clôt pas l'envoi, seule la pose détectée le fait.
 
 ### Commande refusée : « Fichier Gesconso non archivé »
 
