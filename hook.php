@@ -13,12 +13,16 @@ function plugin_printgestion_install() {
         }
     }
 
+    // La 1.0.0 s'installe sur une base vierge du plugin : une autre version en base est refusée, rien n'est touché.
+    $refusal = PluginPrintgestionSchema::refusal();
+    if ($refusal !== '') {
+        Session::addMessageAfterRedirect(htmlspecialchars($refusal, ENT_QUOTES, 'UTF-8'), true, ERROR);
+        return false;
+    }
     $migration = new Migration(PLUGIN_PRINTGESTION_VERSION);
-
-    // Schéma : joue, dans l'ordre, les étapes de migration non encore appliquées
-    // (version enregistrée en base). Une erreur SQL lève une exception :
-    // l'installation ou la mise à jour échoue visiblement.
-    PluginPrintgestionSchema::migrate($migration);
+    // Schéma : tables absentes créées, lignes de référence posées ; une erreur SQL lève une exception,
+    // l'installation échoue visiblement.
+    PluginPrintgestionSchema::install();
 
     // Hors schéma, idempotent : enregistrement des tâches automatiques.
     PluginPrintgestionReminder::install($migration);
@@ -63,13 +67,32 @@ function plugin_printgestion_uninstall() {
 
     $migration->executeMigration();
 
-    // Version de schéma enregistrée : supprimée pour qu'une réinstallation
-    // reparte de l'étape 1.0.0.
-    Config::deleteConfigurationValues(
-        PluginPrintgestionSchema::CONFIG_CONTEXT,
-        [PluginPrintgestionSchema::CONFIG_KEY]
-    );
-
+    // Tables (vivantes et anciennes) et contexte de configuration du plugin (version, mémos de santé et GLS).
+    PluginPrintgestionSchema::uninstall();
+    // Tâches automatiques du plugin, toutes : ce que chaque classe n'aurait pas retiré.
+    $DB->delete('glpi_crontasks', ['itemtype' => ['LIKE', 'PluginPrintgestion%']]);
+    // Préférences d'affichage et recherches enregistrées sur les objets du plugin.
+    $DB->delete('glpi_displaypreferences', ['itemtype' => ['LIKE', 'PluginPrintgestion%']]);
+    $DB->delete('glpi_savedsearches', ['itemtype' => ['LIKE', 'PluginPrintgestion%']]);
+    // Liens documents ↔ objets du plugin ; les documents eux-mêmes (archives Gesconso envoyées aux Achats) restent.
+    $DB->delete('glpi_documents_items', ['itemtype' => ['LIKE', 'PluginPrintgestion%']]);
+    // Cache : jeton GLS, couverture des sondes, marqueurs de vues.
+    global $GLPI_CACHE;
+    if (isset($GLPI_CACHE)) {
+        foreach (['printgestion_gls_token', 'printgestion_probe_coverage', 'plugin_printgestion_alertview_stale', 'plugin_printgestion_billing_ver'] as $key) {
+            $GLPI_CACHE->delete($key);
+        }
+    }
+    // Journal du plugin, installeurs et paquets mis en réserve, fichiers temporaires.
+    foreach (glob(GLPI_LOG_DIR . '/printgestion*.log') ?: [] as $file) {
+        @unlink($file);
+    }
+    foreach (glob(GLPI_TMP_DIR . '/printgestion-*') ?: [] as $file) {
+        @unlink($file);
+    }
+    if (is_dir(GLPI_PLUGIN_DOC_DIR . '/printgestion')) {
+        Toolbox::deleteDir(GLPI_PLUGIN_DOC_DIR . '/printgestion');
+    }
     // Nettoyage droits
     $profileRight = new ProfileRight();
     foreach (PluginPrintgestionProfile::getAllRights() as $right) {
