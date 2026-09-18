@@ -502,9 +502,16 @@ class PluginPrintgestionConfighealth {
         $esc      = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $checks   = self::getChecks();
         $failed   = array_filter($checks, static fn(array $c) => $c['group'] === 'required' && $c['state'] === self::STATE_ERROR);
-        // Repliée en une ligne seulement quand tout est vert ET que le réel a confirmé ce qu'il peut confirmer.
-        // Repliée seulement quand rien n'est en erreur, en attente du réel, ni à acquitter.
-        $complete = empty(array_filter($checks, static fn(array $c) => in_array($c['state'], [self::STATE_ERROR, self::STATE_PENDING, self::STATE_MANUAL], true)));
+        // Le détail est toujours replié derrière un chevron (demande de Joris : la carte est trop longue). Ce qui doit
+        // être vu l'est sans clic : la bannière rouge si un obligatoire manque, et une ligne qui compte ce qui reste à
+        // corriger, à confirmer par le réel ou à acquitter. Tout vert : « Configuration : complète ».
+        $counts = [self::STATE_ERROR => 0, self::STATE_PENDING => 0, self::STATE_MANUAL => 0];
+        foreach ($checks as $check) {
+            if (isset($counts[$check['state']])) {
+                $counts[$check['state']]++;
+            }
+        }
+        $complete = array_sum($counts) === 0;
 
         $groups = [
             'required'    => __('Obligatoire', 'printgestion'),
@@ -573,7 +580,22 @@ class PluginPrintgestionConfighealth {
                     implode(' ; ', $what)
                 )) . "</strong> " . $esc(implode(', ', array_column($failed, 'label'))) . "</div>";
             }
-            echo $body;
+            $parts = [];
+            if ($counts[self::STATE_ERROR] > 0) {
+                $parts[] = sprintf(_n('%d à corriger', '%d à corriger', $counts[self::STATE_ERROR], 'printgestion'), $counts[self::STATE_ERROR]);
+            }
+            if ($counts[self::STATE_PENDING] > 0) {
+                $parts[] = sprintf(_n('%d jamais confirmé par le réel', '%d jamais confirmés par le réel', $counts[self::STATE_PENDING], 'printgestion'), $counts[self::STATE_PENDING]);
+            }
+            if ($counts[self::STATE_MANUAL] > 0) {
+                $parts[] = sprintf(_n('%d à acquitter', '%d à acquitter', $counts[self::STATE_MANUAL], 'printgestion'), $counts[self::STATE_MANUAL]);
+            }
+            $total = array_sum($counts);
+            echo PluginPrintgestionUi::statusLine(
+                $counts[self::STATE_ERROR] > 0 ? 'error' : 'warning',
+                sprintf(_n('%1$d point à voir : %2$s', '%1$d points à voir : %2$s', $total, 'printgestion'), $total, implode(', ', $parts)),
+                $body
+            );
         }
         echo "</div></div>";
     }

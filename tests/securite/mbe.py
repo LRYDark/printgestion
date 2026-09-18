@@ -194,7 +194,7 @@ def main():
                 ok_ko(etats.get("mbe") == "pending" and "aucun appel réussi encore" in page and PASS not in page and "name='test_mbe'" in page))
         lib.php_glpi("PluginPrintgestionMbeclient::noteFailure('Identifiant ou passphrase MBE refusés, ou compte sans droit d\\'accès (HTTP 403).', 'auth');")
         page, etats = sante.carte()
-        constat("un refus 403 : ligne rouge tout de suite, « réessayer ne change rien », carte dépliée",
+        constat("un refus 403 : ligne rouge tout de suite, « réessayer ne change rien », plus « complète »",
                 ok_ko(etats.get("mbe") == "error" and "réessayer ne change rien" in page and "HTTP 403" in page and "Configuration : complète" not in page))
         lib.php_glpi("PluginPrintgestionMbeclient::noteSuccess();")
         page, etats = sante.carte()

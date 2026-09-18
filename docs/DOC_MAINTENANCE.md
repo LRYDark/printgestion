@@ -121,7 +121,9 @@ Décisions projet (à ne pas régresser) :
 ### Carte « Santé de la configuration » (à ouvrir en premier)
 
 En tête de Configuration → Print Gestion (droit de configuration du plugin). Contrôles automatiques, relus à chaque
-affichage ; la carte ne bloque rien. Tout vert : une ligne « Configuration : complète ».
+affichage ; la carte ne bloque rien. Le détail est toujours replié derrière un chevron : tout vert, une ligne
+« Configuration : complète » ; sinon la bannière rouge des obligatoires manquants, puis une ligne « N points à voir :
+… à corriger, … jamais confirmés par le réel, … à acquitter », et le chevron donne chaque contrôle avec ses boutons.
 
 | Contrôle | Rouge quand | Corriger |
 |---|---|---|

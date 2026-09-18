@@ -47,6 +47,9 @@ def main():
         constat("carte « Santé de la configuration » en tête, avant les modules", ok_ko(0 <= page.find("Santé de la configuration") < page.find("Activation des modules")))
         constat("11 contrôles : 7 obligatoires, 4 recommandés (GLS, MBE, journal, clé), l'URL de l'application en tête",
                 ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "cron", "xlsx", "notifications", "tag_rule", "glpicrypt", "gls", "mbe", "log"]), str(etats))
+        constat("détail replié par défaut : bannière, puis une ligne « N points à voir : … à corriger, … à acquitter », le reste derrière le chevron",
+                ok_ko("points à voir" in page and "à corriger" in page and "à acquitter" in page
+                      and page.find("points à voir") < page.find("class='collapse'", page.find("points à voir")) < page.find("data-pg-health=")))
         sql("DELETE FROM glpi_configs WHERE context = 'plugin:printgestion' AND name IN ('glpicrypt_checked_at', 'glpicrypt_checked_by');")
         page, etats = carte()
         constat("glpicrypt.key : « non vérifiable automatiquement — jamais vérifié », bouton « J'ai vérifié », rien à cocher",
@@ -132,7 +135,8 @@ def main():
         constat("clic : règle activée, ligne verte", ok_ko(etats.get("tag_rule") == "ok"), WEB.messages()[:120])
 
         section("5. Tout vert : une ligne")
-        constat("sauvegarde de la clé jamais acquittée : la carte reste dépliée", ok_ko("Configuration : complète" not in page and etats.get("glpicrypt") == "manual"))
+        constat("sauvegarde de la clé jamais acquittée : pas « complète », « 1 point à voir : 1 à acquitter », détail replié",
+                ok_ko("Configuration : complète" not in page and etats.get("glpicrypt") == "manual" and "1 point à voir : 1 à acquitter" in page))
         WEB.post(config.FRONT + "/config.form.php", [("ack_glpicrypt", "1")])
         page, etats = carte()
         constat("« J'ai vérifié » : « Vérifié le … par glpi », ligne verte, plus de bouton",
@@ -143,7 +147,7 @@ def main():
                       and page.find("Configuration : complète") < page.find("class='collapse'") < page.find("data-pg-health=")))
         sql("UPDATE glpi_configs SET value = DATE_SUB(value, INTERVAL 7 MONTH) WHERE context = 'plugin:printgestion' AND name = 'glpicrypt_checked_at';")
         page, etats = carte()
-        constat("vérification vieille de sept mois : la ligne redevient visible d'elle-même, carte dépliée, bouton de retour",
+        constat("vérification vieille de sept mois : la ligne redevient à acquitter d'elle-même, plus « complète », bouton de retour derrière le chevron",
                 ok_ko(etats.get("glpicrypt") == "manual" and "il y a plus de six mois" in page and "ack_glpicrypt" in page and "Configuration : complète" not in page))
         WEB.post(config.FRONT + "/config.form.php", [("ack_glpicrypt", "1")])
         page, etats = carte()
@@ -153,7 +157,7 @@ def main():
                 ok_ko(etats.get("app_url") == "ok" and "confirmée par un agent le" in page and "SONDE-TEST-SANTE" in page))
         sql(f"UPDATE glpi_agents SET last_contact = last_contact - INTERVAL 30 DAY WHERE id = {agent};")
         page, etats = carte()
-        constat("aucun agent depuis que l'URL est en place : « jamais confirmée », état d'attente (horloge), carte non repliée",
+        constat("aucun agent depuis que l'URL est en place : « jamais confirmée », état d'attente (horloge), plus « complète », aucune bannière",
                 ok_ko(etats.get("app_url") == "pending" and "jamais confirmée" in page and "Configuration : complète" not in page and not bandeau(page)))
         sql("UPDATE glpi_configs SET value = 'https://glpi2.exemple.test' WHERE context = 'core' AND name = 'url_base';")
         page, etats = carte()  # premier affichage : le mémo repart de l'heure GLPI (pas NOW() de la base : fuseau différent)
@@ -254,7 +258,7 @@ def main():
 
         page, etats = carte()
 
-        constat("cinq échecs consécutifs : ligne rouge avec la dernière erreur, carte dépliée",
+        constat("cinq échecs consécutifs : ligne rouge avec la dernière erreur, plus « complète »",
 
                 ok_ko(etats.get("gls") == "error" and "5 échecs techniques consécutifs" in page and "HTTP 503" in page and "Configuration : complète" not in page))
 
