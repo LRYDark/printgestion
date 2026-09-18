@@ -1,5 +1,10 @@
 <?php
 /**
+ * Print Gestion — plugin GLPI de gestion de flotte d'impression.
+ * Copyright (C) 2026 JCD Groupe — Auteur : Joris Reinert.
+ * Licence GPL v3+ : texte intégral dans le fichier LICENSE à la racine du plugin.
+ */
+/**
  * Print Gestion — Plugin GLPI 11 de gestion de flotte d'impression
  * JCD Groupe — Joris Reinert
  */

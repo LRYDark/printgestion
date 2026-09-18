@@ -4,7 +4,7 @@ Plugin GLPI de gestion complète d'un parc d'impression sous contrat : suivi des
 alertes toner intelligentes basées sur l'inventaire SNMP, cycle d'expédition des cartouches
 avec notifications regroupées, commandes fournisseur avec export Excel, et coût à la page.
 
-> Développé par **JCD Groupe — Joris Reinert** · Licence **GPL v3+** · GLPI **11.0.x**
+> Copyright (C) 2026 JCD Groupe — Auteur : Joris Reinert · Licence **GPL v3+** · GLPI **11.0.x**
 
 ---
 
@@ -98,6 +98,9 @@ plugins (installation idempotente — les données sont conservées).
 
 ## Licence
 
-Ce plugin est distribué sous licence [GPL v3+](https://www.gnu.org/licenses/gpl-3.0.html).
+Copyright (C) 2026 JCD Groupe — Auteur : Joris Reinert.
+
+Ce plugin est distribué sous licence [GPL v3+](https://www.gnu.org/licenses/gpl-3.0.html) ; le texte intégral de la
+GPL v3 est dans le fichier `LICENSE` à la racine du plugin.
 
 © JCD Groupe — Joris Reinert · https://www.jcd-groupe.fr

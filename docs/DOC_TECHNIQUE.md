@@ -26,8 +26,8 @@ Un sous-onglet du menu n'est visible que si **sa feature est activée ET le droi
 
 **Origine** : fusion, en juin 2026, des anciens plugins `printcost` (toner, expéditions, facturation ; avril 2026) et
 `gestionprint` (contrats, tableau de bord ; juin 2026), tous deux écrits par Joris Reinert (JCD Groupe) et déclarés
-sous « GPL v3+ » dans leur `setup.php` ; leurs archives sont conservées sur le serveur (`plugins/OLD_BACKUP/`). La mention
-de licence de Print Gestion vient de là. Aucun code tiers n'y est repris : les « patterns » cités en commentaire (plugin
+sous « GPL v3+ » dans leur `setup.php`. La mention de licence de Print Gestion vient de là ; droits détenus par JCD Groupe,
+auteur Joris Reinert, texte intégral de la GPL v3 dans `LICENSE`. Aucun code tiers n'y est repris : les « patterns » cités en commentaire (plugin
 Gestion) désignent une structure suivie, pas du code copié (vérifié ligne à ligne, septembre 2026).
 
 ---
