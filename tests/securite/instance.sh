@@ -48,4 +48,7 @@ done
 EMPREINTE=$(printf '%s' "$PG_TEST_GLPI_PASSWORD" | "$PHP" -r 'echo password_hash(stream_get_contents(STDIN), PASSWORD_DEFAULT);')
 "$MARIADB" -h"$HOTE" -P"$PORT" -u"$PG_TEST_DB_USER" "$PG_TEST_DB_NAME" -e "UPDATE glpi_users SET password = '$EMPREINTE', password_last_update = NOW() WHERE name = '$PG_TEST_GLPI_LOGIN';"
 mkdir -p "$PG_TEST_MAIL_DIR"
-python3 "$ICI/donnees.py"
+# PG_TEST_SANS_DONNEES=oui : base vierge du plugin, sans le jeu de données (preuve d'installation du bloc 5).
+if [ "${PG_TEST_SANS_DONNEES:-non}" != "oui" ]; then
+  python3 "$ICI/donnees.py"
+fi

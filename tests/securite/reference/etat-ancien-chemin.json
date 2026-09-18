@@ -1,0 +1,5922 @@
+{
+ "natifs": {
+  "configuration": [],
+  "droits": [
+   {
+    "name": "plugin_printgestion_billing",
+    "profil": "Admin",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_config",
+    "profil": "Admin",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_contrats",
+    "profil": "Admin",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_dashboard",
+    "profil": "Admin",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_deploiement",
+    "profil": "Admin",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_expedition",
+    "profil": "Admin",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_sage",
+    "profil": "Admin",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_validation",
+    "profil": "Admin",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_billing",
+    "profil": "Hotliner",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_config",
+    "profil": "Hotliner",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_contrats",
+    "profil": "Hotliner",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_dashboard",
+    "profil": "Hotliner",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_deploiement",
+    "profil": "Hotliner",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_expedition",
+    "profil": "Hotliner",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_sage",
+    "profil": "Hotliner",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_validation",
+    "profil": "Hotliner",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_billing",
+    "profil": "Observer",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_config",
+    "profil": "Observer",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_contrats",
+    "profil": "Observer",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_dashboard",
+    "profil": "Observer",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_deploiement",
+    "profil": "Observer",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_expedition",
+    "profil": "Observer",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_sage",
+    "profil": "Observer",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_validation",
+    "profil": "Observer",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_billing",
+    "profil": "Read-Only",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_config",
+    "profil": "Read-Only",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_contrats",
+    "profil": "Read-Only",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_dashboard",
+    "profil": "Read-Only",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_deploiement",
+    "profil": "Read-Only",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_expedition",
+    "profil": "Read-Only",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_sage",
+    "profil": "Read-Only",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_validation",
+    "profil": "Read-Only",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_billing",
+    "profil": "Self-Service",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_config",
+    "profil": "Self-Service",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_contrats",
+    "profil": "Self-Service",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_dashboard",
+    "profil": "Self-Service",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_deploiement",
+    "profil": "Self-Service",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_expedition",
+    "profil": "Self-Service",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_sage",
+    "profil": "Self-Service",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_validation",
+    "profil": "Self-Service",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_billing",
+    "profil": "Super-Admin",
+    "rights": "31"
+   },
+   {
+    "name": "plugin_printgestion_config",
+    "profil": "Super-Admin",
+    "rights": "31"
+   },
+   {
+    "name": "plugin_printgestion_contrats",
+    "profil": "Super-Admin",
+    "rights": "31"
+   },
+   {
+    "name": "plugin_printgestion_dashboard",
+    "profil": "Super-Admin",
+    "rights": "31"
+   },
+   {
+    "name": "plugin_printgestion_deploiement",
+    "profil": "Super-Admin",
+    "rights": "31"
+   },
+   {
+    "name": "plugin_printgestion_expedition",
+    "profil": "Super-Admin",
+    "rights": "31"
+   },
+   {
+    "name": "plugin_printgestion_sage",
+    "profil": "Super-Admin",
+    "rights": "31"
+   },
+   {
+    "name": "plugin_printgestion_validation",
+    "profil": "Super-Admin",
+    "rights": "31"
+   },
+   {
+    "name": "plugin_printgestion_billing",
+    "profil": "Supervisor",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_config",
+    "profil": "Supervisor",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_contrats",
+    "profil": "Supervisor",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_dashboard",
+    "profil": "Supervisor",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_deploiement",
+    "profil": "Supervisor",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_expedition",
+    "profil": "Supervisor",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_sage",
+    "profil": "Supervisor",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_validation",
+    "profil": "Supervisor",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_billing",
+    "profil": "Technician",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_config",
+    "profil": "Technician",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_contrats",
+    "profil": "Technician",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_dashboard",
+    "profil": "Technician",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_deploiement",
+    "profil": "Technician",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_expedition",
+    "profil": "Technician",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_sage",
+    "profil": "Technician",
+    "rights": "0"
+   },
+   {
+    "name": "plugin_printgestion_validation",
+    "profil": "Technician",
+    "rights": "0"
+   }
+  ],
+  "gabarits": [
+   {
+    "empreinte": "f736c0d094b28311",
+    "itemtype": "Ticket",
+    "language": "fr_FR",
+    "name": "Print Gestion - Commande cartouches (Achats)"
+   },
+   {
+    "empreinte": "3e469d781fb06578",
+    "itemtype": "PluginPrintgestionPurchaseorder",
+    "language": "",
+    "name": "Print Gestion - Commande non transmise aux Achats"
+   },
+   {
+    "empreinte": "b99249d31e5bca1b",
+    "itemtype": "Ticket",
+    "language": "fr_FR",
+    "name": "Print Gestion - Courtoisie client (cartouche en route)"
+   },
+   {
+    "empreinte": "e801de6e16488276",
+    "itemtype": "PluginPrintgestionDemande",
+    "language": "",
+    "name": "Print Gestion - Demande d'envoi en attente"
+   },
+   {
+    "empreinte": "0c79dc3e5782709f",
+    "itemtype": "PluginPrintgestionDemande",
+    "language": "",
+    "name": "Print Gestion - Demande d'envoi exportée"
+   },
+   {
+    "empreinte": "7674b82822b2bafd",
+    "itemtype": "PluginPrintgestionDemande",
+    "language": "",
+    "name": "Print Gestion - Demande d'envoi proposée"
+   },
+   {
+    "empreinte": "7334a294c0f7d6b5",
+    "itemtype": "Ticket",
+    "language": "fr_FR",
+    "name": "Print Gestion - Expédition cartouche"
+   },
+   {
+    "empreinte": "f6b5eebf3b1ce9f1",
+    "itemtype": "Ticket",
+    "language": "fr_FR",
+    "name": "Print Gestion - Expédition cartouches groupée"
+   },
+   {
+    "empreinte": "a5fd65993858de2f",
+    "itemtype": "PluginPrintgestionAgentalert",
+    "language": "",
+    "name": "Print Gestion - Imprimantes qui ne remontent plus"
+   },
+   {
+    "empreinte": "6467179984590559",
+    "itemtype": "Ticket",
+    "language": "fr_FR",
+    "name": "Print Gestion - Information client toner"
+   },
+   {
+    "empreinte": "ce0f4b73990594c3",
+    "itemtype": "Ticket",
+    "language": "fr_FR",
+    "name": "Print Gestion - Rappel installation cartouche"
+   },
+   {
+    "empreinte": "72e955c6ac7fc996",
+    "itemtype": "PluginPrintgestionAgentalert",
+    "language": "",
+    "name": "Print Gestion - Sonde GLPI Agent sans contact"
+   }
+  ],
+  "notifications": [
+   {
+    "cibles": "1:1,1:7301",
+    "entities_id": "0",
+    "event": "purchaseorder_not_sent",
+    "gabarits": "mailing:Print Gestion - Commande non transmise aux Achats",
+    "is_active": "1",
+    "is_recursive": "1",
+    "itemtype": "PluginPrintgestionPurchaseorder",
+    "name": "Print Gestion - Commande non transmise aux Achats"
+   },
+   {
+    "cibles": "1:11",
+    "entities_id": "0",
+    "event": "demande_stale",
+    "gabarits": "mailing:Print Gestion - Demande d'envoi en attente",
+    "is_active": "0",
+    "is_recursive": "1",
+    "itemtype": "PluginPrintgestionDemande",
+    "name": "Print Gestion - Demande d'envoi en attente"
+   },
+   {
+    "cibles": "1:11",
+    "entities_id": "0",
+    "event": "demande_exported",
+    "gabarits": "mailing:Print Gestion - Demande d'envoi exportée",
+    "is_active": "0",
+    "is_recursive": "1",
+    "itemtype": "PluginPrintgestionDemande",
+    "name": "Print Gestion - Demande d'envoi exportée"
+   },
+   {
+    "cibles": "1:11",
+    "entities_id": "0",
+    "event": "demande_proposed",
+    "gabarits": "mailing:Print Gestion - Demande d'envoi proposée",
+    "is_active": "0",
+    "is_recursive": "1",
+    "itemtype": "PluginPrintgestionDemande",
+    "name": "Print Gestion - Demande d'envoi proposée"
+   },
+   {
+    "cibles": "1:1",
+    "entities_id": "0",
+    "event": "printer_silent",
+    "gabarits": "mailing:Print Gestion - Imprimantes qui ne remontent plus",
+    "is_active": "0",
+    "is_recursive": "1",
+    "itemtype": "PluginPrintgestionAgentalert",
+    "name": "Print Gestion - Imprimantes qui ne remontent plus"
+   },
+   {
+    "cibles": "1:1",
+    "entities_id": "0",
+    "event": "agent_silent",
+    "gabarits": "mailing:Print Gestion - Sonde GLPI Agent sans contact",
+    "is_active": "0",
+    "is_recursive": "1",
+    "itemtype": "PluginPrintgestionAgentalert",
+    "name": "Print Gestion - Sonde GLPI Agent sans contact"
+   }
+  ],
+  "preferences_affichage": [],
+  "recherches": [],
+  "regles": [],
+  "taches": [
+   {
+    "allowmode": "3",
+    "frequency": "604800",
+    "hourmax": "24",
+    "hourmin": "0",
+    "itemtype": "PluginPrintgestionAgentsetting",
+    "logs_lifetime": "30",
+    "mode": "1",
+    "name": "PrintgestionCheckAgentVersion",
+    "param": "NULL",
+    "state": "1"
+   },
+   {
+    "allowmode": "3",
+    "frequency": "3600",
+    "hourmax": "24",
+    "hourmin": "0",
+    "itemtype": "PluginPrintgestionReminder",
+    "logs_lifetime": "30",
+    "mode": "1",
+    "name": "PrintgestionCheckAlerts",
+    "param": "NULL",
+    "state": "1"
+   },
+   {
+    "allowmode": "3",
+    "frequency": "900",
+    "hourmax": "24",
+    "hourmin": "0",
+    "itemtype": "PluginPrintgestionCollectfrequency",
+    "logs_lifetime": "30",
+    "mode": "1",
+    "name": "PrintgestionCollectSchedule",
+    "param": "NULL",
+    "state": "1"
+   },
+   {
+    "allowmode": "3",
+    "frequency": "86400",
+    "hourmax": "24",
+    "hourmin": "0",
+    "itemtype": "PluginPrintgestionEntityscope",
+    "logs_lifetime": "30",
+    "mode": "1",
+    "name": "PrintgestionEntityScope",
+    "param": "NULL",
+    "state": "1"
+   },
+   {
+    "allowmode": "3",
+    "frequency": "3600",
+    "hourmax": "24",
+    "hourmin": "0",
+    "itemtype": "PluginPrintgestionReminder",
+    "logs_lifetime": "30",
+    "mode": "1",
+    "name": "PrintgestionProposeDemandes",
+    "param": "NULL",
+    "state": "0"
+   },
+   {
+    "allowmode": "3",
+    "frequency": "86400",
+    "hourmax": "24",
+    "hourmin": "0",
+    "itemtype": "PluginPrintgestionAgentalert",
+    "logs_lifetime": "30",
+    "mode": "1",
+    "name": "PrintgestionSilentProbes",
+    "param": "NULL",
+    "state": "1"
+   },
+   {
+    "allowmode": "3",
+    "frequency": "86400",
+    "hourmax": "24",
+    "hourmin": "0",
+    "itemtype": "PluginPrintgestionReminder",
+    "logs_lifetime": "30",
+    "mode": "1",
+    "name": "PrintgestionSnapshotReadings",
+    "param": "NULL",
+    "state": "1"
+   },
+   {
+    "allowmode": "2",
+    "frequency": "60",
+    "hourmax": "24",
+    "hourmin": "0",
+    "itemtype": "PluginPrintgestionReminder",
+    "logs_lifetime": "30",
+    "mode": "2",
+    "name": "PrintgestionTemoinCron",
+    "param": "NULL",
+    "state": "1"
+   },
+   {
+    "allowmode": "3",
+    "frequency": "3600",
+    "hourmax": "24",
+    "hourmin": "0",
+    "itemtype": "PluginPrintgestionReminder",
+    "logs_lifetime": "30",
+    "mode": "1",
+    "name": "PrintgestionTrackingUpdate",
+    "param": "NULL",
+    "state": "1"
+   }
+  ]
+ },
+ "tables": {
+  "glpi_plugin_printgestion_agentalerts": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "type",
+     "column_type": "enum('agent_silent','printer_silent')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "agents_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "reason",
+     "column_type": "varchar(30)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_begin",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_notified",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_end",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_mod",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "open_lock",
+     "column_type": "tinyint(4)",
+     "extra": "STORED GENERATED",
+     "generation_expression": "if(`date_end` is null,1,NULL)",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "agents_id": {
+     "colonnes": [
+      "agents_id"
+     ],
+     "unique": false
+    },
+    "date_creation": {
+     "colonnes": [
+      "date_creation"
+     ],
+     "unique": false
+    },
+    "date_end": {
+     "colonnes": [
+      "date_end"
+     ],
+     "unique": false
+    },
+    "date_mod": {
+     "colonnes": [
+      "date_mod"
+     ],
+     "unique": false
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "printers_id": {
+     "colonnes": [
+      "printers_id"
+     ],
+     "unique": false
+    },
+    "uniq_open_alert": {
+     "colonnes": [
+      "type",
+      "agents_id",
+      "printers_id",
+      "open_lock"
+     ],
+     "unique": true
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_agentsettings": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "agents_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "1",
+     "column_name": "auto_update",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "target_version",
+     "column_type": "varchar(20)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "users_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_mod",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "agents_id": {
+     "colonnes": [
+      "agents_id"
+     ],
+     "unique": true
+    },
+    "date_creation": {
+     "colonnes": [
+      "date_creation"
+     ],
+     "unique": false
+    },
+    "date_mod": {
+     "colonnes": [
+      "date_mod"
+     ],
+     "unique": false
+    },
+    "users_id": {
+     "colonnes": [
+      "users_id"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_alert_snoozes": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "toner_property",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "snooze_until",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "users_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "current_timestamp()",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_recursive",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "is_recursive": {
+     "colonnes": [
+      "is_recursive"
+     ],
+     "unique": false
+    },
+    "printers_id": {
+     "colonnes": [
+      "printers_id"
+     ],
+     "unique": false
+    },
+    "snooze_until": {
+     "colonnes": [
+      "snooze_until"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_alerts": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "toner_property",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "level_percent",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "estimated_days",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "alert_type",
+     "column_type": "enum('low_toner','no_install_reminder','contract_expiry','wrong_printer')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "current_timestamp()",
+     "column_name": "date_alert",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "mail_sent",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_resolved",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "intended_printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "detected_printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "expeditions_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_recursive",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "alert_type": {
+     "colonnes": [
+      "alert_type"
+     ],
+     "unique": false
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "is_recursive": {
+     "colonnes": [
+      "is_recursive"
+     ],
+     "unique": false
+    },
+    "is_resolved": {
+     "colonnes": [
+      "is_resolved"
+     ],
+     "unique": false
+    },
+    "printers_id": {
+     "colonnes": [
+      "printers_id"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_alertview": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "toner_property",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "toner_color",
+     "column_type": "varchar(20)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "level_percent",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "days_remaining",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'ok'",
+     "column_name": "status",
+     "column_type": "enum('ok','watch','critical')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "cartridge_label",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "has_expedition",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_snoozed",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_estimate",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_compute",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "lock_reason",
+     "column_type": "varchar(20)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "lock_message",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "ref_error",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "level_suspect",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "expedition_statut",
+     "column_type": "varchar(20)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "printers_id": {
+     "colonnes": [
+      "printers_id"
+     ],
+     "unique": false
+    },
+    "status": {
+     "colonnes": [
+      "status"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_billing": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "contracts_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "period_start",
+     "column_type": "date",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "period_end",
+     "column_type": "date",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "pages_nb",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "pages_color",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0.000000",
+     "column_name": "rate_nb",
+     "column_type": "decimal(10,6)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0.000000",
+     "column_name": "rate_color",
+     "column_type": "decimal(10,6)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0.00",
+     "column_name": "total_cost",
+     "column_type": "decimal(10,2)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "generated_at",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "printers_id": {
+     "colonnes": [
+      "printers_id"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_billing_view": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "users_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'printer'",
+     "column_name": "view_mode",
+     "column_type": "enum('printer','client')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "printer_name",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "entity_name",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "contracts_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "contract_name",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "printers_count",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "pages_nb",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "pages_color",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0.000000",
+     "column_name": "rate_nb",
+     "column_type": "decimal(14,6)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0.000000",
+     "column_name": "rate_color",
+     "column_type": "decimal(14,6)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0.00",
+     "column_name": "total_cost",
+     "column_type": "decimal(16,2)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "period_start",
+     "column_type": "date",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "period_end",
+     "column_type": "date",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_compute",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "printers_id": {
+     "colonnes": [
+      "printers_id"
+     ],
+     "unique": false
+    },
+    "users_id": {
+     "colonnes": [
+      "users_id"
+     ],
+     "unique": false
+    },
+    "view_mode": {
+     "colonnes": [
+      "view_mode"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_cartridge_history": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "cartridgeitems_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "cartridgetypes_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "toner_property",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'black'",
+     "column_name": "toner_color",
+     "column_type": "enum('black','cyan','magenta','yellow','other')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "level_at_install",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "level_at_removal",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_install",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_removal",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "pages_printed",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "printer_counter_at_install",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "printer_counter_at_removal",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_detected",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_recursive",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "idx_slot_install": {
+     "colonnes": [
+      "printers_id",
+      "toner_property",
+      "is_detected",
+      "date_install"
+     ],
+     "unique": false
+    },
+    "is_recursive": {
+     "colonnes": [
+      "is_recursive"
+     ],
+     "unique": false
+    },
+    "printers_id": {
+     "colonnes": [
+      "printers_id"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_cartridge_snmp": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "cartridgeitems_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "snmp_property",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "snmp_property": {
+     "colonnes": [
+      "snmp_property"
+     ],
+     "unique": false
+    },
+    "uniq_binding": {
+     "colonnes": [
+      "cartridgeitems_id",
+      "snmp_property"
+     ],
+     "unique": true
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_collectfrequencies": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'daily'",
+     "column_name": "frequency",
+     "column_type": "varchar(10)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "1",
+     "column_name": "modifier",
+     "column_type": "smallint(5) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "users_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_mod",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "date_creation": {
+     "colonnes": [
+      "date_creation"
+     ],
+     "unique": false
+    },
+    "date_mod": {
+     "colonnes": [
+      "date_mod"
+     ],
+     "unique": false
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": true
+    },
+    "users_id": {
+     "colonnes": [
+      "users_id"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_configs": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "group_planif",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "group_achat",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "group_commercial",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'group'",
+     "column_name": "mode_planif",
+     "column_type": "enum('group','emails')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'group'",
+     "column_name": "mode_achat",
+     "column_type": "enum('group','emails')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'group'",
+     "column_name": "mode_commercial",
+     "column_type": "enum('group','emails')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "emails_planif",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "emails_achat",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "emails_commercial",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "30",
+     "column_name": "threshold_days",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "15",
+     "column_name": "threshold_level",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "7",
+     "column_name": "reminder_days",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'both'",
+     "column_name": "reminder_recipients",
+     "column_type": "enum('planif','commercial','both')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "20",
+     "column_name": "detection_delta",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "gabarit_planif",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "gabarit_planif_group",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "gabarit_achat",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "gabarit_commercial",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "gabarit_rappel",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "gabarit_courtoisie",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "30",
+     "column_name": "wrong_printer_lookback_days",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "5000",
+     "column_name": "default_pages_per_cartridge",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "1",
+     "column_name": "enable_contrats",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "1",
+     "column_name": "enable_toner",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "1",
+     "column_name": "enable_cout",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "5",
+     "column_name": "guard_days",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "10",
+     "column_name": "guard_bypass_level",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "10",
+     "column_name": "guard_ticket_days",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "consumables_contracttypes",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "' # '",
+     "column_name": "gesconso_separator",
+     "column_type": "varchar(20)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "69",
+     "column_name": "gesconso_designation_max",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "3",
+     "column_name": "silent_days",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "2",
+     "column_name": "demande_reminder_days",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "1",
+     "column_name": "enable_deploiement",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "1",
+     "column_name": "enable_sage",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "agent_version",
+     "column_type": "varchar(20)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "agent_httpd_trust",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "agent_latest_version",
+     "column_type": "varchar(20)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "agent_latest_source",
+     "column_type": "varchar(10)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "agent_latest_checked",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "1",
+     "column_name": "agent_update_default",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "agent_update_target",
+     "column_type": "varchar(20)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "agent_probe_states_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "gls_client_id",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "gls_client_secret",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "gls_secret_date",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    }
+   },
+   "lignes": [
+    {
+     "agent_httpd_trust": "NULL",
+     "agent_latest_checked": "NULL",
+     "agent_latest_source": "NULL",
+     "agent_latest_version": "NULL",
+     "agent_probe_states_id": "0",
+     "agent_update_default": "1",
+     "agent_update_target": "NULL",
+     "agent_version": "NULL",
+     "consumables_contracttypes": "NULL",
+     "default_pages_per_cartridge": "5000",
+     "demande_reminder_days": "2",
+     "detection_delta": "20",
+     "emails_achat": "NULL",
+     "emails_commercial": "NULL",
+     "emails_planif": "NULL",
+     "enable_contrats": "1",
+     "enable_cout": "1",
+     "enable_deploiement": "1",
+     "enable_sage": "1",
+     "enable_toner": "1",
+     "gabarit_achat": "<id>",
+     "gabarit_commercial": "<id>",
+     "gabarit_courtoisie": "<id>",
+     "gabarit_planif": "<id>",
+     "gabarit_planif_group": "<id>",
+     "gabarit_rappel": "<id>",
+     "gesconso_designation_max": "69",
+     "gesconso_separator": " # ",
+     "gls_client_id": "NULL",
+     "gls_client_secret": "NULL",
+     "gls_secret_date": "NULL",
+     "group_achat": "NULL",
+     "group_commercial": "NULL",
+     "group_planif": "NULL",
+     "guard_bypass_level": "10",
+     "guard_days": "5",
+     "guard_ticket_days": "10",
+     "id": "1",
+     "mode_achat": "group",
+     "mode_commercial": "group",
+     "mode_planif": "group",
+     "reminder_days": "7",
+     "reminder_recipients": "both",
+     "silent_days": "3",
+     "threshold_days": "30",
+     "threshold_level": "15",
+     "wrong_printer_lookback_days": "30"
+    }
+   ],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_contractrates": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "contracts_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'both'",
+     "column_name": "type_cout",
+     "column_type": "enum('nb','color','both')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0.000000",
+     "column_name": "rate",
+     "column_type": "decimal(10,6)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "1",
+     "column_name": "actif",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_recursive",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "contracts_id": {
+     "colonnes": [
+      "contracts_id"
+     ],
+     "unique": false
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "is_recursive": {
+     "colonnes": [
+      "is_recursive"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_demandelines": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "plugin_printgestion_demandes_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "''",
+     "column_name": "toner_property",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "cartridgeitems_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "1",
+     "column_name": "quantity",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "unit_price",
+     "column_type": "decimal(20,4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_under_contract",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "contracts_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "level_at_proposal",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "estimated_days",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'proposed'",
+     "column_name": "statut",
+     "column_type": "enum('proposed','validated','exported','shipped','delivered','installed','cancelled')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "expeditions_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_mod",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "active_lock",
+     "column_type": "tinyint(4)",
+     "extra": "STORED GENERATED",
+     "generation_expression": "if(`statut` in ('proposed','validated'),1,NULL)",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_recursive",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "cartridgeitems_id": {
+     "colonnes": [
+      "cartridgeitems_id"
+     ],
+     "unique": false
+    },
+    "contracts_id": {
+     "colonnes": [
+      "contracts_id"
+     ],
+     "unique": false
+    },
+    "date_creation": {
+     "colonnes": [
+      "date_creation"
+     ],
+     "unique": false
+    },
+    "date_mod": {
+     "colonnes": [
+      "date_mod"
+     ],
+     "unique": false
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "expeditions_id": {
+     "colonnes": [
+      "expeditions_id"
+     ],
+     "unique": false
+    },
+    "idx_slot_statut": {
+     "colonnes": [
+      "printers_id",
+      "toner_property",
+      "statut"
+     ],
+     "unique": false
+    },
+    "is_recursive": {
+     "colonnes": [
+      "is_recursive"
+     ],
+     "unique": false
+    },
+    "plugin_printgestion_demandes_id": {
+     "colonnes": [
+      "plugin_printgestion_demandes_id"
+     ],
+     "unique": false
+    },
+    "uniq_active_slot": {
+     "colonnes": [
+      "printers_id",
+      "toner_property",
+      "active_lock"
+     ],
+     "unique": true
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_demandes": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "name",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "locations_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'proposed'",
+     "column_name": "statut",
+     "column_type": "enum('proposed','validated','exported','shipped','delivered','installed','cancelled')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'direct'",
+     "column_name": "delivery_mode",
+     "column_type": "enum('direct','technician')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "contact",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "delivery_comment",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "users_id_validate",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_validate",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "users_id_cancel",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_cancel",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "cancel_reason",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_mod",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "proposal_lock",
+     "column_type": "tinyint(4)",
+     "extra": "STORED GENERATED",
+     "generation_expression": "if(`statut` = 'proposed',1,NULL)",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_last_reminder",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_recursive",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "date_creation": {
+     "colonnes": [
+      "date_creation"
+     ],
+     "unique": false
+    },
+    "date_mod": {
+     "colonnes": [
+      "date_mod"
+     ],
+     "unique": false
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "is_recursive": {
+     "colonnes": [
+      "is_recursive"
+     ],
+     "unique": false
+    },
+    "locations_id": {
+     "colonnes": [
+      "locations_id"
+     ],
+     "unique": false
+    },
+    "statut": {
+     "colonnes": [
+      "statut"
+     ],
+     "unique": false
+    },
+    "uniq_open_proposal": {
+     "colonnes": [
+      "entities_id",
+      "locations_id",
+      "proposal_lock"
+     ],
+     "unique": true
+    },
+    "users_id_cancel": {
+     "colonnes": [
+      "users_id_cancel"
+     ],
+     "unique": false
+    },
+    "users_id_validate": {
+     "colonnes": [
+      "users_id_validate"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_expedition_bls": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "expeditions_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "bl_surveys_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "current_timestamp()",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_recursive",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "bl_surveys_id": {
+     "colonnes": [
+      "bl_surveys_id"
+     ],
+     "unique": false
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "expeditions_id": {
+     "colonnes": [
+      "expeditions_id"
+     ],
+     "unique": false
+    },
+    "is_recursive": {
+     "colonnes": [
+      "is_recursive"
+     ],
+     "unique": false
+    },
+    "uniq_exp_bl": {
+     "colonnes": [
+      "expeditions_id",
+      "bl_surveys_id"
+     ],
+     "unique": true
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_expeditions": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "toner_property",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "toner_color",
+     "column_type": "enum('black','cyan','magenta','yellow','other')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'pending'",
+     "column_name": "statut",
+     "column_type": "enum('pending','shipped','transit','delivered','installed','cancelled')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "transport_number",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "transport_carrier",
+     "column_type": "enum('ups','gls','chronopost','other')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "bl_surveys_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "users_id_tech",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "users_id_planif",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "level_at_alert",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "estimated_days",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_alert",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_shipped",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_delivered",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_installed",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "notes",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "group_id",
+     "column_type": "varchar(36)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "active_lock",
+     "column_type": "tinyint(4)",
+     "extra": "STORED GENERATED",
+     "generation_expression": "if(`statut` in ('installed','cancelled'),NULL,1)",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_recursive",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "tracking_key",
+     "column_type": "varchar(32)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "tracking_suffix",
+     "column_type": "varchar(8)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "tracking_status",
+     "column_type": "varchar(32)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "tracking_label",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "tracking_event_date",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "tracking_event_place",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "tracking_checked_at",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "tracking_failures",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "''",
+     "column_name": "tracking_state",
+     "column_type": "varchar(16)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "tracking_parcels",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "bl_surveys_id": {
+     "colonnes": [
+      "bl_surveys_id"
+     ],
+     "unique": false
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "group_id": {
+     "colonnes": [
+      "group_id"
+     ],
+     "unique": false
+    },
+    "idx_slot_statut": {
+     "colonnes": [
+      "printers_id",
+      "toner_property",
+      "statut"
+     ],
+     "unique": false
+    },
+    "is_recursive": {
+     "colonnes": [
+      "is_recursive"
+     ],
+     "unique": false
+    },
+    "printers_id": {
+     "colonnes": [
+      "printers_id"
+     ],
+     "unique": false
+    },
+    "uniq_active_slot": {
+     "colonnes": [
+      "printers_id",
+      "toner_property",
+      "active_lock"
+     ],
+     "unique": true
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_historical_yields": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "property_name",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0.00",
+     "column_name": "yield_per_percent",
+     "column_type": "decimal(10,2)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "cycle_pages",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "cycle_start_date",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "cycle_end_date",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "current_timestamp()",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_recursive",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "is_recursive": {
+     "colonnes": [
+      "is_recursive"
+     ],
+     "unique": false
+    },
+    "lookup": {
+     "colonnes": [
+      "printers_id",
+      "property_name",
+      "date_creation"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_printer_thresholds": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "threshold_level",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "threshold_days",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "pages_per_cartridge",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "current_timestamp()",
+     "column_name": "date_mod",
+     "column_type": "timestamp",
+     "extra": "on update current_timestamp()",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_recursive",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "is_recursive": {
+     "colonnes": [
+      "is_recursive"
+     ],
+     "unique": false
+    },
+    "printers_id": {
+     "colonnes": [
+      "printers_id"
+     ],
+     "unique": true
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_purchaseorders": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "group_id",
+     "column_type": "char(36)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "source",
+     "column_type": "varchar(10)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "documents_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "users_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "nb_lines",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "mail_rows",
+     "column_type": "longtext",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'pending'",
+     "column_name": "status",
+     "column_type": "varchar(10)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "attempts",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "last_error",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_last_attempt",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_sent",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_notified",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "date_creation": {
+     "colonnes": [
+      "date_creation"
+     ],
+     "unique": false
+    },
+    "documents_id": {
+     "colonnes": [
+      "documents_id"
+     ],
+     "unique": false
+    },
+    "group_id": {
+     "colonnes": [
+      "group_id"
+     ],
+     "unique": true
+    },
+    "status": {
+     "colonnes": [
+      "status"
+     ],
+     "unique": false
+    },
+    "users_id": {
+     "colonnes": [
+      "users_id"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_raccordementips": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "plugin_printgestion_raccordements_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "''",
+     "column_name": "ip",
+     "column_type": "varchar(15)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "ip_num",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "locations_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "comment",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "contracts_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'pending'",
+     "column_name": "result",
+     "column_type": "enum('pending','waiting_discovery','waiting_inventory','found','no_levels','no_snmp','not_printer','wrong_entity')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "itemtype",
+     "column_type": "varchar(100)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "items_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "items_entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_check",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "applied_items_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_applied",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "contracts_id": {
+     "colonnes": [
+      "contracts_id"
+     ],
+     "unique": false
+    },
+    "item": {
+     "colonnes": [
+      "itemtype",
+      "items_id"
+     ],
+     "unique": false
+    },
+    "locations_id": {
+     "colonnes": [
+      "locations_id"
+     ],
+     "unique": false
+    },
+    "result": {
+     "colonnes": [
+      "result"
+     ],
+     "unique": false
+    },
+    "uniq_ip": {
+     "colonnes": [
+      "plugin_printgestion_raccordements_id",
+      "ip_num"
+     ],
+     "unique": true
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_raccordementlogs": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "plugin_printgestion_raccordements_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "users_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "step",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'info'",
+     "column_name": "level",
+     "column_type": "enum('info','success','warning','error')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "message",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "raccordement_date": {
+     "colonnes": [
+      "plugin_printgestion_raccordements_id",
+      "date"
+     ],
+     "unique": false
+    },
+    "users_id": {
+     "colonnes": [
+      "users_id"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_raccordements": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "agents_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'open'",
+     "column_name": "status",
+     "column_type": "enum('open','configured','triggered','closed','abandoned')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "snmpcredentials_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "ipranges",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "discovery_tasks",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "inventory_tasks",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "created_items",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "users_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_mod",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_configured",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_triggered",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_inventory_prepared",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_verified",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "agents_id": {
+     "colonnes": [
+      "agents_id"
+     ],
+     "unique": false
+    },
+    "date_creation": {
+     "colonnes": [
+      "date_creation"
+     ],
+     "unique": false
+    },
+    "date_mod": {
+     "colonnes": [
+      "date_mod"
+     ],
+     "unique": false
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "status": {
+     "colonnes": [
+      "status"
+     ],
+     "unique": false
+    },
+    "users_id": {
+     "colonnes": [
+      "users_id"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_sagearticles": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "''",
+     "column_name": "ref",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "label",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "1",
+     "column_name": "is_in_last_import",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_import",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_mod",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "is_in_last_import": {
+     "colonnes": [
+      "is_in_last_import"
+     ],
+     "unique": false
+    },
+    "ref": {
+     "colonnes": [
+      "ref"
+     ],
+     "unique": true
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_sagedeliveries": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "''",
+     "column_name": "client_code",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "''",
+     "column_name": "address_key",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "''",
+     "column_name": "label",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "address",
+     "column_type": "text",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "postcode",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "town",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "1",
+     "column_name": "is_in_last_import",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_import",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_mod",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "address_key": {
+     "colonnes": [
+      "address_key"
+     ],
+     "unique": false
+    },
+    "client_address": {
+     "colonnes": [
+      "client_code",
+      "address_key"
+     ],
+     "unique": true
+    },
+    "is_in_last_import": {
+     "colonnes": [
+      "is_in_last_import"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_sageimports": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "type",
+     "column_type": "enum('clients','deliveries','articles')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "''",
+     "column_name": "filename",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "users_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "nb_created",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "nb_updated",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "nb_unchanged",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "nb_absent",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "nb_linked",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "date_creation": {
+     "colonnes": [
+      "date_creation"
+     ],
+     "unique": false
+    },
+    "type": {
+     "colonnes": [
+      "type"
+     ],
+     "unique": false
+    },
+    "users_id": {
+     "colonnes": [
+      "users_id"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_snmp_mapping": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "snmp_property",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "cartridgeitemtypes_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'black'",
+     "column_name": "toner_color",
+     "column_type": "enum('black','cyan','magenta','yellow','other')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "legacy, non utilisé",
+     "column_default": "NULL",
+     "column_name": "manufacturer",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "legacy, non utilisé",
+     "column_default": "NULL",
+     "column_name": "cartridge_type",
+     "column_type": "varchar(100)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "cartridgeitemtypes_id": {
+     "colonnes": [
+      "cartridgeitemtypes_id"
+     ],
+     "unique": false
+    },
+    "uniq_snmp_property": {
+     "colonnes": [
+      "snmp_property"
+     ],
+     "unique": true
+    }
+   },
+   "lignes": [
+    {
+     "cartridge_type": "NULL",
+     "cartridgeitemtypes_id": "NULL",
+     "id": "1",
+     "manufacturer": "NULL",
+     "snmp_property": "tonerblack",
+     "toner_color": "black"
+    },
+    {
+     "cartridge_type": "NULL",
+     "cartridgeitemtypes_id": "NULL",
+     "id": "2",
+     "manufacturer": "NULL",
+     "snmp_property": "tonercyan",
+     "toner_color": "cyan"
+    },
+    {
+     "cartridge_type": "NULL",
+     "cartridgeitemtypes_id": "NULL",
+     "id": "3",
+     "manufacturer": "NULL",
+     "snmp_property": "tonermagenta",
+     "toner_color": "magenta"
+    },
+    {
+     "cartridge_type": "NULL",
+     "cartridgeitemtypes_id": "NULL",
+     "id": "4",
+     "manufacturer": "NULL",
+     "snmp_property": "toneryellow",
+     "toner_color": "yellow"
+    },
+    {
+     "cartridge_type": "NULL",
+     "cartridgeitemtypes_id": "NULL",
+     "id": "5",
+     "manufacturer": "NULL",
+     "snmp_property": "fuserkit",
+     "toner_color": "other"
+    },
+    {
+     "cartridge_type": "NULL",
+     "cartridgeitemtypes_id": "NULL",
+     "id": "6",
+     "manufacturer": "NULL",
+     "snmp_property": "transferkit",
+     "toner_color": "other"
+    },
+    {
+     "cartridge_type": "NULL",
+     "cartridgeitemtypes_id": "NULL",
+     "id": "7",
+     "manufacturer": "NULL",
+     "snmp_property": "maintenancekit",
+     "toner_color": "other"
+    }
+   ],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_snmprules": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "manufacturers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "''",
+     "column_name": "property_pattern",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "'ignore'",
+     "column_name": "action",
+     "column_type": "enum('ignore','invert')",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "comment",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "date_creation",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "YES"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "manufacturers_id": {
+     "colonnes": [
+      "manufacturers_id"
+     ],
+     "unique": false
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  },
+  "glpi_plugin_printgestion_toner_readings": {
+   "colonnes": [
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "id",
+     "column_type": "int(10) unsigned",
+     "extra": "auto_increment",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "printers_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "utf8mb4",
+     "collation_name": "utf8mb4_unicode_ci",
+     "column_comment": "",
+     "column_default": "NULL",
+     "column_name": "property_name",
+     "column_type": "varchar(255)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "level_percent",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "current_timestamp()",
+     "column_name": "reading_date",
+     "column_type": "timestamp",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "total_pages",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "bw_pages",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "color_pages",
+     "column_type": "int(11)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_suspect",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "entities_id",
+     "column_type": "int(10) unsigned",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    },
+    {
+     "character_set_name": "NULL",
+     "collation_name": "NULL",
+     "column_comment": "",
+     "column_default": "0",
+     "column_name": "is_recursive",
+     "column_type": "tinyint(4)",
+     "extra": "",
+     "generation_expression": "NULL",
+     "is_nullable": "NO"
+    }
+   ],
+   "index": {
+    "PRIMARY": {
+     "colonnes": [
+      "id"
+     ],
+     "unique": true
+    },
+    "entities_id": {
+     "colonnes": [
+      "entities_id"
+     ],
+     "unique": false
+    },
+    "idx_lookup": {
+     "colonnes": [
+      "printers_id",
+      "property_name",
+      "reading_date"
+     ],
+     "unique": false
+    },
+    "is_recursive": {
+     "colonnes": [
+      "is_recursive"
+     ],
+     "unique": false
+    },
+    "printers_id": {
+     "colonnes": [
+      "printers_id"
+     ],
+     "unique": false
+    },
+    "reading_date": {
+     "colonnes": [
+      "reading_date"
+     ],
+     "unique": false
+    },
+    "uniq_daily": {
+     "colonnes": [
+      "printers_id",
+      "property_name",
+      "reading_date"
+     ],
+     "unique": true
+    }
+   },
+   "lignes": [],
+   "options": {
+    "engine": "InnoDB",
+    "row_format": "Dynamic",
+    "table_collation": "utf8mb4_unicode_ci",
+    "table_comment": ""
+   }
+  }
+ }
+}
