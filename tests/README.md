@@ -85,6 +85,7 @@ Le serveur SMTP de l'instance est réglé sur 127.0.0.1 par `donnees.py` : aucun
 | `interface.py` | Écrans du module Déploiement par profil : technicien état et action seulement ; TAG, règle d'affectation, blocages du téléchargement (TAG, règle, URL), environnement, limite de temps de la vérification, paquet relu |
 | `sante.py` | Carte « Santé de la configuration » : chaque contrôle mis en défaut puis rétabli, URL confirmée par un agent, profils |
 | `suivi_gls.py` | Suivi GLS, sans réseau : nettoyage du numéro, repli unique sur E_404_01, lots de 10 ; client (jeton, en-têtes, trois formes d'erreur, quota, aucun secret dans les messages) ; tâche (cadence, repli mémorisé, inconnu, sans nouvelles, budget, disjoncteur) ; « Tester la connexion » ; affichage dans les deux profils avec copies d'écran hors dépôt |
+| `mbe.py` | MBE, étape 1 : identifiants chiffrés jamais réaffichés, client SOAP avec transport simulé (enveloppe DOM, Basic, sept formes de réponse, aucun secret), ligne Santé, boutons de l'écran |
 | `modules.py` | Interrupteurs de modules : chaque point d'entrée en 404 quand son module est désactivé, fermé par défaut |
 | `gabarits.py` | Gabarits de mail : un gabarit modifié par l'administrateur survit à une réinstallation ; un gabarit absent est recréé |
 | `taches.py` | Chaque tâche automatique sur la base peuplée : aucune en erreur, aucune erreur PHP ou SQL |

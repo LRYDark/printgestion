@@ -56,6 +56,15 @@ if (isset($_POST['activate_contract_alerts'])) {
     PluginPrintgestionGlsclient::resetMemo();
     (new PluginPrintgestionGlsclient())->forgetToken();
     Session::addMessageAfterRedirect(__('Identifiant et secret GLS retirés : le suivi GLS est inactif, les suivis déjà collectés restent en place.', 'printgestion'), false, INFO);
+} elseif (isset($_POST['test_mbe'])) {
+    // « Tester la connexion » MBE : la liste des sept derniers jours, page 1, lue puis jetée ; jamais un identifiant dans le message.
+    $result = (new PluginPrintgestionMbeclient())->testConnection();
+    Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : ERROR);
+} elseif (isset($_POST['clear_mbe'])) {
+    // « Retirer les identifiants » MBE : identifiant, passphrase et date effacés, mémo de santé oublié.
+    PluginPrintgestionConfig::getInstance()->update(['id' => 1, 'mbe_username' => '', 'mbe_passphrase' => '', 'mbe_secret_date' => null]);
+    PluginPrintgestionMbeclient::resetMemo();
+    Session::addMessageAfterRedirect(__('Identifiant et passphrase MBE retirés : plus aucun appel MBE.', 'printgestion'), false, INFO);
 } elseif (isset($_POST['test_log'])) {
     // Bouton de la ligne « Journal du plugin » de la carte « Santé de la configuration » : aucun réglage enregistré.
     if (PluginPrintgestionLogger::writeTestEntry(getUserName((int) Session::getLoginUserID()))) {
@@ -151,6 +160,29 @@ if (isset($_POST['activate_contract_alerts'])) {
         } else {
             $values['gls_client_secret'] = $encrypted;
             $values['gls_secret_date']   = date('Y-m-d H:i:s');
+        }
+    }
+
+    // MBE : identifiant et passphrase chiffrés (GLPIKey). L'identifiant, réaffiché, n'est rechiffré que s'il change ;
+    // passphrase vide = inchangée ; « Retirer les identifiants » est un bouton à part.
+    $mbe_max  = PluginPrintgestionMbeclient::MAX_CREDENTIAL_LENGTH;
+    $mbe_user = mb_substr(trim((string) ($_POST['mbe_username'] ?? '')), 0, $mbe_max);
+    if ($mbe_user !== PluginPrintgestionMbeclient::getUsername()) {
+        $encrypted = $mbe_user === '' ? '' : (new GLPIKey())->encrypt($mbe_user);
+        if ($mbe_user !== '' && $encrypted === '') {
+            Session::addMessageAfterRedirect(__('Identifiant MBE non enregistré : chiffrement impossible (clé de chiffrement GLPI illisible).', 'printgestion'), true, ERROR);
+        } else {
+            $values['mbe_username'] = $encrypted;
+        }
+    }
+    $submitted = mb_substr(trim((string) ($_POST['mbe_passphrase'] ?? '')), 0, $mbe_max);
+    if ($submitted !== '') {
+        $encrypted = (new GLPIKey())->encrypt($submitted);
+        if ($encrypted === '') {
+            Session::addMessageAfterRedirect(__('Passphrase MBE non enregistrée : chiffrement impossible (clé de chiffrement GLPI illisible).', 'printgestion'), true, ERROR);
+        } else {
+            $values['mbe_passphrase']  = $encrypted;
+            $values['mbe_secret_date'] = date('Y-m-d H:i:s');
         }
     }
 

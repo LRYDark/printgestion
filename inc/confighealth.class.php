@@ -210,6 +210,48 @@ class PluginPrintgestionConfighealth {
             'detail' => implode('<br>', array_map($esc, $gls_lines)),
         ];
 
+        // MBE (intermédiaire de transport) : identifiants et dernier appel. Sans identifiants, rien ne manque. Un refus
+        // d'identifiants (401/403) passe au rouge tout de suite : réessayer ne le soigne pas.
+        $mbe_keys = PluginPrintgestionMbeclient::hasKeys();
+        $mbe      = PluginPrintgestionMbeclient::getMemo();
+        $mbe_date = (string) (PluginPrintgestionConfig::getInstance()->fields['mbe_secret_date'] ?? '');
+        if (!$mbe_keys) {
+            $mbe_state  = self::STATE_OK;
+            $mbe_status = __('Identifiants non saisis : aucun appel MBE, le plugin fonctionne sans.', 'printgestion');
+        } elseif ($mbe['last_kind'] === PluginPrintgestionCarrierexception::KIND_AUTH) {
+            $mbe_state  = self::STATE_ERROR;
+            $mbe_status = sprintf(__('Identifiants ou droits refusés par MBE (%s) : corriger l\'identifiant ou la passphrase, réessayer ne change rien.', 'printgestion'), $mbe['last_error']);
+        } elseif ($mbe['failures'] >= PluginPrintgestionMbeclient::BREAKER_THRESHOLD) {
+            $mbe_state  = self::STATE_ERROR;
+            $mbe_status = sprintf(__('%d échecs consécutifs : MBE n\'est plus appelé (%s).', 'printgestion'), $mbe['failures'], $mbe['last_error'] !== '' ? $mbe['last_error'] : __('sans détail', 'printgestion'));
+        } elseif ($mbe['last_success'] === '') {
+            $mbe_state  = self::STATE_PENDING;
+            $mbe_status = __('Identifiants saisis, aucun appel réussi encore : « Tester la connexion ».', 'printgestion');
+        } else {
+            $mbe_state  = self::STATE_OK;
+            $mbe_status = sprintf(__('Dernier appel réussi le %s.', 'printgestion'), Html::convDateTime($mbe['last_success']));
+        }
+        $mbe_lines = [
+            $mbe_keys
+                ? ($mbe_date !== '' ? sprintf(__('Identifiants : saisis, passphrase définie le %s.', 'printgestion'), Html::convDate($mbe_date)) : __('Identifiants : saisis.', 'printgestion'))
+                : __('Identifiants : non saisis.', 'printgestion'),
+            $mbe['last_success'] !== ''
+                ? sprintf(__('Dernier appel réussi : %s.', 'printgestion'), Html::convDateTime($mbe['last_success']))
+                : __('Dernier appel réussi : jamais.', 'printgestion'),
+            sprintf(__('Échecs consécutifs : %d%s.', 'printgestion'), $mbe['failures'], $mbe['last_error'] !== '' ? ' (' . $mbe['last_error'] . ')' : ''),
+        ];
+        $checks[] = [
+            'key'    => 'mbe',
+            'group'  => 'recommended',
+            'label'  => __('Identifiants MBE (intermédiaire de transport)', 'printgestion'),
+            'state'  => $mbe_state,
+            'status' => $mbe_status,
+            'breaks' => __('Sans eux, rien ne manque : cette version n\'appelle MBE que par « Tester la connexion ».', 'printgestion'),
+            'fix'    => __('Carte « MBE » de cette page : identifiant et passphrase API, puis « Tester la connexion »', 'printgestion'),
+            'url'    => '',
+            'detail' => implode('<br>', array_map($esc, $mbe_lines)),
+        ];
+
         $checks[] = [
             'key'    => 'log',
             'group'  => 'recommended',

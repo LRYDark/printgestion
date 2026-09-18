@@ -51,7 +51,7 @@ LISTE_BLANCHE = {
                                        r"|192\.168\.(?:0|1|10|100)\.\d+|1\.\d+\.\d+\.\d+|\d+\.\d+\.\d+\.0"),
     # Domaines réservés (RFC 2606) ; services publics appelés ou cités par le plugin ; site de l'ayant droit (plugin.xml).
     "nom d'hôte ou URL":    re.compile(r"(?:[a-z0-9-]+\.)*(?:exemple\.test|example\.(?:com|org|net))|[a-z0-9.-]+\.(?:test|invalid|example|local|lan)|localhost"
-                                       r"|api\.gls-group\.(?:net|eu)|(?:api\.)?github\.com|(?:[a-z]+\.)?glpi-project\.org|packagist\.org|(?:www\.)?php\.net"
+                                       r"|api\.gls-group\.(?:net|eu)|api\.mbeonline\.fr|www\.onlinembe\.eu|schemas\.xmlsoap\.org|(?:api\.)?github\.com|(?:[a-z]+\.)?glpi-project\.org|packagist\.org|(?:www\.)?php\.net"
                                        r"|getcomposer\.org|schemas\.(?:openxmlformats\.org|microsoft\.com)|purl\.org|www\.w3\.org|www\.gnu\.org|fsf\.org"
                                        r"|nsis\.sourceforge\.io|sourceforge\.net|brew\.sh|(?:www|developer)\.apple\.com|dev\.mysql\.com|mariadb\.org"
                                        r"|www\.openssl\.org|(?:fonts|cdn|docs)\.[a-z0-9.-]+|xml\.apache\.org|www\.ecma-international\.org|www\.jcd-groupe\.fr"

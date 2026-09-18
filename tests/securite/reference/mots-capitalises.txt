@@ -13,6 +13,8 @@ Adresses IP
 Alerte Print
 Alertes GLPI
 Alertes Print
+Amz-Credential
+Amz-Signature
 Analyse du PDF
 And Trace
 Annoncé à GLS
@@ -41,6 +43,7 @@ Card CONTRAT
 Card ID
 Card IMPRIMANTE
 Card MODES
+Carte Santé
 Cartouche GLPI
 Cartouches GLPI
 Chaîne PHP
@@ -48,6 +51,8 @@ Choisissez le PC
 Class Symfony
 Client GLS
 Client ID
+Client MBE
+Client SOAP
 Client Secret
 Clés API
 Collecte SNMP
@@ -61,6 +66,7 @@ Compound File
 Compteur Couleur
 Config GLPI
 Configuration de GLPI
+Connexion MBE
 Consigne Linux
 Constats OK
 Content-Disposition
@@ -95,6 +101,8 @@ Entrées ERROR
 Enumération des IDs
 Env-From
 Env-To
+Envelope et Body
+Enveloppe SOAP
 Envoi MULTI
 Envoi SIMPLE
 Envoyer aux Achats
@@ -125,9 +133,13 @@ Gestion MailSend
 Gestion Print
 Glpi-Csrf
 Gotchas GLPI
+HTTP Basic
 Helper POST
 IDs ContractType
+Identifiant API
 Identifiant BL
+Identifiant MBE
+Identifiants MBE
 Identifiants SNMP
 InnoDB DEFAULT
 Installation de GLPI
@@ -136,6 +148,7 @@ Installeur GLPI
 Installeur Linux
 Installez GLPI
 Internal Server
+InternalReferenceID GLPI
 Intitule Client
 Intitule Livraison
 Intitulé Livraison
@@ -162,6 +175,7 @@ Lien BL
 Lier des BL
 Link BL
 Liste les BL
+MBE France
 MSI Windows
 Mailer GLPI
 Mapping SNMP
@@ -187,6 +201,8 @@ Pages Couleur
 Paquet Linux
 Paquet Windows
 Paquets Linux
+Passphrase API
+Passphrase MBE
 Perl Linux
 Piste et Trace
 Plage IP
@@ -221,11 +237,13 @@ Réessais SNMP
 Référentiel Sage
 Répond en SNMP
 Réponse GLS
+Réponse MBE
 Résolution STRICTE
 Résolution des IDs
 Sans GLPI
 Scripts Windows
 Secret GLS
+Security-Token
 Segoe UI
 Self-Service
 Serveur GLPI
@@ -238,6 +256,7 @@ Sonde GLPI
 Sonde Print
 Sondes GLPI
 Squelette HTML
+Status KO
 Statut GLPI
 Statut GLS
 Statut des PC
@@ -248,6 +267,7 @@ Super-Admin
 Sur le Mac
 Sur le PC
 Symfony Mailer
+System FR
 Système du PC
 Tableau NATIF
 Tarif Couleur
@@ -280,6 +300,7 @@ Vérification SAGE
 Vérifier sur GitHub
 Windows Server
 Windows et Linux
+Ymd-His
 Écrit le TAG
 Écritures en GET
 Équipement SNMP

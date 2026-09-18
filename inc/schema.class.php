@@ -267,6 +267,9 @@ class PluginPrintgestionSchema {
             `gls_client_id` varchar(255) NULL DEFAULT NULL,
             `gls_client_secret` varchar(255) NULL DEFAULT NULL,
             `gls_secret_date` timestamp NULL DEFAULT NULL,
+            `mbe_username` varchar(255) NULL DEFAULT NULL,
+            `mbe_passphrase` varchar(255) NULL DEFAULT NULL,
+            `mbe_secret_date` timestamp NULL DEFAULT NULL,
             PRIMARY KEY (`id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
         'glpi_plugin_printgestion_contractrates' => 'CREATE TABLE `glpi_plugin_printgestion_contractrates` (
@@ -390,6 +393,7 @@ class PluginPrintgestionSchema {
             `tracking_failures` int NOT NULL DEFAULT 0,
             `tracking_state` varchar(16) NOT NULL DEFAULT \'\',
             `tracking_parcels` text NULL DEFAULT NULL,
+            `mbe_master_tracking` varchar(32) NULL DEFAULT NULL,
             PRIMARY KEY (`id`),
             KEY `bl_surveys_id` (`bl_surveys_id`),
             KEY `entities_id` (`entities_id`),
@@ -601,7 +605,7 @@ class PluginPrintgestionSchema {
     /** Lignes de référence posées à l'installation (les identifiants de gabarits sont remplis ensuite par hook.php). */
     const SEEDS = [
         'glpi_plugin_printgestion_configs' => [
-            ['agent_httpd_trust' => null, 'agent_latest_checked' => null, 'agent_latest_source' => null, 'agent_latest_version' => null, 'agent_probe_states_id' => '0', 'agent_update_default' => '1', 'agent_update_target' => null, 'agent_version' => null, 'consumables_contracttypes' => null, 'default_pages_per_cartridge' => '5000', 'demande_reminder_days' => '2', 'detection_delta' => '20', 'emails_achat' => null, 'emails_commercial' => null, 'emails_planif' => null, 'enable_contrats' => '1', 'enable_cout' => '1', 'enable_deploiement' => '1', 'enable_sage' => '1', 'enable_toner' => '1', 'gabarit_achat' => null, 'gabarit_commercial' => null, 'gabarit_courtoisie' => null, 'gabarit_planif' => null, 'gabarit_planif_group' => null, 'gabarit_rappel' => null, 'gesconso_designation_max' => '69', 'gesconso_separator' => ' # ', 'gls_client_id' => null, 'gls_client_secret' => null, 'gls_secret_date' => null, 'group_achat' => null, 'group_commercial' => null, 'group_planif' => null, 'guard_bypass_level' => '10', 'guard_days' => '5', 'guard_ticket_days' => '10', 'id' => '1', 'mode_achat' => 'group', 'mode_commercial' => 'group', 'mode_planif' => 'group', 'reminder_days' => '7', 'reminder_recipients' => 'both', 'silent_days' => '3', 'threshold_days' => '30', 'threshold_level' => '15', 'wrong_printer_lookback_days' => '30'],
+            ['agent_httpd_trust' => null, 'agent_latest_checked' => null, 'agent_latest_source' => null, 'agent_latest_version' => null, 'agent_probe_states_id' => '0', 'agent_update_default' => '1', 'agent_update_target' => null, 'agent_version' => null, 'consumables_contracttypes' => null, 'default_pages_per_cartridge' => '5000', 'demande_reminder_days' => '2', 'detection_delta' => '20', 'emails_achat' => null, 'emails_commercial' => null, 'emails_planif' => null, 'enable_contrats' => '1', 'enable_cout' => '1', 'enable_deploiement' => '1', 'enable_sage' => '1', 'enable_toner' => '1', 'gabarit_achat' => null, 'gabarit_commercial' => null, 'gabarit_courtoisie' => null, 'gabarit_planif' => null, 'gabarit_planif_group' => null, 'gabarit_rappel' => null, 'gesconso_designation_max' => '69', 'gesconso_separator' => ' # ', 'gls_client_id' => null, 'gls_client_secret' => null, 'gls_secret_date' => null, 'group_achat' => null, 'group_commercial' => null, 'group_planif' => null, 'guard_bypass_level' => '10', 'guard_days' => '5', 'guard_ticket_days' => '10', 'id' => '1', 'mbe_passphrase' => null, 'mbe_secret_date' => null, 'mbe_username' => null, 'mode_achat' => 'group', 'mode_commercial' => 'group', 'mode_planif' => 'group', 'reminder_days' => '7', 'reminder_recipients' => 'both', 'silent_days' => '3', 'threshold_days' => '30', 'threshold_level' => '15', 'wrong_printer_lookback_days' => '30'],
         ],
         'glpi_plugin_printgestion_snmp_mapping' => [
             ['cartridge_type' => null, 'cartridgeitemtypes_id' => null, 'id' => '1', 'manufacturer' => null, 'snmp_property' => 'tonerblack', 'toner_color' => 'black'],

@@ -58,7 +58,7 @@ Trois modules indépendants, activables par interrupteur dans la configuration :
 | GLPI | 11.0.x (testé 11.0.8 ; la série 11.1 n'est pas testée, `setup.php` la refuse) |
 | PHP | 8.2 ou plus récent (testé 8.3), extensions zip, mbstring, intl |
 | GLPI Inventory | 1.6.0 ou plus récent (testé 1.6.10) : indispensable au module de collecte, sans effet sur les autres |
-| Optionnel | Plugin Gestion (BL signés → expédition livrée), identifiant et secret GLS (suivi des colis) |
+| Optionnel | Plugin Gestion (BL signés → expédition livrée), identifiant et secret GLS (suivi des colis), identifiant et passphrase MBE (intermédiaire de transport, test de connexion seulement pour l'instant) |
 
 ---
 

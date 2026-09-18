@@ -45,8 +45,8 @@ def main():
         section("1. Position et contenu")
         page, etats = carte()
         constat("carte « Santé de la configuration » en tête, avant les modules", ok_ko(0 <= page.find("Santé de la configuration") < page.find("Activation des modules")))
-        constat("10 contrôles : 7 obligatoires, 3 recommandés, l'URL de l'application en tête",
-                ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "cron", "xlsx", "notifications", "tag_rule", "glpicrypt", "gls", "log"]), str(etats))
+        constat("11 contrôles : 7 obligatoires, 4 recommandés (GLS, MBE, journal, clé), l'URL de l'application en tête",
+                ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "cron", "xlsx", "notifications", "tag_rule", "glpicrypt", "gls", "mbe", "log"]), str(etats))
         sql("DELETE FROM glpi_configs WHERE context = 'plugin:printgestion' AND name IN ('glpicrypt_checked_at', 'glpicrypt_checked_by');")
         page, etats = carte()
         constat("glpicrypt.key : « non vérifiable automatiquement — jamais vérifié », bouton « J'ai vérifié », rien à cocher",

@@ -33,7 +33,7 @@ puis générés (`tests/securite/schema_depuis_etat.py`). Le relevé de référe
 (`tests/securite/reference/etat-ancien-chemin.json`) et la preuve se rejoue : `tests/securite/comparer_etats.py`
 entre ce relevé et celui d'une installation neuve rend **zéro écart** (tables, colonnes, types, index, défauts, jeux de
 caractères, lignes de référence, tâches, notifications, gabarits, droits), hors les écarts volontaires déclarés dans
-`installation.py` avec leur raison (en 1.0.0 : la date d'événement GLS gardée telle que GLS l'envoie). `installation.py`
+`installation.py` avec leur raison (en 1.0.0 : la date d'événement GLS gardée telle que GLS l'envoie ; les colonnes MBE, `mbe_username`, `mbe_passphrase`, `mbe_secret_date` de la configuration et `mbe_master_tracking` des expéditions, absentes de l'ancien chemin). `installation.py`
 le vérifie à chaque passe.
 
 - La version installée est dans `glpi_configs` (contexte `plugin:printgestion`, clé `schema_version`).
@@ -133,6 +133,7 @@ affichage ; la carte ne bloque rien. Tout vert : une ligne « Configuration : co
 | Notifications GLPI activées (obligatoire) | « Activer le suivi » à Non : aucune notification native ne part (commande non transmise, demandes, sondes, contrats) | Configuration → Notifications → Configuration des notifications |
 | Règle d'affectation par TAG présente et active (obligatoire) | règle absente ou désactivée | bouton de la carte (créer ou activer) |
 | Sauvegarde de `config/glpicrypt.key` (recommandé) | non vérifiable automatiquement : « jamais vérifié », ou vérification de plus de six mois ; bouton « J'ai vérifié » (date et auteur mémorisés), la ligne revient d'elle-même au bout de six mois | sauvegarde du serveur, avec la base |
+| Identifiants MBE (recommandé) | sans identifiants : vert, rien ne manque ; saisis sans appel : en attente ; refus 401/403 : rouge tout de suite ; cinq échecs consécutifs : rouge | carte « MBE » : identifiant et passphrase, « Tester la connexion » |
 | Suivi des colis GLS (recommandé) | clés saisies et cinq échecs techniques consécutifs ; « en attente » tant qu'aucun appel n'a réussi ; sans clés : vert, rien ne manque | carte « Suivi GLS » : Client ID, Client Secret, « Tester la connexion » ; détail : clés, dernier appel réussi, échecs (dernière erreur), quota du jour |
 | Journal du plugin inscriptible (recommandé) | dossier ou fichier non inscriptible | droits du serveur web sur `files/_log` |
 
@@ -446,6 +447,25 @@ saisis à la main), et le technicien ne voit rien d'une intégration. Les autres
   arrêtent le cycle (reprise au passage suivant). Le journal `printgestion.log` (contexte `gls`) garde les échecs,
   les numéros raccourcis et les codes non répertoriés.
 - **Le suivi ne décide de rien** : un colis « livré » ne clôt pas l'envoi, seule la pose détectée le fait.
+
+### MBE (intermédiaire de transport) : identifiants et test
+
+Configuration → Print Gestion → carte « MBE (intermédiaire de transport) » : identifiant et passphrase de l'API MBE
+France (e-link). MBE n'est pas un transporteur : c'est par lui que les cartouches du stock partent chez le client,
+confiées à GLS ou à UPS ; le transporteur et son numéro se saisissent comme aujourd'hui. La passphrase API n'est pas
+forcément le mot de passe de la console MBE. Elle ne se relit jamais (« •••••••• définie le … », « Remplacer ») ;
+« Retirer les identifiants » efface les deux et le mémo de santé. « Tester la connexion » lit la liste des expéditions
+des sept derniers jours, page 1, et la jette : « Connexion MBE établie : N expédition(s) … » ou l'erreur. Adresse et
+système (FR) sont fixés dans le code, affichés en lecture seule.
+
+- **Ce que fait cette version** : enregistrer et tester les identifiants, et la ligne « Identifiants MBE » de la
+  carte Santé. Rien d'autre n'appelle MBE. Le suivi par MBE vient ensuite, sans changement de schéma.
+- **Erreurs** : « HTTP 403 » = identifiant, passphrase ou droits du compte, réessayer ne change rien (la ligne Santé est
+  rouge tout de suite) ; « HTTP 500, NullPointerException » = format de la requête, à signaler ; « MBE injoignable » =
+  réseau ou proxy ; « MBE répond « KO » : … » = réponse de MBE avec son texte, identifiants et liens masqués.
+- **Aucun secret** nulle part : ni dans les messages, ni dans les journaux, ni dans les pages. Les identifiants sont
+  chiffrés avec la clé de GLPI (`glpicrypt.key`) ; `glpi:security:change_key` les rechiffre (déclarés dans
+  `setup.php`, avec le secret GLS).
 
 ### Commande refusée : « Fichier Gesconso non archivé »
 

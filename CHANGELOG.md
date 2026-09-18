@@ -14,7 +14,8 @@ versions de développement : désinstaller d'abord). Testée avec GLPI 11.0.8 et
   intitulé de livraison), contrôles avant envoi avec décompte de ce qui mérite d'être vu, transmission aux Achats enregistrée
   avant l'envoi et renvoyable, référentiels Sage (adresses, articles) importés par fichier pour vérification.
 - **Expéditions** : suivi des colis GLS (jeton chiffré en cache, tâche horaire, quota, disjoncteur, multi-colis),
-  affichage identique pour tous les profils, rien sans clés ; lien avec le plugin Gestion déduit (BL signé).
+  affichage identique pour tous les profils, rien sans clés ; lien avec le plugin Gestion déduit (BL signé) ;
+  identifiants MBE (intermédiaire de transport) enregistrés chiffrés et testables, rien d'autre encore.
 - **Coût à la page** et facturation par contrat.
 - **Configuration** : carte « Santé de la configuration » (prérequis GLPI vérifiés, jamais redéfinis), modules
   activables, gabarits de mail jamais réécrits à la mise à jour, aucun réglage que GLPI possède déjà.

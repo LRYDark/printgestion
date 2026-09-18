@@ -33,6 +33,26 @@ ECARTS_VOLONTAIRES = {
         "conséquence : colonne texte",
     '/tables/glpi_plugin_printgestion_expeditions/colonnes[25]/collation_name : "NULL" → "utf8mb4_unicode_ci"':
         "conséquence : colonne texte",
+    # MBE, étape 1 (identifiants et test) : trois colonnes de configuration, la ligne de référence les porte à NULL, et la
+    # référence MasterTrackingMBE sur l'expédition, posée dès la 1.0.0 parce que le suivi l'utilisera.
+    '/tables/glpi_plugin_printgestion_configs/colonnes : 47 élément(s) avant, 50 après':
+        "identifiant MBE, passphrase MBE (chiffrés) et date de la passphrase : réglages de l'intermédiaire de transport",
+    '/tables/glpi_plugin_printgestion_configs/colonnes : en plus après : {"character_set_name": "utf8mb4", "collation_name": "utf8mb4_unicode_ci", "column_comment": "", "column_default": "NULL", "column_name": "mbe_username", "column_type": "varchar(255)", "extra": "", "ge':
+        "identifiant API MBE, chiffré (GLPIKey), réaffiché dans le formulaire",
+    '/tables/glpi_plugin_printgestion_configs/colonnes : en plus après : {"character_set_name": "utf8mb4", "collation_name": "utf8mb4_unicode_ci", "column_comment": "", "column_default": "NULL", "column_name": "mbe_passphrase", "column_type": "varchar(255)", "extra": "", "':
+        "passphrase API MBE, chiffrée (GLPIKey), jamais réaffichée",
+    '/tables/glpi_plugin_printgestion_configs/colonnes : en plus après : {"character_set_name": "NULL", "collation_name": "NULL", "column_comment": "", "column_default": "NULL", "column_name": "mbe_secret_date", "column_type": "timestamp", "extra": "", "generation_expressi':
+        "date de définition de la passphrase (« définie le »)",
+    '/tables/glpi_plugin_printgestion_configs/lignes[0]/mbe_passphrase : absent avant, présent après : "NULL"':
+        "ligne de configuration de référence : passphrase absente à l'installation",
+    '/tables/glpi_plugin_printgestion_configs/lignes[0]/mbe_secret_date : absent avant, présent après : "NULL"':
+        "ligne de configuration de référence : pas de date à l'installation",
+    '/tables/glpi_plugin_printgestion_configs/lignes[0]/mbe_username : absent avant, présent après : "NULL"':
+        "ligne de configuration de référence : identifiant absent à l'installation",
+    '/tables/glpi_plugin_printgestion_expeditions/colonnes : 31 élément(s) avant, 32 après':
+        "référence MasterTrackingMBE mémorisée sur l'expédition (suivi par MBE à venir, sans autre changement de schéma)",
+    '/tables/glpi_plugin_printgestion_expeditions/colonnes : en plus après : {"character_set_name": "utf8mb4", "collation_name": "utf8mb4_unicode_ci", "column_comment": "", "column_default": "NULL", "column_name": "mbe_master_tracking", "column_type": "varchar(32)", "extra": "':
+        "même colonne : varchar(32) NULL, vide tant qu'aucune interrogation MBE n'a eu lieu",
 }
 MOTIFS_NOTICE = re.compile(r"(Notice|Warning|Deprecated|Fatal error|Uncaught|Stack trace)")
 

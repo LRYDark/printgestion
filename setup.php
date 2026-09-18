@@ -32,12 +32,14 @@ function plugin_init_printgestion() {
 
     $PLUGIN_HOOKS['csrf_compliant']['printgestion'] = true;
 
-    // Colonnes chiffrées avec GLPIKey (clés API transporteurs) : déclarées pour
-    // que la commande glpi:security:change_key les rechiffre avec la nouvelle clé.
+    // Colonnes chiffrées avec GLPIKey (PluginPrintgestionConfig::SECRET_FIELDS) : déclarées pour que la commande
+    // glpi:security:change_key les rechiffre avec la nouvelle clé. Jusqu'ici la liste nommait trois colonnes qui
+    // n'existent pas (api_ups, api_gls, api_chronopost) : la commande aurait échoué et le secret GLS serait resté
+    // chiffré avec l'ancienne clé.
     $PLUGIN_HOOKS['secured_fields']['printgestion'] = [
-        'glpi_plugin_printgestion_configs.api_ups',
-        'glpi_plugin_printgestion_configs.api_gls',
-        'glpi_plugin_printgestion_configs.api_chronopost',
+        'glpi_plugin_printgestion_configs.gls_client_secret',
+        'glpi_plugin_printgestion_configs.mbe_username',
+        'glpi_plugin_printgestion_configs.mbe_passphrase',
     ];
     $PLUGIN_HOOKS['change_profile']['printgestion'] = [PluginPrintgestionProfile::class, 'initProfile'];
 

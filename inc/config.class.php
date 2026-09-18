@@ -13,10 +13,13 @@ class PluginPrintgestionConfig extends CommonDBTM {
     static $rightname = 'plugin_printgestion_config';
 
     /** Colonnes chiffrées avec GLPIKey (déclarées au hook secured_fields dans setup.php). */
-    /** Secrets chiffrés (GLPIKey), jamais réaffichés : le secret client GLS (suivi des colis, GLS seulement). */
-    const SECRET_FIELDS = ['gls_client_secret'];
+    /**
+     * Colonnes chiffrées (GLPIKey) : le secret client GLS et la passphrase MBE, jamais réaffichés ; l'identifiant
+     * MBE, chiffré au repos mais réaffiché dans le formulaire (ce n'est pas un secret).
+     */
+    const SECRET_FIELDS = ['gls_client_secret', 'mbe_username', 'mbe_passphrase'];
     /** Jamais rendues par l'API REST (même chiffrées) : GLPI les retire de la réponse via unsetUndisclosedFields(). */
-    public static $undisclosedFields = ['gls_client_id', 'gls_client_secret'];
+    public static $undisclosedFields = ['gls_client_id', 'gls_client_secret', 'mbe_username', 'mbe_passphrase'];
 
     static private $_instance = null;
 
@@ -663,6 +666,43 @@ HTML;
             if ($gls_set && $gls_id !== '') {
                 // Demande un jeton et le jette : « connexion établie » ou l'erreur, jamais le jeton.
                 echo " <button type='submit' name='test_gls' value='1' class='btn btn-sm btn-outline-primary' formnovalidate data-pg-submit-once='1'>"
+                    . "<i class='ti ti-plug-connected me-1'></i>" . $esc(__('Tester la connexion', 'printgestion')) . "</button>";
+            }
+        }
+        echo "</div></div>";
+
+        // ── MBE, intermédiaire de transport (identifiant et passphrase, rien d'autre : adresse et système sont des constantes) ──
+        $mbe_user = PluginPrintgestionMbeclient::getUsername();
+        $mbe_set  = (string) ($config->fields['mbe_passphrase'] ?? '') !== '';
+        $mbe_date = (string) ($config->fields['mbe_secret_date'] ?? '');
+        $mbe_max  = PluginPrintgestionMbeclient::MAX_CREDENTIAL_LENGTH;
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
+            . $esc(__('MBE (intermédiaire de transport)', 'printgestion')) . "</h3></div><div class='card-body'>";
+        echo "<p class='text-muted small mb-3'>"
+            . $esc(__('Identifiant et passphrase de l\'API MBE France (e-link, SOAP). MBE n\'est pas un transporteur : c\'est l\'intermédiaire par lequel les cartouches du stock partent chez le client, confiées à GLS ou à UPS ; le transporteur et son numéro se saisissent comme aujourd\'hui. Cette version enregistre les identifiants et teste la connexion, rien d\'autre : sans identifiants, rien n\'est appelé et rien ne change. La passphrase API n\'est pas forcément le mot de passe de la console MBE.', 'printgestion'))
+            . "</p>";
+        echo "<div class='row mb-2 align-items-center'><div class='col-md-4'>" . $esc(__('Adresse et système', 'printgestion')) . "</div><div class='col-md-5'>"
+            . "<code>" . $esc(PluginPrintgestionMbeclient::ENDPOINT) . "</code> <span class='text-muted small'>"
+            . $esc(sprintf(__('SOAP 1.1, système %s : fixés dans le code, pas un réglage.', 'printgestion'), PluginPrintgestionMbeclient::SYSTEM)) . "</span></div></div>";
+        echo "<div class='row mb-2 align-items-center'><div class='col-md-4'>" . $esc(__('Identifiant API', 'printgestion')) . "</div><div class='col-md-5'>"
+            . "<input type='text' class='form-control' name='mbe_username' maxlength='" . $mbe_max . "' autocomplete='off' value='" . $esc($mbe_user) . "'></div></div>";
+        echo "<div class='row mb-2 align-items-center'><div class='col-md-4'>" . $esc(__('Passphrase API', 'printgestion')) . "</div><div class='col-md-5'>";
+        if ($mbe_set) {
+            // Jamais réaffichée, même partiellement : un état et un bouton « Remplacer » qui dévoile le champ de saisie.
+            echo "<div class='d-flex align-items-center gap-2' id='pg-mbe-secret-set'><code>••••••••</code> <span class='text-muted small'>"
+                . $esc($mbe_date !== '' ? sprintf(__('définie le %s', 'printgestion'), Html::convDate($mbe_date)) : __('définie', 'printgestion')) . "</span>"
+                . "<button type='button' class='btn btn-sm btn-outline-secondary' onclick=\"document.getElementById('pg-mbe-secret-set').classList.add('d-none'); document.getElementById('pg-mbe-secret-input').classList.remove('d-none');\">"
+                . $esc(__('Remplacer', 'printgestion')) . "</button></div>";
+        }
+        echo "<input type='password' class='form-control" . ($mbe_set ? " d-none" : '') . "' id='pg-mbe-secret-input' name='mbe_passphrase' value='' maxlength='" . $mbe_max . "' autocomplete='new-password' placeholder='"
+            . $esc($mbe_set ? __('Nouvelle passphrase : saisir pour remplacer', 'printgestion') : __('Aucune passphrase enregistrée', 'printgestion')) . "'>";
+        echo "</div></div>";
+        if ($mbe_set || $mbe_user !== '') {
+            echo "<button type='submit' name='clear_mbe' value='1' class='btn btn-sm btn-outline-danger' formnovalidate onclick=\"return confirm(" . $esc(json_encode(__('Retirer l\'identifiant et la passphrase MBE ? Plus aucun appel MBE ensuite.', 'printgestion'))) . ");\">"
+                . "<i class='ti ti-trash me-1'></i>" . $esc(__('Retirer les identifiants', 'printgestion')) . "</button>";
+            if ($mbe_set && $mbe_user !== '') {
+                // Lit la liste des sept derniers jours, page 1, et la jette : « connexion établie » ou l'erreur, jamais un identifiant.
+                echo " <button type='submit' name='test_mbe' value='1' class='btn btn-sm btn-outline-primary' formnovalidate data-pg-submit-once='1'>"
                     . "<i class='ti ti-plug-connected me-1'></i>" . $esc(__('Tester la connexion', 'printgestion')) . "</button>";
             }
         }
