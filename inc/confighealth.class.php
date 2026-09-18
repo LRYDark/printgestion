@@ -168,6 +168,48 @@ class PluginPrintgestionConfighealth {
 
         $log    = PluginPrintgestionLogger::getStatus();
         $log_ok = $log['dir_writable'] && $log['writable'];
+        // Suivi GLS : quatre lignes pour l'administrateur (clés, dernier appel réussi, échecs consécutifs, quota du jour).
+        // Sans clés, rien ne manque : le plugin fonctionne sans suivi, et le technicien ne voit rien de tout cela.
+        $gls_keys = PluginPrintgestionGlsclient::hasKeys();
+        $gls      = PluginPrintgestionGlsclient::getMemo();
+        $gls_date = (string) (PluginPrintgestionConfig::getInstance()->fields['gls_secret_date'] ?? '');
+        if (!$gls_keys) {
+            $gls_state  = self::STATE_OK;
+            $gls_status = __('Clés non saisies : pas de suivi GLS, le plugin fonctionne sans.', 'printgestion');
+        } elseif ($gls['failures'] >= PluginPrintgestionGlsclient::BREAKER_THRESHOLD) {
+            $gls_state  = self::STATE_ERROR;
+            $gls_status = sprintf(__('%d échecs techniques consécutifs : le suivi n\'avance plus (%s).', 'printgestion'), $gls['failures'], $gls['last_error'] !== '' ? $gls['last_error'] : __('sans détail', 'printgestion'));
+        } elseif ($gls['last_success'] === '') {
+            $gls_state  = self::STATE_PENDING;
+            $gls_status = __('Clés saisies, aucun appel réussi encore : attendre le prochain passage de la tâche, ou « Tester la connexion ».', 'printgestion');
+        } else {
+            $gls_state  = self::STATE_OK;
+            $gls_status = sprintf(__('Dernier appel réussi le %s.', 'printgestion'), Html::convDateTime($gls['last_success']));
+        }
+        $gls_lines = [
+            $gls_keys
+                ? ($gls_date !== '' ? sprintf(__('Clés : saisies, secret défini le %s.', 'printgestion'), Html::convDate($gls_date)) : __('Clés : saisies.', 'printgestion'))
+                : __('Clés : non saisies.', 'printgestion'),
+            $gls['last_success'] !== ''
+                ? sprintf(__('Dernier appel réussi : %s.', 'printgestion'), Html::convDateTime($gls['last_success']))
+                : __('Dernier appel réussi : jamais.', 'printgestion'),
+            sprintf(__('Échecs consécutifs : %d%s.', 'printgestion'), $gls['failures'], $gls['last_error'] !== '' ? ' (' . $gls['last_error'] . ')' : ''),
+            sprintf(__('Quota consommé aujourd\'hui : %1$d requête(s) sur %2$d, arrêt à %3$d%4$s.', 'printgestion'), $gls['quota_count'], PluginPrintgestionGlsclient::DAILY_QUOTA,
+                (int) floor(PluginPrintgestionGlsclient::DAILY_QUOTA * PluginPrintgestionGlsclient::QUOTA_STOP_RATIO),
+                $gls['quota_blocked'] ? ' — ' . __('quota dépassé (429) : plus d\'appel aujourd\'hui', 'printgestion') : ''),
+        ];
+        $checks[] = [
+            'key'    => 'gls',
+            'group'  => 'recommended',
+            'label'  => __('Suivi des colis GLS', 'printgestion'),
+            'state'  => $gls_state,
+            'status' => $gls_status,
+            'breaks' => __('Sans lui, une expédition GLS ne montre que le numéro saisi ; rien d\'autre ne change.', 'printgestion'),
+            'fix'    => __('Carte « Suivi GLS » de cette page : Client ID et Client Secret, puis « Tester la connexion »', 'printgestion'),
+            'url'    => '',
+            'detail' => implode('<br>', array_map($esc, $gls_lines)),
+        ];
+
         $checks[] = [
             'key'    => 'log',
             'group'  => 'recommended',

@@ -45,8 +45,8 @@ def main():
         section("1. Position et contenu")
         page, etats = carte()
         constat("carte « Santé de la configuration » en tête, avant les modules", ok_ko(0 <= page.find("Santé de la configuration") < page.find("Activation des modules")))
-        constat("9 contrôles : 7 obligatoires, 2 recommandés, l'URL de l'application en tête",
-                ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "cron", "xlsx", "notifications", "tag_rule", "glpicrypt", "log"]), str(etats))
+        constat("10 contrôles : 7 obligatoires, 3 recommandés, l'URL de l'application en tête",
+                ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "cron", "xlsx", "notifications", "tag_rule", "glpicrypt", "gls", "log"]), str(etats))
         sql("DELETE FROM glpi_configs WHERE context = 'plugin:printgestion' AND name IN ('glpicrypt_checked_at', 'glpicrypt_checked_by');")
         page, etats = carte()
         constat("glpicrypt.key : « non vérifiable automatiquement — jamais vérifié », bouton « J'ai vérifié », rien à cocher",
@@ -214,6 +214,53 @@ def main():
         else:
             sql(f"UPDATE glpi_configs SET value = {lib.q(delai)} WHERE context = 'inventory' AND name = 'stale_agents_delay';")
         sql(f"UPDATE glpi_plugin_printgestion_configs SET silent_days = {int(seuil)} WHERE id = 1;")
+
+        section("11. Suivi GLS : quatre lignes, rien qui manque sans clés")
+
+        sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
+
+        lib.php_glpi("PluginPrintgestionGlsclient::resetMemo();")
+
+        page, etats = carte()
+
+        constat("sans clés : ligne verte « Clés non saisies : pas de suivi GLS », rien ne manque",
+
+                ok_ko(etats.get("gls") == "ok" and "Clés non saisies" in page and "Clés : non saisies." in page))
+
+        secret_chiffre = lib.php_glpi("echo (new GLPIKey())->encrypt('secret-test-sante');").strip()
+
+        sql(f"UPDATE glpi_plugin_printgestion_configs SET gls_client_id = 'client-test', gls_client_secret = {lib.q(secret_chiffre)}, gls_secret_date = NOW() WHERE id = 1;")
+
+        page, etats = carte()
+
+        constat("clés saisies, aucun appel encore : en attente, « Tester la connexion » proposé, secret jamais dans la page",
+
+                ok_ko(etats.get("gls") == "pending" and "aucun appel réussi encore" in page and "secret-test-sante" not in page))
+
+        lib.php_glpi("PluginPrintgestionGlsclient::noteSuccess(); PluginPrintgestionGlsclient::countRequest();")
+
+        page, etats = carte()
+
+        constat("dernier appel réussi : ligne verte, les quatre lignes de détail (clés, dernier appel, échecs, quota 1 sur 500, arrêt à 400)",
+
+                ok_ko(etats.get("gls") == "ok" and "Dernier appel réussi le" in page and "Clés : saisies, secret défini le" in page
+
+                      and "Échecs consécutifs : 0." in page and "Quota consommé aujourd&#039;hui : 1 requête(s) sur 500, arrêt à 400." in page))
+
+        for _ in range(5):
+
+            lib.php_glpi("PluginPrintgestionGlsclient::noteFailure('GLS indisponible (HTTP 503).');")
+
+        page, etats = carte()
+
+        constat("cinq échecs consécutifs : ligne rouge avec la dernière erreur, carte dépliée",
+
+                ok_ko(etats.get("gls") == "error" and "5 échecs techniques consécutifs" in page and "HTTP 503" in page and "Configuration : complète" not in page))
+
+        sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
+
+        lib.php_glpi("PluginPrintgestionGlsclient::resetMemo();")
+
 
         section("7. Profils")
         lecture = CTX.profil(4, "Profil test configuration en lecture", {"plugin_printgestion_config": 1})
