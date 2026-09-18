@@ -149,6 +149,8 @@ if (!empty($priority_alerts)) {
                     . " <code>" . htmlspecialchars($pa['tracking'], ENT_QUOTES, 'UTF-8') . "</code>";
             }
             echo "</span>";
+            // Ligne de suivi GLS (rien sans clés, rien pour un autre transporteur).
+            echo PluginPrintgestionGlstracking::renderLineFor((int) ($pa['expedition_id'] ?? 0));
             echo "</div>";
             echo "</div>";
         }

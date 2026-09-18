@@ -19,9 +19,15 @@ d'étiquette, Track ID à 8 caractères, colis de test « QAS_ ») mais sont inv
    30 jours sans mouvement → « sans nouvelles » ; expédition posée jamais interrogée ; budget 80 % ; disjoncteur à cinq
    E_500_01 ; le suivi n'écrit jamais le statut de l'expédition.
 6. Page de configuration : « Tester la connexion » absent sans clés, refus sans appel réseau, présent avec des clés.
+7. Affichage, deux profils : sans clés, l'écran des expéditions est celui d'avant le suivi (aucune ligne de suivi,
+   pour l'administrateur comme pour le technicien) ; avec des clés, une ligne par expédition GLS suivie (pastille,
+   libellé, date ; lieu et numéro interrogé derrière le chevron), jamais le code brut, anomalie en rouge, « non
+   reconnu » ; identique dans les deux profils ; copies d'écran écrites hors du dépôt.
 Clés inventées, posées puis retirées ; expéditions de test supprimées ; mémo et cache du jeton effacés à la fin.
 """
 import json
+import os
+import re
 import sys
 
 import donnees as d
@@ -327,6 +333,71 @@ def main():
                  ("name='test_gls'" in page, "name='clear_gls'" in page, SECRET in page), (True, True, False))
     finally:
         sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
+
+    section("7. Affichage, deux profils")
+    CTX = lib.Contexte()
+    dossier = os.path.join(os.path.dirname(config.MAIL_DIR), "ecrans")
+    os.makedirs(dossier, exist_ok=True)
+
+    def copie(page):
+        page = re.sub(r"<script.*?</script>", " ", page, flags=re.S)
+        page = re.sub(r"<div class='collapse text-muted'[^>]*>(.*?)</div>", r" [chevron : \1] ", page, flags=re.S)
+        page = re.sub(r"</div>|</li>|</p>|<br>|</tr>", "\n", page)
+        lignes = [re.sub(r"\s+", " ", lib.texte(l)).strip() for l in page.split("\n")]
+        return "\n".join(l for l in lignes if l)
+
+    def ecran(nom):
+        _, page, _ = WEB.get(config.FRONT + "/dashboard_expeditions.php")
+        with open(os.path.join(dossier, nom + ".txt"), "w", encoding="utf-8") as fichier:
+            fichier.write(copie(page))
+        return page
+
+    try:
+        lib.connecter_admin()
+        profil = CTX.profil(6, "Profil test technicien (expéditions)", {"plugin_printgestion_expedition": 1, "plugin_printgestion_dashboard": 1, "plugin_printgestion_config": 0})
+        CTX.utilisateur("test-technicien-gls", profil, d.RACINE)
+        lignes_exp = [
+            ("tonerblack", "00TSTB2YBB", "tracked", "00TSTB2Y", "BB", "INDELIVERY", "Colis en cours de livraison", "2026-09-17 09:00:00", "00001 Dépôt test FR"),
+            ("tonercyan", "00TSTN1DAA", "tracked", "00TSTN1D", "AA", "NOTDELIVERED", "Destinataire absent", "2026-09-17 11:00:00", "00000 Ville test FR"),
+            ("tonermagenta", "00TSTZ9QAA", "unrecognized", "00TSTZ9QAA", "", "", "", "", ""),
+            ("toneryellow", "00TSTA1X", "final", "00TSTA1X", "", "DELIVERED", "Colis livré", "2026-09-16 15:00:00", "00000 Ville test FR"),
+        ]
+        for prop, numero, etat, cle, suffixe, code, libelle, date, lieu in lignes_exp:
+            sql(f"INSERT INTO {EXP} (printers_id, toner_property, toner_color, statut, level_at_alert, date_alert, date_shipped, users_id_tech, group_id, "
+                f"transport_carrier, transport_number, entities_id, tracking_state, tracking_key, tracking_suffix, tracking_status, tracking_label, tracking_event_date, "
+                f"tracking_event_place, tracking_checked_at) VALUES (2, '{prop}', 'black', 'shipped', 10, NOW(), NOW(), {d.ADMIN_ID}, 'test-gls-aff', 'gls', '{numero}', 0, "
+                f"'{etat}', '{cle}', {lib.q(suffixe) if suffixe else 'NULL'}, {lib.q(code) if code else 'NULL'}, {lib.q(libelle) if libelle else 'NULL'}, "
+                f"{lib.q(date) if date else 'NULL'}, {lib.q(lieu) if lieu else 'NULL'}, NOW());")
+        sql(f"INSERT INTO {EXP} (printers_id, toner_property, toner_color, statut, level_at_alert, date_alert, date_shipped, users_id_tech, group_id, transport_carrier, "
+            f"transport_number, entities_id) VALUES (2, 'drumblack', 'black', 'shipped', 10, NOW(), NOW(), {d.ADMIN_ID}, 'test-gls-aff', 'other', 'AUTRE-0001', 0);")
+        sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
+        sans = {}
+        for nom, connexion in (("admin", lib.connecter_admin), ("technicien", lambda: CTX.connecter("test-technicien-gls"))):
+            connexion()
+            sans[nom] = ecran(f"expeditions-sans-cles-{nom}")
+            verifier(f"sans clés, {nom} : numéros saisis affichés, aucune ligne de suivi, aucune trace du suivi",
+                     ("00TSTB2YBB" in sans[nom], "data-pg-gls" in sans[nom], "pg-gls" in sans[nom], "INDELIVERY" in sans[nom]), (True, False, False, False))
+        chiffre = lib.php_glpi(f"echo (new GLPIKey())->encrypt({lib.q(SECRET)});").strip()
+        sql(f"UPDATE glpi_plugin_printgestion_configs SET gls_client_id = 'client-test', gls_client_secret = {lib.q(chiffre)}, gls_secret_date = NOW() WHERE id = 1;")
+        avec = {}
+        for nom, connexion in (("admin", lib.connecter_admin), ("technicien", lambda: CTX.connecter("test-technicien-gls"))):
+            connexion()
+            page = avec[nom] = ecran(f"expeditions-avec-cles-{nom}")
+            verifier(f"avec des clés, {nom} : ligne de suivi (libellé, événement, date), lieu et numéro interrogé derrière le chevron, saisie brute conservée",
+                     ("data-pg-gls='tracked'" in page, "En cours de livraison" in page, "Colis en cours de livraison" in page, "00001 Dépôt test FR" in page,
+                      "Numéro interrogé : 00TSTB2Y" in page, "00TSTB2YBB" in page), (True, True, True, True, True, True))
+            verifier(f"{nom} : jamais le code brut, anomalie en rouge « à signaler aux Achats », « non reconnu », livré en vert, l'autre transporteur sans ligne",
+                     ("INDELIVERY" in page, "NOTDELIVERED" in page, "Non livré" in page and "à signaler aux Achats" in page, "Numéro non reconnu par GLS" in page,
+                      "data-pg-gls='final'" in page, page.count("data-pg-gls=")), (False, False, True, True, True, 4))
+        lignes_suivi_admin = sorted(re.findall(r"<div class='pg-gls small'.*?</div></div>|<div class='pg-gls small'[^>]*>.*?(?=</td>)", avec["admin"], flags=re.S))
+        lignes_suivi_tech = sorted(re.findall(r"<div class='pg-gls small'.*?</div></div>|<div class='pg-gls small'[^>]*>.*?(?=</td>)", avec["technicien"], flags=re.S))
+        verifier("les lignes de suivi sont les mêmes dans les deux profils (rien de réservé, rien de diagnostic)", lignes_suivi_admin == lignes_suivi_tech and len(lignes_suivi_admin) == 4, True)
+        print(f"    copies d'écran : {dossier}/expeditions-*-{{admin,technicien}}.txt")
+    finally:
+        lib.connecter_admin()
+        sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
+        sql(f"DELETE FROM {EXP} WHERE group_id = 'test-gls-aff';")
+        CTX.nettoyer()
     return lib.bilan()
 
 

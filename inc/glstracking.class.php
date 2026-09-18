@@ -299,6 +299,93 @@ class PluginPrintgestionGlstracking {
         ];
     }
 
+    // ── Affichage ─────────────────────────────────────────────────────────────
+
+    /**
+     * La ligne de suivi d'une expédition : une pastille, le libellé, la date du dernier événement ; derrière un
+     * chevron, le lieu, le numéro interrogé (s'il diffère de la saisie) et la dernière interrogation. Le numéro
+     * affiché ailleurs reste la saisie brute. Jamais le code brut, ni le point d'entrée, ni le nombre d'échecs.
+     *
+     * Chaîne vide : sans clés saisies (l'écran est exactement celui d'avant le suivi), transporteur autre que
+     * GLS, ou rien de collecté encore. Même rendu pour tous les profils : rien ici n'est un diagnostic.
+     *
+     * @param array $exp Ligne de glpi_plugin_printgestion_expeditions (transport_* et tracking_*).
+     */
+    public static function renderLine(array $exp, string $id): string {
+        if (!PluginPrintgestionGlsclient::hasKeys() || (string) ($exp['transport_carrier'] ?? '') !== 'gls') {
+            return '';
+        }
+        $esc   = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $state = (string) ($exp['tracking_state'] ?? '');
+        if (!in_array($state, [self::STATE_TRACKED, self::STATE_FINAL, self::STATE_SILENT, self::STATE_UNRECOGNIZED], true)) {
+            return '';
+        }
+        $details = [];
+        $raw     = PluginPrintgestionGlsnumber::clean((string) ($exp['transport_number'] ?? ''));
+        $key     = (string) ($exp['tracking_key'] ?? '');
+        if ($key !== '' && $key !== $raw) {
+            $details[] = sprintf(__('Numéro interrogé : %1$s%2$s', 'printgestion'), $key,
+                (string) ($exp['tracking_suffix'] ?? '') !== '' ? sprintf(__(' (suffixe %s conservé)', 'printgestion'), $exp['tracking_suffix']) : '');
+        }
+        if (!empty($exp['tracking_checked_at'])) {
+            $details[] = sprintf(__('Dernière interrogation : %s', 'printgestion'), Html::convDateTime((string) $exp['tracking_checked_at']));
+        }
+        if ($state === self::STATE_UNRECOGNIZED) {
+            $badge = 'bg-secondary';
+            $text  = $esc(__('Numéro non reconnu par GLS', 'printgestion'));
+        } else {
+            $status   = (string) ($exp['tracking_status'] ?? '');
+            $describe = self::describeStatus($status);
+            $badge    = match ($describe['level']) {
+                'final'    => 'bg-success',
+                'relay'    => 'bg-azure',
+                'anomaly'  => 'bg-danger',
+                'canceled' => 'bg-secondary',
+                'unknown'  => 'bg-secondary',
+                default    => 'bg-primary',
+            };
+            $label = $describe['label'];
+            if ($state === self::STATE_SILENT) {
+                $badge = 'bg-secondary';
+                $label = sprintf(__('Sans nouvelles depuis 30 jours (%s)', 'printgestion'), $label);
+            }
+            $text = '<strong' . ($describe['level'] === 'anomaly' ? " class='text-danger'" : '') . '>' . $esc($label) . '</strong>';
+            $event = trim((string) ($exp['tracking_label'] ?? ''));
+            if ($event !== '' && mb_strtolower($event) !== mb_strtolower($label)) {
+                $text .= ' — ' . $esc($event);
+            }
+            if (!empty($exp['tracking_event_date'])) {
+                $text .= ' — ' . $esc(Html::convDateTime((string) $exp['tracking_event_date']));
+            }
+            if ($describe['level'] === 'anomaly') {
+                $text .= " <span class='text-danger'>" . $esc(__('(à signaler aux Achats)', 'printgestion')) . '</span>';
+            }
+            if ((string) ($exp['tracking_event_place'] ?? '') !== '') {
+                array_unshift($details, sprintf(__('Lieu : %s', 'printgestion'), $exp['tracking_event_place']));
+            }
+        }
+        $target = $esc('pg-gls-' . $id);
+        $html   = "<div class='pg-gls small' data-pg-gls='" . $esc($state) . "'><span class='badge {$badge} me-1' style='width:.7em;height:.7em;padding:0;border-radius:50%;display:inline-block'></span>" . $text;
+        if (!empty($details)) {
+            $html .= " <a class='small text-muted' data-bs-toggle='collapse' href='#{$target}' role='button' aria-expanded='false' aria-controls='{$target}'>"
+                . "<i class='ti ti-chevron-down'></i></a><div class='collapse text-muted' id='{$target}'>"
+                . implode('<br>', array_map($esc, $details)) . '</div>';
+        }
+        return $html . '</div>';
+    }
+
+    /** La ligne de suivi d'une expédition par son identifiant (une lecture). */
+    public static function renderLineFor(int $expeditions_id): string {
+        if (!PluginPrintgestionGlsclient::hasKeys()) {
+            return '';
+        }
+        $expedition = new PluginPrintgestionExpedition();
+        if (!$expedition->getFromDB($expeditions_id)) {
+            return '';
+        }
+        return self::renderLine($expedition->fields, (string) $expeditions_id);
+    }
+
     /** ISO 8601 avec décalage (« 2024-10-07T10:46:14+0200 ») → heure du serveur ; null si illisible. */
     public static function toLocalDateTime(string $iso): ?string {
         if (trim($iso) === '') {

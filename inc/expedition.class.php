@@ -149,7 +149,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             'table'    => self::getTable(),
             'field'    => 'transport_number',
             'name'     => __('N° de suivi', 'printgestion'),
-            'datatype' => 'string',
+            'datatype' => 'specific',   // saisie brute + ligne de suivi GLS (getSpecificValueToDisplay), rien sans clés
         ];
         $tab[] = [
             'id'       => '8',
@@ -242,6 +242,16 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 }
                 return "<span class='badge bg-light text-dark border'>"
                     . htmlspecialchars(strtoupper($v), ENT_QUOTES, 'UTF-8') . "</span>";
+
+            case 'transport_number':
+                // La saisie brute, jamais réécrite ; dessous, la ligne de suivi GLS quand il y en a une (rien sans clés).
+                $v   = trim((string) ($values[$field] ?? ''));
+                $out = $v === '' ? "<span class='text-muted'>—</span>" : htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
+                $rawid = (int) ($options['raw_data']['id'] ?? 0);
+                if ($v !== '' && $rawid > 0) {
+                    $out .= PluginPrintgestionGlstracking::renderLineFor($rawid);
+                }
+                return $out;
         }
         return parent::getSpecificValueToDisplay($field, $values, $options);
     }
