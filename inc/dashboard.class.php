@@ -70,6 +70,13 @@ class PluginPrintgestionDashboard extends CommonGLPI {
 
     public static function showCards(): void {
         $s = self::computeStats();
+        // Rien à montrer : dire par quoi commencer, pas des compteurs à zéro.
+        if ((int) $s['total'] === 0) {
+            echo PluginPrintgestionUi::emptyState(
+                __('Aucun contrat d\'impression pour l\'instant. Commencez par « Créer Print » : un contrat et son imprimante en un seul formulaire. Un contrat GLPI existant compte dès qu\'il est d\'un type « consommables inclus » (Configuration → Print Gestion, section Commandes).', 'printgestion'),
+                [__('Créer Print', 'printgestion') => PLUGIN_PRINTGESTION_WEBDIR . '/front/print.form.php']
+            );
+        }
 
         PluginPrintgestionUi::statsBar([
             ['url' => self::cardUrl('all'), 'count' => $s['total'],
@@ -319,6 +326,12 @@ class PluginPrintgestionDashboard extends CommonGLPI {
             ['itemtype' => $itemtype]
         );
         echo "<div class='col search-container' data-glpi-search-container>";
+        if ((int) self::computeStats()['total'] === 0) {
+            echo PluginPrintgestionUi::emptyState(
+                __('Aucun contrat d\'impression pour l\'instant. Commencez par « Créer Print » : un contrat et son imprimante en un seul formulaire.', 'printgestion'),
+                [__('Créer Print', 'printgestion') => PLUGIN_PRINTGESTION_WEBDIR . '/front/print.form.php']
+            );
+        }
         Search::showList($itemtype, $params, $forced_display);
         echo "</div>";
         echo "</div>";

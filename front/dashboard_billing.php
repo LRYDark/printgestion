@@ -187,6 +187,17 @@ if (Session::haveRight('plugin_printgestion_billing', CREATE)) {
         . __('Exporter Excel', 'printgestion') . "</a></div>";
 }
 
+// Rien à montrer : dire d'où vient le coût, pas un tableau vide.
+if ((int) $m['nb_printers'] === 0) {
+    echo PluginPrintgestionUi::emptyState(
+        __('Aucun coût calculé sur la période. Le coût à la page se calcule à partir des compteurs de pages relevés par les sondes (un relevé par jour et par imprimante) et des tarifs du contrat (fiche du contrat, onglet Print Gestion). Si les relevés existent, élargir la période ou décocher un critère.', 'printgestion'),
+        [
+            __('Contrôle de la remontée', 'printgestion') => PLUGIN_PRINTGESTION_WEBDIR . '/front/collect.php',
+            __('Liste contrats', 'printgestion')          => PLUGIN_PRINTGESTION_WEBDIR . '/front/list.php',
+        ]
+    );
+}
+
 // ── Tableau NATIF (moteur de recherche GLPI) ─────────────────────────────────
 $itemtype = 'PluginPrintgestionBillingview';
 $params   = Search::manageParams($itemtype, $_GET);

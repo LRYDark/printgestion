@@ -112,6 +112,17 @@ if (Session::haveRight('plugin_printgestion_dashboard', UPDATE)) {
 }
 echo "</div>";
 
+// Rien à montrer : dire par quoi commencer, pas un tableau vide.
+if (countElementsInTable('glpi_plugin_printgestion_alertview') === 0) {
+    echo PluginPrintgestionUi::emptyState(
+        __('Aucune alerte pour l\'instant. Les alertes viennent des relevés SNMP des sondes : déployer une sonde chez le client, raccorder ses imprimantes depuis la fiche de l\'entité (onglet Déploiement Agent), puis suivre la remontée. Les premières alertes apparaissent au passage de la tâche horaire, ou avec « Recalculer maintenant ».', 'printgestion'),
+        [
+            __('Installeur GLPI Agent', 'printgestion')      => PLUGIN_PRINTGESTION_WEBDIR . '/front/agentdeploy.php',
+            __('Contrôle de la remontée', 'printgestion')    => PLUGIN_PRINTGESTION_WEBDIR . '/front/collect.php',
+        ]
+    );
+}
+
 // ── Tableau NATIF (restriction d'entité native : colonne entities_id) ──
 $itemtype = PluginPrintgestionAlertview::class;
 $params   = Search::manageParams($itemtype, $_GET);

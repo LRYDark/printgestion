@@ -32,6 +32,25 @@ class PluginPrintgestionUi {
      *
      * @param string $level ok, warning, error ou info
      */
+    /**
+     * Écran sans rien à montrer : une phrase qui dit par quoi commencer, et les liens pour y aller. Jamais un tableau
+     * vide sans explication : pendant la première heure d'un nouvel utilisateur, l'écran vide est le produit.
+     *
+     * @param array $links [libellé => URL]
+     */
+    public static function emptyState(string $text, array $links = []): string {
+        $esc  = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $html = "<div class='alert alert-info d-flex align-items-start gap-2 mb-3' data-pg-empty='1'><i class='ti ti-info-circle fs-2 mt-1'></i><div>" . $esc($text);
+        if (!empty($links)) {
+            $html .= "<div class='mt-2 d-flex flex-wrap gap-2'>";
+            foreach ($links as $label => $url) {
+                $html .= "<a class='btn btn-sm btn-outline-primary' href='" . $esc($url) . "'>" . $esc($label) . "</a>";
+            }
+            $html .= "</div>";
+        }
+        return $html . "</div></div>";
+    }
+
     public static function statusLine(string $level, string $text, string $details_html = ''): string {
         $styles = [
             'ok'      => ['ti-circle-check', 'text-success'],

@@ -204,6 +204,17 @@ PluginPrintgestionUi::statsBar([
      'icon' => 'ti ti-checks', 'color' => 'teal'],
 ], 'printgestionExpeditionStatsBar');
 
+// Rien à montrer : dire d'où vient une expédition, pas un tableau vide.
+if (array_sum($status_counts) === 0) {
+    echo PluginPrintgestionUi::emptyState(
+        __('Aucune expédition pour l\'instant. Une expédition naît d\'une commande de cartouche : depuis « Alertes toner » (action « Commander » sur une alerte), ou d\'une demande d\'envoi validée puis exportée vers les Achats.', 'printgestion'),
+        [
+            __('Alertes toner', 'printgestion')      => PLUGIN_PRINTGESTION_WEBDIR . '/front/dashboard_alerts.php',
+            __('Demandes d\'envoi', 'printgestion')  => PLUGIN_PRINTGESTION_WEBDIR . '/front/demande.php',
+        ]
+    );
+}
+
 // ── Tableau NATIF (moteur de recherche GLPI) ──
 // Restriction d'entité : entité de l'envoi (native, et seconde barrière dans plugin_printgestion_addDefaultWhere()).
 $itemtype = 'PluginPrintgestionExpedition';

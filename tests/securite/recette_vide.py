@@ -5,7 +5,8 @@ vides (les objets natifs du jeu de données, entités, imprimantes, contrats, ex
 2. Technicien (tous les droits du plugin en lecture, configuration exclue), accès direct par l'URL : idem ; la
    configuration est refusée proprement.
 3. Chaque tâche automatique sur base vide : aucune en erreur, aucune erreur PHP ou SQL.
-Dernier fichier de la suite, après installation.py.
+Dernier fichier de la suite, après installation.py ; retire les données natives d'inventaire du jeu de test (cartouches,
+compteurs) pour voir les écrans tels qu'un GLPI neuf les montre : l'instance ressort à reconstruire.
 """
 import os
 import sys
@@ -63,6 +64,15 @@ def main():
         anomalies = []
         nb = parcourir(anomalies)
         constat(f"{nb} requêtes : aucune erreur, aucune page blanche", lib.ok_ko(not anomalies), " | ".join(anomalies[:10]))
+        # Un GLPI neuf n'a ni cartouches inventoriées ni compteurs de pages : ces données natives du jeu de test nourrissent les
+        # alertes et le coût même sans le plugin. Retirées ici (dernier fichier de la suite, instance reconstruite avant chaque passe).
+        lib.sql("DELETE FROM glpi_printers_cartridgeinfos; DELETE FROM glpi_printerlogs; DELETE FROM glpi_plugin_printgestion_alertview; "
+                "DELETE FROM glpi_plugin_printgestion_toner_readings; DELETE FROM glpi_plugin_printgestion_billing_view;")
+        lib.php_glpi("PluginPrintgestionBilling::invalidateCache();")  # le coût à la page est mis en cache dix minutes
+        for page, marqueur in (("dashboard_alerts.php", "Aucune alerte pour l"), ("dashboard_expeditions.php", "Aucune expédition pour l"), ("dashboard_billing.php", "Aucun coût calculé")):
+            _, html, _ = WEB.get(config.FRONT + "/" + page)
+            constat(f"{page} sans données : dit par quoi commencer, avec ses liens, au lieu d'un tableau vide",
+                    lib.ok_ko("data-pg-empty" in html and marqueur in html and "btn btn-sm btn-outline-primary" in html[html.find("data-pg-empty"):]))
 
         section("2. Technicien, base vide, accès direct par l'URL")
         droits = {"plugin_printgestion_contrats": 1, "plugin_printgestion_dashboard": 1, "plugin_printgestion_expedition": 1, "plugin_printgestion_validation": 1,
