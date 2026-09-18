@@ -46,9 +46,15 @@ if (isset($_POST['activate_contract_alerts'])) {
     Session::addMessageAfterRedirect($switched
         ? __('Tâches de Print Gestion passées en mode CLI. Les tâches de GLPI et des autres plugins sont inchangées.', 'printgestion')
         : __('Aucune tâche de Print Gestion à basculer.', 'printgestion'), false, INFO);
+} elseif (isset($_POST['test_gls'])) {
+    // « Tester la connexion » GLS : un jeton demandé puis jeté ; le message ne le contient jamais.
+    $result = (new PluginPrintgestionGlsclient())->testConnection();
+    Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : ERROR);
 } elseif (isset($_POST['clear_gls'])) {
-    // « Retirer les clés » GLS : identifiant et secret effacés, les suivis déjà collectés restent.
+    // « Retirer les clés » GLS : identifiant et secret effacés, les suivis déjà collectés restent ; mémo et jeton oubliés.
     PluginPrintgestionConfig::getInstance()->update(['id' => 1, 'gls_client_id' => '', 'gls_client_secret' => '', 'gls_secret_date' => null]);
+    PluginPrintgestionGlsclient::resetMemo();
+    (new PluginPrintgestionGlsclient())->forgetToken();
     Session::addMessageAfterRedirect(__('Identifiant et secret GLS retirés : le suivi GLS est inactif, les suivis déjà collectés restent en place.', 'printgestion'), false, INFO);
 } elseif (isset($_POST['test_log'])) {
     // Bouton de la ligne « Journal du plugin » de la carte « Santé de la configuration » : aucun réglage enregistré.

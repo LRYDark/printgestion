@@ -1212,6 +1212,11 @@ HTML;
         if ($gls_set || $gls_id !== '') {
             echo "<button type='submit' name='clear_gls' value='1' class='btn btn-sm btn-outline-danger' formnovalidate onclick=\"return confirm(" . $esc(json_encode(__('Retirer l\'identifiant et le secret GLS ? Les suivis déjà collectés restent en place.', 'printgestion'))) . ");\">"
                 . "<i class='ti ti-trash me-1'></i>" . $esc(__('Retirer les clés', 'printgestion')) . "</button>";
+            if ($gls_set && $gls_id !== '') {
+                // Demande un jeton et le jette : « connexion établie » ou l'erreur, jamais le jeton.
+                echo " <button type='submit' name='test_gls' value='1' class='btn btn-sm btn-outline-primary' formnovalidate data-pg-submit-once='1'>"
+                    . "<i class='ti ti-plug-connected me-1'></i>" . $esc(__('Tester la connexion', 'printgestion')) . "</button>";
+            }
         }
         echo "</div></div>";
 

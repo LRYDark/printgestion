@@ -18,6 +18,7 @@ d'étiquette, Track ID à 8 caractères, colis de test « QAS_ ») mais sont inv
    reconnu » ; multi-colis : le colis encore en cours ; code de statut non répertorié → non final et journalisé ;
    30 jours sans mouvement → « sans nouvelles » ; expédition posée jamais interrogée ; budget 80 % ; disjoncteur à cinq
    E_500_01 ; le suivi n'écrit jamais le statut de l'expédition.
+6. Page de configuration : « Tester la connexion » absent sans clés, refus sans appel réseau, présent avec des clés.
 Clés inventées, posées puis retirées ; expéditions de test supprimées ; mémo et cache du jeton effacés à la fin.
 """
 import json
@@ -25,7 +26,8 @@ import sys
 
 import donnees as d
 import lib
-from lib import section, sql, verifier
+import config
+from lib import WEB, section, sql, verifier
 
 # Réponses simulées : clé connue → colis rendus (inventés). Toute autre clé : E_404_01. « PANNE… » : E_500_01.
 CONNUS = {
@@ -309,6 +311,22 @@ def main():
     finally:
         sql(f"DELETE FROM {EXP} WHERE group_id LIKE 'test-gls-%';")
         lib.php_glpi("PluginPrintgestionGlsclient::resetMemo();")
+
+    section("6. Page de configuration : « Tester la connexion »")
+    ONGLET = "/ajax/common.tabs.php?_target=%2Ffront%2Fconfig.form.php&_itemtype=Config&_glpi_tab=PluginPrintgestionConfig%241&id=1"
+    try:
+        lib.connecter_admin()
+        _, page, _ = WEB.get(ONGLET)
+        verifier("sans clés : pas de bouton « Tester la connexion »", "name='test_gls'" in page, False)
+        WEB.post(config.FRONT + "/config.form.php", [("test_gls", "1")])
+        verifier("sans clés : le test répond « non saisis », sans appel", "non saisis" in WEB.messages(), True)
+        chiffre = lib.php_glpi(f"echo (new GLPIKey())->encrypt({lib.q(SECRET)});").strip()
+        sql(f"UPDATE glpi_plugin_printgestion_configs SET gls_client_id = 'client-test', gls_client_secret = {lib.q(chiffre)}, gls_secret_date = NOW() WHERE id = 1;")
+        _, page, _ = WEB.get(ONGLET)
+        verifier("avec des clés : bouton « Tester la connexion » à côté de « Retirer les clés », secret jamais dans la page",
+                 ("name='test_gls'" in page, "name='clear_gls'" in page, SECRET in page), (True, True, False))
+    finally:
+        sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
     return lib.bilan()
 
 
