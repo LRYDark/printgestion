@@ -13,7 +13,12 @@ d'étiquette, Track ID à 8 caractères, colis de test « QAS_ ») mais sont inv
    puis Bearer et Accept-Language: FR sur trackids ; jeton gardé en cache entre deux processus ; 401 → jeton oublié,
    429 → journée bloquée, 500 / 400 / coupure → échecs typés ; onze clés refusées avant tout appel ; quota compté sur
    le suivi seulement ; le secret, son Basic et le jeton n'apparaissent dans aucun message.
-Clés inventées, posées puis retirées ; mémo et cache du jeton effacés à la fin.
+5. Tâche de suivi avec un transporteur simulé : rien sans clés ; repli mémorisé (clé à 8, suffixe à part) ; statut
+   final plus jamais interrogé ; cadence d'une heure ; numéro inconnu réessayé après 24 h, trois cycles puis « non
+   reconnu » ; multi-colis : le colis encore en cours ; code de statut non répertorié → non final et journalisé ;
+   30 jours sans mouvement → « sans nouvelles » ; expédition posée jamais interrogée ; budget 80 % ; disjoncteur à cinq
+   E_500_01 ; le suivi n'écrit jamais le statut de l'expédition.
+Clés inventées, posées puis retirées ; expéditions de test supprimées ; mémo et cache du jeton effacés à la fin.
 """
 import json
 import sys
@@ -206,6 +211,104 @@ def main():
     finally:
         sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
         lib.php_glpi("PluginPrintgestionGlsclient::resetMemo(); (new PluginPrintgestionGlsclient())->forgetToken();")
+
+    section("5. Tâche de suivi, transporteur simulé")
+    EXP = "glpi_plugin_printgestion_expeditions"
+    numeros = {"A": "00TSTA1XAA", "B": "00TSTB2Y", "Z": "00TSTZ9QAA", "M": "00TSTM4W", "W": "00TSTW5V", "P": "00TSTP0SE"}
+    try:
+        # Un envoi vivant par imprimante et par consommable (index uniq_active_slot) : une propriété par expédition de test.
+        proprietes = ["tonerblack", "tonercyan", "tonermagenta", "toneryellow", "drumblack", "wastetoner"]
+        for (lettre, numero), propriete in zip(numeros.items(), proprietes):
+            statut = "installed" if lettre == "P" else "shipped"
+            sql(f"INSERT INTO {EXP} (printers_id, toner_property, toner_color, statut, level_at_alert, date_alert, date_shipped, users_id_tech, group_id, "
+                f"transport_carrier, transport_number, entities_id) VALUES (2, '{propriete}', 'black', '{statut}', 10, NOW(), NOW(), {d.ADMIN_ID}, "
+                f"'test-gls-{lettre}', 'gls', '{numero}', 0);")
+        ids = {r[1].split("-")[-1]: int(r[0]) for r in lib.lignes(f"SELECT id, group_id FROM {EXP} WHERE group_id LIKE 'test-gls-%'")}
+        reponses = dict(CONNUS)
+        reponses["00TSTB2Y"] = [{"requested": "00TSTB2Y", "unitno": "90000000002", "status": "INTRANSIT", "statusDateTime": "2026-09-17T09:00:00+0200",
+                                "events": [{"code": "INTIAL.PREADVICE", "description": "Données reçues", "eventDateTime": "2026-09-16T18:00:00+0200", "city": "Ville test", "postalCode": "00000", "country": "FR"},
+                                           {"code": "TRANSI.HUB", "description": "Colis en transit", "eventDateTime": "2026-09-17T09:00:00+0200", "city": "Dépôt test", "postalCode": "00001", "country": "FR"}]}]
+        reponses["00TSTM4W"] = [{"requested": "00TSTM4W", "unitno": "90000000005", "status": "INDELIVERY", "statusDateTime": "2026-09-17T08:00:00+0200"},
+                                {"requested": "00TSTM4W", "unitno": "90000000006", "status": "DELIVERED", "statusDateTime": "2026-09-17T10:00:00+0200"}]
+        reponses["00TSTW5V"] = [{"requested": "00TSTW5V", "unitno": "90000000007", "status": "WEIRDCODE", "statusDateTime": "2026-09-17T10:00:00+0200"}]
+
+        def tache(plan, configure=True, avant=""):
+            code = (
+                "$plan = json_decode(" + json.dumps(json.dumps(plan)) + ", true);"
+                "$fake = new class($plan, " + ("true" if configure else "false") + ") implements PluginPrintgestionCarrierclient {"
+                "  public array $calls = [];"
+                "  public function __construct(private array $plan, private bool $configured) {}"
+                "  public function isConfigured(): bool { return $this->configured; }"
+                "  public function testConnection(): array { return ['ok' => true, 'message' => '']; }"
+                "  public function track(array $keys): array { $this->calls[] = $keys; $out = [];"
+                "    foreach ($keys as $k) { if (isset($this->plan[$k])) { foreach ($this->plan[$k] as $p) { $out[] = $p; } }"
+                "      elseif (str_starts_with($k, 'PANNE')) { $out[] = ['requested' => $k, 'errorCode' => 'E_500_01']; }"
+                "      else { $out[] = ['requested' => $k, 'errorCode' => 'E_404_01']; } }"
+                "    return $out; }"
+                "};" + avant +
+                "$stats = PluginPrintgestionGlstracking::poll(null, $fake);"
+                "echo json_encode(['stats' => $stats, 'calls' => $fake->calls, 'memo' => PluginPrintgestionGlsclient::getMemo()]);"
+            )
+            return json.loads(lib.php_glpi(code))
+
+        def lignes_suivi():
+            return {r[1].split("-")[-1]: dict(zip(("id", "group", "state", "key", "suffix", "status", "label", "event", "place", "checked", "failures", "statut"), r))
+                    for r in lib.lignes(f"SELECT id, group_id, tracking_state, IFNULL(tracking_key, ''), IFNULL(tracking_suffix, ''), IFNULL(tracking_status, ''), "
+                                        f"IFNULL(tracking_label, ''), IFNULL(tracking_event_date, ''), IFNULL(tracking_event_place, ''), IFNULL(tracking_checked_at, ''), "
+                                        f"tracking_failures, statut FROM {EXP} WHERE group_id LIKE 'test-gls-%'")}
+
+        tailles = lib.tailles_journaux()
+        lib.php_glpi("PluginPrintgestionGlsclient::resetMemo();")
+        r = tache(reponses, configure=False)
+        verifier("sans clés : la tâche ne fait rien, aucun appel", (r["stats"]["stopped"], r["calls"]), ("no_keys", []))
+        r = tache(reponses)
+        suivi = lignes_suivi()
+        verifier("premier passage : cinq expéditions vivantes interrogées en un paquet, puis le seul repli ; la posée jamais",
+                 (r["stats"]["checked"], [sorted(c) for c in r["calls"]], suivi["P"]["state"], suivi["P"]["checked"]),
+                 (5, [sorted(["00TSTA1XAA", "00TSTB2Y", "00TSTZ9QAA", "00TSTM4W", "00TSTW5V"]), ["00TSTA1X", "00TSTZ9Q"]], "", ""))
+        verifier("A : repli mémorisé (clé 00TSTA1X, suffixe AA), livré → final", (suivi["A"]["key"], suivi["A"]["suffix"], suivi["A"]["status"], suivi["A"]["state"]),
+                 ("00TSTA1X", "AA", "DELIVERED", "final"))
+        verifier("B : en transit, dernier événement trié sur sa date (le plus récent), lieu et libellé français",
+                 (suivi["B"]["state"], suivi["B"]["status"], suivi["B"]["label"], suivi["B"]["place"], suivi["B"]["event"][:10]),
+                 ("tracked", "INTRANSIT", "Colis en transit", "00001 Dépôt test FR", "2026-09-17"))
+        verifier("Z : inconnu après repli → « unknown », un échec compté, saisie nettoyée gardée comme clé", (suivi["Z"]["state"], suivi["Z"]["failures"], suivi["Z"]["key"]), ("unknown", "1", "00TSTZ9QAA"))
+        verifier("M : multi-colis, c'est le colis encore en cours qui est retenu", (suivi["M"]["status"], suivi["M"]["state"]), ("INDELIVERY", "tracked"))
+        verifier("W : code non répertorié → non final, journalisé", (suivi["W"]["state"], suivi["W"]["status"], "non répertorié" in lib.journal_depuis(tailles, "printgestion.log")),
+                 ("tracked", "WEIRDCODE", True))
+        verifier("le suivi n'écrit jamais le statut de l'expédition", sorted({s["statut"] for k, s in suivi.items() if k != "P"}), ["shipped"])
+        verifier("mémo : dernier appel réussi noté, zéro échec ; deux requêtes au passage", (r["memo"]["last_success"] != "", r["memo"]["failures"], r["stats"]["requests"]), (True, 0, 2))
+        r = tache(reponses)
+        verifier("second passage dans l'heure : rien à interroger", (r["stats"]["checked"], r["calls"]), (0, []))
+        sql(f"UPDATE {EXP} SET tracking_checked_at = DATE_SUB(tracking_checked_at, INTERVAL 2 HOUR) WHERE group_id LIKE 'test-gls-%';")
+        r = tache(reponses)
+        verifier("deux heures plus tard : B, M et W réinterrogés ; A (final) jamais ; Z pas avant 24 h", sorted(r["calls"][0]), sorted(["00TSTB2Y", "00TSTM4W", "00TSTW5V"]))
+        # Dates absolues à l'heure de GLPI (PHP), jamais NOW() de la base : les deux horloges diffèrent.
+        il_y_a = lambda secondes: lib.php_glpi(f"echo date('Y-m-d H:i:s', time() - {secondes});").strip()  # noqa: E731
+        sql(f"UPDATE {EXP} SET tracking_checked_at = '{il_y_a(25 * 3600)}' WHERE group_id = 'test-gls-Z';")
+        tache(reponses)
+        sql(f"UPDATE {EXP} SET tracking_checked_at = '{il_y_a(25 * 3600)}' WHERE group_id = 'test-gls-Z';")
+        r = tache(reponses)
+        suivi = lignes_suivi()
+        verifier("Z : trois cycles inconnus → « non reconnu » définitivement, plus jamais interrogé ensuite", (suivi["Z"]["state"], suivi["Z"]["failures"]), ("unrecognized", "3"))
+        sql(f"UPDATE {EXP} SET tracking_checked_at = '{il_y_a(25 * 3600)}' WHERE group_id = 'test-gls-Z';")
+        r = tache(reponses)
+        verifier("Z non reconnu : absent des appels", any("00TSTZ9Q" in c or "00TSTZ9QAA" in c for c in r["calls"]), False)
+        sql(f"UPDATE {EXP} SET tracking_event_date = '{il_y_a(31 * 86400)}', tracking_checked_at = '{il_y_a(2 * 3600)}' WHERE group_id = 'test-gls-B';")
+        r = tache(reponses)
+        suivi = lignes_suivi()
+        verifier("B sans mouvement depuis 31 jours : « sans nouvelles », non interrogé", (suivi["B"]["state"], any("00TSTB2Y" in c for c in r["calls"])), ("silent", False))
+        sql(f"UPDATE {EXP} SET tracking_checked_at = '{il_y_a(2 * 3600)}' WHERE group_id LIKE 'test-gls-%';")
+        r = tache(reponses, avant="Config::setConfigurationValues('plugin:printgestion', ['gls_quota_day' => date('Y-m-d'), 'gls_quota_count' => 400]);")
+        verifier("budget de 80 % consommé : arrêt avant tout appel", (r["stats"]["stopped"], r["calls"]), ("budget", []))
+        lib.php_glpi("PluginPrintgestionGlsclient::resetMemo();")
+        for n, propriete in enumerate(["tonerblack", "tonercyan", "toneryellow", "drumblack", "wastetoner"]):
+            sql(f"INSERT INTO {EXP} (printers_id, toner_property, toner_color, statut, level_at_alert, date_alert, date_shipped, users_id_tech, group_id, transport_carrier, transport_number, entities_id) "
+                f"VALUES (3, '{propriete}', 'black', 'shipped', 10, NOW(), NOW(), {d.ADMIN_ID}, 'test-gls-panne{n}', 'gls', 'PANNE000{n}', 0);")
+        r = tache(reponses)
+        verifier("cinq E_500_01 dans un paquet : disjoncteur, cycle arrêté, cinq échecs au mémo", (r["stats"]["stopped"], r["memo"]["failures"]), ("breaker", 5))
+    finally:
+        sql(f"DELETE FROM {EXP} WHERE group_id LIKE 'test-gls-%';")
+        lib.php_glpi("PluginPrintgestionGlsclient::resetMemo();")
     return lib.bilan()
 
 

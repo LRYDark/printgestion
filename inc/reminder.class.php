@@ -29,7 +29,7 @@ class PluginPrintgestionReminder extends CommonGLPI {
             case 'PrintgestionCheckAlerts':
                 return ['description' => __('Print Gestion - Calcul et envoi des alertes toner', 'printgestion')];
             case 'PrintgestionTrackingUpdate':
-                return ['description' => __('Print Gestion - BL signés (plugin Gestion) → expéditions livrées', 'printgestion')];
+                return ['description' => __('Print Gestion - BL signés (plugin Gestion) → expéditions livrées ; suivi des colis GLS', 'printgestion')];
             case 'PrintgestionProposeDemandes':
                 return ['description' => __('Print Gestion - Proposition des demandes d\'envoi à partir des alertes toner', 'printgestion')];
             case 'PrintgestionTemoinCron':
@@ -136,7 +136,10 @@ class PluginPrintgestionReminder extends CommonGLPI {
             $task->log("Expéditions mises à jour: {$updates}");
         }
 
-        return $updates > 0 ? 1 : 0;
+        // 3. Suivi des colis GLS : information affichée, jamais un statut d'expédition (rien sans clés).
+        $gls = PluginPrintgestionGlstracking::poll($task);
+
+        return ($updates + $gls['checked']) > 0 ? 1 : 0;
     }
 
     /**

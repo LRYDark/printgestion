@@ -56,6 +56,7 @@ class PluginPrintgestionSchema {
         '1.6.6' => 'migrateTo166',
         '1.6.7' => 'migrateTo167',
         '1.6.8' => 'migrateTo168',
+        '1.6.9' => 'migrateTo169',
     ];
 
     /** Version de schéma attendue par le code déployé. */
@@ -1082,6 +1083,29 @@ class PluginPrintgestionSchema {
     /**
      * 1.6.8 (bloc 2) : réglages déduits ou doublons de GLPI retirés. Idempotente : chaque suppression teste la colonne.
      */
+    private static function migrateTo169(Migration $migration): void {
+        global $DB;
+
+        // Suivi GLS rangé sur l'expédition (PluginPrintgestionGlstracking) : aucun objet parallèle.
+        $table = 'glpi_plugin_printgestion_expeditions';
+        foreach ([
+            'tracking_key'         => 'varchar(32) DEFAULT NULL',
+            'tracking_suffix'      => 'varchar(8) DEFAULT NULL',
+            'tracking_status'      => 'varchar(32) DEFAULT NULL',
+            'tracking_label'       => 'varchar(255) DEFAULT NULL',
+            'tracking_event_date'  => 'timestamp NULL DEFAULT NULL',
+            'tracking_event_place' => 'varchar(255) DEFAULT NULL',
+            'tracking_checked_at'  => 'timestamp NULL DEFAULT NULL',
+            'tracking_failures'    => "int NOT NULL DEFAULT '0'",
+            'tracking_state'       => "varchar(16) NOT NULL DEFAULT ''",
+        ] as $field => $definition) {
+            if (!$DB->fieldExists($table, $field, false)) {
+                $migration->addField($table, $field, $definition);
+            }
+        }
+        $migration->migrationOneTable($table);
+    }
+
     private static function migrateTo168(Migration $migration): void {
         global $DB;
 
