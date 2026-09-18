@@ -5,13 +5,13 @@
  */
 
 // À incrémenter à chaque nouvelle étape de schéma (inc/schema.class.php) ou nouvelle
-// tâche automatique : GLPI ne rejoue l'installation (migrations, enregistrement des
-// tâches) que si cette version change.
-define('PLUGIN_PRINTGESTION_VERSION', '1.6.10');
+// tâche automatique : GLPI ne rejoue l'installation (schéma, enregistrement des
+// tâches) que si cette version change. La 1.0.0 s'installe sur une base vierge du plugin.
+define('PLUGIN_PRINTGESTION_VERSION', '1.0.0');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');
-define('PLUGIN_PRINTGESTION_MAX_GLPI', '11.1.0');
+define('PLUGIN_PRINTGESTION_MAX_GLPI', '11.0.99'); // testé sur GLPI 11.0.8 ; la série 11.1 ne l'est pas
 
 // Chemins web : en GLPI 11, les ressources d'un plugin sont toutes servies sous /plugins/
 // (Plugin::getWebDir() est déprécié). Fichier inclus depuis une méthode de GLPI :

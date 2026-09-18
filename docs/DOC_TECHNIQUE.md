@@ -62,9 +62,10 @@ printgestion/
 | `Carrierexception` | Échec d'un appel transporteur, typé : `network`, `auth`, `server`, `request` (techniques, disjoncteur), `quota` (429 : journée), `budget`, `breaker` (arrêt du cycle) ; jamais un secret dans le message |
 | `Glsclient` | Client GLS Track And Trace V1 : jeton `oauth2/v1/token` (Basic, client_credentials) gardé dans le cache GLPI chiffré pour `expires_in` moins 60 s ; `GET tracking/simple/trackids/{clés}` dix au plus, `showEvents=true&showLinks=false`, `Accept-Language: FR` ; 200 → `parcels[]` tels quels (erreurs par colis comprises), 401/403 → `auth` (jeton oublié), 429 → `quota` (journée bloquée), 400/404 ErrorResponseDTO → `request`, autres → `server` ; transport injectable (Guzzle avec le proxy GLPI en production, réponses inventées dans le harnais) ; mémo de santé et de quota dans `glpi_configs` (contexte du plugin) : dernier appel réussi, échecs consécutifs, dernière erreur, requêtes du jour, journée bloquée ; `testConnection()` demande un jeton et le jette |
 | `Glstracking` | Suivi des colis rangé sur l'expédition (colonnes `tracking_*`) et rafraîchi par `poll()` depuis la tâche `PrintgestionTrackingUpdate` : une ligne par heure au plus, les plus anciennes d'abord, paquets de dix via `Glsnumber::lookup()`, arrêt avant 80 % du quota (400 requêtes), disjoncteur à cinq échecs techniques consécutifs (E_500_01 compris), numéro inconnu réessayé après 24 h puis « non reconnu » au troisième cycle, 30 jours sans mouvement = « sans nouvelles », statut final (`DELIVERED`, `CANCELED`, `FINAL`) plus jamais interrogé, expédition posée ou annulée jamais interrogée, code hors énumération = non final et journalisé ; multi-colis : statut de tête = le moins avancé (`STATUS_RANK`, anomalies d'abord), les colis mémorisés dans `tracking_parcels` (JSON) ; `renderLine()` : pastille, libellé, événement (omis quand il répète le statut), date, chevron (lieu, numéro interrogé, dernière interrogation) ; plusieurs colis : « 3 colis — 2 livrés, 1 en cours de livraison » et un colis par ligne derrière le chevron ; rien sans clés, jamais le code brut. **N'écrit jamais le statut de l'expédition** |
+| `Schema` | Schéma de la 1.0.0 : `CREATE TABLE` et lignes de référence relevés sur l'ancien chemin puis générés (jamais écrits à la main), `refusal()` (une autre version en base : installation refusée, « désinstallez d'abord »), `install()` (tables absentes, lignes de référence, version), `uninstall()` (toutes les tables, anciennes comprises, et le contexte de configuration). Preuve rejouable : `tests/securite/comparer_etats.py` |
 | `Confighealth` | Carte « Santé de la configuration », en tête de la configuration (droit de configuration du plugin ; boutons avec UPDATE) : contrôles automatiques obligatoires (URL de l'application GLPI : absolue, avec schéma, ni locale ni nom sans domaine qui ne se résout pas, `Agentdeploy::getApplicationUrlIssue()` ; puis preuve par le réel, `getUrlConfirmation()` : « confirmée par un agent le … » si un agent portant le TAG d'une entité a contacté GLPI depuis que cette URL est en place, sinon « jamais confirmée », état d'attente qui empêche la carte de se replier ; « depuis quand » = mémo dérivé dans `glpi_configs` contexte `plugin:printgestion` (`url_base_seen`, `url_base_seen_since`), réécrit seulement quand l'URL change, jamais saisi ; inventaire GLPI activé ; GLPI Inventory via `Collectsetup::getPrerequisites()` ; actions automatiques, `getCronStatus()` : jugées sur les tâches du plugin seulement + `queuednotification` en lecture ; cron système prouvé par la tâche témoin `PrintgestionTemoinCron` (CLI seulement, chaque minute, ne fait que dater son passage, passée dans les 15 min) ou déclaré par `GLPI_SYSTEM_CRON` ; rien ne bascule tout seul : bouton « Passer les N tâches de Print Gestion en CLI » (config.form.php, `switch_plugin_tasks_cli`) seulement quand le cron système est prouvé, jamais les tâches de GLPI ni d'un autre plugin ; détail = GLPI_SYSTEM_CRON, chaque tâche avec état, mode, fréquence, dernière exécution et lien vers sa fiche (`renderTaskTable()`) ; xlsx autorisé via `Document::isValidDoc()` ; règle d'affectation par TAG active, bouton `Agentdeploy::getTagRuleButton()` traité par `config.form.php`) et recommandés (sauvegarde de `glpicrypt.key` : non vérifiable, rappel ; journal inscriptible et écriture de test). Ligne : état, ce qui casse, où corriger ; bannière rouge si un obligatoire manque, sans bloquer ; tout vert, repliée en « Configuration : complète ». Harnais `tests/securite/sante.py` |
 | `Ui` | Fragments d'interface partagés : barre de statistiques ; `jsonData()`, seul passage des données PHP vers le JavaScript (bloc JSON non exécuté, drapeaux `JSON_HEX_*`) ; deux publics : `isAdmin()` (droit de configuration du plugin), `statusLine()` (ligne d'état, détail replié pour l'administrateur), `adminDetails()` (chevron fermé), `infoButton()` (fenêtre « i ») ; tout élément réservé porte `data-pg-admin` et n'est jamais envoyé à un autre profil |
-| `Entityscope` | Entité des données client (1.6.5, 1.6.6) : entité à écrire à la création ; données techniques qui suivent l'imprimante ou le contrat ; données commerciales figées ; lignes orphelines (`findOrphans()`) ; tâche de contrôle `PrintgestionEntityScope` |
+| `Entityscope` | Entité des données client : entité à écrire à la création ; données techniques qui suivent l'imprimante ou le contrat ; données commerciales figées ; lignes orphelines (`findOrphans()`) ; tâche de contrôle `PrintgestionEntityScope` |
 | `Cartridgehistory` | Détection automatique des changements de cartouche (hausse de niveau ≥ `detection_delta` %) |
 | `Alert` | Calcul intelligent des alertes toner (vitesse de conso sur fenêtre 30 j) + **digest mail commercial** |
 | `Alertview` | Table **matérialisée** des alertes et écran natif (recherche, colonnes verrou / référence, actions de masse Commander, Ne plus alerter, Réactiver) |
@@ -90,10 +91,10 @@ printgestion/
 | `Contractalert` | État et activation des alertes de contrat natives GLPI ; le bouton « Activer les alertes de contrat natives » écrit dans la configuration de GLPI : droit natif `config` en écriture exigé (affichage et enregistrement), sinon bouton désactivé avec la raison |
 | `Snmpmapping` | Mapping constructeur + propriété SNMP → modèle de cartouche + couleur |
 | `Cartridgesnmp` | Onglet sur fiche CartridgeItem : binding direct cartouche ↔ propriétés SNMP |
-| `Billing` / `Billingview` | Coût à la page + table matérialisée **par utilisateur** (le calcul dépend de la période choisie) ; les trois critères (contrat, compteur, activité) sont ceux de l'écran Facturation — cochés par défaut, gardés en session, portés par l'export Excel et la clé de cache —, plus un réglage (colonnes `billing_require_*` supprimées en 1.6.8) |
+| `Billing` / `Billingview` | Coût à la page + table matérialisée **par utilisateur** (le calcul dépend de la période choisie) ; les trois critères (contrat, compteur, activité) sont ceux de l'écran Facturation — cochés par défaut, gardés en session, portés par l'export Excel et la clé de cache —, plus un réglage |
 | `PrinterCostsTab` | Onglet « Coût à la page » sur la fiche imprimante : prix et coûts (droit `billing` READ) |
 | `PrinterThresholdsTab` | Onglet « Seuils d'alerte » sur la fiche imprimante : seuils et rendement propres (droit `dashboard` READ, UPDATE pour enregistrer) |
-| `Tracking` | Intégrations externes : BL signés du plugin Gestion (le suivi des colis est dans `Glstracking`) ; lien avec le plugin Gestion **déduit** (`isGestionLinkActive()` : plugin actif et table des BL présente), jamais réglé — l'ancien interrupteur « Activer lien plugin Gestion » est supprimé (1.6.8) ; le passage automatique en « livrée » sur BL signé ne touche pas au verrou anti-doublon (statut actif, seule la pose détectée clôt l'envoi ; prouvé par `tests/securite/bl.py`) ; configuration « Suivi GLS » : `gls_client_id` en clair, `gls_client_secret` chiffré (GLPIKey), jamais réaffiché (« •••••••• défini le », « Remplacer »), « Retirer les clés » ; aucun interrupteur, aucune URL, aucune fréquence — des clés et un dernier appel réussi = suivi actif ; les URL de l'API sont des constantes du code (client GLS : bloc 4) ; les anciennes clés UPS / GLS / Chronopost et leurs fonctions vides sont supprimées (1.6.8) ; aucun transporteur présélectionné à l'expédition, choix explicite exigé |
+| `Tracking` | Intégrations externes : BL signés du plugin Gestion (le suivi des colis est dans `Glstracking`) ; lien avec le plugin Gestion **déduit** (`isGestionLinkActive()` : plugin actif et table des BL présente), jamais réglé — l'ancien interrupteur « Activer lien plugin Gestion » est supprimé ; le passage automatique en « livrée » sur BL signé ne touche pas au verrou anti-doublon (statut actif, seule la pose détectée clôt l'envoi ; prouvé par `tests/securite/bl.py`) ; configuration « Suivi GLS » : `gls_client_id` en clair, `gls_client_secret` chiffré (GLPIKey), jamais réaffiché (« •••••••• défini le », « Remplacer »), « Retirer les clés » ; aucun interrupteur, aucune URL, aucune fréquence — des clés et un dernier appel réussi = suivi actif ; les URL de l'API sont des constantes du code (client GLS : bloc 4) ; les anciennes clés UPS / GLS / Chronopost et leurs fonctions vides sont supprimées ; aucun transporteur présélectionné à l'expédition, choix explicite exigé |
 | `Reminder` | Les 3 tâches cron GLPI (voir §7) |
 | `Dashboardactions` | Menu contextuel et modales des écrans Expéditions et Coût à la page (modifier l'expédition, BL) |
 
@@ -107,21 +108,21 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 
 | Table | Contenu |
 |---|---|
-| `glpi_plugin_printgestion_configs` | Configuration singleton (id=1) : features, seuils, rôles mail, IDs gabarits, installeur GLPI Agent (étape 1.6.0) ; dernière version connue de GLPI Agent, mise à jour automatique des nouveaux paquets, statut des PC sondes (1.6.3) |
+| `glpi_plugin_printgestion_configs` | Configuration singleton (id=1) : features, seuils, rôles mail, IDs gabarits, installeur GLPI Agent ; dernière version connue de GLPI Agent, mise à jour automatique des nouveaux paquets, statut des PC sondes |
 | `glpi_plugin_printgestion_toner_readings` | Snapshots horodatés des niveaux toner (purge > 160 j) |
 | `glpi_plugin_printgestion_cartridge_history` | Changements de cartouche détectés |
 | `glpi_plugin_printgestion_alerts` | Alertes émises (traçabilité + anti-doublon mail 24 h) |
 | `glpi_plugin_printgestion_alert_snoozes` | Mises en sommeil d'alertes (par toner ou par imprimante) |
 | `glpi_plugin_printgestion_alertview` | **Matérialisée** : 1 ligne par couple imprimante/toner pour le Search natif |
-| `glpi_plugin_printgestion_expeditions` | Expéditions de cartouches (statuts, transporteur, group_id, users) ; suivi GLS (1.6.9) : `tracking_key` (clé interrogée), `tracking_suffix`, `tracking_status` (code GLS, fait foi), `tracking_label` (dernier événement, français, affichage seulement), `tracking_event_date`, `tracking_event_place`, `tracking_checked_at`, `tracking_failures`, `tracking_state` (`tracked`, `unknown`, `unrecognized`, `silent`, `final`), `tracking_parcels` (JSON, un colis par entrée) |
+| `glpi_plugin_printgestion_expeditions` | Expéditions de cartouches (statuts, transporteur, group_id, users) ; suivi GLS : `tracking_key` (clé interrogée), `tracking_suffix`, `tracking_status` (code GLS, fait foi), `tracking_label` (dernier événement, français, affichage seulement), `tracking_event_date`, `tracking_event_place`, `tracking_checked_at`, `tracking_failures`, `tracking_state` (`tracked`, `unknown`, `unrecognized`, `silent`, `final`), `tracking_parcels` (JSON, un colis par entrée) |
 | `glpi_plugin_printgestion_demandes` | Demandes d'envoi : client (entité), site de livraison, statut, mode et contact de livraison, validation, annulation |
 | `glpi_plugin_printgestion_demandelines` | Lignes de demande : imprimante, toner, cartouche, quantité, prix unitaire, contrat, statut |
 | `glpi_plugin_printgestion_sagedeliveries` | Adresses de livraison Sage (plusieurs par client) : vérification des intitulés de livraison, avertissement seulement |
 | `glpi_plugin_printgestion_sagearticles` | Articles Sage (référence rapprochée de `CartridgeItem.ref`) |
 | `glpi_plugin_printgestion_sageimports` | Trace des imports (référentiel, fichier, auteur, volumes) |
-| `glpi_plugin_printgestion_snmprules` | Règles de lecture SNMP par constructeur (ignorer / inverser une propriété) — nommée `snmpadapters` avant la 1.5.5 |
+| `glpi_plugin_printgestion_snmprules` | Règles de lecture SNMP par constructeur (ignorer / inverser une propriété) |
 | `glpi_plugin_printgestion_expedition_bls` | Liaison expéditions ↔ BL du plugin Gestion |
-| `glpi_plugin_printgestion_purchaseorders` | Transmission aux Achats (étape 1.6.7) : une ligne par commande enregistrée (groupe d'expéditions), origine, fichier archivé, lignes du mail, statut d'envoi (`pending`, `sending`, `sent`, `failed`), tentatives, dernière erreur, dates d'envoi et de notification |
+| `glpi_plugin_printgestion_purchaseorders` | Transmission aux Achats : une ligne par commande enregistrée (groupe d'expéditions), origine, fichier archivé, lignes du mail, statut d'envoi (`pending`, `sending`, `sent`, `failed`), tentatives, dernière erreur, dates d'envoi et de notification |
 | `glpi_plugin_printgestion_snmp_mapping` | Mapping constructeur/propriété SNMP → cartouche |
 | `glpi_plugin_printgestion_cartridge_snmp` | Bindings directs cartouche ↔ propriété SNMP |
 | `glpi_plugin_printgestion_contractrates` | Tarifs €/page N&B / Couleur par contrat |
@@ -129,15 +130,15 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_billing_view` | **Matérialisée par utilisateur** : coût à la page pour le Search natif |
 | `glpi_plugin_printgestion_historical_yields` | Rendements historiques (pages/cartouche) |
 | `glpi_plugin_printgestion_printer_thresholds` | Seuils d'alerte personnalisés par imprimante |
-| `glpi_plugin_printgestion_raccordements` | Raccordements d'imprimantes (étape 1.6.1) : entité, sonde, statut, identifiants SNMP, plages et tâches GLPI Inventory utilisées, objets créés, dates des étapes |
-| `glpi_plugin_printgestion_raccordementips` | Adresses déclarées d'un raccordement et leur résultat (équipement trouvé, son entité) ; depuis 1.6.2, lieu, commentaire et contrat en attente, imprimante et date de leur application |
+| `glpi_plugin_printgestion_raccordements` | Raccordements d'imprimantes : entité, sonde, statut, identifiants SNMP, plages et tâches GLPI Inventory utilisées, objets créés, dates des étapes |
+| `glpi_plugin_printgestion_raccordementips` | Adresses déclarées d'un raccordement et leur résultat (équipement trouvé, son entité) ; lieu, commentaire et contrat en attente, imprimante et date de leur application |
 | `glpi_plugin_printgestion_raccordementlogs` | Journal horodaté d'un raccordement : étape, niveau, auteur, message |
-| `glpi_plugin_printgestion_agentsettings` | Réglages de mise à jour par sonde (étape 1.6.3) : agent (unique), mise à jour automatique, version cible, auteur, dates |
-| `glpi_plugin_printgestion_agentalerts` | Alertes de sondes (étape 1.6.3) : type (sonde sans contact, imprimante qui ne remonte plus), entité, sonde, imprimante, motif, début, notification, fin ; une seule alerte ouverte par sonde ou par imprimante (colonne générée `open_lock`) |
-| `glpi_plugin_printgestion_collectfrequencies` | Fréquence des relevés d'imprimantes par entité (étape 1.6.4) : entité (unique), unité (`hourly`, `daily`), nombre, auteur, dates ; sans ligne, l'entité hérite de sa parente, sinon quotidienne |
+| `glpi_plugin_printgestion_agentsettings` | Réglages de mise à jour par sonde : agent (unique), mise à jour automatique, version cible, auteur, dates |
+| `glpi_plugin_printgestion_agentalerts` | Alertes de sondes : type (sonde sans contact, imprimante qui ne remonte plus), entité, sonde, imprimante, motif, début, notification, fin ; une seule alerte ouverte par sonde ou par imprimante (colonne générée `open_lock`) |
+| `glpi_plugin_printgestion_collectfrequencies` | Fréquence des relevés d'imprimantes par entité : entité (unique), unité (`hourly`, `daily`), nombre, auteur, dates ; sans ligne, l'entité hérite de sa parente, sinon quotidienne |
 | `glpi_plugin_printgestion_table_prefs` | Préférences d'affichage des tableaux par utilisateur |
 
-**Entité des données client (étapes 1.6.5 et 1.6.6).** `entities_id` et `is_recursive` sont portés par les tables
+**Entité des données client.** `entities_id` et `is_recursive` sont portés par les tables
 rattachées à une imprimante, à une expédition, à une demande ou à un contrat ; `demandes` a son entité depuis 1.3.1 et
 reçoit `is_recursive` (0). GLPI traite alors ces objets comme rattachés à une entité (`isEntityAssign()`) : droits sur un
 objet (`canViewItem`, `canUpdateItem`), moteur de recherche et actions de masse natives restreignent d'eux-mêmes. Les
@@ -161,7 +162,7 @@ selon la nature de la donnée :
   techniques : elle recale toute ligne en écart et journalise chaque correction en `[ERREUR]` (un écart révèle un
   chemin d'écriture qui a oublié l'entité). Elle ne lit pas les tables commerciales : une expédition dont l'entité
   diffère de celle de son imprimante n'est pas une erreur ;
-- **étape 1.6.6** : entité des données commerciales recalculée à leur date de création, d'après l'historique GLPI de
+- **à l'installation initiale (historique)** : entité des données commerciales recalculée à leur date de création, d'après l'historique GLPI de
   l'imprimante (changements d'entité, option 80 ; de récursivité, option 86) ; une expédition réattribuée reprend son
   imprimante d'origine (note « Réassignée depuis l'imprimante #N ») ; liaisons BL et lignes de demande prennent l'entité
   de leur expédition ou de leur demande ;
@@ -169,12 +170,21 @@ selon la nature de la donnée :
   l'entité ne soit connue : entité racine, non récursive, donc invisible des comptes clients. Jamais rattachées d'office
   à une autre entité ni supprimées : `Entityscope::findOrphans()` les liste (objet de rattachement absent et entité
   racine non récursive) dans la configuration du plugin (carte « Lignes sans objet de rattachement », comptes de la
-  racine), dans le journal de la tâche quotidienne et à la migration 1.6.6, pour qu'un administrateur tranche.
+  racine), dans le journal de la tâche quotidienne, pour qu'un administrateur tranche.
 Hors périmètre : tables globales (référentiel Sage, mappings et règles SNMP, liaisons cartouche) et tables déjà
 rattachées à une entité (raccordements et leurs adresses et journaux via le raccordement, fréquences, alertes de
 sondes, réglages de sonde via l'agent natif).
 
 ---
+
+### Installation, version, désinstallation
+
+- **Une seule version de schéma, 1.0.0**, sans chemin de mise à jour : `hook.php` refuse l'installation par-dessus une
+  autre version (`Schema::refusal()`), rien n'est touché. Le schéma est relevé et généré, pas écrit à la main (voir
+  DOC_MAINTENANCE §2) ; `installation.py` prouve à chaque passe l'égalité avec le relevé de référence.
+- **Désinstallation** (`hook.php`) : tables, tâches, notifications et gabarits, droits, préférences d'affichage,
+  recherches, configuration du plugin, cache, journal, installeurs, fichiers temporaires, liens documents. Restent :
+  règle d'affectation par TAG, TAG des entités, objets GLPI Inventory des raccordements, historique natif, documents.
 
 ## 4. Flux toner : du SNMP à l'alerte
 
@@ -213,8 +223,8 @@ Résolution de la cartouche à commander pour une propriété SNMP (`Snmpmapping
 - **Noms des propriétés** : ceux de l'inventaire GLPI (`Glpi\Inventory\Asset\Cartridge::knownTags()`), type +
   couleur pour les emplacements colorés (`tonerblack`, `drumcyan`, `cartridgeyellow`), sans couleur pour
   `developer`, `wastetoner`, `maintenancekit`, `fuserkit`, `transferkit`, `cleaningkit`. Mapping SNMP pré-rempli
-  à l'installation avec les quatre toners et les kits ; la 1.5.8 retire les anciennes lignes pré-remplies sous
-  des libellés qu'aucun inventaire ne produit (« Toner Noir », `developercyan`…), si elles n'ont pas été
+  à l'installation avec les quatre toners et les kits, sous les seuls libellés que l'inventaire produit ; les anciennes
+  lignes sous d'autres libellés (« Toner Noir », `developercyan`…) ne sont plus posées, si elles n'ont pas été
   modifiées et qu'aucune imprimante ne les remonte.
 
 Aucun repli sans modèle (liaison toutes imprimantes confondues, type seul toutes marques). Référence non
@@ -246,8 +256,8 @@ pending ──(planif saisit transporteur+tracking)──> shipped ──> trans
 
 - **Envoi en cours** (`Expedition::ACTIVE_STATUSES`, sans borne de temps) : pending, shipped, transit
   **et delivered**. « Livrée » ne clôt pas l'envoi : seule la **pose** le fait.
-- **Aucun statut lié au stock** : le statut `stock_empty`, calculé sur le stock GLPI, est supprimé depuis la
-  1.5.7 (envois concernés repassés `pending`, avec une note dans l'expédition).
+- **Aucun statut lié au stock** : aucun statut `stock_empty` calculé sur le stock GLPI (le stock est dans Sage, que le
+  plugin ne lit pas).
 - **Clôture** : `installed` quand la pose est détectée (hausse de niveau, §4), confirmée manuellement
   (fenêtre « Modifier expédition ») ou constatée sur une autre imprimante (réattribution) ;
   `cancelled` pour une annulation (aucune suppression de ligne).
@@ -429,7 +439,7 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
   en affichent le décompte (« 3 lignes avec une adresse de livraison non reconnue », « 2 lignes sans lieu sur
   l'imprimante ») avec la liste derrière « voir », avant le clic ; la confirmation d'envoi le rappelle.
 - Codes et références écrits en texte explicite (zéros de tête conservés) ; cellules vides non écrites.
-- **Transmission aux Achats** (`inc/purchaseorder.class.php`, table `purchaseorders`, étape 1.6.7) : commande
+- **Transmission aux Achats** (`inc/purchaseorder.class.php`, table `purchaseorders`) : commande
   directe et export de demandes ENREGISTRENT d'abord (expéditions, fichier archivé, ligne de transmission
   `pending` avec les lignes du mail, dans la transaction), puis `Purchaseorder::send()` envoie le mail. Un SMTP
   peut signaler une erreur après avoir remis le message : un échec ne défait donc rien et ne renvoie rien tout
@@ -538,7 +548,7 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
   `glpi-agent-<version>.sha256` de la release). Une description par fichier (`installer.json` pour le MSI,
   `installer-linux.json`, `installer-macos-arm64.json`, `installer-macos-x86_64.json`), une seule version en cache,
   dossier supprimé à la désinstallation.
-- **Réglages** (`glpi_plugin_printgestion_configs`, étape 1.6.0 ; `agent_server_url` supprimée en 1.6.8, l'adresse est déduite de l'URL de l'application) : `agent_version`,
+- **Réglages** (`glpi_plugin_printgestion_configs` ; aucune « URL du serveur » : l'adresse est déduite de l'URL de l'application) : `agent_version`,
   `agent_httpd_trust` ; vides : automatiques.
 - **Limites vérifiées** : « Demander le statut » et « Demander un inventaire » (natifs) sont des requêtes du
   serveur vers la sonde sur le port 62354, aux adresses du réseau local du poste (`Agent::guessAddresses()`) :
@@ -634,7 +644,7 @@ revérifiée à chaque requête (hors périmètre : 404). Lieu, commentaire et c
 
 - **Carte 2 bis** (lecture : droit `deploiement` READ ; saisie : UPDATE, tout statut sauf abandonné) : pour chaque
   adresse, lieu, commentaire et contrat **en attente** (`raccordementips.locations_id`, `comment`, `contracts_id`,
-  étape 1.6.2). Valeurs par défaut qui complètent les adresses sans valeur ; jusqu'à 64 adresses ligne à ligne,
+  phase 3). Valeurs par défaut qui complètent les adresses sans valeur ; jusqu'à 64 adresses ligne à ligne,
   au-delà seulement celles qui ont une imprimante ou des valeurs. Remplacer la liste d'adresses garde les valeurs
   des adresses restantes.
   - Lieu : chemin « Siège > Bâtiment B > Étage 4 > Bureau 3 » ou nom simple, autocomplétion sur les lieux de
@@ -1049,9 +1059,8 @@ demandes validées est en service. Une mise à jour du plugin ne change pas l'é
 | `plugin_printgestion_billing` | Coût à la page : écrans et onglet de la fiche imprimante (prix et coûts ; jamais le seul droit sur l'imprimante) |
 | `plugin_printgestion_config` | Configuration du plugin + mappings SNMP ; onglet « Print Gestion » des cartouches (liaisons SNMP) : READ voir, UPDATE enregistrer, toujours avec le droit natif sur la cartouche |
 
-Migration 1.5.9 : `sage` repris de `config` (lecture → lecture, modification → lecture et modification),
-`deploiement` donné en lecture et modification aux profils qui modifiaient la configuration ; le module
-`sage` reprend l'état du module `toner`.
+À l'installation, seul le profil qui installe reçoit les droits du plugin (`Profile::createFirstAccess`) ; les autres
+profils partent à zéro et se règlent dans Administration → Profils → Print Gestion.
 
 ---
 

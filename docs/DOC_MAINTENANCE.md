@@ -5,54 +5,46 @@
 
 ---
 
-## 1. Mettre à jour le plugin (procédure standard)
+## 1. Installer la 1.0.0 (et ce qu'il n'y a pas : de mise à jour)
 
-1. Déployer les fichiers dans `plugins/printgestion/` (remplacer le dossier).
-2. Si `PLUGIN_PRINTGESTION_VERSION` (`setup.php`) a changé, GLPI désactive le plugin et propose
-   **« Mettre à jour »** (Configuration → Plugins → Print Gestion). Cela rejoue
-   `plugin_printgestion_install()` :
-   - joue les **étapes de migration de schéma** non encore appliquées (voir §2) ;
-   - réenregistre les 3 crons ;
-   - **crée les gabarits mail manquants** (voir §3 — un gabarit existant n'est jamais réécrit).
-   Une erreur SQL pendant la migration **fait échouer la mise à jour** (message affiché) : corriger
-   la cause puis relancer, l'étape en échec est rejouée.
-3. Incrémenter le **jeton anti-cache** des assets si `public/css/*` ou `public/js/*` a changé :
-   dans `setup.php`, variable `$cb = '?b=N'` → passer à `N+1`. Sinon les navigateurs gardent
-   l'ancien JS/CSS en cache.
-4. Vérifier le bouton **« Qui est notifié ? »** dans la configuration (récapitulatif des
-   notifications selon la config réellement enregistrée — signale les gabarits non configurés).
+La 1.0.0 s'installe sur une **base vierge du plugin**. Il n'y a pas de chemin de mise à jour depuis les versions de
+développement (1.4 à 1.6.x) : une base qui porte une autre version est **refusée** à l'installation, avec le message
+« Désinstallez d'abord le plugin ». La désinstallation supprime toutes les données du plugin (§2) : l'exporter avant si
+elle contient quelque chose à garder.
+
+1. Configuration → Plugins → Print Gestion → **Désinstaller** (si une version de développement est en place).
+2. Déployer les fichiers dans `plugins/printgestion/` (remplacer le dossier).
+3. Configuration → Plugins → Print Gestion → **Installer**, puis **Activer**.
+4. Vérifier la carte « Santé de la configuration » (§6) et le bouton **« Qui est notifié ? »**.
+
+Réinstaller par-dessus une base déjà en 1.0.0 (« Mettre à jour » après un redéploiement de la même version) est sans
+effet sur les données : tables existantes gardées, gabarits existants jamais réécrits (§3), tâches réenregistrées.
+
+Jeton anti-cache des ressources : si `public/css/*` ou `public/js/*` change, incrémenter `$cb = '?b=N'` dans
+`setup.php`, sinon les navigateurs gardent l'ancien JS/CSS.
 
 ---
 
-## 2. Schéma BDD : migrations versionnées
+## 2. Schéma : une seule version, prouvée par comparaison
 
-Le schéma est versionné par `inc/schema.class.php` :
+`inc/schema.class.php` porte les `CREATE TABLE` et les lignes de référence de la 1.0.0. Ils **n'ont pas été écrits à la
+main** : relevés (`tests/securite/etat_installation.py`) sur une base installée par l'ancienne chaîne de migrations,
+puis générés (`tests/securite/schema_depuis_etat.py`). Le relevé de référence est dans le dépôt
+(`tests/securite/reference/etat-ancien-chemin.json`) et la preuve se rejoue : `tests/securite/comparer_etats.py`
+entre ce relevé et celui d'une installation neuve rend **zéro écart** (tables, colonnes, types, index, défauts, jeux de
+caractères, lignes de référence, tâches, notifications, gabarits, droits). `installation.py` le vérifie à chaque passe.
 
-- la version installée est stockée dans `glpi_configs` (contexte `plugin:printgestion`, clé
-  `schema_version`) ;
-- `PluginPrintgestionSchema::STEPS` liste les étapes dans l'ordre (`version => méthode`) ;
-- à chaque installation / « Mettre à jour », seules les étapes dont la version est supérieure à la
-  version installée sont jouées ; la version n'est enregistrée qu'après la réussite de l'étape ;
-- l'étape **1.0.0** est le schéma de référence historique (`Config::installSchemaBaseline()`) : elle
-  couvre une installation neuve comme une installation antérieure au versionnement ;
-- si la base est plus récente que le code déployé, l'installation s'arrête avec un message explicite.
-
-**Faire évoluer le schéma (table, colonne, index, donnée) :**
-
-1. écrire une méthode `migrateToXYZ(Migration $migration)` **idempotente** dans `schema.class.php`,
-   en passant par l'API `Migration` de GLPI (`addField`, `changeField`, `addKey`…) ;
-2. l'ajouter **à la fin** de `STEPS` ;
-3. **incrémenter `PLUGIN_PRINTGESTION_VERSION`** dans `setup.php` (sinon GLPI ne propose pas la mise
-   à jour et l'étape n'est jamais jouée) ;
-4. ne jamais modifier une étape déjà livrée ni `installSchemaBaseline()`.
-
-**Interdit** : `ALTER TABLE` à la main sur l'instance, désinstaller / réinstaller pour faire évoluer le
-schéma (**destructif** : toutes les données métier du plugin sont perdues), et tout `try/catch` qui
-masque une erreur de migration.
-
-- **⚠️ Gotcha vécu** : un bloc « cleanup d'anciennes tables » ne doit JAMAIS contenir une table
-  vivante. `..._billing_view` (table ACTIVE) avait été listée dans un drop → créée puis droppée à
-  chaque install. Tables vivantes à ne jamais dropper : `_alertview` et `_billing_view`.
+- La version installée est dans `glpi_configs` (contexte `plugin:printgestion`, clé `schema_version`).
+- **Désinstallation** : toutes les tables du plugin (vivantes et anciennes), les tâches automatiques, les notifications
+  et gabarits, les droits, les préférences d'affichage et recherches enregistrées, les valeurs de configuration du
+  plugin, le journal, les installeurs mis en réserve et les fichiers temporaires. Restent, parce qu'ils sont natifs ou
+  appartiennent à l'exploitation : la règle d'affectation par TAG et les TAG posés sur les entités (des imprimantes en
+  dépendent), les plages, identifiants et tâches créés dans GLPI Inventory par les raccordements (la collecte
+  continue), l'historique natif des entités, les documents (archives Gesconso envoyées aux Achats : seuls leurs liens
+  vers les objets du plugin sont retirés).
+- **Faire évoluer le schéma après la 1.0.0** : la 1.0.0 est le point de départ ; la première évolution réintroduira une
+  étape de migration versionnée depuis 1.0.0, avec sa preuve par comparaison. Jamais d'`ALTER TABLE` à la main sur une
+  instance, jamais de désinstallation pour faire évoluer un schéma (destructif).
 
 ---
 
@@ -178,7 +170,7 @@ doit pas être « corrigée » en base : c'est l'historique commercial de A.
 ### Lignes sans objet de rattachement (configuration du plugin)
 
 La carte « Lignes sans objet de rattachement » de la configuration (comptes de l'entité racine), le journal de la
-tâche `PrintgestionEntityScope` (« Lignes orphelines ») et la migration 1.6.6 listent les lignes dont l'imprimante,
+tâche `PrintgestionEntityScope` (« Lignes orphelines ») liste les lignes dont l'imprimante,
 l'expédition, la demande ou le contrat a été purgé alors que leur entité n'était pas connue. Elles sont à l'entité
 racine, non récursives : invisibles des comptes clients. Le plugin ne les rattache ni ne les supprime. Pour trancher :
 retrouver le client (numéro de suivi, date, référence, BL, historique GLPI), puis soit renseigner l'entité en base
