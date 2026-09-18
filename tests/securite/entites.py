@@ -1,4 +1,4 @@
-"""Entité des données du plugin : règle de transfert, tâche quotidienne, lignes orphelines, migration 1.6.6.
+"""Entité des données du plugin : règle de transfert, tâche quotidienne, lignes orphelines.
 
 Règle : les données techniques (relevés, rendements, historique des cartouches, seuils, mises en veille) suivent
 l'imprimante ; les données commerciales (expéditions, alertes, liaisons BL, demandes et leurs lignes) gardent
@@ -7,8 +7,6 @@ l'entité de leur création.
    expédition, alerte, demande ni liaison BL de A ; un compte de A les garde ; les données techniques suivent.
 2. Tâche PrintgestionEntityScope : corrige un écart sur une table technique, ne touche pas aux tables commerciales.
 3. Ligne orpheline (imprimante purgée, entité indéterminée) : invisible du compte client, listée pour l'administrateur.
-4. Migration 1.6.6 rejouée sur un état laissé par 1.6.5 (historique commercial déplacé par un transfert) : chaque
-   ligne retrouve l'entité de sa création.
 """
 import json
 import re
@@ -158,28 +156,6 @@ def scenario_orphelines():
     sql(f"UPDATE {EXP} SET entities_id = {d.CLIENT_A} WHERE id = {orpheline};")
 
 
-def scenario_migration():
-    section("4. Migration 1.6.6 sur l'état laissé par 1.6.5")
-    lib.connecter_admin()
-    imp = d.IMP_SITE_A2
-    exp = CTX.expedition(imp, "test_migration", "SUIVI-MIGRATION")
-    sql(f"UPDATE {EXP} SET date_alert = NOW() - INTERVAL 2 DAY WHERE id = {exp};"
-        f"INSERT INTO {LIENS} (expeditions_id, bl_surveys_id, date_creation, entities_id, is_recursive) VALUES ({exp}, 434343, NOW(), {d.SITE_A2}, 0);")
-    transferer(imp, d.CLIENT_B)
-    version_cible = valeur("SELECT value FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'schema_version'")
-    # Ce qu'aurait fait 1.6.5 au transfert : l'historique commercial suit l'imprimante.
-    sql(f"UPDATE {EXP} SET entities_id = {d.CLIENT_B} WHERE id = {exp}; UPDATE {LIENS} SET entities_id = {d.CLIENT_B} WHERE expeditions_id = {exp};"
-        "UPDATE glpi_configs SET value = '1.6.5' WHERE context = 'plugin:printgestion' AND name = 'schema_version';")
-    res = subprocess.run([config.PHP, "bin/console", "plugin:install", "-u", config.GLPI_LOGIN, "-f", "printgestion", "-n"], cwd=config.GLPI_DIR, capture_output=True, text=True)
-    subprocess.run([config.PHP, "bin/console", "plugin:activate", "printgestion", "-n"], cwd=config.GLPI_DIR, capture_output=True, text=True)
-    verifier(f"mise à jour rejouée de 1.6.5 jusqu'à la version courante ({version_cible})",
-             (res.returncode, valeur("SELECT value FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'schema_version'")), (0, version_cible))
-    verifier("expédition et liaison BL : entité de leur création retrouvée dans l'historique (Site test A2)",
-             (portee(EXP, exp), lignes(f"SELECT entities_id FROM {LIENS} WHERE expeditions_id = {exp}")), ((str(d.SITE_A2), "0"), [[str(d.SITE_A2)]]))
-    transferer(imp, d.SITE_A2)
-    sql(f"DELETE FROM {LIENS} WHERE bl_surveys_id = 434343;")
-
-
 def main():
     d.verifier_instance()
     # Le transfert natif (configuration « complete ») copie les types de cartouche compatibles dans l'entité de
@@ -187,7 +163,7 @@ def main():
     cartouches_avant = int(valeur("SELECT IFNULL(MAX(id), 0) FROM glpi_cartridgeitems"))
     try:
         exp = None
-        for scenario in (scenario_transfert, scenario_tache, scenario_orphelines, scenario_migration):
+        for scenario in (scenario_transfert, scenario_tache, scenario_orphelines):
             try:
                 if scenario is scenario_tache:
                     if exp is not None:

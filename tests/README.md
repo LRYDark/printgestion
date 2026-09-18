@@ -32,6 +32,7 @@ serveur est `public/`, comme GLPI 11 l'exige. La section 7 du harnais le vérifi
 | Variable | Rôle |
 |---|---|
 | `PG_TEST_INSTANCE_JETABLE` | `oui` : confirme que la base peut être effacée (instance.sh) |
+| `PG_TEST_SANS_DONNEES` | `oui` : instance.sh s'arrête après l'installation des plugins, sans le jeu de données (relevé d'installation) |
 | `PG_TEST_URL` | URL de l'instance de test (défaut `http://127.0.0.1:8089`) |
 | `PG_TEST_GLPI_DIR` | Dossier de GLPI 11 extrait de l'archive officielle |
 | `PG_TEST_PHP`, `PG_TEST_MARIADB` | Binaires (défaut `php`, `mariadb`) |
@@ -83,5 +84,16 @@ Le serveur SMTP de l'instance est réglé sur 127.0.0.1 par `donnees.py` : aucun
 | `suivi_gls.py` | Suivi GLS, sans réseau : nettoyage du numéro, repli unique sur E_404_01, lots de 10 ; client (jeton, en-têtes, trois formes d'erreur, quota, aucun secret dans les messages) ; tâche (cadence, repli mémorisé, inconnu, sans nouvelles, budget, disjoncteur) ; « Tester la connexion » ; affichage dans les deux profils avec copies d'écran hors dépôt |
 | `modules.py` | Interrupteurs de modules : chaque point d'entrée en 404 quand son module est désactivé, fermé par défaut |
 | `gabarits.py` | Gabarits de mail : un gabarit modifié par l'administrateur survit à une réinstallation ; un gabarit absent est recréé |
+| `installation.py` | Installation 1.0.0 : refus par-dessus une autre version, désinstallation complète (la règle TAG reste), réinstallation identique au relevé de référence (zéro écart). **Dernier fichier** : l'instance ressort sans le jeu de données |
 
 Chaque constat est `OK`, `KO`, `À NOTER` ou `NON CONCLUANT` ; `lancer.py` résume et relève les erreurs des journaux GLPI.
+
+## Preuve d'installation (schéma de la 1.0.0)
+
+- `etat_installation.py sortie.json` : relevé de ce que le plugin a posé en base (tables, colonnes, index, lignes de
+  référence, tâches, notifications, gabarits, droits, configuration, préférences), depuis `information_schema`.
+- `comparer_etats.py avant.json apres.json` : chaque écart sur une ligne, code de sortie 1 s'il y en a.
+- `schema_depuis_etat.py etat.json` : corps PHP de `PluginPrintgestionSchema` généré depuis un relevé.
+- `reference/etat-ancien-chemin.json` : relevé de référence, pris sur une base installée par l'ancienne chaîne de
+  migrations (`PG_TEST_SANS_DONNEES=oui zsh instance.sh` avec le code de la 1.6.10). `installation.py` compare une
+  installation neuve de la 1.0.0 à ce relevé.

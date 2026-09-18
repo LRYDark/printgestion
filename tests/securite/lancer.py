@@ -12,7 +12,7 @@ import donnees
 import lib
 
 ICI = os.path.dirname(os.path.abspath(__file__))
-TESTS = ["harnais", "entites", "bl", "gesconso", "commandes", "journal", "prerequis", "interface", "sante", "suivi_gls", "modules", "gabarits", "parcours"]
+TESTS = ["harnais", "entites", "bl", "gesconso", "commandes", "journal", "prerequis", "interface", "sante", "suivi_gls", "modules", "gabarits", "parcours", "installation"]
 
 
 def main():
@@ -27,7 +27,8 @@ def main():
         print(sortie)
         ligne = re.findall(r"^Résultat : .*$", sortie, re.M)
         apres = donnees.empreinte()
-        modifiees = [cle for cle in avant if avant[cle] != apres[cle]]
+        # installation.py désinstalle et réinstalle le plugin : ses données de référence repartent des lignes par défaut.
+        modifiees = [] if nom == "installation" else [cle for cle in avant if avant[cle] != apres[cle]]
         # Le détail de l'écart, pas seulement son nom : sans lui, un écart ponctuel ne s'explique pas.
         for cle in modifiees:
             if cle == "configuration":
