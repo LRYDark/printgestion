@@ -64,12 +64,7 @@ echo Html::hidden('action', ['value' => 'ship']);
 echo "<div class='row g-3'>";
 
 echo "<div class='col-md-6'><label class='form-label'>" . __('Transporteur', 'printgestion') . "</label>";
-Dropdown::showFromArray('carrier', [
-    'ups'        => 'UPS',
-    'gls'        => 'GLS',
-    'chronopost' => 'Chronopost',
-    'other'      => __('Autre', 'printgestion'),
-], ['value' => '', 'display_emptychoice' => true]);  // aucun transporteur présélectionné : un choix faux s'enregistrerait tout seul
+Dropdown::showFromArray('carrier', PluginPrintgestionExpedition::getCarrierLabels(), ['value' => '', 'display_emptychoice' => true]);  // aucun transporteur présélectionné : un choix faux s'enregistrerait tout seul
 echo "</div>";
 
 echo "<div class='col-md-6'><label class='form-label'>" . __('N° de suivi', 'printgestion') . "</label>";

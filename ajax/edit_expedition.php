@@ -30,14 +30,29 @@ if (PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id) === null
 }
 
 $allowed_statuts  = ['pending', 'shipped', 'transit', 'delivered', 'installed', 'cancelled'];
-$allowed_carriers = ['', 'ups', 'gls', 'chronopost', 'other'];
+$allowed_carriers = array_merge([''], PluginPrintgestionExpedition::CARRIERS_OFFERED);
+// Chronopost n'est plus proposé mais reste lisible : accepté seulement s'il était déjà là (l'historique ne se réécrit pas).
+$posted_carrier  = (string) ($_POST['carrier'] ?? '');
+$current_carrier = (string) ($DB->request([
+    'SELECT' => ['transport_carrier'],
+    'FROM'   => 'glpi_plugin_printgestion_expeditions',
+    'WHERE'  => ['id' => $expedition_id],
+    'LIMIT'  => 1,
+])->current()['transport_carrier'] ?? '');
+if ($posted_carrier === 'chronopost' && $current_carrier === 'chronopost') {
+    $allowed_carriers[] = 'chronopost';
+}
 
 $statut   = in_array($_POST['statut']  ?? '', $allowed_statuts, true)  ? $_POST['statut']  : null;
-$carrier  = in_array($_POST['carrier'] ?? '', $allowed_carriers, true) ? $_POST['carrier'] : null;
+$carrier  = in_array($posted_carrier, $allowed_carriers, true) ? $posted_carrier : null;
 $tracking = trim((string)($_POST['tracking'] ?? ''));
 
 if ($statut === null) {
     echo json_encode(['ok' => false, 'error' => 'Invalid status']);
+    exit;
+}
+if ($carrier === null) {
+    echo json_encode(['ok' => false, 'error' => __('Transporteur non proposé : GLS, UPS ou Autre.', 'printgestion')]);
     exit;
 }
 

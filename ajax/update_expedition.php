@@ -31,7 +31,7 @@ if ($action === 'ship') {
     $tracking = trim((string)($_POST['tracking'] ?? ''));
     $bl_id    = (int)($_POST['bl_surveys_id'] ?? 0) ?: null;
 
-    if (!in_array($carrier, PluginPrintgestionExpedition::CARRIERS, true)) {
+    if (!in_array($carrier, PluginPrintgestionExpedition::CARRIERS_OFFERED, true)) {
         // Jamais « Autre » par défaut : un transporteur non choisi n'est pas un transporteur.
         Session::addMessageAfterRedirect(__('Choisissez le transporteur.', 'printgestion'), true, ERROR);
         Html::back();

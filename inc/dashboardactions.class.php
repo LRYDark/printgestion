@@ -142,17 +142,13 @@ HTML;
             $statut_html .= "<option value='{$val}'>" . htmlspecialchars($lab, ENT_QUOTES, 'UTF-8') . "</option>";
         }
 
-        $carrier_opts = [
-            ''           => __('—', 'printgestion'),
-            'ups'        => 'UPS',
-            'gls'        => 'GLS',
-            'chronopost' => 'Chronopost',
-            'other'      => __('Autre', 'printgestion'),
-        ];
+        $carrier_opts = ['' => __('—', 'printgestion')] + PluginPrintgestionExpedition::getCarrierLabels();
         $carrier_html = '';
         foreach ($carrier_opts as $val => $lab) {
             $carrier_html .= "<option value='{$val}'>" . htmlspecialchars($lab, ENT_QUOTES, 'UTF-8') . "</option>";
         }
+        // Chronopost n'est plus proposé mais une expédition ancienne peut le porter : option cachée, sélectionnable par le script seulement.
+        $carrier_html .= "<option value='chronopost' hidden>Chronopost</option>";
 
         echo <<<HTML
 <div class="modal fade" id="pc-modal-editexp" tabindex="-1">

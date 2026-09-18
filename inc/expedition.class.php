@@ -32,7 +32,16 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      */
     const ACTIVE_STATUSES = ['pending', 'shipped', 'transit', 'delivered'];
     /** Transporteurs saisis à la main sur une expédition (annotation, pas une intégration) : aucun par défaut. */
+    /** Valeurs enregistrées (l'historique se lit, jamais réécrit). */
     const CARRIERS = ['ups', 'gls', 'chronopost', 'other'];
+    /** Choix proposés pour une expédition : Chronopost n'est plus utilisé, il ne s'offre plus au clic. */
+    const CARRIERS_OFFERED = ['gls', 'ups', 'other'];
+
+    /** Libellés des transporteurs proposés (ou de tous, pour lire l'existant). */
+    public static function getCarrierLabels(bool $offered_only = true): array {
+        $labels = ['gls' => 'GLS', 'ups' => 'UPS', 'other' => __('Autre', 'printgestion')];
+        return $offered_only ? $labels : $labels + ['chronopost' => 'Chronopost'];
+    }
 
     /** Envois partis : seule leur cartouche peut avoir été posée (ailleurs que prévu). */
     const DEPARTED_STATUSES = ['shipped', 'transit', 'delivered'];
@@ -1102,7 +1111,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         global $DB;
 
         // Transporteur inconnu ou non choisi : refus, jamais « Autre » en silence.
-        if (!in_array($carrier, self::CARRIERS, true)) {
+        if (!in_array($carrier, self::CARRIERS_OFFERED, true)) {
             return false;
         }
 
