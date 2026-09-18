@@ -98,8 +98,19 @@ def tenter(nom, expression):
             f"{{ $out['{nom}'] = ['kind' => $e->getKind(), 'message' => $e->getMessage()]; }}")
 
 
+def cles_gls_actuelles():
+    """Valeurs exactes des clés GLS (NULL sur une base neuve, '' après « Retirer les clés ») : à remettre telles quelles."""
+    return lib.lignes("SELECT gls_client_id, gls_client_secret, gls_secret_date FROM glpi_plugin_printgestion_configs WHERE id = 1")[0]
+
+
+def remettre_cles_gls(valeurs):
+    v = lambda x: "NULL" if x == "NULL" else lib.q(x)  # noqa: E731
+    sql(f"UPDATE glpi_plugin_printgestion_configs SET gls_client_id = {v(valeurs[0])}, gls_client_secret = {v(valeurs[1])}, gls_secret_date = {v(valeurs[2])} WHERE id = 1;")
+
+
 def main():
     d.verifier_instance()
+    cles_origine = cles_gls_actuelles()
 
     section("1. Nettoyage de la saisie")
     cas = [
@@ -217,7 +228,7 @@ def main():
         journal = str(lib.journal_depuis(tailles, "printgestion.log"))
         verifier("ni le secret ni le jeton dans le journal du plugin", (SECRET in journal, JETON in journal), (False, False))
     finally:
-        sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
+        remettre_cles_gls(cles_origine)
         lib.php_glpi("PluginPrintgestionGlsclient::resetMemo(); (new PluginPrintgestionGlsclient())->forgetToken();")
 
     section("5. Tâche de suivi, transporteur simulé")
@@ -332,7 +343,7 @@ def main():
         verifier("avec des clés : bouton « Tester la connexion » à côté de « Retirer les clés », secret jamais dans la page",
                  ("name='test_gls'" in page, "name='clear_gls'" in page, SECRET in page), (True, True, False))
     finally:
-        sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
+        remettre_cles_gls(cles_origine)
 
     section("7. Affichage, deux profils")
     CTX = lib.Contexte()
@@ -395,7 +406,7 @@ def main():
         print(f"    copies d'écran : {dossier}/expeditions-*-{{admin,technicien}}.txt")
     finally:
         lib.connecter_admin()
-        sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
+        remettre_cles_gls(cles_origine)
         sql(f"DELETE FROM {EXP} WHERE group_id = 'test-gls-aff';")
         CTX.nettoyer()
     return lib.bilan()

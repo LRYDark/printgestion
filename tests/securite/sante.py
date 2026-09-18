@@ -217,7 +217,8 @@ def main():
 
         section("11. Suivi GLS : quatre lignes, rien qui manque sans clés")
 
-        sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
+        cles_origine = lib.lignes("SELECT gls_client_id, gls_client_secret, gls_secret_date FROM glpi_plugin_printgestion_configs WHERE id = 1")[0]
+        sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = NULL, gls_client_secret = NULL, gls_secret_date = NULL WHERE id = 1;")
 
         lib.php_glpi("PluginPrintgestionGlsclient::resetMemo();")
 
@@ -257,7 +258,9 @@ def main():
 
                 ok_ko(etats.get("gls") == "error" and "5 échecs techniques consécutifs" in page and "HTTP 503" in page and "Configuration : complète" not in page))
 
-        sql("UPDATE glpi_plugin_printgestion_configs SET gls_client_id = '', gls_client_secret = '', gls_secret_date = NULL WHERE id = 1;")
+        # Valeurs exactes remises (NULL sur une base neuve, '' après « Retirer les clés ») : les données de référence ne bougent pas.
+        v = lambda x: "NULL" if x == "NULL" else lib.q(x)  # noqa: E731
+        sql(f"UPDATE glpi_plugin_printgestion_configs SET gls_client_id = {v(cles_origine[0])}, gls_client_secret = {v(cles_origine[1])}, gls_secret_date = {v(cles_origine[2])} WHERE id = 1;")
 
         lib.php_glpi("PluginPrintgestionGlsclient::resetMemo();")
 
