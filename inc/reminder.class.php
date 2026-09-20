@@ -29,7 +29,7 @@ class PluginPrintgestionReminder extends CommonGLPI {
             case 'PrintgestionCheckAlerts':
                 return ['description' => __('Print Gestion - Calcul et envoi des alertes toner', 'printgestion')];
             case 'PrintgestionTrackingUpdate':
-                return ['description' => __('Print Gestion - BL signés (plugin Gestion) → expéditions livrées ; suivi des colis GLS', 'printgestion')];
+                return ['description' => __('Print Gestion - Suivi des colis GLS (et rattrapage des BL signés du plugin Gestion)', 'printgestion')];
             case 'PrintgestionProposeDemandes':
                 return ['description' => __('Print Gestion - Proposition des demandes d\'envoi à partir des alertes toner', 'printgestion')];
             case 'PrintgestionTemoinCron':
@@ -68,12 +68,21 @@ class PluginPrintgestionReminder extends CommonGLPI {
         if (!PluginPrintgestionConfig::isFeatureEnabled('toner')) {
             return 0; // module désactivé
         }
+        // BL signés du plugin Gestion → expéditions livrées. Ici, dans la tâche horaire, et non dans celle des
+        // transporteurs : c'est du SQL local, sans réseau ni quota, rien ne justifie de lui imposer la cadence des
+        // appels aux transporteurs. Les écrans Expéditions et Alertes le font déjà à leur ouverture ; ce passage
+        // garantit une heure au pire, y compris là où personne n'ouvre d'écran.
+        $delivered = PluginPrintgestionTracking::onGestionBlSigned();
+
         $alerts_sent    = PluginPrintgestionAlert::sendPendingAlerts();
         $reminders_sent = PluginPrintgestionExpedition::sendInstallReminders();
         // Avancement des expéditions (poses détectées, réattributions) → demandes d'envoi.
         PluginPrintgestionDemande::syncFromExpeditions();
         // Commandes enregistrées mais non transmises aux Achats depuis plus de STALE_HOURS heures : notification.
         $not_sent = PluginPrintgestionPurchaseorder::notifyStale();
+        if ($task !== null && $delivered > 0) {
+            $task->log(sprintf('BL signés repris : %d expédition(s) passée(s) en « livrée ».', $delivered));
+        }
         if ($task !== null && $not_sent['stale'] > 0) {
             $task->log(sprintf(
                 'Commandes non transmises aux Achats depuis plus de %d h : %d — notifiées : %d — non notifiées : %d',
@@ -115,31 +124,45 @@ class PluginPrintgestionReminder extends CommonGLPI {
     }
 
     /**
-     * Cron 3 : MAJ suivi transporteurs + BL signés (plugin Gestion).
+     * Cron 3 : les deux suivis transporteur, GLS puis MBE, et le rattrapage des BL signés du plugin Gestion.
+     *
+     * L'ordre compte. GLS passe d'abord et range ce que le transporteur a publié sur l'expédition ; MBE passe ensuite
+     * et **relit ce statut** pour recouper le sien, qui reste `WAITING_DELIVERY` des jours après une remise déjà
+     * faite. Le double contrôle ne coûte donc aucun appel de plus : il lit ce que le passage précédent vient d'écrire.
+     *
+     * Le passage en « livrée » sur BL signé ne dépend pas de ce cron : le plugin Gestion appelle Print Gestion
+     * directement à la signature. Le rattrapage reste pour ce qu'aucun clic ne déclenche — BL importé déjà signé,
+     * `signed` basculé directement en base, appel direct en échec.
+     *
+     * Cadence : deux passages par jour suffisent aux deux suivis (fréquence enregistrée à douze heures). GLS s'en
+     * tient à son quota, MBE garde en plus son propre délai minimal entre deux passages : remettre la tâche à l'heure
+     * dans GLPI n'épuise pas le quota MBE de 500 appels par jour.
      */
     static function cronPrintgestionTrackingUpdate(CronTask $task = null) {
         if (!PluginPrintgestionConfig::isFeatureEnabled('toner')) {
             return 0; // module désactivé
         }
-        $updates = 0;
 
-        // 1. Plugin Gestion : BL signé → expédition delivered
-        $updates += PluginPrintgestionTracking::syncDeliveredFromGestion();
+        // 1. Dernier filet pour les BL signés : les écrans les reprennent à leur ouverture, et la tâche horaire
+        //    les rattrape déjà. Ce passage ne sert qu'à ne rien laisser derrière.
+        $updates = PluginPrintgestionTracking::onGestionBlSigned();
 
-        // 2. Avancement des expéditions → demandes d'envoi exportées.
-        if ($updates > 0) {
-            PluginPrintgestionDemande::syncFromExpeditions();
-        }
-
-        if ($task !== null) {
-            $task->addVolume($updates);
-            $task->log("Expéditions mises à jour: {$updates}");
-        }
-
-        // 3. Suivi des colis GLS : information affichée, jamais un statut d'expédition (rien sans clés).
+        // 2. Suivi des colis GLS : range ce que GLS publie, et constate une remise au destinataire (DELIVERED).
         $gls = PluginPrintgestionGlstracking::poll($task);
 
-        return ($updates + $gls['checked']) > 0 ? 1 : 0;
+        // 3. Suivi MBE : apparie ce qui ne l'est pas (par n° de BL, puis par n° transporteur), lit son statut et le
+        //    recoupe avec celui que GLS vient d'écrire.
+        $mbe = PluginPrintgestionMbetracking::poll($task);
+
+        if ($task !== null) {
+            $task->log(sprintf(
+                'BL signés rattrapés : %d — livraisons constatées : %d par GLS, %d par MBE.',
+                $updates,
+                $gls['delivered'],
+                $mbe['delivered']
+            ));
+        }
+        return ($updates + $gls['checked'] + $mbe['checked'] + $mbe['matched']) > 0 ? 1 : 0;
     }
 
     /**
@@ -203,7 +226,9 @@ class PluginPrintgestionReminder extends CommonGLPI {
         CronTask::Register(
             self::class,
             'PrintgestionTrackingUpdate',
-            HOUR_TIMESTAMP,  // valeur initiale seulement (le suivi des colis la demande) : ensuite, réglée dans GLPI
+            // Valeur initiale seulement, ensuite réglée dans GLPI : deux passages par jour suffisent aux deux suivis
+            // (GLS et MBE), et le quota MBE de 500 appels par jour ne supporterait pas un passage horaire.
+            12 * HOUR_TIMESTAMP,
             ['state' => CronTask::STATE_WAITING]
         );
         // Horaire, enregistrée DÉSACTIVÉE (voir cronPrintgestionProposeDemandes).

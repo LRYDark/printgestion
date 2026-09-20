@@ -4,8 +4,11 @@
  * numéro saisis (colonnes tracking_*, aucun objet parallèle) et rafraîchi par la tâche automatique, jamais au
  * chargement d'une page.
  *
- * Ce que le suivi ne fait pas : il ne change jamais le statut d'une expédition, ne ferme jamais le cycle
- * anti-doublon, ne décide de rien. Il s'affiche.
+ * Ce que le suivi ne fait pas : il ne ferme jamais le cycle anti-doublon et ne décide jamais d'une pose. Une seule
+ * chose lui est accordée, parce qu'elle est un constat et non une décision : un colis que GLS déclare remis au
+ * destinataire (DELIVERED, et lui seul — DELIVEREDPS laisse le colis en point relais) fait constater la livraison de
+ * l'expédition. Ce constat n'est pas écrit ici : il est remis à Delivery, qui garde la hiérarchie des preuves et
+ * interdit les rétrogradations. Tout le reste du suivi s'affiche, sans rien changer.
  *
  * Cadence, entièrement déduite (aucun réglage) :
  *   - une ligne est interrogée au plus une fois par heure, les plus anciennement interrogées d'abord ;
@@ -141,14 +144,15 @@ class PluginPrintgestionGlstracking {
      * Un passage : lignes à interroger, appels par paquets, résultats rangés. Aucune écriture hors des colonnes
      * tracking_* et du mémo de santé.
      *
-     * @return array ['checked' => lignes mises à jour, 'requests' => requêtes GLS, 'stopped' => '' | 'no_keys' | 'quota' | 'budget' | 'breaker']
+     * @return array ['checked' => lignes mises à jour, 'requests' => requêtes GLS, 'delivered' => livraisons
+     *                constatées, 'stopped' => '' | 'no_keys' | 'quota' | 'budget' | 'breaker']
      */
     public static function poll(?CronTask $task = null, ?PluginPrintgestionCarrierclient $client = null, ?string $now = null): array {
         global $DB;
 
         $client ??= new PluginPrintgestionGlsclient();
         $now    ??= date('Y-m-d H:i:s');
-        $stats    = ['checked' => 0, 'requests' => 0, 'stopped' => ''];
+        $stats    = ['checked' => 0, 'requests' => 0, 'delivered' => 0, 'stopped' => ''];
         if (!$client->isConfigured()) {
             $stats['stopped'] = 'no_keys';
             return $stats;
@@ -162,6 +166,9 @@ class PluginPrintgestionGlstracking {
             return $stats;
         }
         $cycle_failures = 0;
+        // Livraisons constatées pendant le passage : remises à Delivery en une fois, après le suivi, pour que la
+        // propagation aux demandes d'envoi ne se rejoue pas à chaque colis.
+        $constats = [];
         $query = static function (array $keys) use ($client, &$stats, &$cycle_failures): array {
             if (PluginPrintgestionGlsclient::quotaRemaining() <= 0) {
                 throw new PluginPrintgestionCarrierexception(PluginPrintgestionCarrierexception::KIND_BUDGET, __('Budget quotidien atteint : la suite attendra le prochain passage.', 'printgestion'));
@@ -206,14 +213,19 @@ class PluginPrintgestionGlstracking {
                     continue;
                 }
                 foreach ($by_key[$key] as $expedition) {
-                    self::applyResult($expedition, $result, $now);
+                    $constat = self::applyResult($expedition, $result, $now);
+                    if ($constat !== null) {
+                        $constats[] = $constat;
+                    }
                     $stats['checked']++;
                 }
             }
         }
+        $stats['delivered'] = PluginPrintgestionDelivery::markDeliveredBatch($constats);
         if ($task !== null) {
             $task->addVolume($stats['checked']);
-            $task->log(sprintf(__('Suivi GLS : %1$d expédition(s) mise(s) à jour, %2$d requête(s)%3$s.', 'printgestion'), $stats['checked'], $stats['requests'],
+            $task->log(sprintf(__('Suivi GLS : %1$d expédition(s) mise(s) à jour, %2$d requête(s), %3$d livraison(s) constatée(s)%4$s.', 'printgestion'),
+                $stats['checked'], $stats['requests'], $stats['delivered'],
                 $stats['stopped'] !== '' ? ' — ' . self::describeStop($stats['stopped']) : ''));
         }
         return $stats;
@@ -274,8 +286,13 @@ class PluginPrintgestionGlstracking {
         return $by_key;
     }
 
-    /** Range le résultat d'une clé sur une expédition. */
-    private static function applyResult(array $expedition, array $result, string $now): void {
+    /**
+     * Range le résultat d'une clé sur une expédition, et rend le constat de livraison s'il y en a un — jamais le
+     * statut de l'expédition, qui appartient à Delivery.
+     *
+     * @return array|null ['id', 'source', 'date', 'detail'] à remettre à Delivery, ou null
+     */
+    private static function applyResult(array $expedition, array $result, string $now): ?array {
         global $DB;
 
         $id     = (int) $expedition['id'];
@@ -317,6 +334,18 @@ class PluginPrintgestionGlstracking {
             PluginPrintgestionLogger::warning('gls', sprintf('Expédition #%d : réponse GLS inexploitable pour la clé « %s » (%s).', $id, $result['key'], (string) $result['error']));
         }
         $DB->update(self::TABLE, $update, ['id' => $id]);
+
+        // Remis au destinataire : un constat, pas une décision. DELIVEREDPS est exclu, le colis attend en point relais.
+        if (($update['tracking_status'] ?? '') !== 'DELIVERED') {
+            return null;
+        }
+        $event = (string) ($update['tracking_event_datetime'] ?? '');
+        return [
+            'id'     => $id,
+            'source' => PluginPrintgestionDelivery::SOURCE_GLS,
+            'date'   => $event !== '' ? $event : null,
+            'detail' => sprintf(__('GLS : DELIVERED%s.', 'printgestion'), $event !== '' ? ' ' . $event : ''),
+        ];
     }
 
     /**

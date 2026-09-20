@@ -12,6 +12,13 @@ class PluginPrintgestionConfig extends CommonDBTM {
 
     static $rightname = 'plugin_printgestion_config';
 
+    /**
+     * Identifiant du formulaire de configuration. Le sien, pas « main-form » que GLPI donne déjà au sien : deux
+     * éléments du même id dans une page est une erreur, et le JS de GLPI cible `#main-form` par endroits. Il sert
+     * aussi à rattacher le bouton « Enregistrer » par l'attribut form=.
+     */
+    const FORM_ID = 'pg-config-form';
+
     /** Colonnes chiffrées avec GLPIKey (déclarées au hook secured_fields dans setup.php). */
     /**
      * Colonnes chiffrées (GLPIKey) : le secret client GLS et la passphrase MBE, jamais réaffichés ; l'identifiant
@@ -143,8 +150,26 @@ class PluginPrintgestionConfig extends CommonDBTM {
         // action=$this->getFormURL() (→ plugins/printgestion/front/config.form.php)
         // ET inclut automatiquement _glpi_csrf_token. On referme ensuite la ligne
         // de table ouverte par showFormHeader pour rendre nos cards à la place.
-        $config->showFormHeader(['colspan' => 4]);
+        // form_id explicite : showFormHeader() nomme sinon son formulaire « main-form », l'identifiant que GLPI
+        // donne déjà au sien. Deux éléments du même id dans une page est une erreur, et le JS de GLPI cible
+        // `#main-form` par endroits — il tomberait sur le premier trouvé, pas forcément le nôtre.
+        // canedit passé explicitement aux DEUX appels : sans lui, le gabarit d'en-tête décide d'ouvrir le <form>
+        // avec item.canEdit(), pendant que celui des boutons émet le jeton CSRF et le </form> avec sa propre valeur
+        // par défaut (vrai). Si les deux réponses divergeaient, la page porterait un bouton et un jeton sans
+        // formulaire autour — et le clic ne partirait nulle part. Les deux lisent désormais la même chose.
+        $config->showFormHeader(['colspan' => 4, 'form_id' => self::FORM_ID, 'canedit' => $canedit]);
         echo '</td></tr></table>';
+        // Jeton CSRF posé ici, tout en haut du formulaire.
+        //
+        // GLPI émet le sien tout en bas, juste avant </form> (components/form/buttons.html.twig), après une longue
+        // suite de gabarits et de tables — et sur cette page il n'arrive pas dans le formulaire. Constaté dans le
+        // navigateur : `pg-config-form` ne contenait aucun `_glpi_csrf_token`, donc tout envoi partait sans jeton et
+        // GLPI le refusait (AccessDeniedHttpException sur checkCSRF), quand il partait.
+        //
+        // Ici, le jeton est le premier enfant du formulaire, en dehors de toute table : aucun gabarit, aucune
+        // relocalisation de l'analyseur HTML ne peut l'en sortir. Un second jeton plus bas ne gêne pas — chacun est
+        // valide, et c'est le dernier envoyé que PHP retient.
+        echo Html::hidden('_glpi_csrf_token', ['value' => Session::getNewCSRFToken()]);
         // Tout le formulaire passe par un tampon : en lecture seule, chaque contrôle de saisie ressort désactivé.
         ob_start();
 
@@ -637,11 +662,79 @@ function printgestionToggleMode(role, useUsers) {
 </script>
 HTML;
 
+        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+
+        // ── Liaison avec le plugin Gestion (un BL signé vaut preuve de livraison) ──
+        // Carte absente d'un GLPI qui n'a pas le plugin Gestion : un réglage qui ne peut rien régler n'a pas à
+        // occuper l'écran. Plugin présent mais désactivé : la carte le dit, et l'interrupteur reste réglable.
+        if (PluginPrintgestionTracking::isGestionPresent()) {
+            $link_on     = PluginPrintgestionTracking::isGestionLinkEnabled();
+            $link_usable = PluginPrintgestionTracking::isGestionUsable();
+            echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
+                . $esc(__('Liaison avec le plugin Gestion', 'printgestion')) . "</h3></div><div class='card-body'>";
+            echo "<p class='text-muted small mb-3'>"
+                . $esc(__('Un BL signé dans le plugin Gestion vaut preuve de livraison : l\'expédition qui porte ce BL passe « livrée » à la seconde où il est signé. C\'est aussi cette liaison qui permet d\'associer des BL à une expédition. Le passage en « livrée » ne clôt pas l\'envoi : seule la pose de la cartouche, vue par un relevé, le clôt.', 'printgestion'))
+                . "</p>";
+            // Le témoin caché distingue « décochée » de « carte absente » : sans lui, un écran sans cette carte
+            // (plugin Gestion retiré) couperait la liaison au premier enregistrement.
+            echo "<div class='form-check form-switch mb-2'>";
+            echo "<input type='hidden' name='gestion_link_posted' value='1'>";
+            echo "<input type='hidden' name='enable_gestion_link' value='0'>";
+            echo "<input type='checkbox' class='form-check-input' id='enable_gestion_link' name='enable_gestion_link' value='1'"
+                . ($link_on ? ' checked' : '') . ">";
+            echo "<label class='form-check-label' for='enable_gestion_link'>" . $esc(__('Activée', 'printgestion')) . "</label>";
+            echo "</div>";
+            // L'état réel sous l'interrupteur : ce que la position de l'interrupteur ne peut pas dire à elle seule.
+            if (!$link_usable) {
+                echo "<p class='text-warning mb-0'><i class='ti ti-alert-triangle me-1'></i>"
+                    . $esc(__('Le plugin Gestion est là mais inutilisable en l\'état (plugin désactivé, ou table des BL absente) : rien ne remontera tant qu\'il n\'est pas actif, interrupteur sur « activée » ou non.', 'printgestion')) . "</p>";
+            } elseif (!$link_on) {
+                echo "<p class='text-muted mb-0'>"
+                    . $esc(__('Coupée : aucun BL signé ne fera passer une expédition en « livrée », et l\'association de BL à une expédition est refusée. Les expéditions déjà livrées le restent.', 'printgestion')) . "</p>";
+            } else {
+                echo "<p class='text-muted mb-0'>"
+                    . $esc(__('Active : le plugin Gestion est actif et sa table des BL est là. Le passage en « livrée » part à la signature, sans attendre ; la tâche automatique de Print Gestion rattrape ensuite ce qu\'aucun clic n\'a déclenché (BL importé déjà signé, par exemple).', 'printgestion')) . "</p>";
+            }
+            echo "</div></div>";
+        }
+
+        // ── Proposition automatique des demandes d'envoi ──
+        // Un choix de fonctionnement, pas une correction : sa place est ici, avec un interrupteur, et non dans la
+        // carte de santé qui ne montre que ce qui est cassé. Absente si le module Toner est coupé (l'automatisation
+        // n'aurait rien à proposer) ou si la tâche n'est pas enregistrée.
+        $propose = self::isFeatureEnabled('toner') ? PluginPrintgestionConfighealth::getProposeTask() : null;
+        if ($propose !== null) {
+            $propose_on = (int) $propose['state'] !== CronTask::STATE_DISABLE;
+            echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
+                . $esc(__('Proposition automatique des demandes d\'envoi', 'printgestion')) . "</h3></div><div class='card-body'>";
+            echo "<p class='text-muted small mb-3'>"
+                . $esc(__('Coupée, rien ne change à ce qui existe : les commandes se font depuis l\'écran Alertes, en cochant des toners puis « Actions → Commander ». Activée, le plugin fait ce travail tout seul chaque heure — une demande par client et par site de livraison, une ligne par cartouche en alerte, au statut « Proposée ». Il ne commande rien et n\'envoie rien : il remplit l\'écran des demandes, que quelqu\'un valide puis exporte aux Achats.', 'printgestion'))
+                . "</p>";
+            echo "<p class='text-muted small mb-3'>"
+                . $esc(__('Ce qu\'il faut savoir avant d\'activer : une ligne proposée bloque la commande de sa cartouche depuis l\'écran Alertes jusqu\'à son export ou son annulation. Le travail se déplace donc des Alertes vers les Demandes — à n\'activer qu\'une fois le flux d\'export en service et suivi, sinon les commandes se bloquent sans que personne les débloque.', 'printgestion'))
+                . "</p>";
+            // Le témoin caché distingue « décochée » de « carte absente » (module Toner coupé, tâche absente).
+            echo "<div class='form-check form-switch mb-2'>";
+            echo "<input type='hidden' name='propose_posted' value='1'>";
+            echo "<input type='hidden' name='enable_propose' value='0'>";
+            echo "<input type='checkbox' class='form-check-input' id='enable_propose' name='enable_propose' value='1'"
+                . ($propose_on ? ' checked' : '') . ">";
+            echo "<label class='form-check-label' for='enable_propose'>" . $esc(__('Activée', 'printgestion')) . "</label>";
+            echo "</div>";
+            if ($propose_on) {
+                echo "<p class='text-muted mb-0'>"
+                    . $esc(__('La couper arrête les nouvelles propositions, mais n\'efface pas celles déjà faites : elles gardent leur verrou jusqu\'à leur export ou leur annulation.', 'printgestion')) . "</p>";
+            } else {
+                echo "<p class='text-muted mb-0'>"
+                    . $esc(__('Coupée : aucune demande n\'est proposée toute seule. Les demandes déjà proposées, s\'il en reste, gardent leur verrou jusqu\'à leur export ou leur annulation.', 'printgestion')) . "</p>";
+            }
+            echo "</div></div>";
+        }
+
         // ── Suivi GLS (identifiant client et secret, rien d'autre : les URL sont des constantes du code) ──
         $gls_id     = (string) ($config->fields['gls_client_id'] ?? '');
         $gls_set    = (string) ($config->fields['gls_client_secret'] ?? '') !== '';
         $gls_date   = (string) ($config->fields['gls_secret_date'] ?? '');
-        $esc        = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
             . $esc(__('Suivi GLS', 'printgestion')) . "</h3></div><div class='card-body'>";
         echo "<p class='text-muted small mb-3'>"
@@ -663,12 +756,16 @@ HTML;
         if ($gls_set || $gls_id !== '') {
             echo "<button type='submit' name='clear_gls' value='1' class='btn btn-sm btn-outline-danger' formnovalidate onclick=\"return confirm(" . $esc(json_encode(__('Retirer l\'identifiant et le secret GLS ? Les suivis déjà collectés restent en place.', 'printgestion'))) . ");\">"
                 . "<i class='ti ti-trash me-1'></i>" . $esc(__('Retirer les clés', 'printgestion')) . "</button>";
-            if ($gls_set && $gls_id !== '') {
-                // Demande un jeton et le jette : « connexion établie » ou l'erreur, jamais le jeton.
-                echo " <button type='submit' name='test_gls' value='1' class='btn btn-sm btn-outline-primary' formnovalidate data-pg-submit-once='1'>"
-                    . "<i class='ti ti-plug-connected me-1'></i>" . $esc(__('Tester la connexion', 'printgestion')) . "</button>";
-            }
         }
+        // Demande un jeton et le jette : « connexion établie » ou l'erreur, jamais le jeton.
+        $manque = [];
+        if ($gls_id === '') {
+            $manque[] = __('le Client ID', 'printgestion');
+        }
+        if (!$gls_set) {
+            $manque[] = __('le Client Secret', 'printgestion');
+        }
+        self::showConnectionTest('test_gls', $manque);
         echo "</div></div>";
 
         // ── MBE, intermédiaire de transport (identifiant et passphrase, rien d'autre : adresse et système sont des constantes) ──
@@ -679,7 +776,7 @@ HTML;
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
             . $esc(__('MBE (intermédiaire de transport)', 'printgestion')) . "</h3></div><div class='card-body'>";
         echo "<p class='text-muted small mb-3'>"
-            . $esc(__('Identifiant et passphrase de l\'API MBE France (e-link, SOAP). MBE n\'est pas un transporteur : c\'est l\'intermédiaire par lequel les cartouches du stock partent chez le client, confiées à GLS ou à UPS ; le transporteur et son numéro se saisissent comme aujourd\'hui. Cette version enregistre les identifiants et teste la connexion, rien d\'autre : sans identifiants, rien n\'est appelé et rien ne change. La passphrase API n\'est pas forcément le mot de passe de la console MBE.', 'printgestion'))
+            . $esc(__('Identifiant et passphrase de l\'API MBE France (e-link, SOAP). MBE n\'est pas un transporteur : c\'est l\'intermédiaire par lequel les cartouches du stock partent chez le client, confiées à GLS ou à UPS ; le transporteur et son numéro se saisissent comme aujourd\'hui. Avec des identifiants, Print Gestion retrouve chez MBE l\'expédition qui porte le numéro de BL de la commande (ou son numéro transporteur) et lit son statut de livraison : une expédition remise passe « livrée ». Deux passages par jour, 500 appels par jour au plus. MBE seul ne suffit pas et le plugin ne s\'y fie jamais seul : son statut reste « en attente de livraison » plusieurs jours après une remise, donc il est toujours recoupé avec ce que GLS a publié. Sans identifiants, rien n\'est appelé et rien ne change. La passphrase API n\'est pas forcément le mot de passe de la console MBE.', 'printgestion'))
             . "</p>";
         echo "<div class='row mb-2 align-items-center'><div class='col-md-4'>" . $esc(__('Adresse et système', 'printgestion')) . "</div><div class='col-md-5'>"
             . "<code>" . $esc(PluginPrintgestionMbeclient::ENDPOINT) . "</code> <span class='text-muted small'>"
@@ -700,31 +797,25 @@ HTML;
         if ($mbe_set || $mbe_user !== '') {
             echo "<button type='submit' name='clear_mbe' value='1' class='btn btn-sm btn-outline-danger' formnovalidate onclick=\"return confirm(" . $esc(json_encode(__('Retirer l\'identifiant et la passphrase MBE ? Plus aucun appel MBE ensuite.', 'printgestion'))) . ");\">"
                 . "<i class='ti ti-trash me-1'></i>" . $esc(__('Retirer les identifiants', 'printgestion')) . "</button>";
-            if ($mbe_set && $mbe_user !== '') {
-                // Lit la liste des sept derniers jours, page 1, et la jette : « connexion établie » ou l'erreur, jamais un identifiant.
-                echo " <button type='submit' name='test_mbe' value='1' class='btn btn-sm btn-outline-primary' formnovalidate data-pg-submit-once='1'>"
-                    . "<i class='ti ti-plug-connected me-1'></i>" . $esc(__('Tester la connexion', 'printgestion')) . "</button>";
-            }
         }
+        // Lit la liste des sept derniers jours, page 1, et la jette : « connexion établie » ou l'erreur, jamais un
+        // identifiant. C'est aussi le seul contrôle qui prouve que la lecture du XML de MBE fonctionne pour de vrai.
+        $manque = [];
+        if ($mbe_user === '') {
+            $manque[] = __('l\'identifiant API', 'printgestion');
+        }
+        if (!$mbe_set) {
+            $manque[] = __('la passphrase API', 'printgestion');
+        }
+        self::showConnectionTest('test_mbe', $manque);
         echo "</div></div>";
 
-        // ── Suivi : tâche automatique (lecture seule : la fréquence et le mode appartiennent à GLPI) ──
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Suivi des expéditions : tâche automatique', 'printgestion')) . "</h3></div><div class='card-body'>";
-        $tracking_rows = PluginPrintgestionConfighealth::getTaskRows(['PrintgestionTrackingUpdate']);
-        echo PluginPrintgestionConfighealth::renderTaskTable($tracking_rows);
-        foreach ($tracking_rows as $row) {
-            if ((int) $row['frequency'] > HOUR_TIMESTAMP) {
-                echo "<p class='text-warning mb-0'><i class='ti ti-alert-triangle me-1'></i>" . $esc(sprintf(
-                    __('Le suivi des colis demande un passage toutes les heures : la fréquence réglée dans GLPI (%s) est plus longue. Elle se règle dans la fiche de la tâche, le plugin ne la corrige pas.', 'printgestion'),
-                    PluginPrintgestionConfighealth::formatFrequency((int) $row['frequency'])
-                )) . "</p>";
-            }
-        }
-        echo "</div></div>";
         echo "</div></div>";
 
 
         self::showOrphansCard();
+        // Une seule fenêtre pour les deux tests de connexion, rendue en fin de formulaire.
+        self::showTestModal();
 
         $html = (string) ob_get_clean();
         if (!$canedit) {
@@ -738,12 +829,100 @@ HTML;
         if ($canedit) {
             // Rouvrir la table/tr/td attendue par showFormButtons avant de fermer
             echo '<table><tr><td>';
-            $config->showFormButtons(['candel' => false]);
+            // « Enregistrer » part avec formnovalidate, et ce n'est pas un contournement de confort.
+            //
+            // GLPI pose `data-submit-once` sur le formulaire, et son gestionnaire (public/js/common.js) annule
+            // l'envoi dès que `form.checkValidity()` est faux — sauf si le bouton cliqué porte `formnovalidate`.
+            // Or `validateFormWithBootstrap()` n'affiche quelque chose que si le formulaire porte la classe
+            // « needs-validation », que celui-ci n'a pas : un seul champ invalide annule donc l'envoi SANS message,
+            // sans requête et sans rien dans les journaux. Un contrôle qui ne sait pas dire ce qu'il reproche coûte
+            // plus qu'il ne rapporte : tous les boutons d'action du plugin portent déjà formnovalidate pour cette
+            // raison, « Enregistrer » était le seul à ne pas l'avoir.
+            //
+            // Rien n'est perdu : front/config.form.php borne chaque valeur à l'enregistrement (max(), min(), listes
+            // fermées), et c'est lui qui fait foi — le navigateur ne protège pas la base.
+            // Deux attributs ajoutés au bouton de GLPI : form= et formnovalidate.
+            //
+            // form= le rattache au formulaire par son identifiant, quel que soit l'endroit où l'analyseur HTML l'a
+            // finalement placé dans l'arbre. Un bouton d'envoi qui se retrouve hors du formulaire ne fait rien du
+            // tout au clic — sans message, sans requête, sans trace. C'est le comportement observé.
+            ob_start();
+            $config->showFormButtons(['candel' => false, 'canedit' => $canedit]);
+            echo (string) preg_replace(
+                '/<button\b(?=[^>]*\bname="update")(?![^>]*\bformnovalidate\b)/i',
+                '$0 formnovalidate form="' . self::FORM_ID . '"',
+                (string) ob_get_clean()
+            );
         } else {
             // Pas de bouton Sauvegarder : le formulaire est fermé tel quel.
             Html::closeForm();
         }
         return true;
+    }
+
+    /**
+     * Bouton « Tester la connexion » d'une intégration, **toujours affiché et toujours actif**.
+     *
+     * Toujours affiché : un bouton absent tant que les clés ne sont pas enregistrées laisse croire qu'il n'y a rien à
+     * tester, et on cherche longtemps. Toujours actif : un bouton désactivé est délavé par le thème au point de
+     * disparaître sur fond blanc — cliqué sans clés, celui-ci répond « non saisis », ce qui se lit et ne dépend
+     * d'aucun style.
+     *
+     * Une ligne dit ce qui manque encore, et pourquoi saisir ne suffit pas : le test appelle l'API avec ce qui est
+     * **enregistré**, jamais avec ce qui est affiché à l'écran.
+     *
+     * Pas de `data-pg-submit-once` ici, et c'est important : cet attribut fait que le formulaire QUI LE CONTIENT ne
+     * part qu'une fois et que ses boutons d'envoi reçoivent la classe `disabled` — sur laquelle Bootstrap coupe les
+     * clics. Tant que ce bouton n'existait qu'avec des clés enregistrées, le grand formulaire de configuration n'était
+     * pas concerné ; permanent, il y soumettrait « Enregistrer » tout entier. Un test de connexion est un appel court,
+     * il n'a pas besoin de ce garde-fou — le formulaire de configuration, lui, a besoin de partir à chaque clic.
+     *
+     * @param string   $action nom du bouton posté (test_gls, test_mbe)
+     * @param string[] $manque ce qui n'est pas encore enregistré, déjà rédigé (« le Client ID », « le secret »…)
+     */
+    protected static function showConnectionTest(string $action, array $manque): void {
+        global $CFG_GLPI;
+
+        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        // Reste un bouton d'envoi : sans JS (ou sans Bootstrap), le formulaire part et config.form.php rend le
+        // résultat en message, comme avant. `data-pg-test` dit au JS qu'il peut faire mieux — appeler en AJAX et
+        // afficher la réponse dans une fenêtre, sans recharger la page ni perdre la saisie en cours.
+        //
+        // L'adresse et les deux phrases d'attente et d'échec sont posées ici : le JS ne fabrique aucun texte
+        // affiché, il n'a pas accès aux traductions.
+        echo "<button type='submit' name='" . $esc($action) . "' value='1' data-pg-test='" . $esc($action) . "'"
+            . " data-pg-test-url='" . $esc($CFG_GLPI['root_doc'] . '/plugins/printgestion/ajax/test_connection.php') . "'"
+            . " data-pg-test-wait='" . $esc(__('Appel en cours…', 'printgestion')) . "'"
+            . " data-pg-test-error='" . $esc(__('Le test n\'a pas abouti : GLPI n\'a pas répondu. Réessayer, ou recharger la page.', 'printgestion')) . "'"
+            . " data-pg-test-http='" . $esc(__('Réponse inattendue de GLPI (ce n\'est pas le transporteur qui a répondu)', 'printgestion')) . "'"
+            . " class='btn btn-sm btn-outline-primary ms-1' formnovalidate><i class='ti ti-plug-connected me-1'></i>"
+            . $esc(__('Tester la connexion', 'printgestion')) . "</button>";
+        if (!empty($manque)) {
+            $liste = count($manque) > 1
+                ? implode(', ', array_slice($manque, 0, -1)) . ' ' . __('et', 'printgestion') . ' ' . end($manque)
+                : $manque[0];
+            echo "<div class='text-muted small mt-2'><i class='ti ti-info-circle me-1'></i>" . $esc(sprintf(
+                __('Encore à enregistrer : %s. Le test appelle l\'API avec ce qui est en base, jamais avec ce qui est saisi à l\'écran.', 'printgestion'),
+                $liste
+            )) . "</div>";
+        }
+    }
+
+    /**
+     * Fenêtre unique où s'affiche le résultat d'un test de connexion. Rendue une seule fois pour les deux
+     * intégrations : c'est le JS qui la remplit et l'ouvre, le titre et le corps changent selon le test.
+     */
+    protected static function showTestModal(): void {
+        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        echo "<div class='modal fade' id='pg-test-modal' tabindex='-1' aria-hidden='true'>"
+            . "<div class='modal-dialog modal-dialog-centered'><div class='modal-content'>"
+            . "<div class='modal-header'><h5 class='modal-title' id='pg-test-modal-title'>"
+            . $esc(__('Test de connexion', 'printgestion')) . "</h5>"
+            . "<button type='button' class='btn-close' data-bs-dismiss='modal' aria-label='" . $esc(__('Fermer', 'printgestion')) . "'></button></div>"
+            . "<div class='modal-body' id='pg-test-modal-body'></div>"
+            . "<div class='modal-footer'><button type='button' class='btn btn-outline-secondary' data-bs-dismiss='modal'>"
+            . $esc(__('Fermer', 'printgestion')) . "</button></div>"
+            . "</div></div></div>";
     }
 
     /**

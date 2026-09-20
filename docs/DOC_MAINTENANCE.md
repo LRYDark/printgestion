@@ -130,7 +130,7 @@ affichage ; la carte ne bloque rien. Le détail est toujours replié derrière u
 | URL de l'application GLPI (obligatoire) | vide, `localhost` ou `127.x`, sans `https://`, ou nom sans domaine qui ne se résout pas : un agent déployé avec ne joindra jamais GLPI et ne se répare pas à distance ; le téléchargement des installeurs est bloqué. Syntaxe correcte mais aucun agent n'a encore remonté depuis qu'elle est en place : « jamais confirmée » (horloge), la carte reste dépliée jusqu'au premier agent qui remonte — seule preuve qu'elle est joignable depuis un réseau client | Configuration → Générale, « URL de l'application » |
 | Inventaire GLPI activé (obligatoire) | « Activer l'inventaire » décoché | Administration → Inventaire |
 | Plugin GLPI Inventory (obligatoire) | absent, inactif, version trop ancienne, fichiers ou tâche `taskscheduler` manquants | Configuration → Plugins → Marketplace |
-| Actions automatiques du plugin en mode CLI avec un cron système (obligatoire) | aucun cron système prouvé (tâche témoin `PrintgestionTemoinCron`, CLI seulement, chaque minute, jamais passée ou pas depuis 15 min, et `GLPI_SYSTEM_CRON` non déclaré), ou une tâche du plugin en mode Interne ; les tâches de GLPI ne sont pas jugées, `queuednotification` est affichée en lecture | sur le serveur : crontab `* * * * * php <GLPI>/front/cron.php`, puis `define('GLPI_SYSTEM_CRON', true);` dans `config/local_define.php` ; dès qu'une tâche du plugin est en mode Interne, le bouton « Passer les N tâches de Print Gestion en CLI » est au bout du tableau des tâches (clic explicite, confirmé, jamais automatique ; sans cron système prouvé, la confirmation prévient que rien ne tournera tant que le cron n'est pas en place) ; chaque tâche a son lien « Configurer dans GLPI » |
+| Actions automatiques du plugin en mode CLI avec un cron système (obligatoire) | aucun cron système prouvé (tâche témoin `PrintgestionTemoinCron`, CLI seulement, chaque minute, jamais passée ou pas depuis 15 min, et `GLPI_SYSTEM_CRON` non déclaré), ou une tâche du plugin en mode Interne ; les tâches de GLPI ne sont pas jugées, `queuednotification` est affichée en lecture | sur le serveur : crontab `* * * * * php <GLPI>/front/cron.php`, puis `define('GLPI_SYSTEM_CRON', true);` dans `config/local_define.php` ; un bouton par correction au bout du tableau des tâches, chacun affiché seulement s'il sert, chacun confirmé, jamais automatique : « Passer les N tâches en mode CLI » (le mode seulement, l'état n'est pas touché ; sans cron système prouvé, la confirmation prévient que plus rien ne tournera tant que le cron n'est pas en place), « Activer les N tâches désactivées » (l'état seulement, le mode n'est pas touché), « Débloquer les N tâches bloquées » (coincées « en cours d'exécution »), « Déclarer le cron système (GLPI_SYSTEM_CRON) » (écrit la ligne dans `config/local_define.php` après copie horodatée ; demande le droit GLPI de configuration ; à ne cliquer QUE si la crontab est bien en place, sinon le contrôle passe au vert alors que rien ne tourne) ; la proposition automatique des demandes d'envoi n'a pas de bouton ici (ce n'est pas une correction) : son interrupteur est dans les réglages, carte « Proposition automatique des demandes d'envoi » ; tant que le témoin n'est pas passé, la ligne de crontab à recopier est affichée dans le détail ; chaque tâche a son lien « Configurer dans GLPI » |
 | Type de document xlsx autorisé (obligatoire) | extension xlsx sans « Autoriser l'import » : Gesconso non archivé, aucune commande | Configuration → Intitulés → Types de document |
 | Notifications GLPI activées (obligatoire) | « Activer le suivi » à Non : aucune notification native ne part (commande non transmise, demandes, sondes, contrats) | Configuration → Notifications → Configuration des notifications |
 | Règle d'affectation par TAG présente et active (obligatoire) | règle absente ou désactivée | bouton de la carte (créer ou activer) |
@@ -428,6 +428,30 @@ quand même reçu la commande (erreur signalée par le serveur après remise du 
 4 h, la notification « Print Gestion - Commande non transmise aux Achats » part à l'administrateur et à l'auteur ;
 si le journal de la tâche `CheckAlerts` indique « non notifiées », vérifier que cette notification est active.
 
+### Proposition automatique des demandes d'envoi : l'automatiser ou non
+
+Configuration → Print Gestion → carte « Proposition automatique des demandes d'envoi », interrupteur « Activée ».
+**Coupée par défaut**, et c'est un choix : rien n'en dépend.
+
+- **Coupée** : les commandes se font depuis l'écran Alertes, en cochant des toners puis « Actions → Commander ».
+  C'est le fonctionnement normal, rien ne manque.
+- **Activée** : chaque heure, le plugin propose tout seul une demande par client et par site de livraison, avec une
+  ligne par cartouche en alerte, au statut « Proposée ». Il ne commande rien et n'envoie rien : il remplit l'écran
+  des demandes, que quelqu'un valide puis exporte aux Achats.
+
+**Ce qui change vraiment** : une ligne proposée **bloque** la commande de sa cartouche depuis l'écran Alertes
+jusqu'à son export ou son annulation. Le travail se déplace donc des Alertes vers les Demandes. À n'activer qu'une
+fois l'export des demandes validées en service et suivi — sinon les commandes se bloquent sans que personne les
+débloque.
+
+**Couper n'efface rien** : les demandes déjà proposées restent et gardent leur verrou. Pour les lever, il faut les
+valider et les exporter, ou les annuler.
+
+La tâche écarte d'elle-même ce qui est déjà couvert (envoi en cours, demande ouverte, garde après une pose, ticket
+récent) et les emplacements dont une ligne a été annulée récemment, pour ne pas reproposer ce qu'on vient de
+refuser. Un groupe en échec n'est jamais enregistré à moitié : la tâche se termine alors en erreur, jamais en
+succès silencieux.
+
 ### Suivi GLS : clés, test, ce qui s'affiche
 
 Configuration → Print Gestion → carte « Suivi GLS » : Client ID et Client Secret de l'API GLS (Piste et Trace). Le
@@ -444,11 +468,24 @@ saisis à la main), et le technicien ne voit rien d'une intégration. Les autres
   nouvelles depuis 30 jours » quand plus rien ne bouge. Plusieurs colis pour un numéro : « 3 colis — 2 livrés, 1 en
   cours de livraison », le statut de tête est celui du colis le moins avancé, chaque colis derrière le chevron.
 - **Transporteurs proposés** : GLS, UPS, Autre. Chronopost se lit sur les anciennes expéditions, ne se choisit plus.
+- **Liaison avec le plugin Gestion** : carte « Liaison avec le plugin Gestion » de la configuration, interrupteur
+  « Activée » (**oui par défaut**). La carte ne s'affiche pas du tout sur un GLPI qui n'a jamais eu le plugin
+  Gestion. Coupée : aucun BL signé ne fait passer d'expédition en « livrée » et l'association de BL est refusée ;
+  les expéditions déjà livrées le restent. Le passage en « livrée » est immédiat : le plugin Gestion
+  appelle Print Gestion à la signature. En secours, les écrans Expéditions et Alertes reprennent les BL signés à
+  leur ouverture, et la tâche horaire rattrape le reste — au pire une heure.
+- **Après chaque mise à jour du plugin Gestion** : vérifier que les trois appels à Print Gestion sont toujours en
+  place dans `gestion/front/traitement.php` (×2) et `gestion/front/traitement_combined_multi.php` (×1). Un paquet
+  peut les emporter. Rien ne casse s'ils disparaissent — les écrans et la tâche horaire rattrapent — mais
+  l'immédiateté est perdue sans prévenir. `tests/securite/livraison.py` le contrôle.
 - **Quand** : tâche `PrintgestionTrackingUpdate` (horaire), une ligne par heure au plus, dix numéros par requête,
   arrêt à 400 requêtes par jour (quota GLS 500). Un 429 arrête la journée ; cinq échecs techniques consécutifs
   arrêtent le cycle (reprise au passage suivant). Le journal `printgestion.log` (contexte `gls`) garde les échecs,
   les numéros raccourcis et les codes non répertoriés.
-- **Le suivi ne décide de rien** : un colis « livré » ne clôt pas l'envoi, seule la pose détectée le fait.
+- **Ce qui fait passer une expédition « livrée »**, dans l'ordre de force : un **BL signé** dans le plugin Gestion (immédiat, dès la signature) ; un **événement de livraison GLS** (`DELIVERED` ; un colis remis en point relais ne compte pas, personne ne l'a encore) ; le **statut MBE** `DELIVERED`. Le premier qui constate gagne, et une livraison constatée ne se reprend jamais. **Aucun délai ne fait passer une expédition « livrée »** : le temps qui passe ne produit qu'une alerte.
+- **MBE seul ne suffit pas** : son statut reste « en attente de livraison » plusieurs jours après une remise déjà faite. Le plugin recoupe donc toujours avec ce que GLS a publié, et c'est GLS qui l'emporte. Pour un envoi UPS, MBE est la seule source.
+- **Livraison en retard** : une expédition partie et toujours pas livrée au-delà du délai du transporteur (GLS 3 jours ouvrés, UPS 6, Chronopost 4, 4 par défaut) apparaît dans « Alertes prioritaires » de l'écran Expéditions. C'est un signalement, pas une conclusion.
+- **Le suivi ne clôt rien** : un colis « livré » ne clôt pas l'envoi, seule la pose détectée le fait.
 
 ### MBE (intermédiaire de transport) : identifiants et test
 
@@ -456,8 +493,15 @@ Configuration → Print Gestion → carte « MBE (intermédiaire de transport) �
 France (e-link). MBE n'est pas un transporteur : c'est par lui que les cartouches du stock partent chez le client,
 confiées à GLS ou à UPS ; le transporteur et son numéro se saisissent comme aujourd'hui. La passphrase API n'est pas
 forcément le mot de passe de la console MBE. Elle ne se relit jamais (« •••••••• définie le … », « Remplacer ») ;
-« Retirer les identifiants » efface les deux et le mémo de santé. « Tester la connexion » lit la liste des expéditions
-des sept derniers jours, page 1, et la jette : « Connexion MBE établie : N expédition(s) … » ou l'erreur. Adresse et
+« Retirer les identifiants » efface les deux et le mémo de santé. Le bouton « Tester la connexion » affiche son résultat
+dans une **fenêtre**, sans recharger la page : la saisie en cours n'est pas perdue et le test se relance autant de
+fois qu'on veut. Il est **toujours affiché et toujours cliquable** : tant que l'identifiant ou la passphrase ne sont pas enregistrés, une ligne sous le
+bouton liste ce qui manque, et le clic répond « non saisis » sans appeler MBE (le test appelle l'API avec ce qui est
+en base, jamais avec ce qui est saisi à l'écran). Il lit la liste des expéditions
+des sept derniers jours, page 1, et la jette : « Connexion MBE établie et réponse comprise : N expédition(s) …, dont
+B avec un numéro de BL lisible dans les notes » ou l'erreur. Il passe par la même lecture de XML que le suivi : il
+prouve donc que la réponse de MBE est comprise, pas seulement que les identifiants sont acceptés — et le décompte
+des BL lisibles dit tout de suite si l'appariement par numéro de BL pourra fonctionner. Adresse et
 système (FR) sont fixés dans le code, affichés en lecture seule.
 
 - **Ce que fait cette version** : enregistrer et tester les identifiants, et la ligne « Identifiants MBE » de la

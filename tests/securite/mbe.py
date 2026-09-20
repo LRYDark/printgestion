@@ -32,6 +32,16 @@ ONGLET = "/ajax/common.tabs.php?_target=%2Ffront%2Fconfig.form.php&_itemtype=Con
 TABLE = "glpi_plugin_printgestion_configs"
 
 
+def balise_bouton(page, nom):
+    """Balise <button …> complète qui porte ce nom : `disabled` est posé juste après `<button`, pas après le nom."""
+    pos = page.find(f"name='{nom}'")
+    if pos < 0:
+        return ""
+    debut = page.rfind("<button", 0, pos)
+    fin = page.find(">", pos)
+    return page[debut:fin + 1] if debut >= 0 and fin > 0 else ""
+
+
 def reponse(status, page=1, total=1, shipments=2, errors=""):
     """Réponse ShipmentsListV3Request inventée (HTTP 200)."""
     colis = "".join(f"<ShipmentFullInfo><TrackingInfo><MasterTrackingMBE>FR0000-00-000000TST{i}</MasterTrackingMBE></TrackingInfo></ShipmentFullInfo>" for i in range(shipments))
@@ -209,8 +219,12 @@ def main():
         section("4. Écran de configuration : boutons selon l'état")
         retirer_cles(nulles=True)
         _, page, _ = WEB.get(ONGLET, ajax=True)
-        constat("sans identifiants : ni « Tester la connexion » ni « Retirer », « Aucune passphrase enregistrée », adresse fixée affichée",
-                ok_ko("name='test_mbe'" not in page and "name='clear_mbe'" not in page and "Aucune passphrase enregistrée" in page and ENDPOINT in page))
+        bouton = balise_bouton(page, "test_mbe")
+        constat("sans identifiants : « Tester la connexion » affiché et cliquable, avec ce qui reste à enregistrer ; pas de « Retirer » ; « Aucune passphrase enregistrée » ; adresse fixée affichée",
+                ok_ko(bouton != "" and "disabled" not in bouton and "Encore à enregistrer" in page
+                      and "identifiant API" in page and "passphrase API" in page
+                      and "name='clear_mbe'" not in page and "Aucune passphrase enregistrée" in page and ENDPOINT in page),
+                bouton[:120])
         poser_cles()
         _, page, _ = WEB.get(ONGLET, ajax=True)
         constat("identifiants saisis : les deux boutons, identifiant réaffiché, passphrase absente",

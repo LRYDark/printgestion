@@ -175,6 +175,15 @@ try {
     exit;
 }
 
+// Un BL déjà signé vient d'être rattaché : l'expédition est livrée, et rien ne justifie d'attendre le prochain
+// passage du cron pour le dire. Une erreur ici ne doit pas faire échouer la liaison, qui est bien enregistrée : le
+// rattrapage du cron reprendra le travail.
+try {
+    PluginPrintgestionTracking::onGestionBlSigned();
+} catch (Throwable $e) {
+    PluginPrintgestionLogger::error('link_bls', sprintf('Passage en « livrée » après liaison des BL de l\'expédition %d : à reprendre au prochain passage de la tâche automatique.', $expedition_id), $e);
+}
+
 echo json_encode([
     'ok'       => true,
     'linked'   => array_keys($target_ids),

@@ -740,8 +740,11 @@ class PluginPrintgestionAlert extends CommonDBTM {
      * Agrège :
      *   - Alertes wrong_printer non résolues (avec jointures pour avoir les noms)
      *   - Expéditions en retard (shipped/transit depuis > reminder_days)
+     *   - Livraisons en retard : parties et **toujours pas livrées** au-delà du délai du transporteur, en jours
+     *     ouvrés (Delivery::delayThreshold()). C'est le seul rôle du temps qui passe : signaler, jamais conclure —
+     *     aucun délai ne fait passer une expédition « livrée », il faut qu'une source l'ait constaté.
      *
-     * Retourne un tableau de lignes typées : ['kind' => 'wrong_printer'|'late_shipment', ...]
+     * Retourne un tableau de lignes typées : ['kind' => 'wrong_printer'|'late_shipment'|'late_delivery', ...]
      */
     public static function listPriorityAlerts(?int $entities_id = null): array {
         global $DB;
@@ -874,6 +877,70 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 'tracking'         => (string)($e['transport_number'] ?? ''),
                 'days_since'       => $days_since,
             ];
+        }
+
+        // ── 3. Livraisons en retard : parties, non livrées, au-delà du délai du transporteur ──
+        $late_delivery = [];
+        //       Le pré-filtre en base est en jours calendaires (le plus court des seuils) ; le décompte exact en
+        //       jours ouvrés se fait ensuite, il ne s'écrit pas en SQL sans y perdre la lisibilité.
+        $criteria = [
+            'SELECT' => [
+                'e.id',
+                'e.printers_id',
+                'e.toner_property',
+                'e.statut',
+                'e.transport_carrier',
+                'e.transport_number',
+                'e.date_shipped',
+                'p.name AS printer_name',
+                'e.entities_id',
+                'ei.completename AS entity_name',
+            ],
+            'FROM'      => 'glpi_plugin_printgestion_expeditions AS e',
+            'LEFT JOIN' => [
+                'glpi_printers AS p'  => ['ON' => ['e' => 'printers_id', 'p' => 'id']],
+                'glpi_entities AS ei' => ['ON' => ['e' => 'entities_id', 'ei' => 'id']],
+            ],
+            'WHERE' => [
+                'e.statut'       => ['shipped', 'transit'],
+                'e.date_shipped' => ['<=', date('Y-m-d H:i:s', strtotime('-' . PluginPrintgestionDelivery::shortestDelay() . ' days'))],
+            ],
+            'ORDER' => ['e.date_shipped ASC'],
+        ];
+        if ($entities_id !== null) {
+            $criteria['WHERE']['e.entities_id'] = $entities_id;
+        }
+        $criteria['WHERE'][] = getEntitiesRestrictCriteria('e', '', '', true);
+
+        foreach ($DB->request($criteria) as $e) {
+            $carrier   = (string) ($e['transport_carrier'] ?? '');
+            $threshold = PluginPrintgestionDelivery::delayThreshold($carrier);
+            $elapsed   = PluginPrintgestionDelivery::businessDaysSince((string) $e['date_shipped']);
+            if ($elapsed < $threshold) {
+                continue;
+            }
+            $late_delivery[(int) $e['id']] = true;
+            $out[] = [
+                'kind'           => 'late_delivery',
+                'expedition_id'  => (int) $e['id'],
+                'printers_id'    => (int) $e['printers_id'],
+                'printer_name'   => (string) ($e['printer_name'] ?? '?'),
+                'entity_name'    => (string) ($e['entity_name'] ?? ''),
+                'toner_property' => (string) $e['toner_property'],
+                'statut'         => (string) $e['statut'],
+                'carrier'        => $carrier,
+                'tracking'       => (string) ($e['transport_number'] ?? ''),
+                'days_since'     => $elapsed,
+                'threshold'      => $threshold,
+            ];
+        }
+
+        // Un envoi parti depuis longtemps et jamais livré tombe dans les deux alertes : « pose non constatée » et
+        // « livraison en retard ». Une seule ligne, et c'est la seconde qui la garde — courir après une pose quand le
+        // colis n'est jamais arrivé envoie le technicien au mauvais endroit.
+        if (!empty($late_delivery)) {
+            $out = array_values(array_filter($out, static fn(array $row): bool => $row['kind'] !== 'late_shipment'
+                || !isset($late_delivery[(int) ($row['expedition_id'] ?? 0)])));
         }
 
         return $out;

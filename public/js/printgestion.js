@@ -4,41 +4,185 @@
 (function () {
     'use strict';
 
-    // Envoi unique : un formulaire qui contient un bouton [data-pg-submit-once] (action lente : téléchargement
-    // GitHub, import, renvoi aux Achats) ne part qu'une fois. Un second clic réutiliserait le jeton CSRF déjà
-    // consommé et afficherait « Accès refusé » alors que le premier envoi a abouti. Les boutons ne sont pas
-    // désactivés (leur nom et leur valeur doivent partir avec le formulaire) : le second envoi est ignoré.
-    document.addEventListener('submit', function (event) {
-        var form = event.target;
-        if (!(form instanceof HTMLFormElement) || !form.querySelector('[data-pg-submit-once]')) {
+    // Les actions ponctuelles de la carte de santé ne doivent pas soumettre tout le grand formulaire de
+    // configuration. Construit un POST minimal hors de ce formulaire avec le jeton standalone de GLPI.
+    document.addEventListener('click', function (event) {
+        var button = event.target.closest('[data-pg-post-action]');
+        if (!(button instanceof HTMLButtonElement) || event.defaultPrevented) {
             return;
         }
-        if (form.getAttribute('data-pg-submitted') === '1') {
+
+        var csrf = document.querySelector('meta[property="glpi:csrf_token"]');
+        var action = button.getAttribute('data-pg-post-action');
+        var url = button.getAttribute('data-pg-post-url');
+        if (!(csrf instanceof HTMLMetaElement) || !action || !url) {
+            return;
+        }
+
+        var form = document.createElement('form');
+        form.method = 'post';
+        form.action = url;
+        form.hidden = true;
+
+        var actionInput = document.createElement('input');
+        actionInput.type = 'hidden';
+        actionInput.name = action;
+        actionInput.value = '1';
+        form.appendChild(actionInput);
+
+        var csrfInput = document.createElement('input');
+        csrfInput.type = 'hidden';
+        csrfInput.name = '_glpi_csrf_token';
+        csrfInput.value = csrf.content;
+        form.appendChild(csrfInput);
+
+        button.classList.add('disabled');
+        button.setAttribute('aria-busy', 'true');
+        document.body.appendChild(form);
+        form.submit();
+    });
+
+    // Test de connexion (GLS, MBE) : la réponse s'affiche dans une fenêtre, la page n'est pas rechargée et la
+    // saisie en cours n'est pas perdue. L'appel part en AJAX, où GLPI vérifie le jeton CSRF de l'en-tête et le
+    // **conserve** : on peut réessayer autant de fois qu'on veut sans recharger.
+    //
+    // Sans fenêtre dans la page ou sans Bootstrap, on ne fait rien : le bouton reste un bouton d'envoi et le
+    // formulaire part comme avant, avec le résultat en message. Le confort est une amélioration, jamais un passage
+    // obligé.
+    document.addEventListener('click', function (event) {
+        if (!(event.target instanceof Element)) {
+            return;
+        }
+        var button = event.target.closest('[data-pg-test]');
+        if (!(button instanceof HTMLButtonElement) || event.defaultPrevented) {
+            return;
+        }
+        var modalElement = document.getElementById('pg-test-modal');
+        var corps = document.getElementById('pg-test-modal-body');
+        var csrf = document.querySelector('meta[property="glpi:csrf_token"]');
+        // Tout doit être là AVANT de retenir le clic : sinon on laisse le bouton faire son envoi de formulaire,
+        // qui rend le même résultat en message. Retenir le clic puis échouer laisserait l'écran muet.
+        if (!modalElement || !corps || !csrf || typeof bootstrap === 'undefined' || !bootstrap.Modal) {
+            return;
+        }
+        event.preventDefault();
+
+        // Aucun texte venu du serveur n'est inséré en HTML, ici pas plus qu'ailleurs : tout passe par textContent.
+        var afficher = function (texte, classe) {
+            var alerte = document.createElement('div');
+            alerte.className = classe;
+            alerte.setAttribute('role', 'alert');
+            alerte.textContent = texte;
+            corps.replaceChildren(alerte);
+        };
+
+        var titre = document.getElementById('pg-test-modal-title');
+        var carte = button.closest('.card');
+        var nom = carte ? (carte.querySelector('.card-title') || {}).textContent : null;
+        if (titre && nom) {
+            titre.textContent = nom.trim();
+        }
+
+        var attente = document.createElement('div');
+        attente.className = 'd-flex align-items-center gap-2';
+        var roue = document.createElement('span');
+        roue.className = 'spinner-border spinner-border-sm';
+        roue.setAttribute('role', 'status');
+        roue.setAttribute('aria-hidden', 'true');
+        var texte = document.createElement('span');
+        texte.textContent = button.getAttribute('data-pg-test-wait') || '…';
+        attente.appendChild(roue);
+        attente.appendChild(texte);
+        corps.replaceChildren(attente);
+        bootstrap.Modal.getOrCreateInstance(modalElement).show();
+
+        fetch(button.getAttribute('data-pg-test-url'), {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-Glpi-Csrf-Token': csrf.content
+            },
+            body: 'action=' + encodeURIComponent(button.getAttribute('data-pg-test'))
+        }).then(function (reponse) {
+            // Une réponse qui n'est pas du JSON (page d'erreur, accès refusé) ne doit pas se confondre avec un
+            // serveur muet : les deux cas ne se cherchent pas au même endroit.
+            return reponse.text().then(function (brut) {
+                try {
+                    return { donnees: JSON.parse(brut), statut: reponse.status };
+                } catch (e) {
+                    return { donnees: null, statut: reponse.status };
+                }
+            });
+        }).then(function (resultat) {
+            if (resultat.donnees === null) {
+                afficher(
+                    (button.getAttribute('data-pg-test-http') || 'Réponse inattendue de GLPI') + ' (HTTP ' + resultat.statut + ').',
+                    'alert alert-danger mb-0'
+                );
+                return;
+            }
+            afficher(
+                resultat.donnees.message || '',
+                'alert mb-0 ' + (resultat.donnees.ok === true ? 'alert-success' : 'alert-danger')
+            );
+        }).catch(function () {
+            afficher(button.getAttribute('data-pg-test-error') || '', 'alert alert-danger mb-0');
+        });
+    });
+
+    // Envoi unique : un bouton [data-pg-submit-once] (action lente : téléchargement GitHub, import, renvoi aux
+    // Achats) ne part qu'une fois. Un second clic réutiliserait le jeton CSRF déjà consommé et afficherait « Accès
+    // refusé » alors que le premier envoi a abouti.
+    //
+    // Le garde-fou suit le BOUTON CLIQUÉ, jamais le formulaire qui le contient. La distinction n'est pas théorique :
+    // le formulaire de configuration porte à la fois des actions lentes (« J'ai vérifié », création de la règle TAG)
+    // et le bouton « Enregistrer » ordinaire. Protéger le formulaire entier revenait à poser la classe `disabled`
+    // sur « Enregistrer » — et Bootstrap coupe les clics sur `disabled` (pointer-events: none). Le bouton devenait
+    // définitivement mort, sans message et sans rien dans les journaux du serveur, puisque aucune requête ne partait.
+    var dernierClic = null;
+    document.addEventListener('click', function (event) {
+        // Ce gestionnaire voit TOUS les clics de la page : une exception ici casserait le reste. La cible est
+        // vérifiée avant d'appeler closest(), qui n'existe que sur un Element.
+        if (!(event.target instanceof Element)) {
+            dernierClic = null;
+            return;
+        }
+        dernierClic = event.target.closest('button, input[type=submit], input[type=image]');
+    }, true);
+
+    document.addEventListener('submit', function (event) {
+        if (!(event.target instanceof HTMLFormElement)) {
+            return;
+        }
+        // event.submitter est la référence ; le dernier clic sert de repli pour les navigateurs qui ne le donnent pas.
+        var button = event.submitter || dernierClic;
+        if (!button || !button.hasAttribute || !button.hasAttribute('data-pg-submit-once')) {
+            return;
+        }
+        if (button.getAttribute('data-pg-submitted') === '1') {
             event.preventDefault();
             event.stopImmediatePropagation();
             return;
         }
-        // Après les autres gestionnaires (confirmation) : un envoi annulé ne verrouille pas le formulaire.
+        // Après les autres gestionnaires (confirmation) : un envoi annulé ne verrouille pas le bouton.
         setTimeout(function () {
             if (event.defaultPrevented) {
                 return;
             }
-            form.setAttribute('data-pg-submitted', '1');
-            form.querySelectorAll('button[type=submit], input[type=submit]').forEach(function (button) {
-                button.classList.add('disabled');
-                button.setAttribute('aria-busy', 'true');
-            });
+            button.setAttribute('data-pg-submitted', '1');
+            button.classList.add('disabled');
+            button.setAttribute('aria-busy', 'true');
         }, 0);
     }, true);
 
-    // Retour arrière (cache de page) : formulaire de nouveau utilisable.
+    // Retour arrière (cache de page) : boutons de nouveau utilisables.
     window.addEventListener('pageshow', function () {
-        document.querySelectorAll('form[data-pg-submitted]').forEach(function (form) {
-            form.removeAttribute('data-pg-submitted');
-            form.querySelectorAll('[aria-busy=true]').forEach(function (button) {
-                button.classList.remove('disabled');
-                button.removeAttribute('aria-busy');
-            });
+        document.querySelectorAll('[data-pg-submitted]').forEach(function (button) {
+            button.removeAttribute('data-pg-submitted');
+            button.classList.remove('disabled');
+            button.removeAttribute('aria-busy');
         });
     });
 })();

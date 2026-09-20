@@ -2,10 +2,15 @@
 
 Chaque contrôle obligatoire est mis en défaut puis rétabli : ligne rouge, bannière impossible à manquer, page non
 bloquée (le formulaire reste là). Actions automatiques : vert seulement sans action active en mode GLPI ET avec une
-action en mode CLI lancée dans l'heure. Sauvegarde de glpicrypt.key : ligne « non vérifiable automatiquement »,
+action en mode CLI lancée dans l'heure ; chaque correction a son bouton et n'agit que sur elle (passer en mode CLI
+sans toucher à l'état, activer sans toucher au mode, débloquer, déclarer le cron système, activer la proposition
+automatique des demandes), et le cron du serveur reste le seul point qu'aucun bouton ne corrige. Sauvegarde de glpicrypt.key : ligne « non vérifiable automatiquement »,
 jamais une case à cocher. Tout vert : une ligne « Configuration : complète », détail replié. Profils : lecture seule
 du droit de configuration → carte sans bouton ; sans ce droit → pas de carte.
 """
+import glob
+import io
+import os
 import re
 import sys
 
@@ -14,6 +19,9 @@ import donnees as d
 import lib
 from lib import WEB, constat, ok_ko, section, sql, valeur
 
+LOCAL_DEFINE = os.path.join(config.GLPI_DIR, "config", "local_define.php")
+LOCAL_DEFINE_AVANT = None
+LIAISON_GESTION_AVANT = None
 ONGLET = "/ajax/common.tabs.php?_target=%2Ffront%2Fconfig.form.php&_itemtype=Config&_glpi_tab=PluginPrintgestionConfig%241&id=1"
 CTX = lib.Contexte()
 
@@ -28,9 +36,40 @@ def bandeau(page):
     return "alert alert-danger" in page and "prérequis manquant" in page
 
 
+def balise_bouton(page, nom):
+    """Balise <button …> complète qui porte ce nom : les attributs posés par GLPI le sont avant le nom."""
+    pos = page.find(f"name=\"{nom}\"")
+    if pos < 0:
+        pos = page.find(f"name='{nom}'")
+    if pos < 0:
+        return ""
+    debut = page.rfind("<button", 0, pos)
+    fin = page.find(">", pos)
+    return page[debut:fin + 1] if debut >= 0 and fin > 0 else ""
+
+
+def lire_local_define():
+    return io.open(LOCAL_DEFINE, encoding="utf-8").read() if os.path.exists(LOCAL_DEFINE) else ""
+
+
+def restaurer_local_define():
+    """Remet config/local_define.php dans son état d'avant la passe et efface les copies horodatées du plugin."""
+    if LOCAL_DEFINE_AVANT is None:
+        if os.path.exists(LOCAL_DEFINE):
+            os.remove(LOCAL_DEFINE)
+    else:
+        io.open(LOCAL_DEFINE, "w", encoding="utf-8", newline="\n").write(LOCAL_DEFINE_AVANT)
+    for copie in glob.glob(LOCAL_DEFINE + ".bak-*"):
+        os.remove(copie)
+
+
 def main():
     d.verifier_instance()
-    cron = lib.lignes("SELECT id, mode, IFNULL(lastrun, 'NULL') FROM glpi_crontasks")
+    global LOCAL_DEFINE_AVANT, LIAISON_GESTION_AVANT
+    LOCAL_DEFINE_AVANT = lire_local_define() if os.path.exists(LOCAL_DEFINE) else None
+    liaison = valeur("SELECT value FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'gestion_link_enabled'")
+    LIAISON_GESTION_AVANT = liaison if liaison != "" else None
+    cron = lib.lignes("SELECT id, mode, state, IFNULL(lastrun, 'NULL') FROM glpi_crontasks")
     inventaire = valeur("SELECT value FROM glpi_configs WHERE context = 'inventory' AND name = 'enabled_inventory'")
     xlsx = lib.lignes("SELECT id, is_uploadable FROM glpi_documenttypes WHERE ext = 'xlsx'")
     etat_glpiinventory = valeur("SELECT state FROM glpi_plugins WHERE directory = 'glpiinventory'")
@@ -59,29 +98,159 @@ def main():
                 ok_ko("prérequis manquant" in page and "quelque chose ne marche pas" not in page and ("ne fonctionnera pas" in page or "ne partira" in page or "mauvaise entité" in page)))
         constat("mode CLI expliqué dans le bouton d'information", ok_ko("modal" in page and "le plus souvent négligé" in page))
         constat("ancienne carte « Journal du plugin » rattachée : une seule occurrence du bouton de test", ok_ko(page.count("name='test_log'") == 1 and etats.get("log") == "ok"))
+        # Le formulaire porte data-submit-once (GLPI) : sans formnovalidate sur « Enregistrer », un seul champ
+        # invalide annulerait l'envoi sans message, sans requête et sans journal. Et son id doit être à lui.
+        bouton_enregistrer = balise_bouton(page, "update")
+        constat("bouton « Enregistrer » : formnovalidate posé (la validation du navigateur ne saurait qu'échouer en silence ici)",
+                ok_ko(bouton_enregistrer != "" and "formnovalidate" in bouton_enregistrer), bouton_enregistrer[:120])
+        constat("le formulaire du plugin a son propre identifiant, pas « main-form » comme celui de GLPI",
+                ok_ko("id=\"pg-config-form\"" in page and 'id="main-form"' not in page))
+        # Sans jeton CSRF DANS le formulaire, GLPI refuse tout envoi (AccessDeniedHttpException) : le bouton de test
+        # rend une erreur et « Enregistrer » ne fait rien. GLPI pose le sien tout en bas, après une longue suite de
+        # gabarits et de tables, et il n'arrivait pas jusqu'ici. Le plugin pose le sien en tête, on le vérifie.
+        formulaire = lib.Formulaire("printgestion/front/config.form.php")
+        formulaire.feed(page)
+        noms = [n for n, _ in formulaire.champs]
+        constat("le formulaire du plugin porte son jeton CSRF : sans lui, GLPI refuse tout envoi",
+                ok_ko("_glpi_csrf_token" in noms), f"{len(noms)} champ(s) lus")
+        constat("le bouton « Enregistrer » est rattaché au formulaire par form=, même si l'analyseur HTML le place ailleurs",
+                ok_ko('form="pg-config-form"' in bouton_enregistrer), bouton_enregistrer[:140])
+        constat("« Tester la connexion » : les deux boutons appellent l'AJAX, la fenêtre de résultat est dans la page, et ils restent des boutons d'envoi (repli sans JS)",
+                ok_ko("data-pg-test='test_gls'" in page and "data-pg-test='test_mbe'" in page
+                      and "ajax/test_connection.php" in page and "id='pg-test-modal'" in page
+                      and "name='test_gls' value='1'" in page))
+        reponse = WEB.post(config.AJAX + "/test_connection.php", [("action", "test_mbe")], ajax=True)[1]
+        constat("le point d'entrée AJAX répond en JSON (jamais une page d'erreur HTML), avec un message lisible",
+                ok_ko(reponse.strip().startswith("{") and '"ok"' in reponse and '"message"' in reponse),
+                reponse.strip()[:140])
+        reponse = WEB.post(config.AJAX + "/test_connection.php", [("action", "test_inconnu")], ajax=True)[1]
+        constat("un test inconnu est refusé, sans appeler personne",
+                ok_ko('"ok":false' in reponse.replace(" ", "")), reponse.strip()[:120])
 
-        section("2. Actions automatiques : témoin du cron système, périmètre du plugin, bascule explicite")
+        section("2. Actions automatiques : témoin du cron système, périmètre du plugin, un bouton par correction")
         maintenant = lib.php_glpi("echo date('Y-m-d H:i:s');").strip()
-        autres = lambda: lib.lignes("SELECT name, mode FROM glpi_crontasks WHERE itemtype NOT LIKE 'PluginPrintgestion%' ORDER BY name")  # noqa: E731
+        autres = lambda: lib.lignes("SELECT name, mode, state FROM glpi_crontasks WHERE itemtype NOT LIKE 'PluginPrintgestion%' ORDER BY name")  # noqa: E731
+        etats_plugin = lambda: lib.lignes("SELECT name, state FROM glpi_crontasks WHERE itemtype LIKE 'PluginPrintgestion%' ORDER BY name")  # noqa: E731
+        modes_plugin = lambda: lib.lignes("SELECT name, mode FROM glpi_crontasks WHERE itemtype LIKE 'PluginPrintgestion%' ORDER BY name")  # noqa: E731
         sql("UPDATE glpi_crontasks SET lastrun = NULL WHERE name = 'PrintgestionTemoinCron';")
-        sql("UPDATE glpi_crontasks SET mode = 1 WHERE itemtype LIKE 'PluginPrintgestion%' AND name <> 'PrintgestionTemoinCron';")
+        sql("UPDATE glpi_crontasks SET mode = 1, state = 1 WHERE itemtype LIKE 'PluginPrintgestion%' AND name NOT IN ('PrintgestionTemoinCron', 'PrintgestionProposeDemandes');")
+        sql("UPDATE glpi_crontasks SET mode = 1, state = 0 WHERE name = 'PrintgestionProposeDemandes';")
         page, etats = carte()
-        constat("témoin jamais passé : rouge « Aucun cron système détecté », bascule proposée au bout du tableau, confirmation qui prévient que rien ne tournera sans cron",
-                ok_ko(etats.get("cron") == "error" and "Aucun cron système détecté" in page and "switch_plugin_tasks_cli" in page
+        constat("témoin jamais passé : rouge « Aucun cron système détecté », bouton « Passer en mode CLI » dont la confirmation prévient que rien ne tournera sans cron",
+                ok_ko(etats.get("cron") == "error" and "Aucun cron système détecté" in page and "cron_switch_cli" in page
                       and "ne tourneront plus du tout tant que le cron du serveur" in page and bandeau(page)))
-        constat("détail : GLPI_SYSTEM_CRON, les 8 tâches du plugin et le témoin avec leur fiche, queuednotification en lecture seule",
-                ok_ko("GLPI_SYSTEM_CRON" in page and page.count("Configurer dans GLPI") >= 10 and "queuednotification" in page and "Témoin du cron" in page))
+        constat("détail : GLPI_SYSTEM_CRON, les 8 tâches du plugin et le témoin avec leur fiche, queuednotification en lecture seule, la ligne de cron à installer sur le serveur",
+                ok_ko("GLPI_SYSTEM_CRON" in page and page.count("Configurer dans GLPI") >= 10 and "queuednotification" in page
+                      and "Témoin du cron" in page and "front/cron.php</code>" in page))
         sql(f"UPDATE glpi_crontasks SET lastrun = '{maintenant}' WHERE name = 'PrintgestionTemoinCron';")
         page, etats = carte()
-        constat("témoin passé, tâches du plugin en Interne : « Mode Interne — rien ne partira de façon fiable », bouton de bascule (clic explicite)",
-                ok_ko(etats.get("cron") == "error" and "Mode Interne — rien ne partira de façon fiable" in page and "switch_plugin_tasks_cli" in page and "confirm(" in page))
-        avant_autres = autres()
-        WEB.post(config.FRONT + "/config.form.php", [("switch_plugin_tasks_cli", "1")])
-        constat("bascule : les tâches du plugin en CLI, les tâches de GLPI et des autres plugins intactes",
-                ok_ko(valeur("SELECT COUNT(*) FROM glpi_crontasks WHERE itemtype LIKE 'PluginPrintgestion%' AND mode = 1") == "0" and autres() == avant_autres),
+        constat("tâches du plugin en Interne : « Mode Interne — rien ne partira de façon fiable », un bouton par correction, jamais un bouton qui groupe tout",
+                ok_ko(etats.get("cron") == "error" and "Mode Interne — rien ne partira de façon fiable" in page
+                      and "cron_switch_cli" in page and "confirm(" in page and "switch_plugin_tasks_cli" not in page))
+        avant_autres, avant_etats = autres(), etats_plugin()
+        WEB.post(config.FRONT + "/config.form.php", [("cron_switch_cli", "1")])
+        constat("« Passer en mode CLI » : le mode seulement — tâches du plugin en CLI, leur état inchangé, tâches de GLPI et des autres plugins intactes",
+                ok_ko(valeur("SELECT COUNT(*) FROM glpi_crontasks WHERE itemtype LIKE 'PluginPrintgestion%' AND mode = 1") == "0"
+                      and etats_plugin() == avant_etats and autres() == avant_autres),
                 WEB.messages()[:120])
+
+        sql("UPDATE glpi_crontasks SET state = 0 WHERE name IN ('PrintgestionSnapshotReadings', 'PrintgestionCheckAlerts');")
         page, etats = carte()
-        constat("cron système prouvé et tâches du plugin en CLI : vert", ok_ko(etats.get("cron") == "ok" and "Cron système actif" in page))
+        constat("tâches désactivées : rouge, bouton « Activer les 2 tâches désactivées », la proposition automatique jamais comptée dedans",
+                ok_ko(etats.get("cron") == "error" and "cron_enable_tasks" in page and "2 tâches désactivées" in page
+                      and "doivent être réactivées" in page))
+        avant_modes = modes_plugin()
+        WEB.post(config.FRONT + "/config.form.php", [("cron_enable_tasks", "1")])
+        constat("« Activer » : l'état seulement — les deux tâches réactivées, les modes inchangés, la proposition automatique toujours désactivée",
+                ok_ko(valeur("SELECT COUNT(*) FROM glpi_crontasks WHERE itemtype LIKE 'PluginPrintgestion%' AND state = 0") == "1"
+                      and valeur("SELECT state FROM glpi_crontasks WHERE name = 'PrintgestionProposeDemandes'") == "0"
+                      and modes_plugin() == avant_modes),
+                WEB.messages()[:120])
+
+        sql("UPDATE glpi_crontasks SET state = 2, lastrun = DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE name = 'PrintgestionCheckAlerts';")
+        page, etats = carte()
+        constat("tâche coincée « en cours d'exécution » : rouge, bouton « Débloquer la tâche bloquée »",
+                ok_ko(etats.get("cron") == "error" and "cron_unblock_tasks" in page and "doit être débloquée" in page))
+        WEB.post(config.FRONT + "/config.form.php", [("cron_unblock_tasks", "1")])
+        constat("« Débloquer » : la tâche repasse en attente et repartira au prochain passage du cron",
+                ok_ko(valeur("SELECT state FROM glpi_crontasks WHERE name = 'PrintgestionCheckAlerts'") == "1"),
+                WEB.messages()[:120])
+
+        page, etats = carte()
+        constat("cron système prouvé, tâches du plugin en CLI et actives : vert, et plus aucun bouton de correction",
+                ok_ko(etats.get("cron") == "ok" and "Cron système actif" in page
+                      and "cron_switch_cli" not in page and "cron_enable_tasks" not in page
+                      and "cron_unblock_tasks" not in page))
+        constat("la proposition automatique n'a pas de bouton dans la carte de santé : ce n'est pas une correction, c'est un réglage",
+                ok_ko("cron_enable_propose" not in page and "cron_disable_propose" not in page
+                      and "Proposition des demandes" in page))
+
+        section("2 bis. Proposition automatique des demandes d'envoi : un interrupteur dans les réglages")
+        etat_propose = lambda: valeur("SELECT state FROM glpi_crontasks WHERE name = 'PrintgestionProposeDemandes'")  # noqa: E731
+        sql("UPDATE glpi_crontasks SET state = 0 WHERE name = 'PrintgestionProposeDemandes';")
+        page, _ = carte()
+        constat("carte « Proposition automatique des demandes d'envoi » avec son interrupteur, décoché, et ce qu'elle bloque dit avant le clic",
+                ok_ko("Proposition automatique des demandes" in page and "name='enable_propose' value='1'" in page
+                      and "name='enable_propose' value='1' checked" not in page
+                      and "bloque la commande de sa cartouche" in page))
+
+        def poster_propose(active):
+            statut, page_form, _ = WEB.get(ONGLET, ajax=True)
+            formulaire = lib.Formulaire("printgestion/front/config.form.php")
+            formulaire.feed(page_form)
+            exclus = ("_glpi_csrf_token", "update", "enable_propose", "gls_client_secret", "mbe_passphrase")
+            champs = [(n, v) for n, v in formulaire.champs if n not in exclus]
+            if len(champs) < 5:
+                return None, f"HTTP {statut}, {len(champs)} champ(s)"
+            champs.append(("update", "1"))
+            if active:
+                champs.append(("enable_propose", "1"))
+            WEB.post(config.FRONT + "/config.form.php", champs)
+            return etat_propose(), WEB.messages()[:200]
+
+        apres, detail = poster_propose(True)
+        if apres is None:
+            constat("formulaire de configuration lu pour activer la proposition automatique", "NON CONCLUANT", detail)
+        else:
+            constat("interrupteur coché : la tâche automatique de GLPI passe en attente, et le message rappelle le verrou",
+                    ok_ko(apres == "1" and "bloque la commande de sa cartouche" in detail), detail[:140])
+            page, _ = carte()
+            constat("la carte montre l'état réel : interrupteur coché, et ce que couper ne défait pas",
+                    ok_ko("name='enable_propose' value='1' checked" in page
+                          and "efface pas celles" in page))
+            apres, detail = poster_propose(False)
+            constat("interrupteur décoché : la tâche est coupée, et le message prévient que les demandes déjà proposées gardent leur verrou",
+                    ok_ko(apres == "0" and "gardent leur verrou" in detail), detail[:140])
+
+        sql("UPDATE glpi_crontasks SET lastrun = NULL WHERE name = 'PrintgestionTemoinCron';")
+        page, etats = carte()
+        constat("tout réglé ici mais cron du serveur absent : la ligne dit qu'aucun bouton de la carte ne la fera passer au vert, et n'en propose plus aucun sur les tâches",
+                ok_ko(etats.get("cron") == "error" and "plus aucune tâche active du plugin en mode Interne" in page
+                      and "ne manque que le cron du serveur" in page and "cron_switch_cli" not in page
+                      and "cron_enable_tasks" not in page and "cron_unblock_tasks" not in page))
+
+        # Seule action de la carte qui écrit hors de la base : GLPI_SYSTEM_CRON dans config/local_define.php. Le
+        # bouton n'est proposé que si le serveur web peut écrire ce fichier — sinon le contrôle est non concluant, pas
+        # en échec, et le détail donne la ligne à ajouter à la main. Le fichier est remis dans son état d'avant juste
+        # après (et de nouveau dans le finally), pour que l'instance ne reste pas avec un cron système déclaré à tort.
+        if "cron_declare_system" in page:
+            constat("cron du serveur absent et fichier inscriptible : bouton « Déclarer le cron système (GLPI_SYSTEM_CRON) »",
+                    ok_ko("Déclarer le cron système" in page and "confirm(" in page))
+            WEB.post(config.FRONT + "/config.form.php", [("cron_declare_system", "1")])
+            constat("« Déclarer le cron système » : la ligne écrite dans config/local_define.php, sans réécrire le fichier",
+                    ok_ko(os.path.exists(LOCAL_DEFINE) and "GLPI_SYSTEM_CRON" in lire_local_define()),
+                    WEB.messages()[:160])
+            page, etats = carte()
+            constat("déclaré alors que le témoin n'a jamais passé : vert « déclaré par GLPI_SYSTEM_CRON », et la ligne de crontab toujours affichée",
+                    ok_ko(etats.get("cron") == "ok" and "déclaré par GLPI_SYSTEM_CRON" in page and "front/cron.php</code>" in page))
+            restaurer_local_define()
+            page, etats = carte()
+            constat("déclaration retirée : le contrôle redevient rouge, rien n'est resté en base",
+                    ok_ko(etats.get("cron") == "error" and "Aucun cron système détecté" in page))
+        else:
+            constat("« Déclarer le cron système » : bouton non proposé, config/local_define.php non inscriptible par le serveur web",
+                    "NON CONCLUANT", "le détail doit donner la ligne à ajouter à la main : " + ok_ko("se fait à la main" in page))
+        sql(f"UPDATE glpi_crontasks SET lastrun = '{maintenant}' WHERE name = 'PrintgestionTemoinCron';")
         constat("le témoin n'accepte que le mode CLI (allowmode) : jamais de bascule à faire sur lui",
                 ok_ko(valeur("SELECT CONCAT(mode, '/', allowmode) FROM glpi_crontasks WHERE name = 'PrintgestionTemoinCron'") == "2/2"))
 
@@ -177,19 +346,76 @@ def main():
         constat("mémo : URL et date écrits dans la configuration du plugin, jamais dans un réglage",
                 ok_ko(valeur("SELECT value FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'url_base_seen'") == d.CORE["url_base"]))
 
-        section("8. Tâche de suivi : encart en lecture seule, plus de champ de fréquence")
+        section("8. Tâche de suivi : affichée une seule fois, avec l'avertissement de fréquence")
         lib.connecter_admin()
         page, _ = carte()
         tache = lib.lignes("SELECT id, mode, frequency FROM glpi_crontasks WHERE name = 'PrintgestionTrackingUpdate'")[0]
-        constat("plus de champ « Fréquence tracking » ; encart avec l'état, le mode, la fréquence, la dernière exécution et le lien vers la fiche de la tâche",
-                ok_ko("tracking_frequency" not in page and "Suivi des expéditions : tâche automatique" in page and f"crontask.form.php?id={tache[0]}" in page
+        constat("plus de champ « Fréquence tracking », plus de carte « Suivi des expéditions : tâche automatique » : la tâche n'est affichée qu'une fois, avec le lien vers sa fiche",
+                ok_ko("tracking_frequency" not in page and "Suivi des expéditions : tâche automatique" not in page
+                      and page.count(f"crontask.form.php?id={tache[0]}'") == 1
                       and "Configurer dans GLPI" in page and "Dernière exécution" in page))
         sql("UPDATE glpi_crontasks SET mode = 1, frequency = 14400 WHERE name = 'PrintgestionTrackingUpdate';")
         page, _ = carte()
-        constat("mode Interne dit en toutes lettres ; fréquence « toutes les 4 heures » signalée comme trop longue pour le suivi, sans la corriger",
-                ok_ko("Interne (GLPI)" in page and "ne partiront pas de façon fiable" in page and "est plus longue" in page and "toutes les 4 heures" in page
-                      and valeur("SELECT frequency FROM glpi_crontasks WHERE name = 'PrintgestionTrackingUpdate'") == "14400"))
+        constat("toutes les 4 heures : plus souvent que les deux passages demandés, donc rien à signaler sur la fréquence",
+                ok_ko("Interne (GLPI)" in page and "ne partiront pas de façon fiable" in page and "est plus longue" not in page))
+        sql("UPDATE glpi_crontasks SET frequency = 172800 WHERE name = 'PrintgestionTrackingUpdate';")
+        page, _ = carte()
+        constat("fréquence « tous les 2 jours » signalée comme trop longue pour le suivi, sans la corriger",
+                ok_ko("est plus longue" in page and "tous les 2 jours" in page and "deux passages par jour" in page
+                      and valeur("SELECT frequency FROM glpi_crontasks WHERE name = 'PrintgestionTrackingUpdate'") == "172800"))
         sql(f"UPDATE glpi_crontasks SET mode = {tache[1]}, frequency = {tache[2]} WHERE name = 'PrintgestionTrackingUpdate';")
+        constat("la tâche dit d'abord son travail qui exige l'heure (le suivi des colis), le rattrapage des BL ensuite",
+                ok_ko("Suivi des colis GLS" in page and "rattrapage des BL signés" in page))
+
+        section("8 bis. Liaison avec le plugin Gestion : une carte, activée par défaut, absente sans le plugin")
+        sql("DELETE FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'gestion_link_enabled';")
+        reglage = lambda: valeur("SELECT value FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'gestion_link_enabled'")  # noqa: E731
+        page, _ = carte()
+        constat("aucune valeur en base : la carte est là et la liaison est activée par défaut",
+                ok_ko("Liaison avec le plugin Gestion" in page and "name='enable_gestion_link' value='1' checked" in page
+                      and "Active : le plugin Gestion est actif" in page and reglage() is None))
+        # Le formulaire entier est reposté (patron de mbe.py) : la branche « update » relit chaque valeur dans $_POST,
+        # un POST réduit remettrait toute la configuration à ses valeurs par défaut.
+        def poster_liaison(active):
+            statut, page_form, _ = WEB.get(ONGLET, ajax=True)
+            formulaire = lib.Formulaire("printgestion/front/config.form.php")
+            formulaire.feed(page_form)
+            exclus = ("_glpi_csrf_token", "update", "enable_gestion_link", "gls_client_secret", "mbe_passphrase")
+            champs = [(n, v) for n, v in formulaire.champs if n not in exclus]
+            if len(champs) < 5:
+                return None, f"HTTP {statut}, {len(champs)} champ(s)"
+            champs.append(("update", "1"))
+            if active:
+                champs.append(("enable_gestion_link", "1"))
+            WEB.post(config.FRONT + "/config.form.php", champs)
+            return reglage(), WEB.messages()[:120]
+
+        apres, detail = poster_liaison(False)
+        if apres is None:
+            constat("formulaire de configuration lu pour couper la liaison", "NON CONCLUANT", detail)
+        else:
+            constat("interrupteur décoché : la liaison est coupée, la valeur est enregistrée hors du schéma (glpi_configs)",
+                    ok_ko(apres == "0"), detail)
+            page, _ = carte()
+            refus = WEB.post(config.AJAX + "/link_bls.php", [("expedition_id", "1"), ("bls", "[\"1\"]")])[1]
+            constat("coupée : la carte le dit, et l'association de BL à une expédition est refusée",
+                    ok_ko("Coupée : aucun BL signé" in page and "name='enable_gestion_link' value='1' checked" not in page
+                          and "Gestion integration not enabled" in refus), refus[:120])
+            apres, detail = poster_liaison(True)
+            constat("réactivée par son interrupteur", ok_ko(apres == "1"), detail)
+        etat_gestion = valeur("SELECT state FROM glpi_plugins WHERE directory = 'gestion'")
+        sql("UPDATE glpi_plugins SET state = 4 WHERE directory = 'gestion';")
+        page, _ = carte()
+        constat("plugin Gestion présent mais inactif : la carte reste, l'interrupteur aussi, et elle dit que rien ne remontera",
+                ok_ko("Liaison avec le plugin Gestion" in page and "inutilisable en l'état" in page))
+        sql(f"UPDATE glpi_plugins SET state = {etat_gestion} WHERE directory = 'gestion';")
+        # Plugin Gestion jamais installé : sa table des BL n'existe pas. Renommée le temps d'un affichage, remise juste
+        # après (et dans le finally si la passe s'interrompt) : l'instance ne reste jamais sans sa table.
+        sql("RENAME TABLE glpi_plugin_gestion_surveys TO glpi_plugin_gestion_surveys_absente;")
+        page, _ = carte()
+        constat("plugin Gestion jamais installé : la carte ne s'affiche pas du tout",
+                ok_ko("Liaison avec le plugin Gestion" not in page))
+        sql("RENAME TABLE glpi_plugin_gestion_surveys_absente TO glpi_plugin_gestion_surveys;")
 
         section("9. Filtres de facturation : critères de l'écran Facturation, plus un réglage")
         page, _ = carte()
@@ -300,8 +526,17 @@ def main():
         page, etats = carte()
         constat("sans droit de configuration du plugin : aucune carte", ok_ko("Santé de la configuration" not in page and not etats))
     finally:
-        for ident, mode, lastrun in cron:
-            sql(f"UPDATE glpi_crontasks SET mode = {mode}, lastrun = {'NULL' if lastrun == 'NULL' else lib.q(lastrun)} WHERE id = {ident};")
+        # Table des BL du plugin Gestion renommée le temps d'un contrôle : remise en place si la passe s'est
+        # interrompue entre les deux (l'instance de test ne doit jamais rester sans elle).
+        if valeur("SHOW TABLES LIKE 'glpi_plugin_gestion_surveys_absente'") is not None:
+            sql("RENAME TABLE glpi_plugin_gestion_surveys_absente TO glpi_plugin_gestion_surveys;")
+        if LIAISON_GESTION_AVANT is None:
+            sql("DELETE FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'gestion_link_enabled';")
+        else:
+            sql(f"UPDATE glpi_configs SET value = {lib.q(LIAISON_GESTION_AVANT)} WHERE context = 'plugin:printgestion' AND name = 'gestion_link_enabled';")
+        restaurer_local_define()
+        for ident, mode, state, lastrun in cron:
+            sql(f"UPDATE glpi_crontasks SET mode = {mode}, state = {state}, lastrun = {'NULL' if lastrun == 'NULL' else lib.q(lastrun)} WHERE id = {ident};")
         sql(f"UPDATE glpi_configs SET value = {lib.q(inventaire)} WHERE context = 'inventory' AND name = 'enabled_inventory';")
         for ident, autorise in xlsx:
             sql(f"UPDATE glpi_documenttypes SET is_uploadable = {autorise} WHERE id = {ident};")

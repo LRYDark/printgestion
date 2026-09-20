@@ -18,6 +18,10 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
     throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
+// Écran des alertes : le verrou anti-doublon dépend du statut des expéditions. Un BL signé qui n'aurait pas encore
+// été repris ferait proposer une commande pour une cartouche déjà livrée.
+PluginPrintgestionTracking::syncOnDisplay();
+
 $page = PluginPrintgestionAlertview::getSearchURL();
 
 if (isset($_POST['recompute_alerts'])) {

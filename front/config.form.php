@@ -36,16 +36,37 @@ if (isset($_POST['activate_contract_alerts'])) {
     // « J'ai vérifié » la sauvegarde de glpicrypt.key : date et auteur mémorisés, la ligne se repliera six mois.
     PluginPrintgestionConfighealth::acknowledgeKeyBackup();
     Session::addMessageAfterRedirect(__('Sauvegarde de glpicrypt.key : vérification enregistrée. La ligne reviendra d\'elle-même dans six mois.', 'printgestion'), false, INFO);
-} elseif (isset($_POST['switch_plugin_tasks_cli'])) {
-    // Bascule explicite des tâches du plugin en CLI (carte Santé) : jamais celles de GLPI ni d'un autre plugin.
-    $switched = $DB->update('glpi_crontasks', ['mode' => CronTask::MODE_EXTERNAL], [
-        'itemtype'  => ['LIKE', 'PluginPrintgestion%'],
-        'mode'      => CronTask::MODE_INTERNAL,
-        'allowmode' => ['&', CronTask::MODE_EXTERNAL],
-    ]);
-    Session::addMessageAfterRedirect($switched
-        ? __('Tâches de Print Gestion passées en mode CLI. Les tâches de GLPI et des autres plugins sont inchangées.', 'printgestion')
-        : __('Aucune tâche de Print Gestion à basculer.', 'printgestion'), false, INFO);
+} elseif (isset($_POST['cron_switch_cli'])) {
+    // « Passer en mode CLI » de la carte de santé : le mode d'exécution seulement, jamais l'état des tâches — passer
+    // en CLI et activer sont deux décisions, chacune son bouton. Jamais les tâches de GLPI ni d'un autre plugin.
+    $done = PluginPrintgestionConfighealth::switchTasksToCli();
+    Session::addMessageAfterRedirect($done > 0
+        ? sprintf(_n('%d tâche de Print Gestion passée en mode CLI. Son état n\'a pas changé.', '%d tâches de Print Gestion passées en mode CLI. Leur état n\'a pas changé.', $done, 'printgestion'), $done)
+        : __('Les tâches de Print Gestion qui acceptent le mode CLI y sont déjà toutes.', 'printgestion'),
+        false, $done > 0 ? INFO : WARNING);
+} elseif (isset($_POST['cron_enable_tasks'])) {
+    // « Activer » : l'état seulement, jamais le mode. PrintgestionProposeDemandes garde son propre bouton : elle ne
+    // doit être activée qu'après validation métier du flux d'export.
+    $done = PluginPrintgestionConfighealth::enableTasks();
+    Session::addMessageAfterRedirect($done > 0
+        ? sprintf(_n('%d tâche de Print Gestion réactivée. Son mode d\'exécution n\'a pas changé.', '%d tâches de Print Gestion réactivées. Leur mode d\'exécution n\'a pas changé.', $done, 'printgestion'), $done)
+        : __('Aucune tâche de Print Gestion à réactiver : la proposition automatique de demandes d\'envoi a son propre bouton.', 'printgestion'),
+        false, $done > 0 ? INFO : WARNING);
+} elseif (isset($_POST['cron_unblock_tasks'])) {
+    // « Débloquer » : les seules tâches du plugin coincées « en cours d'exécution » repassent en attente.
+    $done = PluginPrintgestionConfighealth::unblockTasks();
+    Session::addMessageAfterRedirect($done > 0
+        ? sprintf(_n('%d tâche de Print Gestion débloquée : elle repartira au prochain passage du cron.', '%d tâches de Print Gestion débloquées : elles repartiront au prochain passage du cron.', $done, 'printgestion'), $done)
+        : __('Aucune tâche de Print Gestion coincée « en cours d\'exécution ».', 'printgestion'),
+        false, $done > 0 ? INFO : WARNING);
+} elseif (isset($_POST['cron_declare_system'])) {
+    // Déclaration du cron système : constante native de GLPI écrite dans config/local_define.php, donc droit GLPI de
+    // configuration en plus de celui du plugin. Elle dit à GLPI qu'un cron système existe, elle ne le crée pas.
+    if (!Session::haveRight('config', UPDATE)) {
+        throw new \Glpi\Exception\Http\AccessDeniedHttpException();
+    }
+    $result = PluginPrintgestionConfighealth::declareSystemCron();
+    Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : ERROR);
 } elseif (isset($_POST['test_gls'])) {
     // « Tester la connexion » GLS : un jeton demandé puis jeté ; le message ne le contient jamais.
     $result = (new PluginPrintgestionGlsclient())->testConnection();
@@ -183,6 +204,34 @@ if (isset($_POST['activate_contract_alerts'])) {
         } else {
             $values['mbe_passphrase']  = $encrypted;
             $values['mbe_secret_date'] = date('Y-m-d H:i:s');
+        }
+    }
+
+    // Liaison avec le plugin Gestion : rangée dans le contexte de configuration du plugin, pas dans une colonne
+    // (elle doit exister sur une base déjà installée, sans migration de schéma). Le témoin caché dit que la carte
+    // était affichée : sans lui, un écran rendu sans cette carte (plugin Gestion retiré) couperait la liaison au
+    // premier enregistrement.
+    if (!empty($_POST['gestion_link_posted'])) {
+        $link_wanted = (int) ($_POST['enable_gestion_link'] ?? 0) === 1;
+        if ($link_wanted !== PluginPrintgestionTracking::isGestionLinkEnabled()) {
+            PluginPrintgestionTracking::setGestionLinkEnabled($link_wanted);
+            Session::addMessageAfterRedirect($link_wanted
+                ? __('Liaison avec le plugin Gestion activée : un BL signé fera passer son expédition en « livrée », dès la signature.', 'printgestion')
+                : __('Liaison avec le plugin Gestion coupée : plus aucun BL signé ne fera passer une expédition en « livrée », et l\'association de BL à une expédition est refusée. Les expéditions déjà livrées le restent.', 'printgestion'),
+                true, INFO);
+        }
+    }
+
+    // Proposition automatique des demandes d'envoi : l'état vit dans la tâche automatique de GLPI, pas dans la
+    // configuration du plugin. Le témoin caché dit que la carte était affichée — sans lui, un écran rendu sans elle
+    // (module Toner coupé) couperait la tâche au premier enregistrement.
+    if (!empty($_POST['propose_posted'])) {
+        $propose_wanted = (int) ($_POST['enable_propose'] ?? 0) === 1;
+        if (PluginPrintgestionConfighealth::setProposeTask($propose_wanted)) {
+            Session::addMessageAfterRedirect($propose_wanted
+                ? __('Proposition automatique des demandes d\'envoi activée : chaque heure, une demande sera proposée par client et par site pour les cartouches en alerte. Chaque ligne proposée bloque la commande de sa cartouche depuis l\'écran Alertes jusqu\'à son export ou son annulation.', 'printgestion')
+                : __('Proposition automatique des demandes d\'envoi coupée : plus aucune demande ne sera proposée toute seule. Les demandes déjà proposées restent et gardent leur verrou jusqu\'à leur export ou leur annulation.', 'printgestion'),
+                true, INFO);
         }
     }
 

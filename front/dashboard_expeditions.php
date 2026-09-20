@@ -19,6 +19,10 @@ Html::header(
     'PluginPrintgestionMenu'
 );
 
+// Écran des expéditions : c'est ici que le statut « livrée » se lit. Les BL signés depuis le dernier passage sont
+// repris maintenant, pour que ce qui s'affiche soit à jour — du SQL local, rien de plus.
+PluginPrintgestionTracking::syncOnDisplay();
+
 $entities_id = (isset($_GET['entities_id']) && $_GET['entities_id'] !== '' && (int)$_GET['entities_id'] >= 0)
     ? (int)$_GET['entities_id'] : null;
 
@@ -48,7 +52,7 @@ PluginPrintgestionMenu::showTabBar('tn_exp', Session::haveRight('plugin_printges
 // Commandes enregistrées mais non transmises aux Achats : en tête, jusqu'au renvoi.
 PluginPrintgestionPurchaseorder::showNotSentCard();
 
-// ── Alertes prioritaires (wrong_printer + late_shipment) — côté PHP (non paginé) ──
+// ── Alertes prioritaires (wrong_printer + late_shipment + late_delivery) — côté PHP (non paginé) ──
 $priority_alerts = PluginPrintgestionAlert::listPriorityAlerts($entities_id);
 
 if (!empty($priority_alerts)) {
@@ -125,6 +129,35 @@ if (!empty($priority_alerts)) {
                 Html::closeForm();
                 echo "</div>";
             }
+            echo "</div>";
+        } elseif ($pa['kind'] === 'late_delivery') {
+            // Partie et toujours pas livrée au-delà du délai du transporteur. Aucun délai ne fait passer une
+            // expédition « livrée » : cette ligne signale, elle ne conclut pas.
+            $printer_url = Printer::getFormURLWithID($pa['printers_id']);
+            echo "<div class='d-flex align-items-start'>";
+            echo "<i class='fa-solid fa-truck-fast fa-lg me-3 mt-1 text-danger'></i>";
+            echo "<div class='flex-grow-1'>";
+            echo "<strong>" . __('Livraison en retard', 'printgestion') . "</strong>";
+            if (!empty($pa['entity_name'])) {
+                echo " — " . htmlspecialchars($pa['entity_name'], ENT_QUOTES, 'UTF-8');
+            }
+            echo "<br>";
+            echo "<span class='text-muted small'>"
+                . sprintf(
+                    __('Cartouche "%1$s" pour %2$s : partie depuis %3$d jour(s) ouvré(s), aucune livraison constatée (délai %4$s : %5$d jour(s) ouvré(s))', 'printgestion'),
+                    htmlspecialchars($pa['toner_property'], ENT_QUOTES, 'UTF-8'),
+                    "<a href='" . htmlspecialchars($printer_url, ENT_QUOTES, 'UTF-8') . "'><strong>"
+                        . htmlspecialchars($pa['printer_name'], ENT_QUOTES, 'UTF-8') . "</strong></a>",
+                    (int) $pa['days_since'],
+                    $pa['carrier'] !== '' ? strtoupper(htmlspecialchars($pa['carrier'], ENT_QUOTES, 'UTF-8')) : __('par défaut', 'printgestion'),
+                    (int) $pa['threshold']
+                );
+            if (!empty($pa['tracking'])) {
+                echo " — <code>" . htmlspecialchars($pa['tracking'], ENT_QUOTES, 'UTF-8') . "</code>";
+            }
+            echo "</span>";
+            echo PluginPrintgestionGlstracking::renderLineFor((int) ($pa['expedition_id'] ?? 0));
+            echo "</div>";
             echo "</div>";
         } else {
             $printer_url = Printer::getFormURLWithID($pa['printers_id']);

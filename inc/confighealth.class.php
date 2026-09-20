@@ -23,6 +23,12 @@ class PluginPrintgestionConfighealth {
 
     /** Nom de la tâche témoin (CLI seulement, chaque minute) : sa dernière exécution prouve le cron système. */
     const WITNESS_TASK = 'PrintgestionTemoinCron';
+    /** Tâche des deux suivis transporteur (GLS et MBE) : deux passages par jour lui suffisent, pas moins. */
+    const TRACKING_TASK = 'PrintgestionTrackingUpdate';
+    /** Au-delà, le suivi des colis décroche : une fréquence plus longue est signalée, jamais corrigée. */
+    const TRACKING_MAX_FREQUENCY = 12 * HOUR_TIMESTAMP;
+    /** Tâche dangereuse laissée volontairement désactivée tant que le flux d'export n'est pas validé. */
+    const MANUAL_ENABLE_TASK = 'PrintgestionProposeDemandes';
     /** Fenêtre dans laquelle le témoin doit être passé (cron_limit tâches par passage : quelques minutes de retard possibles). */
     const WITNESS_WINDOW = 15 * MINUTE_TIMESTAMP;
 
@@ -97,10 +103,10 @@ class PluginPrintgestionConfighealth {
             'state'  => $cron['ok'] ? self::STATE_OK : self::STATE_ERROR,
             'status' => $cron['status'],
             'breaks' => __('En mode Interne, les tâches ne tournent que quand quelqu\'un navigue : relevés irréguliers, alertes en retard, commandes non transmises jamais signalées. Sans cron système, rien ne tourne du tout.', 'printgestion'),
-            'fix'    => __('Sur le serveur : cron système qui lance front/cron.php chaque minute, puis GLPI_SYSTEM_CRON dans config/local_define.php ; dans GLPI : Configuration → Actions automatiques, fiche de chaque tâche', 'printgestion'),
+            'fix'    => __('Boutons de cette carte pour le mode et l\'état des tâches ; sur le serveur : cron système qui lance front/cron.php chaque minute, lui seul ne se règle pas d\'ici', 'printgestion'),
             'url'    => CronTask::getSearchURL(),
             'detail' => self::renderCronDetail($cron),
-            'button' => !empty($cron['internal']) ? self::getSwitchTasksButton(count($cron['internal']), $cron['proven']) : '',
+            'button' => self::getCronButtons($cron),
         ];
 
         $xlsx_ok  = (bool) Document::isValidDoc('Gesconso.xlsx');
@@ -297,29 +303,6 @@ class PluginPrintgestionConfighealth {
             . "<i class='ti ti-checkbox me-1'></i>" . $esc(__('J\'ai vérifié', 'printgestion')) . "</button>";
     }
 
-    /**
-     * Tâches automatiques lues dans GLPI (glpi_crontasks), jamais redéfinies : état, mode, fréquence, dernière
-     * exécution. Le plugin les affiche, dit si le mode est correct, et renvoie vers la fiche native de chaque tâche.
-     *
-     * @param string[] $names noms des tâches
-     * @return array[] [['id', 'name', 'itemtype', 'state', 'mode', 'frequency', 'lastrun', 'description']]
-     */
-    public static function getTaskRows(array $names): array {
-        global $DB;
-
-        $rows = [];
-        foreach ($DB->request([
-            'SELECT' => ['id', 'name', 'itemtype', 'state', 'mode', 'frequency', 'lastrun'],
-            'FROM'   => CronTask::getTable(),
-            'WHERE'  => ['name' => $names],
-            'ORDER'  => ['name'],
-        ]) as $row) {
-            $info = is_callable([$row['itemtype'], 'cronInfo']) ? (array) call_user_func([$row['itemtype'], 'cronInfo'], $row['name']) : [];
-            $rows[] = $row + ['description' => (string) ($info['description'] ?? $row['name'])];
-        }
-        return $rows;
-    }
-
     /** Fréquence lisible : « chaque minute », « toutes les 4 heures », « tous les 7 jours ». */
     public static function formatFrequency(int $seconds): string {
         if ($seconds > 0 && $seconds % DAY_TIMESTAMP === 0) {
@@ -399,34 +382,71 @@ class PluginPrintgestionConfighealth {
      * Cron : jugé sur les tâches du plugin seulement (une carte rouge à cause de tâches qu'on ne possède pas est une
      * carte qu'on apprend à ignorer), plus `queuednotification` en lecture — les notifications natives du plugin en
      * dépendent. Le cron système est prouvé par la tâche témoin (mode CLI seulement, chaque minute) passée dans la
-     * fenêtre, ou déclaré par GLPI_SYSTEM_CRON. Le plugin ne bascule rien tout seul : quand le cron système est
-     * prouvé et que des tâches du plugin sont en mode Interne, un bouton propose la bascule — un clic explicite.
+     * fenêtre, ou déclaré par GLPI_SYSTEM_CRON. Le plugin ne corrige rien tout seul, et ne groupe rien : chaque
+     * correction a son bouton (passer en CLI, activer, débloquer, déclarer le cron système, activer la proposition
+     * automatique), un clic explicite et confirmé, pour n'appliquer que ce qui a été décidé — passer en CLI sans
+     * activer, activer sans passer en CLI, et ainsi de suite.
      *
-     * @return array ['ok', 'status', 'proven', 'system_cron_declared', 'witness' => ?row, 'tasks' => rows,
-     *               'internal' => noms en mode Interne, 'queue' => ?row, 'switchable' => bool (au moins une tâche en Interne)]
+     * @return array ['ok', 'status', 'proven', 'seen', 'system_cron_declared', 'witness' => ?row, 'tasks' => rows,
+     *               'propose' => ?row (tâche à décision métier), 'internal' => actives en mode Interne,
+     *               'not_cli' => tout ce qu'un clic peut passer en CLI, 'inactive' => désactivées à réactiver,
+     *               'blocked' => coincées « en cours d'exécution », 'local_define' => état de config/local_define.php,
+     *               'queue' => ?row]
      */
     public static function getCronStatus(): array {
         global $DB;
 
+        // Tâches coincées « en cours d'exécution » : GLPI sait les repérer, le plugin n'en reprend que les siennes.
+        $zombie_ids = [];
+        foreach (CronTask::getZombieCronTasks() as $row) {
+            if (str_starts_with((string) $row['itemtype'], 'PluginPrintgestion')) {
+                $zombie_ids[(int) $row['id']] = true;
+            }
+        }
+
         $tasks    = [];
         $witness  = null;
+        $propose  = null;
         $internal = [];
+        $not_cli  = [];
+        $inactive = [];
+        $blocked  = [];
         foreach ($DB->request([
-            'SELECT' => ['id', 'name', 'itemtype', 'state', 'mode', 'frequency', 'lastrun'],
+            'SELECT' => ['id', 'name', 'itemtype', 'state', 'mode', 'allowmode', 'frequency', 'lastrun'],
             'FROM'   => CronTask::getTable(),
             'WHERE'  => ['itemtype' => ['LIKE', 'PluginPrintgestion%']],
             'ORDER'  => ['name'],
         ]) as $row) {
             $info = is_callable([$row['itemtype'], 'cronInfo']) ? (array) call_user_func([$row['itemtype'], 'cronInfo'], $row['name']) : [];
             $row += ['description' => (string) ($info['description'] ?? $row['name'])];
+            // La tâche à décision métier (proposition automatique de demandes) a son propre bouton : elle ne compte
+            // ni dans les désactivées à réactiver, ni dans les débloquables.
+            $manual = $row['name'] === self::MANUAL_ENABLE_TASK;
+            if ((int) $row['mode'] === CronTask::MODE_INTERNAL && (int) $row['state'] !== CronTask::STATE_DISABLE) {
+                $internal[] = $row['description'];
+            }
+            // Ce qu'un clic peut passer en CLI : une tâche désactivée comprise (son mode comptera le jour où elle
+            // sera activée), jamais une tâche qui n'accepte pas le mode CLI (allowmode) — le témoin, par exemple.
+            if (
+                (int) $row['mode'] !== CronTask::MODE_EXTERNAL
+                && ((int) $row['allowmode'] & CronTask::MODE_EXTERNAL) !== 0
+            ) {
+                $not_cli[] = $row['description'];
+            }
+            if (!$manual && (int) $row['state'] === CronTask::STATE_DISABLE) {
+                $inactive[] = $row['description'];
+            }
+            if (!$manual && isset($zombie_ids[(int) $row['id']])) {
+                $blocked[] = $row['description'];
+            }
+            if ($manual) {
+                $propose = $row;
+            }
             if ($row['name'] === self::WITNESS_TASK) {
                 $witness = $row;
                 continue;
             }
             $tasks[] = $row;
-            if ((int) $row['mode'] === CronTask::MODE_INTERNAL && (int) $row['state'] !== CronTask::STATE_DISABLE) {
-                $internal[] = $row['description'];
-            }
         }
         $queue    = $DB->request(['FROM' => CronTask::getTable(), 'WHERE' => ['name' => 'queuednotification']])->current() ?: null;
         $declared = defined('GLPI_SYSTEM_CRON') && GLPI_SYSTEM_CRON;
@@ -434,38 +454,91 @@ class PluginPrintgestionConfighealth {
             && strtotime((string) $witness['lastrun']) >= strtotime(Session::getCurrentTime()) - self::WITNESS_WINDOW;
         $proven   = $declared || $seen;
 
+        // L'état se lit d'un trait : le cron système d'abord, puis ce qui reste à corriger d'ici, correction par
+        // correction — une phrase par bouton. Et quand tout est réglé ici alors que le cron du serveur manque
+        // encore, la ligne le dit en toutes lettres : plus aucun clic de cette carte ne la fera passer au vert.
+        $parts = [];
         if (!$proven) {
-            $status = $witness === null
+            $parts[] = $witness === null
                 ? __('Tâche témoin absente : relancer la mise à jour du plugin (Configuration → Plugins).', 'printgestion')
                 : (empty($witness['lastrun'])
                     ? __('Aucun cron système détecté : la tâche témoin (mode CLI, chaque minute) n\'a jamais tourné. Rien ne partira de façon fiable.', 'printgestion')
                     : sprintf(__('Aucun cron système détecté : la tâche témoin n\'a pas tourné depuis le %s. Rien ne partira de façon fiable.', 'printgestion'), Html::convDateTime((string) $witness['lastrun'])));
-        } elseif (!empty($internal)) {
-            $status = sprintf(_n(
-                'Mode Interne — rien ne partira de façon fiable. %d tâche du plugin à passer en CLI (cron système détecté).',
-                'Mode Interne — rien ne partira de façon fiable. %d tâches du plugin à passer en CLI (cron système détecté).',
+        }
+        if (!empty($internal)) {
+            // Comptées ici : les tâches ACTIVES en mode Interne, celles qui cassent. Le bouton, lui, annonce son propre
+            // compte : il bascule aussi les désactivées, dont le mode comptera le jour où elles seront activées. Deux
+            // nombres différents parce qu'ils mesurent deux choses différentes, et chacun dit laquelle.
+            $parts[] = sprintf(_n(
+                'Mode Interne — rien ne partira de façon fiable. %d tâche active du plugin est en mode Interne.',
+                'Mode Interne — rien ne partira de façon fiable. %d tâches actives du plugin sont en mode Interne.',
                 count($internal),
                 'printgestion'
             ), count($internal));
-        } else {
-            $status = sprintf(__('Cron système actif (%1$s), les %2$d tâches du plugin en CLI.', 'printgestion'),
+        }
+        if (!empty($inactive)) {
+            $parts[] = sprintf(_n(
+                '%d tâche de Print Gestion est désactivée et doit être réactivée.',
+                '%d tâches de Print Gestion sont désactivées et doivent être réactivées.',
+                count($inactive),
+                'printgestion'
+            ), count($inactive));
+        }
+        if (!empty($blocked)) {
+            $parts[] = sprintf(_n(
+                '%d tâche de Print Gestion est coincée « en cours d\'exécution » et doit être débloquée.',
+                '%d tâches de Print Gestion sont coincées « en cours d\'exécution » et doivent être débloquées.',
+                count($blocked),
+                'printgestion'
+            ), count($blocked));
+        }
+        if (!$proven && empty($internal) && empty($inactive) && empty($blocked)) {
+            $parts[] = __('Rien à corriger d\'ici : plus aucune tâche active du plugin en mode Interne, plus aucune désactivée ni bloquée. Il ne manque que le cron du serveur, qu\'aucun bouton de cette carte ne peut créer.', 'printgestion');
+        }
+        if ($parts === []) {
+            $parts[] = sprintf(__('Cron système actif (%1$s), les %2$d tâches du plugin en CLI.', 'printgestion'),
                 $declared && !$seen ? __('déclaré par GLPI_SYSTEM_CRON', 'printgestion') : sprintf(__('témoin passé le %s', 'printgestion'), Html::convDateTime((string) $witness['lastrun'])),
                 count($tasks));
         }
         return [
-            'ok'                   => $proven && empty($internal),
-            'status'               => $status,
+            'ok'                   => $proven && empty($internal) && empty($inactive) && empty($blocked),
+            'status'               => implode(' ', $parts),
             'proven'               => $proven,
+            'seen'                 => $seen,
             'system_cron_declared' => $declared,
             'witness'              => $witness,
             'tasks'                => $tasks,
+            'propose'              => $propose,
             'internal'             => $internal,
+            'not_cli'              => $not_cli,
+            'inactive'             => $inactive,
+            'blocked'              => $blocked,
+            'local_define'         => self::getLocalDefineStatus(),
             'queue'                => $queue,
-            'switchable'           => !empty($internal),
         ];
     }
 
-    /** Détail du contrôle cron : GLPI_SYSTEM_CRON, les tâches du plugin une par une, le témoin, la file des notifications. */
+    /**
+     * Fichier des constantes locales de GLPI (config/local_define.php, chargé au démarrage) : où il est, s'il existe,
+     * si le serveur web peut l'écrire. Sans droit d'écriture, la déclaration du cron système se fait à la main et le
+     * bouton n'est pas proposé : un bouton qui ne peut pas aboutir vaut moins que la ligne à recopier.
+     *
+     * @return array ['path' => string, 'exists' => bool, 'writable' => bool]
+     */
+    public static function getLocalDefineStatus(): array {
+        $path = GLPI_CONFIG_DIR . '/local_define.php';
+        return [
+            'path'     => $path,
+            'exists'   => file_exists($path),
+            'writable' => file_exists($path) ? is_writable($path) : is_writable(GLPI_CONFIG_DIR),
+        ];
+    }
+
+    /**
+     * Détail du contrôle cron : GLPI_SYSTEM_CRON, les tâches du plugin une par une, le témoin, la file des
+     * notifications, et — tant que le témoin n'est pas passé — la ligne exacte à installer sur le serveur, écrite en
+     * clair pour être copiée. C'est le seul point de la carte qu'aucun bouton ne peut corriger.
+     */
     private static function renderCronDetail(array $cron): string {
         $esc  = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $html = "<p class='mb-2'>" . $esc(sprintf(__('GLPI_SYSTEM_CRON : %s', 'printgestion'), $cron['system_cron_declared']
@@ -483,21 +556,268 @@ class PluginPrintgestionConfighealth {
                 $internal ? __('Interne (GLPI)', 'printgestion') : __('CLI', 'printgestion')
             )) . " <a href='" . $esc(CronTask::getFormURLWithID((int) $cron['queue']['id'])) . "'>" . $esc(__('Configurer dans GLPI', 'printgestion')) . "</a></p>";
         }
+        // Les deux suivis transporteur demandent deux passages par jour : une fréquence plus longue est signalée là où
+        // la tâche est affichée. La fréquence appartient à GLPI, le plugin ne la corrige pas. Plus court ne sert à
+        // rien et ne gêne pas : MBE garde son propre délai minimal entre deux passages, GLS son quota.
+        foreach ($cron['tasks'] as $row) {
+            if ($row['name'] === self::TRACKING_TASK && (int) $row['frequency'] > self::TRACKING_MAX_FREQUENCY) {
+                $html .= "<p class='text-warning small mb-0 mt-2'><i class='ti ti-alert-triangle me-1'></i>" . $esc(sprintf(
+                    __('Le suivi des colis demande deux passages par jour (toutes les 12 heures) : la fréquence réglée dans GLPI (%s) est plus longue. Elle se règle dans la fiche de la tâche, le plugin ne la corrige pas.', 'printgestion'),
+                    self::formatFrequency((int) $row['frequency'])
+                )) . "</p>";
+            }
+        }
+        if (!$cron['seen']) {
+            $html .= "<p class='small mb-0 mt-2'>" . $esc(__('Cron du serveur à installer une fois, avec l\'utilisateur du serveur web :', 'printgestion'))
+                . " <code>" . $esc('* * * * * php ' . GLPI_ROOT . '/front/cron.php') . "</code></p>";
+            if (!$cron['system_cron_declared'] && !$cron['local_define']['writable']) {
+                $html .= "<p class='small mb-0 mt-2'>" . $esc(sprintf(
+                    __('%1$s n\'est pas inscriptible par le serveur web : la déclaration du cron système se fait à la main, en y ajoutant la ligne %2$s.', 'printgestion'),
+                    $cron['local_define']['path'],
+                    "define('GLPI_SYSTEM_CRON', true);"
+                )) . "</p>";
+            }
+        }
         return $html;
     }
 
     /**
-     * Bouton de bascule des tâches du plugin en CLI, au bout du tableau des tâches : clic explicite, confirmé, jamais
-     * automatique. Proposé dès qu'une tâche du plugin est en mode Interne (demande de Joris) ; sans cron système prouvé,
-     * la confirmation prévient qu'en CLI plus rien ne tournera tant que le cron du serveur n'est pas en place.
+     * Boutons de la ligne « actions automatiques » : une correction par bouton, chacun affiché seulement s'il a
+     * quelque chose à corriger, chacun confirmé, chacun disant ce qu'il ne touche pas. Rien n'est groupé — passer en
+     * CLI sans activer, activer sans passer en CLI, débloquer seul, déclarer le cron système seul : l'administrateur
+     * choisit son réglage. Les tâches de GLPI et des autres plugins ne sont jamais modifiées.
      */
-    private static function getSwitchTasksButton(int $count, bool $proven): string {
-        $esc     = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        $confirm = $proven
-            ? __('Passer les tâches automatiques de Print Gestion en mode CLI ? Les tâches de GLPI et des autres plugins ne sont pas touchées.', 'printgestion')
-            : __('Aucun cron système détecté : en mode CLI, ces tâches ne tourneront plus du tout tant que le cron du serveur (front/cron.php chaque minute) n\'est pas en place. Passer quand même les tâches automatiques de Print Gestion en CLI ? Les tâches de GLPI et des autres plugins ne sont pas touchées.', 'printgestion');
-        return "<button type='submit' name='switch_plugin_tasks_cli' value='1' data-pg-submit-once='1' class='btn " . ($proven ? 'btn-primary' : 'btn-outline-primary') . "' formnovalidate onclick=\"return confirm(" . $esc(json_encode($confirm)) . ");\">"
-            . "<i class='ti ti-terminal-2 me-1'></i>" . $esc(sprintf(_n('Passer la tâche de Print Gestion en CLI', 'Passer les %d tâches de Print Gestion en CLI', $count, 'printgestion'), $count)) . "</button>";
+    private static function getCronButtons(array $cron): string {
+        global $CFG_GLPI;
+
+        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        // Ces actions ne soumettent pas le grand formulaire de configuration : son HTML historique est reconstruit
+        // autour de tableaux et certains navigateurs dissocient le jeton CSRF placé tout en bas du bouton.
+        // Le JS crée un petit POST autonome avec le jeton CSRF standalone de l'en-tête GLPI.
+        $action = $CFG_GLPI['root_doc'] . '/plugins/printgestion/front/config.form.php';
+        $make   = static fn(string $name, string $icon, string $label, string $confirm, string $class): string =>
+            // Pas de data-pg-submit-once : ce bouton ne soumet pas le formulaire (POST autonome construit en JS),
+            // et le gestionnaire de ce POST le désactive déjà lui-même.
+            "<button type='button' data-pg-post-action='" . $esc($name) . "' data-pg-post-url='" . $esc($action)
+            . "' class='btn " . $esc($class) . "'"
+            . " onclick=\"return confirm(" . $esc(json_encode($confirm)) . ");\">"
+            . "<i class='ti " . $esc($icon) . " me-1'></i>" . $esc($label) . "</button>";
+
+        $buttons = [];
+        if (!empty($cron['not_cli'])) {
+            $count     = count($cron['not_cli']);
+            $buttons[] = $make('cron_switch_cli', 'ti-terminal-2',
+                sprintf(_n('Passer la tâche en mode CLI', 'Passer les %d tâches en mode CLI', $count, 'printgestion'), $count),
+                $cron['proven']
+                    ? sprintf(_n('Passer %d tâche de Print Gestion en mode CLI ? Son état (active ou désactivée) n\'est pas touché : ce bouton ne change que le mode d\'exécution. Les tâches de GLPI et des autres plugins ne sont jamais modifiées.',
+                        'Passer %d tâches de Print Gestion en mode CLI ? Leur état (active ou désactivée) n\'est pas touché : ce bouton ne change que le mode d\'exécution. Les tâches de GLPI et des autres plugins ne sont jamais modifiées.',
+                        $count, 'printgestion'), $count)
+                    : __('Aucun cron système n\'est prouvé : en mode CLI, ces tâches ne tourneront plus du tout tant que le cron du serveur (front/cron.php chaque minute) n\'est pas en place. Continuer ? Leur état (active ou désactivée) n\'est pas touché, et les tâches de GLPI comme celles des autres plugins ne sont jamais modifiées.', 'printgestion'),
+                $cron['proven'] ? 'btn-primary' : 'btn-outline-primary');
+        }
+        if (!empty($cron['inactive'])) {
+            $count     = count($cron['inactive']);
+            $buttons[] = $make('cron_enable_tasks', 'ti-player-play',
+                sprintf(_n('Activer la tâche désactivée', 'Activer les %d tâches désactivées', $count, 'printgestion'), $count),
+                sprintf(_n('Activer %d tâche désactivée de Print Gestion ? Son mode d\'exécution n\'est pas touché : ce bouton ne change que l\'état. La proposition automatique de demandes d\'envoi a son propre bouton et n\'est pas activée ici.',
+                    'Activer %d tâches désactivées de Print Gestion ? Leur mode d\'exécution n\'est pas touché : ce bouton ne change que l\'état. La proposition automatique de demandes d\'envoi a son propre bouton et n\'est pas activée ici.',
+                    $count, 'printgestion'), $count),
+                'btn-primary');
+        }
+        if (!empty($cron['blocked'])) {
+            $count     = count($cron['blocked']);
+            $buttons[] = $make('cron_unblock_tasks', 'ti-lock-open',
+                sprintf(_n('Débloquer la tâche bloquée', 'Débloquer les %d tâches bloquées', $count, 'printgestion'), $count),
+                sprintf(_n('Remettre en attente %d tâche de Print Gestion coincée « en cours d\'exécution » ? Un passage interrompu la laisse dans cet état et rien ne repart. Ni son mode ni sa fréquence ne sont touchés.',
+                    'Remettre en attente %d tâches de Print Gestion coincées « en cours d\'exécution » ? Un passage interrompu les laisse dans cet état et rien ne repart. Ni leur mode ni leur fréquence ne sont touchés.',
+                    $count, 'printgestion'), $count),
+                'btn-outline-primary');
+        }
+        // Déclaration du cron système : réglage natif de GLPI, écrit dans son fichier de constantes locales. Proposé
+        // seulement s'il manque, si le fichier est inscriptible et à qui a le droit de configuration de GLPI. Il dit
+        // à GLPI qu'un cron système existe, il ne le crée pas : la confirmation le dit sans détour.
+        if (
+            !$cron['system_cron_declared'] && !$cron['seen']
+            && $cron['local_define']['writable'] && Session::haveRight('config', UPDATE)
+        ) {
+            $buttons[] = $make('cron_declare_system', 'ti-server-cog',
+                __('Déclarer le cron système (GLPI_SYSTEM_CRON)', 'printgestion'),
+                sprintf(__('Écrire define(\'GLPI_SYSTEM_CRON\', true); dans %s ? À ne déclarer QUE si le cron du serveur lance bien front/cron.php chaque minute : ce réglage dit à GLPI qu\'un cron système existe, il ne le crée pas. Déclaré à tort, ce contrôle passera au vert alors que rien ne tournera, et plus rien ne le signalera. Le fichier n\'est pas réécrit : la ligne est remplacée si elle existe, ajoutée sinon, après une copie horodatée.', 'printgestion'), $cron['local_define']['path']),
+                'btn-outline-danger');
+        }
+        // La proposition automatique des demandes d'envoi n'a pas de bouton ici : ce n'est pas une correction, c'est
+        // un choix de fonctionnement. Son interrupteur est dans les réglages, carte « Proposition automatique des
+        // demandes d'envoi ». Elle reste affichée dans le tableau ci-dessous, en lecture, comme les autres tâches.
+        return $buttons === [] ? '' : "<div class='d-flex flex-wrap gap-2'>" . implode('', $buttons) . "</div>";
+    }
+
+    /**
+     * Passe en mode CLI les tâches du plugin qui l'acceptent (allowmode), sans toucher à leur état : « passer en
+     * CLI » et « activer » sont deux décisions. Les tâches de GLPI et des autres plugins ne sont jamais modifiées.
+     *
+     * @return int nombre de tâches passées en mode CLI
+     */
+    public static function switchTasksToCli(): int {
+        global $DB;
+
+        $done = 0;
+        foreach ($DB->request([
+            'SELECT' => ['id', 'mode', 'allowmode'],
+            'FROM'   => CronTask::getTable(),
+            'WHERE'  => ['itemtype' => ['LIKE', 'PluginPrintgestion%']],
+        ]) as $row) {
+            if (
+                (int) $row['mode'] !== CronTask::MODE_EXTERNAL
+                && ((int) $row['allowmode'] & CronTask::MODE_EXTERNAL) !== 0
+            ) {
+                $DB->update(CronTask::getTable(), ['mode' => CronTask::MODE_EXTERNAL], ['id' => (int) $row['id']]);
+                $done++;
+            }
+        }
+        return $done;
+    }
+
+    /**
+     * Réactive les tâches désactivées du plugin, sans toucher à leur mode d'exécution. La proposition automatique de
+     * demandes d'envoi a son propre bouton : elle n'est jamais activée ici.
+     *
+     * @return int nombre de tâches réactivées
+     */
+    public static function enableTasks(): int {
+        global $DB;
+
+        $done = 0;
+        foreach ($DB->request([
+            'SELECT' => ['id'],
+            'FROM'   => CronTask::getTable(),
+            'WHERE'  => [
+                'itemtype' => ['LIKE', 'PluginPrintgestion%'],
+                'state'    => CronTask::STATE_DISABLE,
+                'NOT'      => ['name' => self::MANUAL_ENABLE_TASK],
+            ],
+        ]) as $row) {
+            $DB->update(CronTask::getTable(), ['state' => CronTask::STATE_WAITING], ['id' => (int) $row['id']]);
+            $done++;
+        }
+        return $done;
+    }
+
+    /**
+     * Remet en attente les tâches du plugin coincées « en cours d'exécution » : un passage interrompu les y laisse et
+     * rien ne repart. Le repérage est celui de GLPI (CronTask::getZombieCronTasks), limité aux tâches du plugin, la
+     * proposition automatique de demandes exceptée.
+     *
+     * @return int nombre de tâches débloquées
+     */
+    public static function unblockTasks(): int {
+        global $DB;
+
+        $done = 0;
+        foreach (CronTask::getZombieCronTasks() as $row) {
+            if (
+                str_starts_with((string) $row['itemtype'], 'PluginPrintgestion')
+                && $row['name'] !== self::MANUAL_ENABLE_TASK
+            ) {
+                $DB->update(CronTask::getTable(), ['state' => CronTask::STATE_WAITING], ['id' => (int) $row['id']]);
+                $done++;
+            }
+        }
+        return $done;
+    }
+
+    /**
+     * État de la seule tâche à décision métier, lu tout seul : la carte de réglage en a besoin sans avoir à
+     * recalculer tout l'état du cron.
+     *
+     * @return array|null ['id' => int, 'state' => int, 'lastrun' => ?string], null si elle n'est pas enregistrée
+     */
+    public static function getProposeTask(): ?array {
+        global $DB;
+
+        $row = $DB->request([
+            'SELECT' => ['id', 'state', 'lastrun'],
+            'FROM'   => CronTask::getTable(),
+            'WHERE'  => ['name' => self::MANUAL_ENABLE_TASK],
+        ])->current();
+        return is_array($row) ? $row : null;
+    }
+
+    /**
+     * Allume ou coupe la seule tâche à décision métier : la proposition automatique de demandes d'envoi. Jamais
+     * touchée par un autre bouton ni par une mise à jour du plugin — à chaque passage, elle crée des demandes sans
+     * que personne les demande, et chaque ligne proposée bloque la commande de sa cartouche jusqu'à son export ou
+     * son annulation.
+     *
+     * Couper n'efface rien : les demandes déjà proposées restent, et gardent leur verrou.
+     *
+     * @param bool $enabled vrai pour allumer, faux pour couper
+     * @return bool vrai si l'état a changé
+     */
+    public static function setProposeTask(bool $enabled): bool {
+        global $DB;
+
+        $row = $DB->request([
+            'SELECT' => ['id', 'state'],
+            'FROM'   => CronTask::getTable(),
+            'WHERE'  => ['name' => self::MANUAL_ENABLE_TASK],
+        ])->current();
+        if (!is_array($row)) {
+            return false;
+        }
+        $wanted = $enabled ? CronTask::STATE_WAITING : CronTask::STATE_DISABLE;
+        // Une tâche en cours d'exécution qu'on rallume repasse en attente : c'est le même état cible.
+        if ((int) $row['state'] === $wanted) {
+            return false;
+        }
+        $DB->update(CronTask::getTable(), ['state' => $wanted], ['id' => (int) $row['id']]);
+        return true;
+    }
+
+    /**
+     * Déclare le cron système dans config/local_define.php : define('GLPI_SYSTEM_CRON', true). Ce réglage dit à GLPI
+     * qu'un cron système existe, il ne le crée pas — déclaré à tort, le contrôle passe au vert alors que rien ne
+     * tourne, et le témoin reste la seule preuve par le réel. Le fichier n'est jamais réécrit en entier : la ligne
+     * est remplacée si elle existe, ajoutée sinon, et une copie horodatée est faite avant toute modification.
+     *
+     * @return array ['ok' => bool, 'message' => string]
+     */
+    public static function declareSystemCron(): array {
+        $line = "define('GLPI_SYSTEM_CRON', true);";
+        if (defined('GLPI_SYSTEM_CRON') && GLPI_SYSTEM_CRON) {
+            return ['ok' => true, 'message' => __('Le cron système est déjà déclaré (GLPI_SYSTEM_CRON).', 'printgestion')];
+        }
+        $state = self::getLocalDefineStatus();
+        if (!$state['writable']) {
+            return ['ok' => false, 'message' => sprintf(__('%1$s n\'est pas inscriptible par le serveur web : ajouter la ligne %2$s à la main.', 'printgestion'), $state['path'], $line)];
+        }
+        $stamp  = '// ' . sprintf(__('Ajouté par Print Gestion le %s : un cron système lance front/cron.php sur ce serveur.', 'printgestion'), Session::getCurrentTime());
+        $regexp = '/^[ \t]*(?:\/\/[ \t]*)?define\s*\(\s*([\'"])GLPI_SYSTEM_CRON\1.*$/m';
+        if (!$state['exists']) {
+            $content = "<?php\n\n{$stamp}\n{$line}\n";
+        } else {
+            $content = (string) file_get_contents($state['path']);
+            $backup  = $state['path'] . '.bak-' . date('YmdHis');
+            if (!copy($state['path'], $backup)) {
+                return ['ok' => false, 'message' => sprintf(__('Copie de sauvegarde de %s impossible : rien n\'a été modifié.', 'printgestion'), $state['path'])];
+            }
+            if (preg_match($regexp, $content) === 1) {
+                $content = (string) preg_replace($regexp, $line, $content, 1);
+            } elseif (($close = strrpos($content, '?>')) !== false) {
+                // Fichier terminé par une balise de fermeture : la ligne s'insère avant, jamais après.
+                $content = substr($content, 0, $close) . "{$stamp}\n{$line}\n" . substr($content, $close);
+            } else {
+                $content = rtrim($content, " \t\n\r") . "\n\n{$stamp}\n{$line}\n";
+            }
+        }
+        if (file_put_contents($state['path'], $content) === false) {
+            return ['ok' => false, 'message' => sprintf(__('Écriture de %s impossible : rien n\'a été modifié.', 'printgestion'), $state['path'])];
+        }
+        // Le fichier est chargé au démarrage de GLPI : la constante ne changera qu'à la requête suivante (celle du
+        // retour). Sans invalidation, un cache d'opcode peut servir l'ancienne version plus longtemps.
+        if (function_exists('opcache_invalidate')) {
+            opcache_invalidate($state['path'], true);
+        }
+        return ['ok' => true, 'message' => sprintf(__('Cron système déclaré dans %s. Le témoin reste la seule preuve qu\'il tourne vraiment : s\'il ne passe pas dans les prochaines minutes, le cron du serveur n\'appelle pas front/cron.php.', 'printgestion'), $state['path'])];
     }
 
     /** Carte en tête de la configuration, dans le formulaire de la page (boutons envoyés à front/config.form.php). */
@@ -544,8 +864,9 @@ class PluginPrintgestionConfighealth {
                     . "<div class='" . ($error ? '' : 'text-muted ') . "small'>" . $esc($check['breaks']) . "</div>"
                     . "<div class='small'><i class='ti ti-tool me-1'></i>" . $fix . "</div>"
                     . ($check['detail'] !== '' ? "<div class='text-muted small mt-1'>" . $check['detail'] . "</div>" : '');
-                // Bouton d'action : ligne en erreur, ou rappel manuel à acquitter.
-                if (($error || $check['state'] === self::STATE_MANUAL) && ($check['button'] ?? '') !== '' && $canedit) {
+                // Boutons d'action : ils ne sont remplis que quand il y a quelque chose à corriger ou à
+                // acquitter, et la ligne des actions automatiques en propose un par correction.
+                if (($check['button'] ?? '') !== '' && $canedit) {
                     $body .= "<div class='mt-2'>" . $check['button'] . "</div>";
                 }
                 if ($check['key'] === 'log' && $canedit) {

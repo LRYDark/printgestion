@@ -18,7 +18,9 @@ d'étiquette, Track ID à 8 caractères, colis de test « QAS_ ») mais sont inv
    reconnu » ; multi-colis : le colis encore en cours ; code de statut non répertorié → non final et journalisé ;
    30 jours sans mouvement → « sans nouvelles » ; expédition posée jamais interrogée ; budget 80 % ; disjoncteur à cinq
    E_500_01 ; le suivi n'écrit jamais le statut de l'expédition.
-6. Page de configuration : « Tester la connexion » absent sans clés, refus sans appel réseau, présent avec des clés.
+6. Page de configuration : « Tester la connexion » toujours affiché et toujours cliquable, avec la liste de ce qui
+   reste à enregistrer tant que les clés manquent (le test appelle l'API avec ce qui est en base, pas avec ce qui est
+   saisi à l'écran) ; posté sans clés, refusé sans aucun appel réseau.
 7. Affichage, deux profils : sans clés, l'écran des expéditions est celui d'avant le suivi (aucune ligne de suivi,
    pour l'administrateur comme pour le technicien) ; avec des clés, une ligne par expédition GLS suivie (pastille,
    libellé, date ; lieu et numéro interrogé derrière le chevron), description omise quand elle répète le statut,
@@ -108,6 +110,16 @@ def cles_gls_actuelles():
 def remettre_cles_gls(valeurs):
     v = lambda x: "NULL" if x == "NULL" else lib.q(x)  # noqa: E731
     sql(f"UPDATE glpi_plugin_printgestion_configs SET gls_client_id = {v(valeurs[0])}, gls_client_secret = {v(valeurs[1])}, gls_secret_date = {v(valeurs[2])} WHERE id = 1;")
+
+
+def balise_bouton(page, nom):
+    """Balise <button …> complète qui porte ce nom : `disabled` est posé juste après `<button`, pas après le nom."""
+    pos = page.find(f"name='{nom}'")
+    if pos < 0:
+        return ""
+    debut = page.rfind("<button", 0, pos)
+    fin = page.find(">", pos)
+    return page[debut:fin + 1] if debut >= 0 and fin > 0 else ""
 
 
 def main():
@@ -342,7 +354,11 @@ def main():
     try:
         lib.connecter_admin()
         _, page, _ = WEB.get(ONGLET)
-        verifier("sans clés : pas de bouton « Tester la connexion »", "name='test_gls'" in page, False)
+        bouton = balise_bouton(page, "test_gls")
+        verifier("sans clés : bouton « Tester la connexion » affiché et cliquable, avec ce qui reste à enregistrer",
+                 (bouton != "", "disabled" in bouton, "Encore à enregistrer" in page, "le Client ID" in page,
+                  "le Client Secret" in page, "name='clear_gls'" in page),
+                 (True, False, True, True, True, False))
         WEB.post(config.FRONT + "/config.form.php", [("test_gls", "1")])
         verifier("sans clés : le test répond « non saisis », sans appel", "non saisis" in WEB.messages(), True)
         chiffre = lib.php_glpi(f"echo (new GLPIKey())->encrypt({lib.q(SECRET)});").strip()
