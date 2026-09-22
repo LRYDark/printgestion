@@ -112,9 +112,19 @@ class PluginPrintgestionConfig extends CommonDBTM {
         return (int) ($cfg->fields[$col] ?? 0) === 1;
     }
 
+    /**
+     * Icône de l'onglet. Onglet « Print Gestion » de la configuration de GLPI : l'icône du plugin, la même que son menu.
+     *
+     * Sans elle, GLPI retombe sur l'icône par défaut de CommonDBTM, qui vaut « fa-empty-icon » et que
+     * createTabEntry() remplace alors par rien.
+     */
+    static function getIcon() {
+        return 'ti ti-printer';
+    }
+
     function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
         if ($item->getType() == 'Config') {
-            return __('Print Gestion', 'printgestion');
+            return self::createTabEntry(__('Print Gestion', 'printgestion'));
         }
         return '';
     }

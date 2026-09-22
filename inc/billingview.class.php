@@ -24,6 +24,15 @@ class PluginPrintgestionBillingview extends CommonDBTM {
 
     static $rightname = 'plugin_printgestion_billing';
 
+    /**
+     * Icône de l'itemtype, reprise par GLPI dans les listes, les en-têtes et les onglets. Écran de facturation : ce que le parc a coûté sur la période.
+     *
+     * Sans elle, GLPI retombe sur l'icône par défaut de CommonDBTM, qui ne montre rien.
+     */
+    static function getIcon() {
+        return 'ti ti-report-money';
+    }
+
     static function getTypeName($nb = 0) {
         return __('Coût à la page', 'printgestion');
     }
@@ -57,7 +66,7 @@ class PluginPrintgestionBillingview extends CommonDBTM {
 
     static function uninstall(Migration $migration) {
         global $DB;
-        $DB->doQuery("DROP TABLE IF EXISTS `" . self::getTable() . "`");
+        $DB->dropTable(self::getTable(), true);
         return true;
     }
 

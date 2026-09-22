@@ -577,7 +577,7 @@ class PluginPrintgestionAgentalert extends CommonDBTM {
         if ($task->getFromDBbyName(self::class, 'PrintgestionSilentProbes')) {
             $task->delete(['id' => (int) $task->getID()]);
         }
-        $DB->doQuery('DROP TABLE IF EXISTS `' . self::getTable() . '`');
+        $DB->dropTable(self::getTable(), true);
         return true;
     }
 }

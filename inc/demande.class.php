@@ -1971,8 +1971,8 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
 
     static function uninstall(Migration $migration) {
         global $DB;
-        $DB->doQuery('DROP TABLE IF EXISTS `glpi_plugin_printgestion_demandelines`');
-        $DB->doQuery('DROP TABLE IF EXISTS `glpi_plugin_printgestion_demandes`');
+        $DB->dropTable('glpi_plugin_printgestion_demandelines', true);
+        $DB->dropTable('glpi_plugin_printgestion_demandes', true);
         return true;
     }
 }

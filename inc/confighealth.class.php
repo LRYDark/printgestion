@@ -60,8 +60,14 @@ class PluginPrintgestionConfighealth {
             'status' => $url_issue !== '' ? $url_issue : ($confirmed['agent'] !== null
                 ? sprintf(__('%1$s — confirmée par un agent le %2$s (sonde %3$s).', 'printgestion'), $confirmed['url'], Html::convDateTime($confirmed['agent']['last_contact']), $confirmed['agent']['name'])
                 : sprintf(__('%1$s — jamais confirmée : aucun agent n\'a encore remonté avec cette URL (en place depuis le %2$s).', 'printgestion'), $confirmed['url'], Html::convDateTime($confirmed['since']))),
-            'breaks' => __('Un agent déployé avec une URL fausse ne contacte jamais GLPI et ne se répare pas à distance : il faut retourner sur le site. Le téléchargement des installeurs est bloqué tant qu\'elle est fausse.', 'printgestion'),
-            'fix'    => __('Configuration → Générale, « URL de l\'application »', 'printgestion'),
+            // Deux situations opposées derrière la même ligne : une URL fausse bloque tout, une URL jamais confirmée
+            // ne bloque rien. Dire la même chose dans les deux cas laisse croire qu'il y a quelque chose à faire.
+            'breaks' => $url_issue !== ''
+                ? __('Un agent déployé avec une URL fausse ne contacte jamais GLPI et ne se répare pas à distance : il faut retourner sur le site. Le téléchargement des installeurs est bloqué tant qu\'elle est fausse.', 'printgestion')
+                : __('Rien n\'est bloqué : l\'URL est valide et les installeurs se téléchargent. Il manque seulement la preuve qu\'elle est joignable depuis un réseau client — seul un agent qui remonte peut la donner.', 'printgestion'),
+            'fix'    => $url_issue !== ''
+                ? __('Configuration → Générale, « URL de l\'application »', 'printgestion')
+                : __('Rien à faire : déployez un agent chez un client, cette ligne passera au vert d\'elle-même à sa première remontée', 'printgestion'),
             'url'    => Config::getFormURL(),
             'detail' => '',
         ];
@@ -670,8 +676,10 @@ class PluginPrintgestionConfighealth {
                 (int) $row['mode'] !== CronTask::MODE_EXTERNAL
                 && ((int) $row['allowmode'] & CronTask::MODE_EXTERNAL) !== 0
             ) {
-                $DB->update(CronTask::getTable(), ['mode' => CronTask::MODE_EXTERNAL], ['id' => (int) $row['id']]);
-                $done++;
+                $task = new CronTask();
+                if ($task->update(['id' => (int) $row['id'], 'mode' => CronTask::MODE_EXTERNAL])) {
+                    $done++;
+                }
             }
         }
         return $done;
@@ -696,8 +704,11 @@ class PluginPrintgestionConfighealth {
                 'NOT'      => ['name' => self::MANUAL_ENABLE_TASK],
             ],
         ]) as $row) {
-            $DB->update(CronTask::getTable(), ['state' => CronTask::STATE_WAITING], ['id' => (int) $row['id']]);
-            $done++;
+            // Rallumer une tâche désactivée, c'est la remettre en attente : resetState(), comme le bouton natif.
+            $task = new CronTask();
+            if ($task->getFromDB((int) $row['id']) && $task->resetState()) {
+                $done++;
+            }
         }
         return $done;
     }
@@ -718,8 +729,11 @@ class PluginPrintgestionConfighealth {
                 str_starts_with((string) $row['itemtype'], 'PluginPrintgestion')
                 && $row['name'] !== self::MANUAL_ENABLE_TASK
             ) {
-                $DB->update(CronTask::getTable(), ['state' => CronTask::STATE_WAITING], ['id' => (int) $row['id']]);
-                $done++;
+                // Tâche bloquée : resetState(), ce que fait le bouton natif « Réinitialiser l'état ».
+                $task = new CronTask();
+                if ($task->getFromDB((int) $row['id']) && $task->resetState()) {
+                    $done++;
+                }
             }
         }
         return $done;
@@ -769,8 +783,8 @@ class PluginPrintgestionConfighealth {
         if ((int) $row['state'] === $wanted) {
             return false;
         }
-        $DB->update(CronTask::getTable(), ['state' => $wanted], ['id' => (int) $row['id']]);
-        return true;
+        $task = new CronTask();
+        return (bool) $task->update(['id' => (int) $row['id'], 'state' => $wanted]);
     }
 
     /**

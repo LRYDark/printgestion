@@ -18,9 +18,19 @@ class PluginPrintgestionPrinterThresholdsTab extends CommonGLPI {
         return __('Seuils d\'alerte', 'printgestion');
     }
 
+    /**
+     * Icône de l'onglet. Onglet « Seuils d'alerte » de la fiche Imprimante : les niveaux de toner qui déclenchent une alerte.
+     *
+     * Sans elle, GLPI retombe sur l'icône par défaut de CommonDBTM, qui vaut « fa-empty-icon » et que
+     * createTabEntry() remplace alors par rien.
+     */
+    static function getIcon() {
+        return 'ti ti-droplet';
+    }
+
     function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
         if ($item instanceof Printer && self::canViewThresholds($item)) {
-            return self::getTypeName();
+            return self::createTabEntry(self::getTypeName());
         }
         return '';
     }

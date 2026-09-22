@@ -20,7 +20,8 @@ MODULES = {
               "ajax/resolve_alert.php", "ajax/search_bls.php", "ajax/update_expedition.php", "ajax/printer_thresholds.php"],
     "cout": ["front/dashboard_billing.php", "ajax/printer_costs.php", "ajax/export_excel.php"],
     "deploiement": ["front/agentdeploy.php", "front/agentdeploy.download.php", "front/collect.php", "front/collectfrequency.php",
-                    "front/raccordement.php", "front/sonde.consigne.php", "front/sondes.php"],
+                    "front/raccordement.php", "front/sonde.consigne.php", "front/sondes.php",
+                    "front/agentpull.php", "front/agentreport.php"],
     "sage": ["front/sageimport.php"],
 }
 TABLE = "glpi_plugin_printgestion_configs"

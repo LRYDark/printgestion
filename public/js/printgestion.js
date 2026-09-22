@@ -177,6 +177,69 @@
         }, 0);
     }, true);
 
+    // Liste native (components/datatable.html.twig, classe pg-datatable) : sa barre d'actions massives est cachee
+    // par printgestion.css tant que rien n'est coche, pg-coche la montre. Ce n'est pas qu'une question d'allure —
+    // GLPI deduit l'itemtype DES CASES COCHEES, donc ouvrir le menu sans selection ne donnerait qu'une liste vide.
+    function pgBarreMassive(liste) {
+        // Les cases des lignes seulement : « tout cocher » est dans l'en-tete.
+        liste.classList.toggle('pg-coche', liste.querySelectorAll('tbody .massive_action_checkbox:checked').length > 0);
+    }
+
+    document.addEventListener('change', function (event) {
+        var coche = event.target.closest ? event.target.closest('.massive_action_checkbox') : null;
+        var liste = coche ? coche.closest('.pg-datatable') : null;
+        if (!liste) {
+            return;
+        }
+        // « change » part avant que le onclick de « tout cocher » ait fini son travail : compter maintenant
+        // donnerait le compte d'avant.
+        window.setTimeout(function () {
+            pgBarreMassive(liste);
+        }, 0);
+    });
+
+    // A l'arrivee sur la page, et au retour arriere du navigateur qui restitue les cases cochees.
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('.pg-datatable').forEach(pgBarreMassive);
+    });
+    window.addEventListener('pageshow', function () {
+        document.querySelectorAll('.pg-datatable').forEach(pgBarreMassive);
+    });
+
+    // Ligne de tableau cliquable : [data-pg-href], ou toute ligne d'une liste native pg-datatable (elle ouvre son
+    // premier lien), ouvre sa page depuis n'importe quel point de la ligne. Le lien visible reste en place — c'est
+    // lui qui sert au clavier et aux lecteurs d'écran.
+    document.addEventListener('click', function (event) {
+        var ligne = event.target.closest('[data-pg-href], .pg-datatable tbody tr');
+        if (!ligne || event.defaultPrevented || event.button !== 0) {
+            return;
+        }
+        // Ce qui a deja un comportement propre le garde. data-pg-noclick et la cellule de la case a cocher : viser
+        // a cote d'une case ne doit pas faire partir la page alors qu'on est en train de selectionner.
+        if (event.target.closest('a, button, input, select, textarea, label, [data-bs-toggle], [data-pg-noclick]')) {
+            return;
+        }
+        var cellule = event.target.closest('td');
+        if (cellule && cellule.querySelector('.massive_action_checkbox')) {
+            return;
+        }
+        // Selection de texte a la souris : on ne navigue pas en relachant.
+        var selection = window.getSelection();
+        if (selection && selection.toString().length > 0) {
+            return;
+        }
+        var lien = ligne.hasAttribute('data-pg-href') ? null : ligne.querySelector('a[href]');
+        var url = lien ? lien.getAttribute('href') : ligne.getAttribute('data-pg-href');
+        if (!url) {
+            return;
+        }
+        if (event.ctrlKey || event.metaKey || event.shiftKey) {
+            window.open(url, '_blank');
+            return;
+        }
+        window.location.href = url;
+    });
+
     // Retour arrière (cache de page) : boutons de nouveau utilisables.
     window.addEventListener('pageshow', function () {
         document.querySelectorAll('[data-pg-submitted]').forEach(function (button) {

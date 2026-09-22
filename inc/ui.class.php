@@ -51,6 +51,66 @@ class PluginPrintgestionUi {
         return $html . "</div></div>";
     }
 
+    /**
+     * Repli ouvrable par tous les profils, contrairement a adminDetails() et au chevron de statusLine().
+     *
+     * Ce qui se replie ici n'est pas un detail technique reserve a l'administrateur : c'est le geste d'appoint que
+     * le technicien fera s'il se trouve devant la machine. Il doit pouvoir l'ouvrir. <details> natif : ni JavaScript,
+     * ni classe Bootstrap a tenir a jour.
+     */
+    public static function foldedNote(string $label, string $html): string {
+        if ($html === '') {
+            return '';
+        }
+        return "<details class='mt-2'><summary class='text-muted' style='cursor:pointer'>"
+            . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . "</summary>"
+            . "<div class='border rounded p-3 my-2'>{$html}</div></details>";
+    }
+
+    // ── Listes d'objets GLPI : le gabarit natif ──────────────────────────────
+    //
+    // Les lignes de ces listes sont de vrais objets GLPI : Agent, Printer, raccordements. Le tableau, ses cases et sa
+    // barre d'actions massives sont ceux du cœur (components/datatable.html.twig, l'appel de Certificate_Item) :
+    // GLPI déduit l'itemtype du nom des cases et n'offre que les actions permises par les droits de l'utilisateur.
+    // Le plugin n'y ajoute que deux gestes, par la classe pg-datatable (printgestion.css et printgestion.js) : la
+    // barre reste cachée tant que rien n'est coché — GLPI déduit l'itemtype DES CASES COCHÉES, un menu ouvert sans
+    // sélection serait vide — et toute la ligne ouvre la page de son premier lien.
+
+    /**
+     * Liste rendue par le gabarit natif.
+     *
+     * @param array       $columns    clé => libellé, dans l'ordre d'affichage
+     * @param array       $entries    lignes : une valeur par clé de colonne ; 'itemtype' et 'id' pour la case à cocher
+     * @param array       $formatters clé => formateur du gabarit (raw_html pour du HTML déjà échappé par l'appelant)
+     * @param string|null $massive    itemtype des actions massives ; null : pas de cases
+     * @param bool        $can_edit   droit de modification sur cet itemtype
+     */
+    public static function datatable(array $columns, array $entries, array $formatters = [], ?string $massive = null, bool $can_edit = false): string {
+        $massive_on = $massive !== null && $can_edit && !empty($entries);
+        if ($massive_on) {
+            // getMassiveActionCheckBox() et le menu relisent cette sélection de session : gardée d'une page à
+            // l'autre, elle proposait des actions sur des lignes qu'on n'avait pas cochées ici.
+            unset($_SESSION['glpimassiveactionselected'][$massive]);
+        }
+        return \Glpi\Application\View\TemplateRenderer::getInstance()->render('components/datatable.html.twig', [
+            'is_tab'              => true,
+            'nofilter'            => true,
+            'nosort'              => true,
+            'container_class'     => 'pg-datatable',
+            'table_class_style'   => 'table-sm table-hover align-middle mb-0',
+            'columns'             => $columns,
+            'formatters'          => $formatters,
+            'entries'             => $entries,
+            'total_number'        => count($entries),
+            'filtered_number'     => count($entries),
+            'showmassiveactions'  => $massive_on,
+            'massiveactionparams' => [
+                'num_displayed' => count($entries),
+                'container'     => 'mass' . str_replace('\\', '', (string) $massive) . mt_rand(),
+            ],
+        ]);
+    }
+
     public static function statusLine(string $level, string $text, string $details_html = ''): string {
         $styles = [
             'ok'      => ['ti-circle-check', 'text-success'],
@@ -102,13 +162,24 @@ class PluginPrintgestionUi {
      * Carte réservée à l'administrateur : titre et chevron dans l'en-tête, contenu replié (fermé par défaut).
      * Chaîne vide pour les autres profils.
      */
-    public static function adminCard(string $title, string $html): string {
+    /**
+     * Carte réservée à l'administrateur.
+     *
+     * $collapsible : un chevron a sa place devant un détail qu'on consulte rarement ; devant des réglages qu'on
+     * vient modifier, il ajoute un clic à chaque visite et cache ce qu'on est venu chercher.
+     */
+    public static function adminCard(string $title, string $html, bool $collapsible = true): string {
         if (!self::isAdmin() || $html === '') {
             return '';
         }
+        $titre = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
+        if (!$collapsible) {
+            return "<div class='card mb-3' data-pg-admin='1'><div class='card-header'>"
+                . "<h3 class='card-title mb-0'>{$titre}</h3></div><div class='card-body'>{$html}</div></div>";
+        }
         $id = 'pg-detail-' . bin2hex(random_bytes(5));
         return "<div class='card mb-3' data-pg-admin='1'><div class='card-header d-flex align-items-center'>"
-            . "<h3 class='card-title mb-0'>" . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . "</h3><div class='ms-auto'>" . self::chevron($id) . "</div></div>"
+            . "<h3 class='card-title mb-0'>{$titre}</h3><div class='ms-auto'>" . self::chevron($id) . "</div></div>"
             . "<div class='collapse' id='{$id}'><div class='card-body'>{$html}</div></div></div>";
     }
 

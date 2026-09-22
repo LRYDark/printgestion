@@ -690,7 +690,7 @@ class PluginPrintgestionSageimport extends CommonDBTM {
         // Les deux premières (correspondance entité ↔ client, versions de développement) ne sont plus créées : IF EXISTS.
         foreach (['glpi_plugin_printgestion_entitysageclients', 'glpi_plugin_printgestion_sageclients',
             self::TABLE_DELIVERIES, self::TABLE_ARTICLES, self::getTable()] as $table) {
-            $DB->doQuery('DROP TABLE IF EXISTS `' . $table . '`');
+            $DB->dropTable($table, true);
         }
         return true;
     }

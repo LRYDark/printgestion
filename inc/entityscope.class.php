@@ -115,12 +115,22 @@ class PluginPrintgestionEntityscope {
                 || !$DB->tableExists($table) || !$DB->fieldExists($table, 'entities_id')) {
                 continue;
             }
-            $where = '(t.`entities_id` <> s.`entities_id` OR t.`is_recursive` <> s.`is_recursive`)';
+            // Recopie depuis l'objet de rattachement, par l'API de GLPI : elle quote les noms et bâtit la jointure.
+            $src_entity    = new \Glpi\DBAL\QueryExpression($DB::quoteName("{$source}.entities_id"));
+            $src_recursive = new \Glpi\DBAL\QueryExpression($DB::quoteName("{$source}.is_recursive"));
+            $where = ['OR' => [
+                "{$table}.entities_id"  => ['<>', $src_entity],
+                "{$table}.is_recursive" => ['<>', $src_recursive],
+            ]];
             if ($parent_table !== null) {
-                $where .= ' AND s.`id` = ' . (int) $parent_id;
+                $where = ['AND' => [$where, ["{$source}.id" => (int) $parent_id]]];
             }
-            $DB->doQuery("UPDATE `{$table}` AS t INNER JOIN `{$source}` AS s ON s.`id` = t.`{$column}`"
-                . " SET t.`entities_id` = s.`entities_id`, t.`is_recursive` = s.`is_recursive` WHERE {$where}");
+            $DB->update(
+                $table,
+                ["{$table}.entities_id" => $src_entity, "{$table}.is_recursive" => $src_recursive],
+                $where,
+                ['INNER JOIN' => [$source => ['ON' => [$table => $column, $source => 'id']]]]
+            );
             $count = (int) $DB->affectedRows();
             if ($count > 0) {
                 $fixed[$table] = $count;

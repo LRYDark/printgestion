@@ -111,8 +111,8 @@ class PluginPrintgestionSnmprule extends CommonDBTM {
     static function uninstall(Migration $migration) {
         global $DB;
         // Ancien nom de la table (versions de développement) : supprimé s'il existe encore.
-        $DB->doQuery('DROP TABLE IF EXISTS `' . self::getTable() . '`');
-        $DB->doQuery('DROP TABLE IF EXISTS `glpi_plugin_printgestion_snmpadapters`');
+        $DB->dropTable(self::getTable(), true);
+        $DB->dropTable('glpi_plugin_printgestion_snmpadapters', true);
         return true;
     }
 }

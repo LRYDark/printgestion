@@ -51,6 +51,10 @@ function plugin_init_printgestion() {
             'Printer'  => [PluginPrintgestionEntityscope::class, 'onPrinterUpdate'],
             'Contract' => [PluginPrintgestionEntityscope::class, 'onContractUpdate'],
         ];
+        // Une sonde supprimée emporte ce que le plugin a créé pour elle, qu'on le fasse dans GLPI ou depuis le PC.
+        $PLUGIN_HOOKS['item_purge']['printgestion'] = [
+            'Agent' => [PluginPrintgestionAgentsetting::class, 'cleanForAgent'],
+        ];
 
         // Schéma versionné (inc/schema.class.php) : les migrations sont jouées par
         // plugin_printgestion_install(), lors de l'installation ou du « Mettre à
@@ -167,6 +171,24 @@ function plugin_printgestion_addDefaultWhere($itemtype) {
     }
 
     return '';
+}
+
+/**
+ * Amorçage du plugin, joué par GLPI avant l'ouverture de la session (PostBootListener\BootPlugins, prioritaire sur
+ * SessionStart) : c'est le seul moment où l'on peut déclarer une page joignable sans être connecté.
+ *
+ * Une seule ici : front/agentpull.php, par où le fichier unique d'installation vient chercher le MSI officiel avec
+ * son jeton temporaire. Le PC d'un client n'a aucun compte GLPI ; sans cette déclaration, GLPI le renverrait vers
+ * l'écran de connexion et le fichier unique ne pourrait rien télécharger. Le contrôle d'accès est le jeton
+ * lui-même (PluginPrintgestionAgenttoken) : usage unique, vingt-quatre heures, et rien d'autre à la clé que le
+ * binaire public de GLPI Agent.
+ */
+function plugin_printgestion_boot() {
+    if (class_exists(\Glpi\Http\SessionManager::class)) {
+        // Aller chercher l'installeur officiel, et dire ce qui a été fait du PC. Rien d'autre.
+        \Glpi\Http\SessionManager::registerPluginStatelessPath('printgestion', '#^/front/agentpull\.php$#');
+        \Glpi\Http\SessionManager::registerPluginStatelessPath('printgestion', '#^/front/agentreport\.php$#');
+    }
 }
 
 function plugin_version_printgestion() {

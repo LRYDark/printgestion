@@ -1,8 +1,11 @@
 <?php
 /**
  * Paquet d'installation GLPI Agent d'une entité (onglet « Déploiement Agent ») : Windows (ZIP), Linux (.tar.gz),
- * macOS (ZIP). Droit Déploiement en lecture et accès à l'entité. Le paquet ne contient que l'URL du serveur GLPI et
- * le TAG de l'entité ; chaque téléchargement est tracé dans l'historique de l'entité.
+ * macOS (ZIP), et le fichier unique Windows. Droit Déploiement en lecture et accès à l'entité. Chaque téléchargement
+ * est tracé dans l'historique de l'entité.
+ *
+ * Les paquets ne contiennent que l'URL du serveur GLPI et le TAG de l'entité. Le fichier unique, lui, porte en plus
+ * une clé de téléchargement à usage unique : l'historique le dit, avec sa date de péremption.
  */
 include('../../../inc/includes.php');
 
@@ -20,11 +23,26 @@ $entity      = new Entity();
 if ($entities_id < 0 || !Session::haveAccessToEntity($entities_id) || !$entity->getFromDB($entities_id)) {
     throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
+// Les trois systèmes servent un fichier unique ; les archives complètes gardent leurs propres clés (recours quand
+// l'antivirus d'un client refuse les scripts).
 $builders = [
-    'windows' => [PluginPrintgestionAgentdeploy::class, 'buildWindowsPackage'],
-    'linux'   => [PluginPrintgestionAgentdeploy::class, 'buildLinuxPackage'],
-    'macos'   => [PluginPrintgestionAgentdeploy::class, 'buildMacosPackage'],
+    'windows'     => [PluginPrintgestionAgentdeploy::class, 'buildWindowsSingleFile'],
+    'linux'       => [PluginPrintgestionAgentdeploy::class, 'buildLinuxSingleFile'],
+    'macos'       => [PluginPrintgestionAgentdeploy::class, 'buildMacosSingleFile'],
+    'windows-retrait' => [PluginPrintgestionAgentdeploy::class, 'buildWindowsRemoval'],
+    'linux-retrait'   => [PluginPrintgestionAgentdeploy::class, 'buildLinuxRemoval'],
+    'macos-retrait'   => [PluginPrintgestionAgentdeploy::class, 'buildMacosRemoval'],
+    'windows-zip' => [PluginPrintgestionAgentdeploy::class, 'buildWindowsPackage'],
+    'linux-targz' => [PluginPrintgestionAgentdeploy::class, 'buildLinuxPackage'],
+    'macos-zip'   => [PluginPrintgestionAgentdeploy::class, 'buildMacosPackage'],
 ];
+$labels = PluginPrintgestionAgentdeploy::getPlatforms();
+foreach (PluginPrintgestionAgentdeploy::ARCHIVE_OS as $platform => $os) {
+    $labels[$os] = sprintf(__('%s (archive)', 'printgestion'), $labels[$platform]);
+}
+foreach (PluginPrintgestionAgentdeploy::REMOVE_OS as $platform => $os) {
+    $labels[$os] = sprintf(__('%s (retrait de l\'agent)', 'printgestion'), $labels[$platform]);
+}
 $os = (string) ($_GET['os'] ?? '');
 if (!isset($builders[$os])) {
     throw new \Glpi\Exception\Http\NotFoundHttpException();
@@ -42,12 +60,34 @@ if (!$package['ok']) {
     Html::redirect(Entity::getFormURLWithID($entities_id) . '&forcetab=' . urlencode('PluginPrintgestionAgentdeploy$1'));
 }
 
-Log::history($entities_id, Entity::class, [0, '', sprintf(
-    __('Installeur GLPI Agent %1$s pour %2$s téléchargé (TAG « %3$s »).', 'printgestion'),
-    $package['version'],
-    PluginPrintgestionAgentdeploy::getPlatforms()[$os],
-    $package['tag']
-)], '', Log::HISTORY_LOG_SIMPLE_MESSAGE);
+Log::history($entities_id, Entity::class, [0, '', isset($package['expires'])
+    ? sprintf(
+        __('Installeur GLPI Agent %1$s pour %2$s téléchargé (TAG « %3$s ») — clé de récupération à usage unique, valable jusqu\'au %4$s.', 'printgestion'),
+        $package['version'],
+        $labels[$os],
+        $package['tag'],
+        Html::convDateTime((string) $package['expires'])
+    )
+    : sprintf(
+        __('Installeur GLPI Agent %1$s pour %2$s téléchargé (TAG « %3$s »).', 'printgestion'),
+        $package['version'],
+        $labels[$os],
+        $package['tag']
+    )], '', Log::HISTORY_LOG_SIMPLE_MESSAGE);
+
+// Fichier unique : quelques kilo-octets de texte, rendus sans passer par un fichier temporaire.
+if (isset($package['content'])) {
+    return new \Symfony\Component\HttpFoundation\Response(
+        (string) $package['content'],
+        200,
+        [
+            'Content-Type'        => 'application/octet-stream',
+            'Content-Length'      => (string) strlen((string) $package['content']),
+            'Content-Disposition' => 'attachment; filename="' . $package['filename'] . '"',
+            'Cache-Control'       => 'private, no-store',
+        ]
+    );
+}
 
 // Fichier temporaire supprimé en fin de requête, même si le téléchargement est interrompu.
 $path = $package['path'];
@@ -72,7 +112,7 @@ return new \Symfony\Component\HttpFoundation\StreamedResponse(
     },
     200,
     [
-        'Content-Type'        => $os === 'linux' ? 'application/gzip' : 'application/zip',
+        'Content-Type'        => $os === 'linux-targz' ? 'application/gzip' : 'application/zip',
         'Content-Length'      => (string) filesize($path),
         'Content-Disposition' => 'attachment; filename="' . $package['filename'] . '"',
         'Cache-Control'       => 'private, no-store',

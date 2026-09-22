@@ -67,3 +67,13 @@
 .btn.pg-chevron[aria-expanded="true"] .ti-chevron-down {
     rotate: 180deg;
 }
+
+/* Listes natives (components/datatable.html.twig) du plugin, classe pg-datatable (PluginPrintgestionUi::datatable).
+   La barre d'actions massives, premier enfant du conteneur, reste cachée tant qu'aucune ligne n'est cochée :
+   printgestion.js pose pg-coche. Une ligne qui porte un lien s'ouvre d'un clic : le curseur le dit. */
+.pg-datatable:not(.pg-coche) > .mb-2:first-child {
+    display: none;
+}
+.pg-datatable tbody tr:has(a[href]) {
+    cursor: pointer;
+}

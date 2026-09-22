@@ -18,9 +18,19 @@ class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
         return __('Coût à la page', 'printgestion');
     }
 
+    /**
+     * Icône de l'onglet. Onglet « Coût à la page » de la fiche Imprimante : ce qu'elle coûte.
+     *
+     * Sans elle, GLPI retombe sur l'icône par défaut de CommonDBTM, qui vaut « fa-empty-icon » et que
+     * createTabEntry() remplace alors par rien.
+     */
+    static function getIcon() {
+        return 'ti ti-coin';
+    }
+
     function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
         if ($item instanceof Printer && self::canViewCosts($item)) {
-            return __('Coût à la page', 'printgestion');
+            return self::createTabEntry(__('Coût à la page', 'printgestion'));
         }
         return '';
     }

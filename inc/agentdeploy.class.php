@@ -36,16 +36,37 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     const MSI_MAGIC = "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1";
     /** Description de l'installeur vérifié, à côté du fichier. */
     const METADATA_FILE = 'installer.json';
-    /** Paquet Windows, geste 1 : lance seulement le MSI officiel avec ses propriétés. */
-    const WINDOWS_INSTALL_BAT = '1-installer-glpi-agent.bat';
-    /** Paquet Windows, geste 2 facultatif et séparé : pose seulement la tâche planifiée de mise à jour. */
-    const WINDOWS_UPDATE_BAT = '2-facultatif-mise-a-jour-automatique.bat';
+    /**
+     * Paquet Windows : le seul fichier à lancer. Son nom le dit, et il est le seul exécutable du dossier — tout le
+     * reste est une donnée (le MSI, le script de mise à jour) ou de la documentation.
+     *
+     * Il installe, puis demande si l'on veut la mise à jour automatique : deux décisions, un seul geste. Livrer deux
+     * .bat numérotés obligeait celui qui ouvre le dossier à deviner lequel lancer et dans quel ordre.
+     */
+    const WINDOWS_INSTALL_BAT = 'INSTALLER-GLPI-AGENT.bat';
+
+    /**
+     * Sous-dossier du paquet Windows où descendent les données : le MSI officiel, le script de mise à jour et la
+     * commande de secours. À la racine il ne reste que le fichier à lancer et le mode d'emploi — un dossier qui
+     * montre six éléments dont un seul se lance ne dit pas lequel.
+     */
+    const WINDOWS_DATA_DIR = 'fichiers/';
 
     static function getTypeName($nb = 0) {
         return __('Déploiement Agent', 'printgestion');
     }
 
     // ── Onglet de la fiche Entité ─────────────────────────────────────────────
+
+    /**
+     * Icône de l'onglet. Onglet « Déploiement Agent » de la fiche Entité : on y télécharge l'installeur de la sonde.
+     *
+     * Sans cette méthode, GLPI retombe sur l'icône par défaut de CommonDBTM, qui vaut « fa-empty-icon » et
+     * que createTabEntry() remplace alors par rien : le libellé reste nu à côté des onglets natifs.
+     */
+    static function getIcon() {
+        return 'ti ti-cloud-download';
+    }
 
     function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
         if ($item instanceof Entity
@@ -232,7 +253,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         ])) {
             return [__('Paramètres de l\'installeur non enregistrés.', 'printgestion')];
         }
-        return [];
+        // Les réglages des prochains paquets sont dans le même formulaire : un seul bouton, un seul enregistrement.
+        return PluginPrintgestionAgentsetting::saveDefaults($input);
     }
 
     // ── Installeur en cache ───────────────────────────────────────────────────
@@ -499,15 +521,358 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     /**
      * Commande msiexec à lancer depuis cmd, jamais PowerShell (documentation de GLPI Agent) :
      * noms de propriétés sensibles à la casse, pas d'espace autour du « = », valeurs entre
-     * guillemets. Pas de /quiet : l'assistant graphique reste, avec les valeurs déjà remplies.
+     * guillemets.
      */
     public static function buildWindowsCommand(string $msi, string $tag): string {
-        $parts = ['msiexec', '/i', '"' . $msi . '"'];
+        return 'msiexec ' . self::buildWindowsArguments($msi, $tag);
+    }
+
+    /**
+     * Les mêmes arguments sans le nom du programme : le .bat les donne à msiexec, le fichier unique les donne à
+     * Start-Process. Une seule écriture, donc les deux chemins installent exactement le même agent réglé pareil.
+     */
+    public static function buildWindowsArguments(string $msi, string $tag): string {
+        $parts = ['/i', '"' . $msi . '"'];
         foreach (self::getWindowsProperties($tag) as $name => $value) {
             $parts[] = $name . '="' . $value . '"';
         }
+        // Muet : tout est déjà renseigné, l'assistant n'avait plus rien à demander — il ne donnait qu'une occasion
+        // de se tromper. /norestart est le compagnon obligé de /qn : sans lui, l'installeur peut redémarrer le PC
+        // de lui-même, pendant que quelqu'un travaille. Le code 3010 dit qu'un redémarrage est attendu ; c'est à
+        // nous de le dire, pas à l'installeur de le faire.
+        $parts[] = '/qn';
+        $parts[] = '/norestart';
         $parts[] = '/l*v "%TEMP%\\GLPI-Agent-install.log"';
         return implode(' ', $parts);
+    }
+
+    /** Nom du script de la fenêtre, rangé avec les données : personne n'a à le lancer. */
+    const WINDOWS_DIALOG_PS1 = 'fenetre-installation.ps1';
+
+    /** Valeur littérale dans un script PowerShell entre apostrophes : l'apostrophe s'y double. */
+    private static function psQuote(string $value): string {
+        // PowerShell prend aussi ’ ‘ ‚ ‛ pour des apostrophes : non doublées, un nom de client comme « L’Atelier »
+        // fermait la chaîne et rendait tout le fichier illisible, sans un mot. Doublée, chacune reste elle-même.
+        return "'" . str_replace(["'", "\u{2018}", "\u{2019}", "\u{201A}", "\u{201B}"], ["''", "\u{2018}\u{2018}", "\u{2019}\u{2019}", "\u{201A}\u{201A}", "\u{201B}\u{201B}"], $value) . "'";
+    }
+
+    /**
+     * Ce que la fenêtre rappelle avant d'installer : pour qui, avec quel TAG, vers quel serveur.
+     *
+     * Trois lignes, et pas une de plus : la fenêtre ne demande rien, donc dire « rien à saisir » n'apprend rien à
+     * celui qui la regarde — il le voit.
+     */
+    private static function dialogInfoLines(string $client, string $tag, string $server): array {
+        return [
+            sprintf(__('Client : %s', 'printgestion'), $client),
+            sprintf(__('TAG : %s', 'printgestion'), $tag),
+            sprintf(__('Serveur GLPI : %s', 'printgestion'), $server),
+        ];
+    }
+
+    /**
+     * Cadre commun des fenêtres Windows : la fenêtre, son bandeau et la carte « pour qui ».
+     *
+     * L'installation et le retrait le partagent : même allure, même place pour le nom du client. Laisse $suite sous
+     * la carte, pour que l'appelant pose la suite dessous.
+     *
+     * @param int[] $band couleur du bandeau (rouge, vert, bleu)
+     */
+    private static function buildWindowsFrameLines(string $caption, string $title, string $subtitle, array $infos, array $band = [31, 58, 95]): array {
+        $large     = self::WIN_WIDTH;
+        $h_bandeau = self::WIN_BAND;
+        $couleur   = static fn(int $r, int $v, int $b) => sprintf('[System.Drawing.Color]::FromArgb(%d, %d, %d)', $r, $v, $b);
+        return [
+            '$f = New-Object System.Windows.Forms.Form',
+            '$f.Text = ' . self::psQuote($caption),
+            '$f.ClientSize = New-Object System.Drawing.Size(' . $large . ', ' . ($h_bandeau + 260) . ')',
+            '$f.StartPosition = "CenterScreen"',
+            '$f.FormBorderStyle = "FixedDialog"',
+            '$f.MaximizeBox = $false',
+            '$f.MinimizeBox = $false',
+            '$f.TopMost = $true',
+            '$f.BackColor = [System.Drawing.Color]::White',
+            '$f.Font = New-Object System.Drawing.Font("Segoe UI", 9)',
+            'try { $f.Icon = [System.Drawing.SystemIcons]::Information } catch { }',
+            '',
+            '# Bandeau : ce que fait cette fenetre. Le reste est blanc.',
+            '$bandeau = New-Object System.Windows.Forms.Panel',
+            '$bandeau.Location = New-Object System.Drawing.Point(0, 0)',
+            '$bandeau.Size = New-Object System.Drawing.Size(' . $large . ', ' . $h_bandeau . ')',
+            '$bandeau.BackColor = ' . $couleur($band[0], $band[1], $band[2]),
+            '$f.Controls.Add($bandeau)',
+            '',
+            '$titre = New-Object System.Windows.Forms.Label',
+            '$titre.Text = ' . self::psQuote($title),
+            '$titre.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)',
+            '$titre.ForeColor = [System.Drawing.Color]::White',
+            '$titre.BackColor = [System.Drawing.Color]::Transparent',
+            '$titre.Location = New-Object System.Drawing.Point(24, 14)',
+            '$titre.Size = New-Object System.Drawing.Size(' . ($large - 48) . ', 30)',
+            '$bandeau.Controls.Add($titre)',
+            '',
+            '$sous = New-Object System.Windows.Forms.Label',
+            '$sous.Text = ' . self::psQuote($subtitle),
+            '$sous.ForeColor = ' . $couleur(210, 220, 235),
+            '$sous.BackColor = [System.Drawing.Color]::Transparent',
+            '$sous.Location = New-Object System.Drawing.Point(26, 46)',
+            '$sous.Size = New-Object System.Drawing.Size(' . ($large - 52) . ', 18)',
+            '$bandeau.Controls.Add($sous)',
+            '',
+            '# Carte : pour qui. Ce sont les seules valeurs que le technicien a besoin de reconnaitre.',
+            '$carte = New-Object System.Windows.Forms.Panel',
+            '$carte.Location = New-Object System.Drawing.Point(24, ' . ($h_bandeau + 20) . ')',
+            '$carte.BackColor = ' . $couleur(244, 246, 249),
+            '$f.Controls.Add($carte)',
+            '',
+            '$infos = New-Object System.Windows.Forms.Label',
+            '$infos.Text = ' . self::psQuote(implode("\r\n", $infos)),
+            '$infos.BackColor = [System.Drawing.Color]::Transparent',
+            '$infos.MaximumSize = New-Object System.Drawing.Size(' . ($large - 84) . ', 0)',
+            '$infos.AutoSize = $true',
+            '$infos.Location = New-Object System.Drawing.Point(18, 14)',
+            '$carte.Controls.Add($infos)',
+            '$carte.Size = New-Object System.Drawing.Size(' . ($large - 48) . ', ($infos.Bottom + 14))',
+            '$suite = $carte.Bottom + 14',
+            '',
+        ];
+    }
+
+    /**
+     * Lignes PowerShell qui construisent la fenêtre d'installation sans l'ouvrir : ce qui va être installé, pour qui,
+     * et la seule décision à prendre — la mise à jour automatique, **décochée par défaut**. Rien à taper.
+     *
+     * Écrite en PowerShell/WinForms plutôt qu'en binaire : présent sur tout Windows 10 et 11, rien à compiler, rien
+     * à signer, et le technicien peut lire ce qu'il lance.
+     *
+     * Partagée par le paquet ZIP et le fichier unique : le premier l'ouvre pour rendre un mot sur sa sortie standard
+     * et laisse son .bat agir, le second enchaîne le travail lui-même. Une seule écriture de la fenêtre, donc une
+     * seule case à cocher au même état par défaut, quel que soit le paquet.
+     *
+     * Mise en page : bandeau bleu (ce qu'on installe), carte claire (pour qui), notes en gris (ce que le bouton va
+     * faire), pied de page pour les boutons. Une fenêtre grise pleine de texte dense, sur un PC client, ressemble à
+     * un message d'erreur — et un technicien qui hésite à cliquer perd cinq minutes ou appelle.
+     *
+     * Toutes les hauteurs se calculent depuis le nombre de lignes : une ligne de plus ne doit jamais passer sous un
+     * bouton.
+     *
+     * Elle laisse à l'appelant $f (la fenêtre, à ouvrir) et $maj (la case, ou $null si le serveur ne propose pas la
+     * mise à jour).
+     *
+     * @param array $infos lignes d'identité (client, TAG, serveur), dans la carte
+     * @param array $notes lignes grises sous la carte : ce que « Installer » va faire
+     * @param bool  $impose vrai : le serveur a déjà tranché, la fenêtre l'annonce et ne demande rien ; faux : la
+     *                      case apparaît, décochée, et le technicien peut l'ajouter sur place
+     */
+    private static function buildWindowsDialogLines(string $version, array $infos, array $notes, string $target, bool $impose, bool $reseau = false): array {
+        // « Version visée : la dernière publiée » n'est pas une version : la ligne n'a de sens qu'épinglée.
+        $aide = $impose ? [] : array_merge(
+            [__('Décochée, l\'agent fonctionne normalement mais restera dans cette version jusqu\'à une intervention sur ce PC.', 'printgestion')],
+            $target !== '' ? [sprintf(__('Version visée : %s.', 'printgestion'), $target)] : []
+        );
+        $large     = self::WIN_WIDTH;
+        $couleur   = static fn(int $r, int $v, int $b) => sprintf('[System.Drawing.Color]::FromArgb(%d, %d, %d)', $r, $v, $b);
+        // Chaque bloc de texte se dimensionne lui-même et le suivant se pose dessous ($suite) : une traduction plus
+        // longue, un nom de client à rallonge ou un écran réglé à 125 % ne coupent plus rien.
+        $bloc      = static fn(string $var, int $x, int $l) => [
+            $var . '.MaximumSize = New-Object System.Drawing.Size(' . $l . ', 0)',
+            $var . '.AutoSize = $true',
+            $var . '.Location = New-Object System.Drawing.Point(' . $x . ', $suite)',
+        ];
+
+        return array_merge(self::buildWindowsFrameLines(
+            sprintf(__('Installation de GLPI Agent %s', 'printgestion'), $version),
+            __('Sonde d\'inventaire des imprimantes', 'printgestion'),
+            sprintf(__('GLPI Agent %s — installation préparée par Print Gestion', 'printgestion'), $version),
+            $infos
+        ),
+        $notes === [] ? [] : array_merge([
+            '$notes = New-Object System.Windows.Forms.Label',
+            '$notes.Text = ' . self::psQuote(implode("\r\n", $notes)),
+            '$notes.ForeColor = ' . $couleur(90, 98, 110),
+        ], $bloc('$notes', 26, $large - 52), [
+            '$f.Controls.Add($notes)',
+            '$suite = $notes.Bottom + 16',
+            '',
+        ]),
+        // Le serveur a tranché : on l'annonce, on ne le redemande pas. Deux avis pour une même décision, c'est
+        // l'assurance qu'ils finiront par se contredire — et personne ne saurait lequel a gagné.
+        $impose ? array_merge([
+            '$maj = $null',
+            '$maj_imposee = $true',
+            '$note = New-Object System.Windows.Forms.Label',
+            '$note.Text = ' . self::psQuote(sprintf(
+                __('Mise à jour automatique : posée sur ce PC (%s), réglage du serveur GLPI.', 'printgestion'),
+                $target !== ''
+                    ? sprintf(__('1er du mois à 3 h, version visée %s', 'printgestion'), $target)
+                    : __('1er du mois à 3 h', 'printgestion')
+            )),
+            '$note.ForeColor = ' . $couleur(90, 98, 110),
+        ], $bloc('$note', 26, $large - 52), [
+            '$f.Controls.Add($note)',
+            '$suite = $note.Bottom',
+            '',
+        ]) : array_merge([
+            '$maj_imposee = $false',
+            '$maj = New-Object System.Windows.Forms.CheckBox',
+            '$maj.Text = ' . self::psQuote(__('Mettre à jour l\'agent automatiquement (1er du mois à 3 h)', 'printgestion')),
+            '$maj.Checked = $false',
+        ], $bloc('$maj', 24, $large - 48), [
+            '$f.Controls.Add($maj)',
+            '$suite = $maj.Bottom + 6',
+            '',
+        ], $aide === [] ? [] : array_merge([
+            '$aide = New-Object System.Windows.Forms.Label',
+            '$aide.Text = ' . self::psQuote(implode("\r\n", $aide)),
+            '$aide.ForeColor = ' . $couleur(120, 128, 140),
+        ], $bloc('$aide', 44, $large - 72), [
+            '$f.Controls.Add($aide)',
+            '$suite = $aide.Bottom',
+            '',
+        ])),
+        // Les adresses des imprimantes, demandées seulement par le fichier unique : lui seul peut les rapporter à
+        // GLPI (le paquet ZIP ne parle à personne). Deux champs, et le second est prérempli.
+        !$reseau ? ['$ips = $null', '$snmp = $null', '$freq = $null', ''] : array_merge([
+            '$titre_ips = New-Object System.Windows.Forms.Label',
+            '$titre_ips.Text = ' . self::psQuote(__('Adresses IP des imprimantes de ce client', 'printgestion')),
+            '$titre_ips.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)',
+            '$titre_ips.MaximumSize = New-Object System.Drawing.Size(552, 0)',
+            '$titre_ips.AutoSize = $true',
+            '$titre_ips.Location = New-Object System.Drawing.Point(24, ($suite + 12))',
+            '$f.Controls.Add($titre_ips)',
+            '$suite = $titre_ips.Bottom + 4',
+            '',
+            '$ips = New-Object System.Windows.Forms.TextBox',
+            '$ips.Size = New-Object System.Drawing.Size(552, 24)',
+            '$ips.Location = New-Object System.Drawing.Point(24, $suite)',
+            '$f.Controls.Add($ips)',
+            '$suite = $ips.Bottom + 4',
+            '',
+            '$aide_ips = New-Object System.Windows.Forms.Label',
+            '$aide_ips.Text = ' . self::psQuote(__('Exemples : 192.168.1.0/24 (tout le réseau), 192.168.1.30-35 (une plage), ou des adresses séparées par des virgules. Laissé vide : rien n\'est créé dans GLPI, le raccordement restera à faire.', 'printgestion')),
+            '$aide_ips.ForeColor = [System.Drawing.Color]::FromArgb(120, 128, 140)',
+            '$aide_ips.MaximumSize = New-Object System.Drawing.Size(552, 0)',
+            '$aide_ips.AutoSize = $true',
+            '$aide_ips.Location = New-Object System.Drawing.Point(24, $suite)',
+            '$f.Controls.Add($aide_ips)',
+            '$suite = $aide_ips.Bottom + 10',
+            '',
+            '$titre_snmp = New-Object System.Windows.Forms.Label',
+            '$titre_snmp.Text = ' . self::psQuote(__('Communauté SNMP des imprimantes', 'printgestion')),
+            '$titre_snmp.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)',
+            '$titre_snmp.AutoSize = $true',
+            '$titre_snmp.Location = New-Object System.Drawing.Point(24, $suite)',
+            '$f.Controls.Add($titre_snmp)',
+            '$suite = $titre_snmp.Bottom + 4',
+            '',
+            '$snmp = New-Object System.Windows.Forms.TextBox',
+            '$snmp.Text = "public"',
+            '$snmp.Size = New-Object System.Drawing.Size(200, 24)',
+            '$snmp.Location = New-Object System.Drawing.Point(24, $suite)',
+            '$f.Controls.Add($snmp)',
+            '$suite = $snmp.Bottom + 10',
+            '',
+            '$titre_freq = New-Object System.Windows.Forms.Label',
+            '$titre_freq.Text = ' . self::psQuote(__('Fréquence des relevés', 'printgestion')),
+            '$titre_freq.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)',
+            '$titre_freq.AutoSize = $true',
+            '$titre_freq.Location = New-Object System.Drawing.Point(24, $suite)',
+            '$f.Controls.Add($titre_freq)',
+            '$suite = $titre_freq.Bottom + 4',
+            '',
+            '# Liste fermee : le choix part tel quel au serveur, qui le refuse s il ne le connait pas.',
+            '$freq = New-Object System.Windows.Forms.ComboBox',
+            '$freq.DropDownStyle = "DropDownList"',
+            '$freq.Size = New-Object System.Drawing.Size(260, 24)',
+            '$freq.Location = New-Object System.Drawing.Point(24, $suite)',
+        ], array_map(
+            static fn(string $code, string $libelle): string => '$freq.Items.Add(' . self::psQuote($code . '  —  ' . $libelle) . ') | Out-Null',
+            array_keys(PluginPrintgestionCollectfrequency::getInstallerChoices()),
+            array_values(PluginPrintgestionCollectfrequency::getInstallerChoices())
+        ), [
+            '$freq.SelectedIndex = ' . array_search(
+                PluginPrintgestionCollectfrequency::INSTALLER_DEFAULT,
+                array_keys(PluginPrintgestionCollectfrequency::getInstallerChoices()),
+                true
+            ),
+            '$f.Controls.Add($freq)',
+            '$suite = $freq.Bottom + 4',
+            '',
+            '$aide_freq = New-Object System.Windows.Forms.Label',
+            '$aide_freq.Text = ' . self::psQuote(__('Tous les combien les imprimantes sont relevées. Ce choix règle aussi le délai au-delà duquel GLPI signale qu\'une imprimante ne remonte plus.', 'printgestion')),
+            '$aide_freq.ForeColor = [System.Drawing.Color]::FromArgb(120, 128, 140)',
+            '$aide_freq.MaximumSize = New-Object System.Drawing.Size(552, 0)',
+            '$aide_freq.AutoSize = $true',
+            '$aide_freq.Location = New-Object System.Drawing.Point(24, $suite)',
+            '$f.Controls.Add($aide_freq)',
+            '$suite = $aide_freq.Bottom',
+            '',
+        ]), [
+            '# Pied de page : les deux boutons, separes du contenu par un fond plus sombre.',
+            '$pied = New-Object System.Windows.Forms.Panel',
+            '$pied.Location = New-Object System.Drawing.Point(0, ($suite + 18))',
+            '$pied.Size = New-Object System.Drawing.Size(' . $large . ', 64)',
+            '$pied.BackColor = ' . $couleur(241, 243, 246),
+            '$f.Controls.Add($pied)',
+            '',
+            '$ok = New-Object System.Windows.Forms.Button',
+            '$ok.Text = ' . self::psQuote(__('Installer', 'printgestion')),
+            '$ok.Location = New-Object System.Drawing.Point(' . ($large - 24 - 120 - 12 - 130) . ', 16)',
+            '$ok.Size = New-Object System.Drawing.Size(130, 32)',
+            '$ok.DialogResult = [System.Windows.Forms.DialogResult]::OK',
+            '$pied.Controls.Add($ok)',
+            '$f.AcceptButton = $ok',
+            '',
+            '$non = New-Object System.Windows.Forms.Button',
+            '$non.Text = ' . self::psQuote(__('Annuler', 'printgestion')),
+            '$non.Location = New-Object System.Drawing.Point(' . ($large - 24 - 120) . ', 16)',
+            '$non.Size = New-Object System.Drawing.Size(120, 32)',
+            '$non.DialogResult = [System.Windows.Forms.DialogResult]::Cancel',
+            '$pied.Controls.Add($non)',
+            '$f.CancelButton = $non',
+            '',
+            '# La fenetre prend sa hauteur une fois tout pose : rien ne peut depasser.',
+            '$f.ClientSize = New-Object System.Drawing.Size(' . $large . ', $pied.Bottom)',
+            '',
+        ]);
+    }
+
+    /** Les trois lignes qui chargent WinForms : mêmes lignes pour la fenêtre du ZIP et pour le fichier unique. */
+    private static function psFormsHeader(): array {
+        return [
+            '$ErrorActionPreference = "Stop"',
+            'Add-Type -AssemblyName System.Windows.Forms',
+            'Add-Type -AssemblyName System.Drawing',
+            '[System.Windows.Forms.Application]::EnableVisualStyles()',
+            '# Filet : une erreur survenue avant que la fenetre existe s affiche quand meme, dans une boite de message.',
+            '# Sans lui, PowerShell sortait sans rien montrer : la console clignotait, rien d autre.',
+            '$script:fenetre_prete = $false',
+            'function Secours($texte) {',
+            '  try { [void][System.Windows.Forms.MessageBox]::Show($texte + [Environment]::NewLine + [Environment]::NewLine + ' . self::psQuote(__('Journal :', 'printgestion')) . ' + " " + $script:Journal, "Print Gestion", "OK", "Error") } catch { }',
+            '}',
+            '',
+        ];
+    }
+
+    /**
+     * Fenêtre du paquet ZIP : elle ne décide de rien elle-même, elle écrit un mot sur sa sortie standard (AVEC,
+     * SANS, ANNULE) et c'est le .bat qui agit. Le fichier unique, lui, ouvre la même fenêtre et enchaîne.
+     */
+    public static function buildWindowsDialogScript(string $version, string $client, string $tag, string $server, string $target, bool $impose = true): string {
+        return implode("\r\n", array_merge(
+            [
+                '# Fenetre d installation de GLPI Agent, posee par Print Gestion. Aucun identifiant ni secret.',
+                '# Elle ne fait que poser une question : c est le .bat qui installe.',
+            ],
+            self::psFormsHeader(),
+            self::buildWindowsDialogLines($version, self::dialogInfoLines($client, $tag, $server), [], $target, $impose),
+            [
+                '$r = $f.ShowDialog()',
+                'if ($r -ne [System.Windows.Forms.DialogResult]::OK) { Write-Output "ANNULE"; exit 0 }',
+                'if ($maj_imposee -or ($null -ne $maj -and $maj.Checked)) { Write-Output "AVEC" } else { Write-Output "SANS" }',
+                '',
+            ]
+        ));
     }
 
     /**
@@ -532,50 +897,82 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $tag     = trim((string) $entity->fields['tag']);
         $version = (string) $installer['version'];
         $msi     = self::getMsiName($version);
+        $data    = str_replace('/', chr(92), self::WINDOWS_DATA_DIR); // chemins Windows dans le .bat
+        $ps1     = $data . self::WINDOWS_DIALOG_PS1;
         $config  = PluginPrintgestionConfig::getInstance()->fields;
         $update  = (int) ($config['agent_update_default'] ?? 1) === 1;
-        $target  = trim((string) ($config['agent_update_target'] ?? ''));
+        // Une seule version pour tout : celle que ce serveur distribue est aussi celle que les sondes visent.
+        $target  = PluginPrintgestionAgentsetting::getTargetVersion();
 
-        // Geste 1 : le MSI officiel signé, lancé seul avec ses propriétés (start /wait ; codes 0, 3010 et 1641 :
-        // installé, redémarrage demandé ou lancé). Rien d'autre ne s'exécute : ni contrôle, ni copie, ni tâche.
+        // Le seul fichier à lancer : il vérifie qu'il est administrateur, que le MSI est là, ouvre la fenêtre
+        // d'installation, puis installe le MSI officiel signé avec ses propriétés (start /wait ; codes 0, 3010 et
+        // 1641 : installé, redémarrage demandé ou lancé). Aucun identifiant, aucun secret, rien d'autre.
+        //
+        // La fenêtre passe avant l'installation : elle montre ce qui va être installé et pour qui, et recueille la
+        // seule décision (la mise à jour automatique, décochée). Ce que le .bat vérifie avant, lui, ce sont les deux
+        // choses qui rendraient la fenêtre inutile : pas administrateur, ou MSI absent.
+        //
+        // Sans PowerShell, ou si la fenêtre échoue, la question revient en console : vingt secondes, « non » tout
+        // seul — un double clic suivi d'un départ ne pose jamais une tâche planifiée que personne n'a voulue.
         $install_bat = implode("\r\n", array_merge(
             [
                 '@echo off',
                 'rem GLPI Agent ' . $version . ' - installation pre-parametree pour le TAG ' . $tag,
-                'rem Etape 1 : lance uniquement le MSI officiel signe, avec ses proprietes. Aucun identifiant ni secret.',
-                'rem A lancer en administrateur depuis le dossier extrait du ZIP.',
-                'if not exist "%~dp0' . $msi . '" (',
+                'rem Seul fichier a lancer du dossier. Clic droit, puis Executer en tant qu administrateur.',
+                'rem Lance le MSI officiel signe avec ses proprietes. Aucun identifiant ni secret.',
+                'title Installation de GLPI Agent ' . $version,
+            ],
+            PluginPrintgestionAgentsetting::buildAdminCheckLines(),
+            [
+                'if not exist "%~dp0' . $data . $msi . '" (',
                 '  echo Fichier ' . $msi . ' introuvable : extraire tout le ZIP, puis relancer depuis le dossier extrait.',
                 '  pause',
                 '  exit /b 1',
                 ')',
-                'start "" /wait ' . self::buildWindowsCommand('%~dp0' . $msi, $tag),
+                'set "PGMAJ="',
+                'if exist "%~dp0' . $ps1 . '" (',
+                '  for /f "usebackq delims=" %%R in (`powershell -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0' . $ps1 . '"`) do set "PGMAJ=%%R"',
+                ')',
+                'if "%PGMAJ%"=="ANNULE" (',
+                '  echo Installation annulee : rien n a ete installe.',
+                '  exit /b 0',
+                ')',
+                'echo Installation de GLPI Agent ' . $version . ' en cours, merci de patienter...',
+                'start "" /wait ' . self::buildWindowsCommand('%~dp0' . $data . $msi, $tag),
                 'set "RC=%ERRORLEVEL%"',
                 'if not "%RC%"=="0" if not "%RC%"=="3010" if not "%RC%"=="1641" (',
                 '  echo Installation non terminee, code %RC% : journal "%TEMP%\\GLPI-Agent-install.log"',
                 '  pause',
                 '  exit /b %RC%',
                 ')',
+                'echo.',
                 'echo GLPI Agent installe.',
             ],
-            $update ? ['echo Etape 2 facultative, a lancer separement : ' . self::WINDOWS_UPDATE_BAT . ' (voir LISEZMOI.txt).'] : [],
-            ['pause', '']
-        ));
-        // Geste 2, facultatif et séparé : la tâche planifiée de mise à jour ; n'installe rien.
-        $update_bat = !$update ? '' : implode("\r\n", array_merge(
-            [
-                '@echo off',
-                'rem Etape 2 FACULTATIVE - pose la tache planifiee de mise a jour de GLPI Agent (Print Gestion).',
-                'rem N installe rien : a lancer apres ' . self::WINDOWS_INSTALL_BAT . ', en administrateur, depuis le dossier extrait du ZIP.',
-                'rem Aucun identifiant ni secret.',
-            ],
-            PluginPrintgestionAgentsetting::buildAdminCheckLines(),
-            PluginPrintgestionAgentsetting::buildScheduleLines(true),
-            [
-                'echo Mise a jour automatique mensuelle posee : ' . ($target !== '' ? 'version cible ' . $target . '.' : 'derniere version publiee.'),
-                'pause',
-                '',
-            ]
+            // Le bloc qui pose la tâche est toujours écrit : avec la règle du OU, le technicien peut la vouloir
+            // alors que le serveur ne l'impose pas. C'est la réponse qui décide, pas la présence du bloc.
+            array_merge(
+                ['echo.'],
+                $update
+                    ? [
+                        'rem Le serveur impose la mise a jour automatique : fenetre indisponible ou pas, c est oui.',
+                        'if not defined PGMAJ set "PGMAJ=AVEC"',
+                    ]
+                    : [
+                        'rem Fenetre indisponible ou fermee sans reponse : la question en console, non par defaut.',
+                        'if not defined PGMAJ (',
+                        '  echo Mise a jour automatique mensuelle : le 1er du mois a 3 h, seulement si l agent est en attente.',
+                        '  choice /C ON /T 20 /D N /M "La poser maintenant (O = oui, N = non)"',
+                        '  if errorlevel 2 (set "PGMAJ=SANS") else (set "PGMAJ=AVEC")',
+                        ')',
+                    ],
+                ['if not "%PGMAJ%"=="AVEC" goto :fin'],
+                PluginPrintgestionAgentsetting::buildScheduleLines(true, $data),
+                [
+                    'echo Mise a jour automatique mensuelle posee : ' . ($target !== '' ? 'version cible ' . $target . '.' : 'derniere version publiee.'),
+                    ':fin',
+                ]
+            ),
+            ['echo.', 'pause', '']
         ));
         $command      = self::buildWindowsCommand($msi, $tag) . "\r\n";
         $target_label = $target !== '' ? sprintf(__('version cible %s', 'printgestion'), $target) : __('dernière version publiée', 'printgestion');
@@ -585,25 +982,27 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 sprintf(__('Paquet généré par Print Gestion le %1$s par %2$s.', 'printgestion'), Html::convDateTime(date('Y-m-d H:i:s')), getUserName((int) Session::getLoginUserID())),
                 __('Ce dossier ne contient aucun identifiant, mot de passe ni jeton : seulement l\'adresse du serveur GLPI et le TAG du client.', 'printgestion'),
                 '',
-                __('ÉTAPE 1 — INSTALLATION (obligatoire)', 'printgestion'),
+                sprintf(__('UN SEUL FICHIER À LANCER : %s', 'printgestion'), self::WINDOWS_INSTALL_BAT),
+                __('Tout le reste du dossier est soit une donnée dont il se sert, soit ce mode d\'emploi. Rien d\'autre n\'est à ouvrir ni à double-cliquer.', 'printgestion'),
+                '',
+                __('MARCHE À SUIVRE', 'printgestion'),
                 __('1. Sur le PC qui servira de sonde (allumé en permanence, sur le réseau des imprimantes) : clic droit sur le fichier ZIP > Extraire tout.', 'printgestion'),
-                sprintf(__('2. Dans le dossier extrait : clic droit sur %s > Exécuter en tant qu\'administrateur, puis suivre l\'assistant. Ce fichier ne fait qu\'une chose : lancer le MSI officiel signé de GLPI Agent avec ses propriétés. L\'adresse du serveur et le TAG sont déjà remplis : ne pas les modifier. Attendre le message final avant de fermer la fenêtre.', 'printgestion'), self::WINDOWS_INSTALL_BAT),
+                sprintf(__('2. Dans le dossier extrait : clic droit sur %s > Exécuter en tant qu\'administrateur. Une fenêtre s\'ouvre : elle rappelle le client, le TAG et le serveur, et propose la mise à jour automatique. Cliquer sur « Installer » — l\'installation se fait ensuite sans aucune question. Attendre le message final avant de fermer la fenêtre noire.', 'printgestion'), self::WINDOWS_INSTALL_BAT),
                 __('3. Dans GLPI (fiche de l\'entité, onglet « Déploiement Agent ») : vérifier que l\'agent apparaît avec un contact récent, puis raccorder les imprimantes avec l\'assistant (bloc 3), avant de partir.', 'printgestion'),
-                __('Si Windows refuse de lancer le fichier .bat : ouvrir l\'invite de commandes en administrateur (cmd, pas PowerShell) dans le dossier extrait et coller la commande du fichier commande-cmd.txt.', 'printgestion'),
+                sprintf(__('Si Windows refuse de lancer le fichier .bat : ouvrir l\'invite de commandes en administrateur (cmd, pas PowerShell) dans le dossier extrait et coller la commande du fichier %scommande-cmd.txt.', 'printgestion'), self::WINDOWS_DATA_DIR),
                 __('En cas d\'échec de l\'installation : journal %TEMP%\\GLPI-Agent-install.log sur le PC.', 'printgestion'),
                 '',
             ],
             $update
                 ? [
-                    __('ÉTAPE 2 — MISE À JOUR AUTOMATIQUE (facultative, geste séparé)', 'printgestion'),
+                    __('MISE À JOUR AUTOMATIQUE (facultative, case à cocher de la fenêtre)', 'printgestion'),
                     sprintf(
-                        __('Après l\'étape 1, si vous le souhaitez : clic droit sur %1$s > Exécuter en tant qu\'administrateur. Ce fichier n\'installe rien : il pose la tâche planifiée « %2$s » (le 1er du mois à 3 h, compte SYSTEM, winget, %3$s, seulement si l\'agent est en attente ; journal C:\\ProgramData\\PrintGestion\\glpi-agent-update.log).', 'printgestion'),
-                        self::WINDOWS_UPDATE_BAT,
+                        __('La fenêtre d\'installation propose « Mettre à jour l\'agent automatiquement » : décochée par défaut, à cocher avant de cliquer sur « Installer ». Cochée, elle pose la tâche planifiée « %1$s » (le 1er du mois à 3 h, compte SYSTEM, winget, %2$s, seulement si l\'agent est en attente ; journal C:\\ProgramData\\PrintGestion\\glpi-agent-update.log). Si la fenêtre ne s\'ouvre pas (PowerShell absent), la question est posée en console : O pour oui, N pour non, « non » tout seul au bout de vingt secondes.', 'printgestion'),
                         PluginPrintgestionAgentsetting::TASK_NAME,
                         $target_label
                     ),
-                    sprintf(__('Ce que l\'on perd en sautant cette étape : la mise à jour automatique de cette sonde, rien d\'autre. L\'agent fonctionne normalement (inventaire du PC, découverte et relevés des imprimantes) mais reste en version %s jusqu\'à une intervention sur ce PC. La page « Sondes » de Print Gestion montre sa conformité de version : elle le signalera « À mettre à jour » dès qu\'une version plus récente sera visée.', 'printgestion'), $version),
-                    __('Étape sautée ou bloquée par l\'antivirus : l\'installation de l\'étape 1 reste valable. Dans GLPI, décocher « Mise à jour automatique » sur la sonde (page « Sondes ») pour que son réglage corresponde au PC ; pour poser la tâche plus tard : paquet de consigne de la sonde, lancé sur ce PC.', 'printgestion'),
+                    sprintf(__('Ce que l\'on perd en laissant la case décochée : la mise à jour automatique de cette sonde, rien d\'autre. L\'agent fonctionne normalement (inventaire du PC, découverte et relevés des imprimantes) mais reste en version %s jusqu\'à une intervention sur ce PC. La page « Sondes » de Print Gestion montre sa conformité de version : elle le signalera « À mettre à jour » dès qu\'une version plus récente sera visée.', 'printgestion'), $version),
+                    __('Case décochée, ou tâche bloquée par l\'antivirus : l\'agent installé reste valable. Dans GLPI, décocher « Mise à jour automatique » sur la sonde (page « Sondes ») pour que son réglage corresponde au PC ; pour poser la tâche plus tard : paquet de consigne de la sonde, lancé sur ce PC.', 'printgestion'),
                     __('Pour changer ou retirer la tâche : régler la sonde dans GLPI, puis lancer son paquet de consigne sur ce PC ; le réglage de GLPI seul ne change rien sur le PC.', 'printgestion'),
                 ]
                 : [
@@ -622,14 +1021,21 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             PluginPrintgestionLogger::error('agentdeploy', sprintf('Paquet %s non créé.', $path));
             return ['ok' => false, 'errors' => [__('Paquet non généré (détail dans le journal printgestion).', 'printgestion')]];
         }
-        $zip->addFile($installer['path'], $msi);
-        $zip->setCompressionName($msi, ZipArchive::CM_STORE); // MSI déjà compressé
+        // Racine : le fichier à lancer et le mode d'emploi. Tout le reste est une donnée, rangée dans « fichiers ».
+        $zip->addFile($installer['path'], self::WINDOWS_DATA_DIR . $msi);
+        $zip->setCompressionName(self::WINDOWS_DATA_DIR . $msi, ZipArchive::CM_STORE); // MSI déjà compressé
         $zip->addFromString(self::WINDOWS_INSTALL_BAT, $install_bat);
-        if ($update) {
-            $zip->addFromString(self::WINDOWS_UPDATE_BAT, $update_bat);
-            $zip->addFromString(PluginPrintgestionAgentsetting::UPDATE_SCRIPT, PluginPrintgestionAgentsetting::buildUpdateScript($target));
-        }
-        $zip->addFromString('commande-cmd.txt', $command);
+        // Toujours présent : le technicien peut poser la tâche même quand le serveur ne l'impose pas.
+        $zip->addFromString(
+            self::WINDOWS_DATA_DIR . PluginPrintgestionAgentsetting::UPDATE_SCRIPT,
+            PluginPrintgestionAgentsetting::buildUpdateScript($target)
+        );
+        // La fenêtre est une donnée du .bat, pas un second exécutable : personne n'a à la lancer.
+        $zip->addFromString(
+            self::WINDOWS_DATA_DIR . self::WINDOWS_DIALOG_PS1,
+            "\xEF\xBB\xBF" . self::buildWindowsDialogScript($version, (string) $entity->fields['completename'], $tag, self::getServerUrl()['url'], $target, $update)
+        );
+        $zip->addFromString(self::WINDOWS_DATA_DIR . 'commande-cmd.txt', $command);
         $zip->addFromString('LISEZMOI.txt', "\xEF\xBB\xBF" . $readme);
         if (!$zip->close()) {
             if (is_file($path)) {
@@ -649,6 +1055,2575 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         ];
     }
 
+    // ── Fichiers uniques : briques communes ───────────────────────────────────
+
+    /** Valeur littérale dans un script shell entre apostrophes : l'apostrophe s'y ferme, s'échappe et se rouvre. */
+    private static function shQuote(string $value): string {
+        return "'" . str_replace("'", "'\\''", $value) . "'";
+    }
+
+
+    /**
+     * Nom du fichier unique : il dit ce qu'il fait, pour quelle version et pour quel client. Un fichier posé sur un
+     * bureau à côté de trois autres doit se reconnaître sans être ouvert.
+     */
+    public static function getSingleFileName(string $tag, string $version, string $platform = 'windows'): string {
+        $safe = trim((string) preg_replace('/[^A-Za-z0-9._-]+/', '-', $tag), '-');
+        $safe = $safe !== '' ? $safe : 'sonde';
+        return match ($platform) {
+            'linux' => sprintf('installer-glpi-agent-%1$s-%2$s.sh', $version, $safe),
+            'macos' => sprintf('installer-glpi-agent-macos-%1$s-%2$s.sh', $version, $safe),
+            default => sprintf('INSTALLER-GLPI-AGENT-%1$s-%2$s.bat', $version, $safe),
+        };
+    }
+
+
+    /**
+     * Journal d'une exécution sous Linux ou macOS : un fichier par exécution dans /var/tmp.
+     *
+     * /var/tmp et non /tmp, que beaucoup de distributions vident au redémarrage — et c'est souvent après un
+     * redémarrage qu'on veut relire ce qui s'est passé. La communauté SNMP et la clé de téléchargement n'y sont
+     * jamais écrites : ce sont des secrets.
+     *
+     * @param string[] $header premières lignes : ce qu'on fait, pour qui
+     */
+    private static function buildShellJournalLines(string $log_name, array $header): array {
+        return array_merge([
+            '# Journal : un fichier par execution, dans /var/tmp (garde au redemarrage, contrairement a /tmp).',
+            'PG_JOURNAL="/var/tmp/printgestion-' . $log_name . '-$(date +%Y%m%d-%H%M%S).log"',
+            'if ! ( : > "$PG_JOURNAL" ) 2>/dev/null; then PG_JOURNAL=/dev/null; fi',
+            'chmod 644 "$PG_JOURNAL" 2>/dev/null',
+            'pg_journal() { printf "%s  %s\\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$*" >> "$PG_JOURNAL"; }',
+        ], array_map(static fn(string $ligne): string => 'pg_journal ' . self::shQuote($ligne), $header), [
+            'pg_journal "PC : $(hostname)   compte : ${SUDO_USER:-root}"',
+            '',
+        ]);
+    }
+
+    /**
+     * Outils communs aux fichiers Linux et macOS : télécharger, calculer une empreinte, interroger une URL.
+     *
+     * L'empreinte est recalculée sur le poste. Sans outil pour la calculer, on refuse : mieux vaut ne rien installer
+     * qu'installer un fichier dont personne n'a vérifié la provenance.
+     */
+    private static function buildShellToolLines(): array {
+        return [
+            '# Telechargement, avec la barre de curl quand on est en console.',
+            'pg_telecharger() {',
+            '  if command -v curl >/dev/null 2>&1; then',
+            '    curl -fL --progress-bar --max-time 900 -o "$2" "$1"',
+            '    return $?',
+            '  fi',
+            '  if command -v wget >/dev/null 2>&1; then',
+            '    wget -q --show-progress -O "$2" "$1" 2>&1 || wget -q -O "$2" "$1"',
+            '    return $?',
+            '  fi',
+            '  return 127',
+            '}',
+            '',
+            '# Empreinte SHA-256 en hexadecimal minuscule, vide si le poste n a aucun outil pour la calculer.',
+            'pg_empreinte() {',
+            '  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d" " -f1; return 0; fi',
+            '  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d" " -f1; return 0; fi',
+            '  if command -v openssl >/dev/null 2>&1; then openssl dgst -sha256 "$1" | sed "s/.*= *//"; return 0; fi',
+            '  printf ""',
+            '}',
+            '',
+            '# Corps d une page web, vide en cas d echec. $2 : delai maximal en secondes (5 par defaut).',
+            'pg_http() {',
+            '  if command -v curl >/dev/null 2>&1; then curl -fsS --max-time "${2:-5}" "$1" 2>/dev/null; return $?; fi',
+            '  if command -v wget >/dev/null 2>&1; then wget -q -T "${2:-5}" -O - "$1" 2>/dev/null; return $?; fi',
+            '  return 127',
+            '}',
+            '',
+        ];
+    }
+
+    /**
+     * Libellés et rangs des étapes, pour pg_etape : « Étape 3/7 — Installation de GLPI Agent 1.19 ».
+     *
+     * @param array $steps clé => libellé, dans l'ordre
+     */
+    private static function buildShellStepNames(array $steps): array {
+        $cles = array_keys($steps);
+        return array_merge(
+            ['pg_libelle() {', '  case "$1" in'],
+            array_map(static fn(string $cle): string => '    ' . $cle . ') printf "%s" ' . self::shQuote($steps[$cle]) . ' ;;', $cles),
+            ['    *) printf "%s" "$1" ;;', '  esac', '}', 'pg_rang() {', '  case "$1" in'],
+            array_map(static fn(int $rang, string $cle): string => '    ' . $cle . ') printf "%s" "' . ($rang + 1) . '" ;;', array_keys($cles), $cles),
+            ['    *) printf "?" ;;', '  esac', '}', 'PG_TOTAL=' . count($steps), 'PG_EN_COURS=""', '']
+        );
+    }
+
+    /**
+     * Premier contact avec GLPI : attendre que GLPI connaisse la sonde avant de lui confier les imprimantes.
+     *
+     * Le compte rendu partait dès la fin de l'installation, souvent avant que l'agent ait envoyé son premier
+     * inventaire : GLPI ne connaissait pas encore la sonde, et ne pouvait ni régler ses modules ni lui confier les
+     * imprimantes. On attend donc que l'agent local ait fini un passage — son état redevient « waiting ».
+     */
+    private static function buildShellContactLines(): array {
+        return [
+            '# ── Premier contact : GLPI doit connaitre la sonde avant qu on lui confie les imprimantes ──',
+            'pg_etape contact encours ""',
+            'pg_statut=""',
+            'pg_i=0',
+            '# Le service vient d etre installe : son interface met un moment a repondre (2 min au plus).',
+            'while [ "$pg_i" -lt 40 ]; do',
+            '  pg_statut=$(pg_http ' . self::shQuote(self::getAgentStatusUrl()) . ')',
+            '  if [ -n "$pg_statut" ]; then break; fi',
+            '  pg_i=$((pg_i + 1))',
+            '  sleep 3',
+            'done',
+            'if [ -z "$pg_statut" ]; then',
+            '  pg_etape contact saute ' . self::shQuote(__('l\'agent ne répond pas encore sur ce poste', 'printgestion')),
+            'else',
+            '  pg_journal "        agent local : $pg_statut"',
+            '  # Un passage tout de suite, puis on attend qu il soit fini (3 min au plus).',
+            '  pg_http ' . self::shQuote(self::getAgentWakeUrl()) . ' >/dev/null',
+            '  sleep 5',
+            '  pg_fini=0',
+            '  pg_i=0',
+            '  while [ "$pg_i" -lt 60 ]; do',
+            '    case "$(pg_http ' . self::shQuote(self::getAgentStatusUrl()) . ')" in *waiting*) pg_fini=1; break ;; esac',
+            '    pg_i=$((pg_i + 1))',
+            '    sleep 3',
+            '  done',
+            '  if [ "$pg_fini" = 1 ]; then pg_etape contact ok ""; else pg_etape contact saute ' . self::shQuote(__('toujours en cours après trois minutes', 'printgestion')) . '; fi',
+            'fi',
+            '',
+        ];
+    }
+
+    /**
+     * Interface des fichiers Linux : zenity quand le poste a un écran, la console sinon.
+     *
+     * zenity tourne sous le compte de la personne connectée (SUDO_USER), pas en root : depuis Wayland, root n'a plus le
+     * droit d'ouvrir une fenêtre sur la session de quelqu'un d'autre. L'affichage est retrouvé même quand sudo a
+     * effacé DISPLAY (socket X11 ou Wayland de la session). Sans écran — serveur, SSH — tout se fait en console, étape
+     * par étape, avec le même journal.
+     *
+     * Définit l'interface d'étapes commune (pg_etape, pg_dire, pg_pct, pg_fin, pg_echec) et $PG_ETAT, le fichier où
+     * pg_fin laisse le résultat : la fenêtre d'avancement lit un tube, le travail tourne donc dans un sous-shell.
+     *
+     * @param string[] $infos lignes de présentation : client, TAG, serveur…
+     * @param array    $steps clé => libellé
+     */
+    private static function buildLinuxUiLines(string $title, array $infos, array $steps): array {
+        return array_merge([
+            'PG_TITRE=' . self::shQuote($title),
+            'PG_INFOS=' . self::shQuote(implode("\n", $infos)),
+            '# zenity lit ses textes en balisage Pango : un « & » ou un « < » dans un nom de client le ferait taire.',
+            'PG_INFOS_Z=' . self::shQuote(htmlspecialchars(implode("\n", $infos), ENT_NOQUOTES, 'UTF-8')),
+            '',
+            '# Fenetre si le poste en a une, console sinon. zenity tourne sous le compte de la personne connectee.',
+            'pg_gui=""',
+            'pg_uid=""',
+            'if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != root ]; then pg_uid=$(id -u "$SUDO_USER" 2>/dev/null); fi',
+            'pg_run="${XDG_RUNTIME_DIR:-}"',
+            'if [ -n "$pg_uid" ]; then pg_run="/run/user/$pg_uid"; fi',
+            'pg_display="${DISPLAY:-}"',
+            'if [ -z "$pg_display" ] && [ -S /tmp/.X11-unix/X0 ]; then pg_display=":0"; fi',
+            'pg_wayland="${WAYLAND_DISPLAY:-}"',
+            'if [ -z "$pg_wayland" ] && [ -n "$pg_run" ] && [ -S "$pg_run/wayland-0" ]; then pg_wayland="wayland-0"; fi',
+            'if command -v zenity >/dev/null 2>&1 && { [ -n "$pg_display" ] || [ -n "$pg_wayland" ]; }; then pg_gui=zenity; fi',
+            'pg_zen() {',
+            '  if [ -n "$pg_uid" ]; then',
+            '    sudo -u "$SUDO_USER" env DISPLAY="$pg_display" WAYLAND_DISPLAY="$pg_wayland" XDG_RUNTIME_DIR="$pg_run" zenity "$@"',
+            '  else',
+            '    env DISPLAY="$pg_display" WAYLAND_DISPLAY="$pg_wayland" zenity "$@"',
+            '  fi',
+            '}',
+            '',
+        ], self::buildShellStepNames($steps), [
+            '# « ¶ » marque un retour a la ligne dans un message : la fenetre l aplatit, la console le rend.',
+            'pg_lignes() { printf "%s\\n" "$1" | awk \'{ gsub("¶", "\\n"); print }\'; }',
+            'pg_aplat() { printf "%s" "$1" | awk \'{ gsub("¶", " "); printf "%s", $0 }\'; }',
+            '',
+            '# Dans la fenetre, une ligne « # texte » change le texte et un nombre la barre ; en console, du texte.',
+            'pg_dire() {',
+            '  if [ "$pg_gui" = zenity ]; then printf "# %s\\n" "$1"; else printf "   %s\\n" "$1"; fi',
+            '}',
+            'pg_pct() {',
+            '  if [ "$pg_gui" = zenity ]; then printf "%s\\n" "$1"; fi',
+            '}',
+            'pg_etape() {',
+            '  pg_nom=$(pg_libelle "$1")',
+            '  pg_note=""',
+            '  if [ -n "${3:-}" ]; then pg_note="  (${3})"; fi',
+            '  case "$2" in',
+            '    encours)',
+            '      PG_EN_COURS="$1"',
+            '      pg_journal "DEBUT   $pg_nom"',
+            '      pg_dire "' . __('Étape', 'printgestion') . ' $(pg_rang "$1")/$PG_TOTAL — $pg_nom"',
+            '      ;;',
+            '    ok)',
+            '      pg_journal "OK      $pg_nom$pg_note"',
+            '      if [ "$pg_gui" != zenity ]; then printf "[ OK ] %s%s\\n" "$pg_nom" "$pg_note"; fi',
+            '      ;;',
+            '    echec)',
+            '      pg_journal "ECHEC   $pg_nom$pg_note"',
+            '      if [ "$pg_gui" != zenity ]; then printf "[ECHEC] %s%s\\n" "$pg_nom" "$pg_note"; fi',
+            '      ;;',
+            '    *)',
+            '      pg_journal "SAUTE   $pg_nom$pg_note"',
+            '      if [ "$pg_gui" != zenity ]; then printf "[ -- ] %s%s\\n" "$pg_nom" "$pg_note"; fi',
+            '      ;;',
+            '  esac',
+            '  if [ "$2" != encours ] && [ "$PG_EN_COURS" = "$1" ]; then PG_EN_COURS=""; fi',
+            '}',
+            '',
+            '# Le resultat : dernier texte de la fenetre, qui passe a 100 % et propose OK. Garde aussi dans $PG_ETAT,',
+            '# parce que le travail tourne dans un sous-shell (celui qui alimente la fenetre).',
+            'PG_ETAT=$(mktemp 2>/dev/null || printf "%s" "/tmp/printgestion-etat-$$")',
+            'trap \'rm -f "$PG_ETAT"; pg_liberer\' EXIT',
+            'pg_fin() {',
+            '  pg_journal "FIN     $1"',
+            '  printf "%s\\n" "$1" > "$PG_ETAT"',
+            '  if [ "$pg_gui" = zenity ]; then',
+            '    printf "# %s   ' . __('Journal :', 'printgestion') . ' %s\\n" "$(pg_aplat "$2")" "$PG_JOURNAL"',
+            '    printf "100\\n"',
+            '  else',
+            '    printf "\\n"',
+            '    pg_lignes "$2"',
+            '    printf "\\n' . __('Journal :', 'printgestion') . ' %s\\n" "$PG_JOURNAL"',
+            '  fi',
+            '}',
+            'pg_echec() {',
+            '  if [ -n "$PG_EN_COURS" ]; then pg_etape "$PG_EN_COURS" echec ""; fi',
+            '  pg_journal "ERREUR  $1"',
+            '  pg_fin ECHEC "$1"',
+            '  exit 1',
+            '}',
+            '',
+        ], self::buildShellLockLines([
+            '  if [ "$pg_gui" = zenity ]; then pg_zen --warning --width=480 --title="$PG_TITRE" --text=' . self::shQuote(self::ALREADY_RUNNING) . ' >/dev/null 2>&1; fi',
+        ]));
+    }
+
+    /** Message du deuxième lancement, sur les trois systèmes. */
+    const ALREADY_RUNNING = 'Une installation ou un retrait de GLPI Agent est déjà en cours sur ce poste. Attendez la fin de la fenêtre déjà ouverte, puis relancez si besoin.';
+
+    /**
+     * Linux et macOS : une seule exécution à la fois, installation et retrait confondus.
+     *
+     * Un dossier verrou — mkdir est atomique — qui porte le numéro du processus. flock n'existe pas sur macOS. Un
+     * verrou laissé par un lancement interrompu (terminal fermé, poste éteint) est repris : son processus n'existe
+     * plus. /var/run est vidé au démarrage, sur les deux systèmes. Libéré par le trap EXIT de l'interface.
+     *
+     * @param string[] $gui_lines lignes qui montrent le message dans une fenêtre, en plus de la console
+     */
+    private static function buildShellLockLines(array $gui_lines): array {
+        return array_merge([
+            '# ── Une seule execution a la fois sur ce poste, installation et retrait confondus ──',
+            'PG_VERROU=/var/run/printgestion-glpi-agent.lock',
+            'pg_verrou=0',
+            'pg_liberer() { if [ "$pg_verrou" = 1 ]; then rm -rf "$PG_VERROU"; pg_verrou=0; fi; }',
+            'pg_prendre() {',
+            '  if mkdir "$PG_VERROU" 2>/dev/null; then printf "%s\\n" "$$" > "$PG_VERROU/pid"; pg_verrou=1; return 0; fi',
+            '  pg_autre=$(cat "$PG_VERROU/pid" 2>/dev/null)',
+            '  # Pris a l instant par l autre lancement : son numero arrive.',
+            '  if [ -z "$pg_autre" ]; then sleep 2; pg_autre=$(cat "$PG_VERROU/pid" 2>/dev/null); fi',
+            '  if [ -n "$pg_autre" ] && kill -0 "$pg_autre" 2>/dev/null; then return 1; fi',
+            '  pg_journal "Verrou laisse par un lancement interrompu (processus ${pg_autre:-inconnu}) : repris"',
+            '  rm -rf "$PG_VERROU"',
+            '  if mkdir "$PG_VERROU" 2>/dev/null; then printf "%s\\n" "$$" > "$PG_VERROU/pid"; pg_verrou=1; return 0; fi',
+            '  return 1',
+            '}',
+            'if ! pg_prendre; then',
+            '  pg_journal "Deja en cours sur ce poste (processus ${pg_autre:-inconnu}) : rien n a ete fait"',
+            '  printf "\\n%s\\n\\n" ' . self::shQuote(self::ALREADY_RUNNING),
+        ], $gui_lines, [
+            '  exit 1',
+            'fi',
+            '',
+        ]);
+    }
+
+    /** La fenêtre Cocoa des fichiers macOS, relative à la racine du plugin. */
+    const MACOS_WINDOW_JS = 'resources/macos-fenetre.js';
+
+    /**
+     * La fenêtre macOS, prête à être écrite par le script : ses textes, puis son code.
+     *
+     * Le code vit dans un fichier JavaScript à part entière (resources/macos-fenetre.js), relu par node --check ; le
+     * fichier de l'entité le recopie, précédé d'une ligne « var T = {...}; ». Fichier absent : aucune ligne, osascript
+     * échoue, et le script reprend en console — jamais d'installation empêchée par la fenêtre.
+     */
+    private static function buildMacosWindowJsLines(array $texts): array {
+        $code = @file_get_contents(dirname(__DIR__) . '/' . self::MACOS_WINDOW_JS);
+        if (!is_string($code) || $code === '') {
+            return [];
+        }
+        return array_merge(
+            ['var T = ' . json_encode($texts, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . ';'],
+            explode("\n", rtrim(str_replace("\r\n", "\n", $code), "\n"))
+        );
+    }
+
+    /**
+     * Interface des fichiers macOS : la fenêtre Cocoa, ou la console quand elle ne peut pas s'ouvrir.
+     *
+     * Le script tourne en root, la fenêtre sous le compte de la personne connectée (celle qui a tapé sudo, ou celle qui
+     * a la session à l'écran) : root n'a pas le droit d'afficher sur sa session. Ils se parlent par deux fichiers dans
+     * un dossier privé, au propriétaire de la session et fermé aux autres : « reponses » écrit par la fenêtre, « etat »
+     * écrit ici. En partant, le script attend que la fenêtre soit fermée : elle doit avoir lu la fin avant que son
+     * dossier disparaisse.
+     *
+     * @param array $texts textes de la fenêtre (voir resources/macos-fenetre.js)
+     */
+    private static function buildMacosUiLines(string $title, array $infos, array $steps, array $texts): array {
+        return array_merge([
+            'PG_TITRE=' . self::shQuote($title),
+            'PG_INFOS=' . self::shQuote(implode("\n", $infos)),
+            'pg_gui=""',
+            'PG_DIR=""',
+            'PG_FENETRE=""',
+            '# La personne connectee : celle qui a tape sudo, ou a defaut celle qui a la session a l ecran.',
+            'pg_user="${SUDO_USER:-}"',
+            'if [ -z "$pg_user" ] || [ "$pg_user" = root ]; then pg_user=$(stat -f %Su /dev/console 2>/dev/null); fi',
+            '',
+        ], self::buildShellStepNames($steps), [
+            '# « ¶ » marque un retour a la ligne dans un message.',
+            'pg_lignes() { printf "%s\\n" "$1" | awk \'{ gsub("¶", "\\n"); print }\'; }',
+            '# Une ligne pour la fenetre : elle relit ce fichier en continu.',
+            'pg_ecrire() {',
+            '  if [ "$pg_gui" = cocoa ]; then printf "%s\\n" "$1" >> "$PG_DIR/etat"; fi',
+            '}',
+            'pg_dire() {',
+            '  pg_ecrire "dire|$1"',
+            '  if [ "$pg_gui" != cocoa ]; then printf "   %s\\n" "$1"; fi',
+            '}',
+            'pg_pct() { pg_ecrire "pct|$1"; }',
+            'pg_etape() {',
+            '  pg_nom=$(pg_libelle "$1")',
+            '  pg_note=""',
+            '  if [ -n "${3:-}" ]; then pg_note="  (${3})"; fi',
+            '  pg_ecrire "etape|$1|$2|${3:-}"',
+            '  case "$2" in',
+            '    encours)',
+            '      PG_EN_COURS="$1"',
+            '      pg_journal "DEBUT   $pg_nom"',
+            '      pg_dire "' . __('Étape', 'printgestion') . ' $(pg_rang "$1")/$PG_TOTAL — $pg_nom"',
+            '      ;;',
+            '    ok)',
+            '      pg_journal "OK      $pg_nom$pg_note"',
+            '      if [ "$pg_gui" != cocoa ]; then printf "[ OK ] %s%s\\n" "$pg_nom" "$pg_note"; fi',
+            '      ;;',
+            '    echec)',
+            '      pg_journal "ECHEC   $pg_nom$pg_note"',
+            '      if [ "$pg_gui" != cocoa ]; then printf "[ECHEC] %s%s\\n" "$pg_nom" "$pg_note"; fi',
+            '      ;;',
+            '    *)',
+            '      pg_journal "SAUTE   $pg_nom$pg_note"',
+            '      if [ "$pg_gui" != cocoa ]; then printf "[ -- ] %s%s\\n" "$pg_nom" "$pg_note"; fi',
+            '      ;;',
+            '  esac',
+            '  if [ "$2" != encours ] && [ "$PG_EN_COURS" = "$1" ]; then PG_EN_COURS=""; fi',
+            '}',
+            '',
+            'PG_ETAT=$(mktemp 2>/dev/null || printf "%s" "/tmp/printgestion-etat-$$")',
+            '# En partant : la fenetre doit avoir lu la fin avant que son dossier disparaisse. On attend qu on la ferme.',
+            'pg_sortie() {',
+            '  if [ -n "$PG_FENETRE" ]; then wait "$PG_FENETRE" 2>/dev/null; fi',
+            '  rm -f "$PG_ETAT"',
+            '  if [ -n "$PG_DIR" ]; then rm -rf "$PG_DIR"; fi',
+            '  pg_liberer',
+            '}',
+            'trap pg_sortie EXIT',
+            'pg_fin() {',
+            '  pg_journal "FIN     $1"',
+            '  printf "%s\\n" "$1" > "$PG_ETAT"',
+            '  pg_ecrire "fin|$1|$2"',
+            '  if [ "$pg_gui" != cocoa ]; then',
+            '    printf "\\n"',
+            '    pg_lignes "$2"',
+            '    printf "\\n' . __('Journal :', 'printgestion') . ' %s\\n" "$PG_JOURNAL"',
+            '  fi',
+            '}',
+            'pg_echec() {',
+            '  if [ -n "$PG_EN_COURS" ]; then pg_etape "$PG_EN_COURS" echec ""; fi',
+            '  pg_journal "ERREUR  $1"',
+            '  pg_fin ECHEC "$1"',
+            '  exit 1',
+            '}',
+            '',
+            '# Ouvre la fenetre et attend sa reponse : 0 si elle a repondu, 1 si elle n a pas pu s ouvrir.',
+            '# Une fenetre qui ne s ouvre pas (session SSH, personne a l ecran) ne vaut jamais une annulation.',
+            'pg_fenetre() {',
+            '  if [ -z "$pg_user" ] || [ "$pg_user" = root ] || ! command -v osascript >/dev/null 2>&1; then return 1; fi',
+            '  pg_uid=$(id -u "$pg_user" 2>/dev/null) || return 1',
+            '  PG_DIR=$(mktemp -d /tmp/printgestion.XXXXXX) || return 1',
+            '  chown "$pg_user" "$PG_DIR" && chmod 700 "$PG_DIR"',
+            '  : > "$PG_DIR/etat"',
+            '  chmod 644 "$PG_DIR/etat"',
+            "  cat > \"\$PG_DIR/fenetre.js\" <<'PRINTGESTION_JS'",
+        ], self::buildMacosWindowJsLines($texts), [
+            'PRINTGESTION_JS',
+            '  chmod 644 "$PG_DIR/fenetre.js"',
+            '  # Sous le compte de la personne connectee, dans sa session : launchctl asuser, puis sudo -u.',
+            '  launchctl asuser "$pg_uid" sudo -u "$pg_user" osascript -l JavaScript "$PG_DIR/fenetre.js" "$PG_DIR" "$PG_JOURNAL" >/dev/null 2>&1 &',
+            '  PG_FENETRE=$!',
+            '  printf "%s\\n" ' . self::shQuote(__('La fenêtre est ouverte : c\'est elle qui suit chaque étape. Ce terminal attend qu\'on la ferme.', 'printgestion')),
+            '  while [ ! -f "$PG_DIR/reponses" ]; do',
+            '    if ! kill -0 "$PG_FENETRE" 2>/dev/null; then',
+            '      PG_FENETRE=""',
+            '      return 1',
+            '    fi',
+            '    sleep 1',
+            '  done',
+            '  pg_gui=cocoa',
+            '  return 0',
+            '}',
+            '',
+        ], self::buildShellLockLines([
+            '  # Aussi a l ecran de la personne connectee, au cas ou ce terminal serait cache derriere la fenetre.',
+            '  if [ -n "$pg_user" ] && [ "$pg_user" != root ] && command -v osascript >/dev/null 2>&1; then',
+            '    launchctl asuser "$(id -u "$pg_user")" sudo -u "$pg_user" osascript -e "on run argv" -e "display alert (item 1 of argv) message (item 2 of argv) as critical" -e "end run" "$PG_TITRE" ' . self::shQuote(self::ALREADY_RUNNING) . ' >/dev/null 2>&1',
+            '  fi',
+        ]));
+    }
+
+    /**
+     * Dossier de configuration de l'agent et relance de son service, sous Linux : ce dont la ToolBox a besoin.
+     */
+    private static function buildLinuxServiceLines(): array {
+        return [
+            'PG_CONFDIR=/etc/glpi-agent',
+            '# Les plugins de l agent se lisent au demarrage : systemd d abord, l ancien « service » sinon.',
+            'pg_relancer_agent() {',
+            '  if command -v systemctl >/dev/null 2>&1 && systemctl restart glpi-agent >> "$PG_JOURNAL" 2>&1; then return 0; fi',
+            '  if command -v service >/dev/null 2>&1 && service glpi-agent restart >> "$PG_JOURNAL" 2>&1; then return 0; fi',
+            '  return 1',
+            '}',
+            '',
+        ];
+    }
+
+    /**
+     * Même chose sous macOS. bootout/bootstrap sur macOS 13 et plus, unload/load sur macOS 12 et avant : on essaie le
+     * moderne, puis l'ancien. Sert aussi à l'installation, qui relance l'agent pour qu'il relise local.cfg.
+     */
+    private static function buildMacosServiceLines(string $plist): array {
+        return [
+            'PG_CONFDIR=/Applications/GLPI-Agent/etc',
+            'PG_PLIST=' . self::shQuote($plist),
+            'pg_relancer_agent() {',
+            '  launchctl bootout system "$PG_PLIST" >> "$PG_JOURNAL" 2>&1',
+            '  if launchctl bootstrap system "$PG_PLIST" >> "$PG_JOURNAL" 2>&1; then return 0; fi',
+            '  launchctl unload "$PG_PLIST" >> "$PG_JOURNAL" 2>&1',
+            '  launchctl load "$PG_PLIST" >> "$PG_JOURNAL" 2>&1',
+            '}',
+            '',
+        ];
+    }
+
+    /**
+     * Compte rendu à GLPI, et ce que le poste fait de la réponse.
+     *
+     * RUN vaut pour les deux systèmes : un appel HTTP sur 127.0.0.1. SCAN aussi : la ToolBox native de l'agent existe
+     * sur Linux comme sur Mac. Le script appelant définit $PG_CONFDIR (dossier de configuration de l'agent) et
+     * pg_relancer_agent (relance du service, propre à chaque système).
+     *
+     * Deux variables en sortent, lues par le message final : $pg_decouverte et $pg_scan_local (1 ou 0), plus la
+     * réponse brute $pg_reponse (NOAGENT : GLPI ne connaît pas encore la sonde).
+     */
+    private static function buildShellReportLines(string $report, string $pose): array {
+        if ($report === '') {
+            return ['pg_etape declaration saute ""', 'pg_etape decouverte saute ""', 'pg_reponse=""', 'pg_decouverte=0', 'pg_scan_local=0', ''];
+        }
+        return array_merge([
+            '# ── Compte rendu : ce qui a ete fait sur ce poste, et ce que GLPI en fait ──',
+            'pg_etape declaration encours ""',
+            'pg_fait=0',
+            'if [ ' . $pose . ' = oui ]; then pg_fait=1; fi',
+            '# Espaces et retours a la ligne en virgules : la valeur voyage dans une URL.',
+            'pg_ips_url=$(printf "%s" "${pg_ips:-}" | tr "\\n " ",,")',
+            'pg_rendu=' . self::shQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . '"&maj=$pg_fait&pc=$(hostname)&ips=$pg_ips_url&snmp=${pg_snmp:-}&freq=${pg_freq:-}"',
+            'pg_reponse=$(pg_http "$pg_rendu" 20)',
+            'pg_rc=$?',
+            'pg_decouverte=0',
+            'pg_scan_local=0',
+            '# La reponse, jamais l URL : elle porte la cle et la communaute SNMP.',
+            'if [ -n "$pg_reponse" ]; then pg_journal "        reponse de GLPI : $pg_reponse"; else pg_journal "        reponse de GLPI : (vide, code $pg_rc)"; fi',
+            'if [ "$pg_rc" -ne 0 ]; then',
+            '  pg_etape declaration echec ' . self::shQuote(__('GLPI n\'a pas reçu le compte rendu', 'printgestion')),
+            'elif [ "$pg_reponse" = NOAGENT ]; then',
+            '  pg_etape declaration echec ' . self::shQuote(__('la sonde n\'est pas encore connue de GLPI', 'printgestion')),
+            'else',
+            '  pg_etape declaration ok ""',
+            'fi',
+            '',
+            '# ── Decouverte ──',
+            'case "$pg_reponse" in',
+            '  RUN)',
+            '    # L interface locale de l agent est toujours ouverte sur le poste, et ce script y tourne : c est le',
+            '    # geste du bouton « Force an Inventory », fait par le script.',
+            '    pg_etape decouverte encours ""',
+            '    pg_essai=0',
+            '    while [ "$pg_essai" -lt ' . self::WAKE_TRIES . ' ]; do',
+            '      if pg_http ' . self::shQuote(self::getAgentWakeUrl()) . ' >/dev/null; then pg_decouverte=1; break; fi',
+            '      pg_essai=$((pg_essai + 1))',
+            '      sleep ' . self::WAKE_WAIT,
+            '    done',
+            '    if [ "$pg_decouverte" = 1 ]; then',
+            '      pg_etape decouverte ok ""',
+            '    else',
+            '      pg_etape decouverte echec ' . self::shQuote(__('armée dans GLPI, elle partira au prochain appel de l\'agent', 'printgestion')),
+            '    fi',
+            '    ;;',
+        ], [
+            '  "SCAN "*)',
+            '    # GLPI Inventory manque au serveur : c est la ToolBox native de l agent qui scanne — plage, identifiant,',
+            '    # tache planifiee, resultats envoyes a server0. Tout reste visible et modifiable dans 127.0.0.1:62354/toolbox.',
+            '    pg_etape decouverte encours ""',
+            '    pg_first=$(printf "%s" "$pg_reponse" | cut -d" " -f2)',
+            '    pg_last=$(printf "%s" "$pg_reponse" | cut -d" " -f3)',
+            '    pg_delai=$(printf "%s" "$pg_reponse" | cut -d" " -f4)',
+            '    # Chaine YAML entre apostrophes : une apostrophe s y double. Ecrite ensuite par printf, jamais par sed.',
+            '    pg_c=$(printf "%s" "${pg_snmp:-public}" | sed "s/\'/\'\'/g")',
+            '    if [ -d "$PG_CONFDIR" ]; then',
+            '      {',
+        ], array_map(
+            static fn(string $ligne): string => '        printf "%s\\n" "' . strtr($ligne, [
+                '@FIRST@'     => '${pg_first}',
+                '@LAST@'      => '${pg_last}',
+                '@DELAY@'     => '${pg_delai}',
+                '@COMMUNITY@' => '${pg_c}',
+            ]) . '"',
+            PluginPrintgestionAgentsetting::buildToolboxYaml()
+        ), [
+            '      } > "$PG_CONFDIR/toolbox.yaml"',
+            '      # La communaute SNMP y est en clair : root seulement.',
+            '      chmod 600 "$PG_CONFDIR/toolbox.yaml"',
+            '      {',
+        ], array_map(
+            static fn(string $ligne): string => '        printf "%s\\n" ' . self::shQuote($ligne),
+            PluginPrintgestionAgentsetting::buildToolboxPluginConfig()
+        ), [
+            '      } > "$PG_CONFDIR/toolbox-plugin.local"',
+            '      chmod 644 "$PG_CONFDIR/toolbox-plugin.local"',
+            '      pg_journal "        ToolBox : $PG_CONFDIR/toolbox.yaml   plage $pg_first - $pg_last   cadence $pg_delai"',
+            '      # Les plugins de l agent se lisent au demarrage : on relance le service.',
+            '      if pg_relancer_agent; then',
+            '        pg_scan_local=1',
+            '        pg_etape decouverte ok ' . self::shQuote(__('ToolBox de l\'agent : 127.0.0.1:62354/toolbox', 'printgestion')),
+            '      else',
+            '        pg_etape decouverte echec ' . self::shQuote(__('ToolBox configurée, mais le service n\'a pas redémarré : redémarrer le poste', 'printgestion')),
+            '      fi',
+            '    else',
+            '      pg_journal "        dossier de configuration de l agent introuvable : $PG_CONFDIR"',
+            '      pg_etape decouverte echec ' . self::shQuote(__('ToolBox non configurée, voir le journal', 'printgestion')),
+            '    fi',
+            '    ;;',
+        ], [
+            '  *)',
+            '    if [ -z "${pg_ips:-}" ]; then',
+            '      pg_etape decouverte saute ' . self::shQuote(__('aucune adresse saisie', 'printgestion')),
+            '    else',
+            '      pg_etape decouverte saute ' . self::shQuote(__('rien à lancer', 'printgestion')),
+            '    fi',
+            '    ;;',
+            'esac',
+            '',
+        ]);
+    }
+
+    // ── Fichier unique Windows ────────────────────────────────────────────────
+
+    /**
+     * Marqueur de la partie PowerShell du fichier unique. La ligne qui l'extrait l'écrit en deux morceaux collés,
+     * sinon elle se trouverait elle-même : le premier marqueur rencontré doit être le vrai.
+     */
+    const SINGLE_FILE_MARKER = '#PG-POWERSHELL';
+
+    /** Largeur des fenêtres Windows et hauteur de leur bandeau : les mêmes pour l'installation et le retrait. */
+    const WIN_WIDTH = 600;
+    const WIN_BAND  = 76;
+
+    /** Nombre de tentatives de réveil local, et l'attente entre deux : le service vient d'être installé. */
+    const WAKE_TRIES = 12;
+    const WAKE_WAIT  = 5;
+
+    /**
+     * Interface locale de l'agent, sur le poste lui-même.
+     *
+     * C'est l'adresse du bouton « Force an Inventory » de l'agent. Depuis le serveur elle est inatteignable
+     * derrière la box d'un client ; depuis le poste, elle est toujours ouverte — et le fichier d'installation,
+     * lui, tourne sur le poste. D'où ce raccourci : plus rien à attendre une fois la découverte armée.
+     */
+    public static function getAgentWakeUrl(): string {
+        return 'http://127.0.0.1:' . Agent::DEFAULT_PORT . '/now';
+    }
+
+    /**
+     * Clés « système » des anciennes archives dans l'URL de téléchargement. Les trois boutons servent un fichier
+     * unique ; les archives restent le recours quand l'antivirus d'un client refuse les scripts, atteignables depuis
+     * le panneau « Contenu des paquets ».
+     */
+    const ARCHIVE_OS = ['windows' => 'windows-zip', 'linux' => 'linux-targz', 'macos' => 'macos-zip'];
+
+    /**
+     * Clés des fichiers de retrait. Poser une sonde prend un clic ; la retirer demandait de savoir ce que le plugin
+     * avait posé et où — donc un fichier par système, au même endroit que ceux qui installent.
+     */
+    const REMOVE_OS = ['windows' => 'windows-retrait', 'linux' => 'linux-retrait', 'macos' => 'macos-retrait'];
+
+    /** Interface locale de l'agent : son état (« waiting » quand il ne fait rien). */
+    public static function getAgentStatusUrl(): string {
+        return 'http://127.0.0.1:' . Agent::DEFAULT_PORT . '/status';
+    }
+
+    /**
+     * Journal d'une exécution sous Windows, et les deux outils dont toutes les étapes se servent.
+     *
+     * Un fichier par exécution, dans %TEMP%\PrintGestion : chaque étape horodatée, avec ce qui sert à comprendre un
+     * échec (codes de retour, tailles, empreintes, réponses de GLPI). La communauté SNMP et la clé de téléchargement
+     * n'y sont jamais écrites : ce sont des secrets, et ce fichier traîne dans un dossier temporaire.
+     *
+     * Le dossier temporaire et non %ProgramData%\PrintGestion : le retrait efface ce dernier, et c'est justement
+     * après un retrait qu'on voudra relire ce qui s'est passé.
+     *
+     * @param string[] $header premières lignes du journal : ce qu'on fait, pour qui
+     */
+    private static function buildWindowsJournalLines(string $log_name, array $header): array {
+        return array_merge([
+            '# Journal : un fichier par execution, dans le dossier temporaire de ce PC.',
+            '$script:Journal = Join-Path $env:TEMP ("PrintGestion\\' . $log_name . '-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")',
+            'try { New-Item -ItemType Directory -Force -Path (Split-Path -Parent $script:Journal) | Out-Null } catch { }',
+            'function Journal($texte) {',
+            '  try { Add-Content -LiteralPath $script:Journal -Value ((Get-Date -Format "yyyy-MM-dd HH:mm:ss") + "  " + $texte) -Encoding UTF8 } catch { }',
+            '}',
+            '# Attente qui laisse la fenetre se redessiner : Start-Sleep seul la figerait.',
+            'function Attendre($secondes) {',
+            '  $fin = (Get-Date).AddSeconds($secondes)',
+            '  while ((Get-Date) -lt $fin) {',
+            '    [System.Windows.Forms.Application]::DoEvents()',
+            '    Start-Sleep -Milliseconds 100',
+            '  }',
+            '}',
+            '# Le script temporaire s efface : PowerShell l a deja lu en entier, et il porte une cle a usage unique.',
+            'try { if ($PSCommandPath) { Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue } } catch { }',
+        ], array_map(static fn(string $ligne): string => 'Journal ' . self::psQuote($ligne), $header), [
+            'Journal ("PC : " + $env:COMPUTERNAME + "   compte : " + $env:USERNAME)',
+            '',
+            '# Une seule execution a la fois sur ce PC, installation et retrait confondus : un double clic lancait deux',
+            '# fenetres qui installaient ou retiraient en meme temps. Windows libere ce verrou a la fin du processus,',
+            '# meme tue : jamais de verrou fantome.',
+            '$script:Verrou = New-Object System.Threading.Mutex($false, "Global\\PrintGestion-GLPI-Agent")',
+            '$pris = $false',
+            'try { $pris = $script:Verrou.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $pris = $true }',
+            'if (-not $pris) {',
+            '  Journal "Deja en cours sur ce PC : rien n a ete fait"',
+            '  # Au premier plan : la fenetre deja ouverte est TopMost, la boite passerait dessous.',
+            '  try { [void][System.Windows.Forms.MessageBox]::Show(' . self::psQuote(self::ALREADY_RUNNING) . ', "Print Gestion", "OK", "Warning", "Button1", "DefaultDesktopOnly") } catch { }',
+            '  exit 0',
+            '}',
+            '',
+        ]);
+    }
+
+    /**
+     * Pages 2 et 3 de la fenêtre unique Windows : les étapes, puis le résultat.
+     *
+     * Une seule fenêtre du début à la fin. La page des réglages s'efface, la liste des étapes prend sa place et se
+     * coche au fil de l'eau, puis le résultat s'affiche au même endroit, avec « Ouvrir le journal » et « Fermer ».
+     * Plus de boîte de message ni de seconde fenêtre : on ne se demande jamais laquelle regarder.
+     *
+     * Les libellés viennent de PHP, la mécanique est en PowerShell : une boucle crée une ligne par étape.
+     *
+     * @param array $steps clé => libellé, dans l'ordre où elles s'exécutent
+     */
+    private static function buildWindowsWizardLines(array $steps): array {
+        $large   = self::WIN_WIDTH;
+        $couleur = static fn(int $r, int $v, int $b) => sprintf('[System.Drawing.Color]::FromArgb(%d, %d, %d)', $r, $v, $b);
+        $liste   = implode(', ', array_map(
+            static fn(string $cle, string $libelle): string => '@(' . self::psQuote($cle) . ', ' . self::psQuote($libelle) . ')',
+            array_keys($steps),
+            array_values($steps)
+        ));
+        return [
+            '# Page des etapes, cachee tant que le technicien n a pas valide la premiere page.',
+            '$gras = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)',
+            '$normal = New-Object System.Drawing.Font("Segoe UI", 9)',
+            '$page = New-Object System.Windows.Forms.Panel',
+            '$page.Location = New-Object System.Drawing.Point(0, $bandeau.Bottom)',
+            '$page.Size = New-Object System.Drawing.Size(' . $large . ', 40)',
+            '$page.BackColor = [System.Drawing.Color]::White',
+            '$page.Visible = $false',
+            '$f.Controls.Add($page)',
+            '',
+            '$etape = New-Object System.Windows.Forms.Label',
+            '$etape.Font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)',
+            '$etape.ForeColor = ' . $couleur(31, 58, 95),
+            '$etape.Location = New-Object System.Drawing.Point(24, 20)',
+            '$etape.Size = New-Object System.Drawing.Size(' . ($large - 48) . ', 26)',
+            '$page.Controls.Add($etape)',
+            '$suite = $etape.Bottom + 10',
+            '',
+            '# Une ligne par etape : un point tant qu elle attend, puis une fleche, une coche, une croix ou un tiret.',
+            '$lignes = @{}',
+            '$libelles = @{}',
+            'foreach ($e in @(' . $liste . ')) {',
+            '  $l = New-Object System.Windows.Forms.Label',
+            '  $l.Text = [string][char]0x00B7 + "   " + $e[1]',
+            '  $l.ForeColor = ' . $couleur(150, 157, 168),
+            '  $l.Font = $normal',
+            '  $l.AutoSize = $true',
+            '  $l.Location = New-Object System.Drawing.Point(32, $suite)',
+            '  $page.Controls.Add($l)',
+            '  $lignes[$e[0]] = $l',
+            '  $libelles[$e[0]] = $e[1]',
+            '  $suite = $l.Bottom + 6',
+            '}',
+            '',
+            '$barre = New-Object System.Windows.Forms.ProgressBar',
+            '$barre.Location = New-Object System.Drawing.Point(24, ($suite + 12))',
+            '$barre.Size = New-Object System.Drawing.Size(' . ($large - 48) . ', 18)',
+            '$barre.Style = "Continuous"',
+            '$barre.Minimum = 0',
+            '$barre.Maximum = 100',
+            '$page.Controls.Add($barre)',
+            '',
+            '$detail = New-Object System.Windows.Forms.Label',
+            '$detail.ForeColor = ' . $couleur(90, 98, 110),
+            '$detail.Location = New-Object System.Drawing.Point(24, ($barre.Bottom + 6))',
+            '$detail.Size = New-Object System.Drawing.Size(' . ($large - 48) . ', 20)',
+            '$page.Controls.Add($detail)',
+            '',
+            '# Le resultat prend la place de la barre, a la fin.',
+            '$resultat = New-Object System.Windows.Forms.Label',
+            '$resultat.MaximumSize = New-Object System.Drawing.Size(' . ($large - 48) . ', 0)',
+            '$resultat.AutoSize = $true',
+            '$resultat.Location = New-Object System.Drawing.Point(24, $barre.Top)',
+            '$resultat.Visible = $false',
+            '$page.Controls.Add($resultat)',
+            '$page.Size = New-Object System.Drawing.Size(' . $large . ', ($detail.Bottom + 20))',
+            '',
+            '$pied2 = New-Object System.Windows.Forms.Panel',
+            '$pied2.Size = New-Object System.Drawing.Size(' . $large . ', 64)',
+            '$pied2.BackColor = ' . $couleur(241, 243, 246),
+            '$pied2.Visible = $false',
+            '$f.Controls.Add($pied2)',
+            '',
+            '$ouvrir = New-Object System.Windows.Forms.Button',
+            '$ouvrir.Text = ' . self::psQuote(__('Ouvrir le journal', 'printgestion')),
+            '$ouvrir.Location = New-Object System.Drawing.Point(24, 16)',
+            '$ouvrir.Size = New-Object System.Drawing.Size(160, 32)',
+            '# Le Bloc-notes passerait derriere une fenetre toujours au premier plan.',
+            '$ouvrir.Add_Click({ $f.TopMost = $false; Start-Process notepad.exe -ArgumentList ([string][char]34 + $script:Journal + [string][char]34) })',
+            '$pied2.Controls.Add($ouvrir)',
+            '',
+            '$fermer = New-Object System.Windows.Forms.Button',
+            '$fermer.Text = ' . self::psQuote(__('Fermer', 'printgestion')),
+            '$fermer.Location = New-Object System.Drawing.Point(' . ($large - 24 - 120) . ', 16)',
+            '$fermer.Size = New-Object System.Drawing.Size(120, 32)',
+            '$fermer.Add_Click({ $script:occupe = $false; $f.Close() })',
+            '$pied2.Controls.Add($fermer)',
+            '',
+            '$script:en_cours = ""',
+            'function Etape($cle, $etat, $note) {',
+            '  if (-not $lignes.ContainsKey($cle)) { return }',
+            '  $l = $lignes[$cle]',
+            '  $nom = $libelles[$cle]',
+            '  $suffixe = ""',
+            '  if ($note) { $suffixe = "  (" + $note + ")" }',
+            '  if ($etat -eq "encours") {',
+            '    $l.Text = [string][char]0x25B6 + "   " + $nom',
+            '    $l.ForeColor = ' . $couleur(31, 58, 95),
+            '    $l.Font = $gras',
+            '    $script:en_cours = $cle',
+            '    Journal ("DEBUT   " + $nom)',
+            '  } else {',
+            '    if ($etat -eq "ok") {',
+            '      $marque = 0x2713',
+            '      $teinte = ' . $couleur(22, 128, 60),
+            '      $mot = "OK      "',
+            '    } elseif ($etat -eq "echec") {',
+            '      $marque = 0x2717',
+            '      $teinte = ' . $couleur(190, 30, 45),
+            '      $mot = "ECHEC   "',
+            '    } else {',
+            '      $marque = 0x2013',
+            '      $teinte = ' . $couleur(120, 128, 140),
+            '      $mot = "SAUTE   "',
+            '    }',
+            '    $l.Text = [string][char]$marque + "   " + $nom + $suffixe',
+            '    $l.ForeColor = $teinte',
+            '    $l.Font = $normal',
+            '    if ($script:en_cours -eq $cle) { $script:en_cours = "" }',
+            '    Journal ($mot + $nom + $suffixe)',
+            '  }',
+            '  $f.Refresh()',
+            '  [System.Windows.Forms.Application]::DoEvents()',
+            '}',
+            '',
+            'function Avancement($texte, $pourcent, $note) {',
+            '  $etape.Text = $texte',
+            '  $detail.Text = $note',
+            '  if ($pourcent -lt 0) {',
+            '    if ($barre.Style -ne "Marquee") {',
+            '      $barre.Style = "Marquee"',
+            '      $barre.MarqueeAnimationSpeed = 30',
+            '    }',
+            '  } else {',
+            '    if ($barre.Style -ne "Continuous") { $barre.Style = "Continuous" }',
+            '    $barre.Value = [Math]::Max(0, [Math]::Min(100, [int]$pourcent))',
+            '  }',
+            '  $f.Refresh()',
+            '  [System.Windows.Forms.Application]::DoEvents()',
+            '}',
+            '',
+            '# La premiere page s efface, la liste des etapes prend sa place : c est la meme fenetre qui continue.',
+            'function PageEtapes() {',
+            '  foreach ($c in @($f.Controls)) {',
+            '    if (-not [object]::ReferenceEquals($c, $bandeau) -and -not [object]::ReferenceEquals($c, $page) -and -not [object]::ReferenceEquals($c, $pied2)) { $c.Visible = $false }',
+            '  }',
+            '  $page.Visible = $true',
+            '  $f.ClientSize = New-Object System.Drawing.Size(' . $large . ', $page.Bottom)',
+            '  $f.Refresh()',
+            '  [System.Windows.Forms.Application]::DoEvents()',
+            '}',
+            '',
+            '# Le resultat, au meme endroit que les etapes, puis la fenetre attend qu on la ferme.',
+            'function Fin($reussi, $texte) {',
+            '  $script:occupe = $false',
+            '  if (-not $page.Visible) { PageEtapes }',
+            '  $barre.Visible = $false',
+            '  $detail.Visible = $false',
+            '  if ($reussi) {',
+            '    $etape.Text = ' . self::psQuote(__('Terminé', 'printgestion')),
+            '    $etape.ForeColor = ' . $couleur(22, 128, 60),
+            '  } else {',
+            '    $etape.Text = ' . self::psQuote(__('Interrompu', 'printgestion')),
+            '    $etape.ForeColor = ' . $couleur(190, 30, 45),
+            '  }',
+            '  $resultat.Text = $texte + [Environment]::NewLine + [Environment]::NewLine + ' . self::psQuote(__('Journal :', 'printgestion')) . ' + " " + $script:Journal',
+            '  $resultat.Visible = $true',
+            '  $page.Size = New-Object System.Drawing.Size(' . $large . ', ($resultat.Bottom + 20))',
+            '  $pied2.Location = New-Object System.Drawing.Point(0, $page.Bottom)',
+            '  $pied2.Visible = $true',
+            '  $f.ClientSize = New-Object System.Drawing.Size(' . $large . ', $pied2.Bottom)',
+            '  $f.AcceptButton = $fermer',
+            '  $f.CancelButton = $fermer',
+            '  Journal ("FIN     " + $etape.Text)',
+            '  # Garde-fou : une fenetre jamais montree laisserait tourner un processus invisible.',
+            '  if (-not $f.Visible) { $f.Show(); $f.Hide(); $f.Show() }',
+            '  $f.Activate()',
+            '  while (-not $script:ferme) {',
+            '    [System.Windows.Forms.Application]::DoEvents()',
+            '    Start-Sleep -Milliseconds 50',
+            '  }',
+            '}',
+            '# A partir d ici la fenetre sait afficher un echec : le piege passe par elle.',
+            '$script:fenetre_prete = $true',
+            '',
+        ];
+    }
+
+    /**
+     * La première page attend son bouton, sans fermer la fenêtre : c'est la même qui continue, page suivante.
+     *
+     * Pendant le travail, la croix ne ferme rien — un agent à moitié installé est pire qu'une minute d'attente.
+     */
+    private static function buildWindowsChoiceLines(string $cancelled): array {
+        return [
+            '$script:choix = ""',
+            '$script:occupe = $false',
+            '$script:ferme = $false',
+            '$ok.DialogResult = [System.Windows.Forms.DialogResult]::None',
+            '$non.DialogResult = [System.Windows.Forms.DialogResult]::None',
+            '$ok.Add_Click({ $script:choix = "ok" })',
+            '$non.Add_Click({ $script:choix = "annule"; $f.Close() })',
+            '$f.Add_FormClosing({ param($s, $e) if ($script:occupe) { $e.Cancel = $true } elseif ($script:choix -eq "") { $script:choix = "annule" } })',
+            '$f.Add_FormClosed({ $script:ferme = $true })',
+            '# PowerShell est lance masque (-WindowStyle Hidden) : Windows applique ce masque au premier affichage d une',
+            '# fenetre du processus, la notre. Elle existait sans etre a l ecran, et attendait un clic impossible.',
+            '# Le deuxieme affichage, lui, est respecte : d ou Show, Hide, Show.',
+            '$f.Show(); $f.Hide(); $f.Show()',
+            '$f.Activate()',
+            'while ($script:choix -eq "") {',
+            '  [System.Windows.Forms.Application]::DoEvents()',
+            '  Start-Sleep -Milliseconds 50',
+            '}',
+            'if ($script:choix -ne "ok") {',
+            '  Journal ' . self::psQuote($cancelled),
+            '  if (-not $script:ferme) { $f.Close() }',
+            '  exit 0',
+            '}',
+            '$script:occupe = $true',
+            '',
+        ];
+    }
+
+    /**
+     * Première page d'une fenêtre qui confirme un geste (le retrait) : une phrase, et deux boutons.
+     *
+     * Aucun bouton par défaut sur Entrée : on ne retire pas un agent parce qu'on a appuyé sur une touche.
+     */
+    private static function buildWindowsConfirmLines(string $message, string $action, string $cancel, string $checkbox = ''): array {
+        $large   = self::WIN_WIDTH;
+        $couleur = static fn(int $r, int $v, int $b) => sprintf('[System.Drawing.Color]::FromArgb(%d, %d, %d)', $r, $v, $b);
+        return array_merge([
+            '$message = New-Object System.Windows.Forms.Label',
+            '$message.Text = ' . self::psQuote($message),
+            '$message.MaximumSize = New-Object System.Drawing.Size(' . ($large - 52) . ', 0)',
+            '$message.AutoSize = $true',
+            '$message.Location = New-Object System.Drawing.Point(26, $suite)',
+            '$f.Controls.Add($message)',
+            '$suite = $message.Bottom',
+            '',
+        ], $checkbox === '' ? ['$glpi = $null', ''] : [
+            '# Case decochee par defaut : rien n est supprime de GLPI sans qu on l ait choisi.',
+            '$glpi = New-Object System.Windows.Forms.CheckBox',
+            '$glpi.Text = ' . self::psQuote($checkbox),
+            '$glpi.Checked = $false',
+            '$glpi.Location = New-Object System.Drawing.Point(26, ($suite + 12))',
+            '$glpi.Size = New-Object System.Drawing.Size(' . ($large - 52) . ', 40)',
+            '$f.Controls.Add($glpi)',
+            '$suite = $glpi.Bottom',
+            '',
+        ], [
+            '$pied = New-Object System.Windows.Forms.Panel',
+            '$pied.Location = New-Object System.Drawing.Point(0, ($suite + 18))',
+            '$pied.Size = New-Object System.Drawing.Size(' . $large . ', 64)',
+            '$pied.BackColor = ' . $couleur(241, 243, 246),
+            '$f.Controls.Add($pied)',
+            '',
+            '$ok = New-Object System.Windows.Forms.Button',
+            '$ok.Text = ' . self::psQuote($action),
+            '$ok.Location = New-Object System.Drawing.Point(' . ($large - 24 - 120 - 12 - 170) . ', 16)',
+            '$ok.Size = New-Object System.Drawing.Size(170, 32)',
+            '$pied.Controls.Add($ok)',
+            '',
+            '$non = New-Object System.Windows.Forms.Button',
+            '$non.Text = ' . self::psQuote($cancel),
+            '$non.Location = New-Object System.Drawing.Point(' . ($large - 24 - 120) . ', 16)',
+            '$non.Size = New-Object System.Drawing.Size(120, 32)',
+            '$pied.Controls.Add($non)',
+            '$f.CancelButton = $non',
+            '',
+            '$f.ClientSize = New-Object System.Drawing.Size(' . $large . ', $pied.Bottom)',
+            '',
+        ]);
+    }
+
+    /**
+     * Moitié cmd des fichiers Windows : vérifier les droits, écrire la partie PowerShell à côté, la lancer SANS
+     * console, puis se fermer.
+     *
+     * La console n'est pas cachée après coup : PowerShell est lancé d'emblée sans fenêtre (Start-Process
+     * -WindowStyle Hidden). La cacher depuis le script ne marche pas sous Windows 11 quand le Terminal Windows est
+     * l'hôte par défaut : la fenêtre à cacher n'est alors plus celle que l'on croit. Reste l'éclair d'une seconde de
+     * la console de cmd — le prix d'un .bat, dont les deux autres formes sont pires (.ps1 ouvert dans le Bloc-notes,
+     * .exe non signé arrêté par SmartScreen).
+     *
+     * Plus aucun « pause » après le lancement : avec une console invisible, il bloquerait tout sans que personne le
+     * voie. Les échecs s'affichent dans la fenêtre. Seul le défaut de droits reste en console : il survient avant
+     * qu'aucune fenêtre n'existe.
+     *
+     * @param string[] $comments en-tête du fichier, sans « rem »
+     */
+    private static function buildWindowsLauncherLines(string $title, array $comments, string $tmp_name): array {
+        $marker = self::SINGLE_FILE_MARKER;
+        $half   = (int) ceil(strlen($marker) / 2);
+        $seek   = '\'' . substr($marker, 0, $half) . '\' + \'' . substr($marker, $half) . '\'';
+        // cmd exécute < > | & même dans un « rem » ou un « title » : un nom d'entité comme « Root entity > EASI
+        // SUPPORT » créait un fichier parasite à chaque lancement. ^ et % sont ses caractères d'échappement.
+        $sur = static fn(string $texte): string => strtr($texte, ['<' => '-', '>' => '-', '|' => '-', '&' => '+', '^' => '', '%' => '']);
+        return array_merge(
+            ['@echo off'],
+            array_map(static fn(string $ligne): string => 'rem ' . $sur($ligne), $comments),
+            ['title ' . $sur($title)],
+            PluginPrintgestionAgentsetting::buildAdminCheckLines(),
+            [
+                'rem La partie PowerShell de ce fichier (apres le marqueur) est ecrite a part, puis lancee.',
+                'set "PGSELF=%~f0"',
+                'set "PGPS=%TEMP%\\' . $tmp_name . '-%RANDOM%.ps1"',
+                'powershell -NoProfile -ExecutionPolicy Bypass -Command "$m = ' . $seek . '; $t = [IO.File]::ReadAllText($env:PGSELF); $i = $t.IndexOf($m); if ($i -lt 0) { exit 1 }; [IO.File]::WriteAllText($env:PGPS, $t.Substring($i), [Text.Encoding]::UTF8)' . self::buildWindowsParseCheck() . '"',
+                'if errorlevel 2 exit /b 1',
+                'if not exist "%PGPS%" (',
+                '  echo PowerShell est necessaire pour ce fichier.',
+                '  pause',
+                '  exit /b 1',
+                ')',
+                'rem PowerShell part sans console : seule sa fenetre reste a l ecran, et celle-ci se ferme.',
+                'powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powershell.exe -WindowStyle Hidden -ArgumentList (\'-NoProfile -ExecutionPolicy Bypass -STA -File \' + [char]34 + $env:PGPS + [char]34)"',
+                'exit /b 0',
+                '',
+                $marker,
+            ]
+        );
+    }
+
+    /**
+     * Suite de la commande du lanceur : analyse le script PowerShell qu'il vient d'écrire, avant de le lancer.
+     *
+     * Un script que PowerShell ne sait pas lire ne démarre pas du tout : aucun piège ne joue, et lancé sans console
+     * il disparaissait sans un mot. Ici, la console est encore là et l'on peut parler : les erreurs vont dans un
+     * journal du dossier temporaire, une boîte de message le dit, et le lanceur s'arrête (code 2).
+     * Texte ASCII : cmd lit ce fichier dans la page de code de la console, un accent y serait défiguré.
+     */
+    private static function buildWindowsParseCheck(): string {
+        return "; \$e = \$null; [void][System.Management.Automation.Language.Parser]::ParseFile(\$env:PGPS, [ref]\$null, [ref]\$e);"
+            . " if (\$e.Count -gt 0) {"
+            . " \$d = Join-Path \$env:TEMP 'PrintGestion'; New-Item -ItemType Directory -Force -Path \$d | Out-Null;"
+            . " \$j = Join-Path \$d ('lanceur-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.log');"
+            . " (\$e | ForEach-Object { 'Ligne ' + \$_.Extent.StartLineNumber + ' : ' + \$_.Message }) | Set-Content -LiteralPath \$j -Encoding UTF8;"
+            . " Remove-Item -LiteralPath \$env:PGPS -Force -ErrorAction SilentlyContinue;"
+            . " Add-Type -AssemblyName System.Windows.Forms;"
+            . " [void][System.Windows.Forms.MessageBox]::Show('Ce fichier est abime : PowerShell ne peut pas le lire. Retelechargez-le depuis GLPI.' + [Environment]::NewLine + [Environment]::NewLine + 'Journal : ' + \$j, 'Print Gestion', 'OK', 'Error');"
+            . " exit 2 }";
+    }
+
+    /**
+     * Fichier unique d'installation Windows : un seul .bat, ni ZIP à extraire, ni fichier à deviner. Il ouvre la
+     * fenêtre d'installation, va chercher le MSI officiel sur ce serveur GLPI avec une clé temporaire, vérifie son
+     * empreinte SHA-256, l'installe, et pose la mise à jour automatique si la case était cochée.
+     *
+     * Pourquoi la clé plutôt que le MSI dans le fichier : 22 Mo de MSI encodés dans un script sont le motif que les
+     * antivirus refusent le plus volontiers, et un .exe fabriqué ici ne serait pas signé — SmartScreen le bloquerait
+     * chez le client. Le binaire reste donc celui de Teclib', et son empreinte est vérifiée avant l'installation :
+     * un fichier modifié en route n'est jamais installé.
+     *
+     * Ce que le fichier contient : l'URL de ce serveur, le TAG du client, l'empreinte attendue et **une clé à usage
+     * unique valable vingt-quatre heures**. C'est le seul livrable du plugin qui porte un secret : il se donne au
+     * technicien pour l'intervention, il ne s'archive pas. Le paquet ZIP reste le chemin sans aucun secret.
+     *
+     * Le contenu est rendu tel quel, sans fichier temporaire : quelques kilo-octets de texte.
+     *
+     * @return array ['ok' => bool, 'errors' => string[], 'content', 'filename', 'version', 'tag', 'expires']
+     */
+    public static function buildWindowsSingleFile(Entity $entity): array {
+        $blockers = self::getPackageBlockers($entity);
+        if (!empty($blockers)) {
+            return ['ok' => false, 'errors' => $blockers];
+        }
+        $installer = self::getCachedInstaller(true);
+        if ($installer === null) {
+            return ['ok' => false, 'errors' => [__('Installeur absent ou modifié depuis sa vérification : refaites la vérification (page « Installeur GLPI Agent »).', 'printgestion')]];
+        }
+        // La clé est créée maintenant, pas au téléchargement : le fichier ne vaut que par elle, et elle n'est écrite
+        // nulle part ailleurs qu'ici. Si la base la refuse, aucun fichier n'est rendu — un .bat qui ne pourrait rien
+        // télécharger ne rendrait service à personne.
+        $token = PluginPrintgestionAgenttoken::create((int) $entity->getID(), ['windows' => $installer]);
+        if ($token === null) {
+            return ['ok' => false, 'errors' => [__('Clé de téléchargement non enregistrée : le fichier unique serait incapable de récupérer l\'agent (détail dans le journal printgestion). Le paquet ZIP, lui, reste disponible.', 'printgestion')]];
+        }
+        $tag     = trim((string) $entity->fields['tag']);
+        $version = (string) $installer['version'];
+        return [
+            'ok'       => true,
+            'errors'   => [],
+            'content'  => self::buildWindowsSingleFileScript($entity, $installer, $tag, $token, (string) PluginPrintgestionAgenttoken::createReport((int) $entity->getID(), $tag, 'windows')),
+            'filename' => self::getSingleFileName($tag, $version, 'windows'),
+            'version'  => $version,
+            'tag'      => $tag,
+            'expires'  => date('Y-m-d H:i:s', time() + PluginPrintgestionAgenttoken::TTL),
+        ];
+    }
+
+    /**
+     * Contenu du fichier unique : un .bat dont la seconde moitié est du PowerShell.
+     *
+     * Deux parties dans un seul fichier, parce que l'utilisateur ne doit avoir qu'un fichier et que Windows ne lance
+     * pas un .ps1 au double-clic (il l'ouvre dans le Bloc-notes). La partie cmd, en ASCII pur, ne fait que vérifier
+     * les droits, écrire la partie PowerShell dans un fichier temporaire et la lancer ; elle s'arrête sur
+     * « exit /b », si bien que tout ce qui suit le marqueur n'est jamais lu par cmd. Rien n'est encodé ni caché :
+     * le technicien et l'antivirus peuvent lire l'intégralité de ce qui va se passer.
+     */
+    private static function buildWindowsSingleFileScript(Entity $entity, array $installer, string $tag, string $token, string $report): string {
+        $version = (string) $installer['version'];
+        $config  = PluginPrintgestionConfig::getInstance()->fields;
+        $update  = (int) ($config['agent_update_default'] ?? 1) === 1;
+        // Une seule version pour tout : celle que ce serveur distribue est aussi celle que les sondes visent.
+        $target  = PluginPrintgestionAgentsetting::getTargetVersion();
+        $expires = date('d/m/Y H:i', time() + PluginPrintgestionAgenttoken::TTL);
+        $size_mb = max(1, (int) round(((int) ($installer['size'] ?? 0)) / 1048576));
+
+        // « 12 Mo sur 22 Mo » sous la barre : la phrase se traduit, {0} et {1} sont les repères de PowerShell.
+        $recus = str_replace(['@RECU@', '@TOTAL@'], ['{0:N0}', '{1:N0}'], __('@RECU@ Mo sur @TOTAL@ Mo', 'printgestion'));
+
+        // La fenêtre dit en plus ce que « Installer » va faire — il télécharge, ce que le paquet ZIP n'a pas à faire
+        // — et jusqu'à quand la clé vaut : un fichier retrouvé la semaine suivante doit s'expliquer tout seul.
+        $infos = self::dialogInfoLines((string) $entity->fields['completename'], $tag, self::getServerUrl()['url']);
+        $notes = [
+            sprintf(__('« Installer » télécharge l\'agent officiel depuis ce serveur (%d Mo), vérifie son empreinte, puis l\'installe sans rien demander.', 'printgestion'), $size_mb),
+            sprintf(__('Clé de téléchargement : une seule utilisation, jusqu\'au %s.', 'printgestion'), $expires),
+        ];
+
+        $client = (string) $entity->fields['completename'];
+        $server = self::getServerUrl()['url'];
+
+        $batch = self::buildWindowsLauncherLines('Installation de GLPI Agent ' . $version, [
+            'GLPI Agent ' . $version . ' - fichier unique d installation, pre-parametre pour le TAG ' . $tag . '.',
+            'Clic droit, puis Executer en tant qu administrateur. Rien a extraire, rien a saisir.',
+            'Il ouvre une fenetre, telecharge l agent officiel signe depuis ce serveur GLPI, verifie son',
+            'empreinte SHA-256, puis l installe. Journal de chaque etape : dossier temporaire, PrintGestion.',
+            'Cle de telechargement : une seule utilisation, jusqu au ' . $expires . '. Ce fichier ne vaut plus rien ensuite.',
+        ], 'printgestion-installation');
+
+        // Les étapes, dans l'ordre où elles s'exécutent : ce sont elles que la deuxième page coche.
+        $steps = [
+            'telechargement' => __('Téléchargement de l\'agent officiel', 'printgestion'),
+            'empreinte'      => __('Vérification de l\'empreinte', 'printgestion'),
+            'installation'   => sprintf(__('Installation de GLPI Agent %s', 'printgestion'), $version),
+            'maj'            => __('Mise à jour automatique', 'printgestion'),
+            'contact'        => __('Premier contact avec GLPI', 'printgestion'),
+            'declaration'    => __('Compte rendu à GLPI', 'printgestion'),
+            'decouverte'     => __('Découverte des imprimantes', 'printgestion'),
+        ];
+
+        $ps = array_merge(
+            [
+                '# Installation de GLPI Agent ' . $version . ', posee par Print Gestion pour le TAG ' . $tag . '.',
+                '# Lu par PowerShell seulement : cmd s arrete avant (exit /b).',
+                '# Aucun mot de passe ici : une URL, un TAG, une empreinte SHA-256 et une cle a usage unique.',
+            ],
+            self::psFormsHeader(),
+            self::buildWindowsJournalLines('installation', [
+                sprintf('Installation de GLPI Agent %s, preparee par Print Gestion', $version),
+                sprintf('Client : %s   TAG : %s   serveur : %s', $client, $tag, $server),
+            ]),
+            [
+                '$Url = ' . self::psQuote(PluginPrintgestionAgenttoken::getPullURL($token)),
+                '$Sha = ' . self::psQuote(strtolower((string) $installer['sha256'])),
+                '$Msi = Join-Path $env:TEMP ' . self::psQuote(self::getMsiName($version)),
+                '',
+                '# Un echec s affiche dans la page des etapes, puis la fenetre attend qu on la ferme.',
+                'function Echec($texte) {',
+                '  if ($script:en_cours -ne "") { Etape $script:en_cours "echec" "" }',
+                '  Journal ("ERREUR  " + ($texte -replace "\r?\n", " | "))',
+                '  Fin $false $texte',
+                '  exit 1',
+                '}',
+                '# Imprevu (droit refuse, composant absent) : « Stop » arreterait tout sans un mot. Le piege le dit.',
+                'trap {',
+                '  Journal ("IMPREVU " + $_)',
+                '  $texte = (' . self::psQuote(__('L\'installation s\'est arrêtée sur une erreur inattendue : rien n\'est garanti installé.', 'printgestion')) . ') + [Environment]::NewLine + [Environment]::NewLine + $_',
+                '  if ($script:fenetre_prete) { try { Echec $texte } catch { Secours $texte } } else { Secours $texte }',
+                '  exit 1',
+                '}',
+                '',
+            ],
+            self::buildWindowsDialogLines($version, $infos, $notes, $target, $update, true),
+            self::buildWindowsWizardLines($steps),
+            self::buildWindowsChoiceLines(__('Installation annulée par le technicien : rien n\'a été installé.', 'printgestion')),
+            [
+                '$avec_maj = ($maj_imposee -or ($null -ne $maj -and $maj.Checked))',
+                '# Ce que le technicien a saisi : les adresses partent au compte rendu, GLPI en fait un raccordement.',
+                '$adresses = ""',
+                '$communaute = ""',
+                '$frequence = ""',
+                'if ($null -ne $ips) { $adresses = $ips.Text.Trim() }',
+                'if ($null -ne $snmp) { $communaute = $snmp.Text.Trim() }',
+                '# Le code seul, avant le tiret : le libelle n est la que pour l oeil.',
+                'if ($null -ne $freq -and $null -ne $freq.SelectedItem) { $frequence = $freq.SelectedItem.ToString().Split(" ")[0] }',
+                'if ($adresses -eq "") { Journal "Adresses des imprimantes : aucune" } else { Journal ("Adresses des imprimantes : " + $adresses) }',
+                '# Jamais la communaute elle-meme : c est un secret, et ce journal traine dans un dossier temporaire.',
+                'if ($communaute -eq "") { Journal "Communaute SNMP : vide" } else { Journal "Communaute SNMP : renseignee (jamais ecrite dans ce journal)" }',
+                'Journal ("Frequence des releves : " + $frequence)',
+                'if ($avec_maj) { Journal "Mise a jour automatique : demandee" } else { Journal "Mise a jour automatique : non demandee" }',
+                'PageEtapes',
+                '',
+                '# ── Telechargement ──',
+                'Etape "telechargement" "encours" ""',
+                'Avancement ' . self::psQuote(__('Téléchargement de l\'agent officiel...', 'printgestion')) . ' 0 ""',
+                '# TLS 1.2 : un Windows plus ancien ne le choisit pas seul, et un serveur GLPI en HTTPS n accepte que lui.',
+                'try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }',
+                'if (Test-Path -LiteralPath $Msi) { Remove-Item -LiteralPath $Msi -Force -ErrorAction SilentlyContinue }',
+                '# Morceau par morceau : DownloadFile ne rend la main qu a la fin, il ne sait rien dire pendant.',
+                '$entree = $null',
+                '$sortie = $null',
+                '$recu = 0',
+                'try {',
+                '  $requete = [System.Net.HttpWebRequest]::Create($Url)',
+                '  $requete.UserAgent = "PrintGestion"',
+                '  $requete.Timeout = 60000',
+                '  $reponse_http = $requete.GetResponse()',
+                '  $taille = $reponse_http.ContentLength',
+                '  $entree = $reponse_http.GetResponseStream()',
+                '  $sortie = [System.IO.File]::Create($Msi)',
+                '  $tampon = New-Object byte[] 262144',
+                '  $lu = $entree.Read($tampon, 0, $tampon.Length)',
+                '  while ($lu -gt 0) {',
+                '    $sortie.Write($tampon, 0, $lu)',
+                '    $recu += $lu',
+                '    if ($taille -gt 0) {',
+                '      Avancement ' . self::psQuote(__('Téléchargement de l\'agent officiel...', 'printgestion')) . ' ([int](100 * $recu / $taille)) (' . self::psQuote($recus) . ' -f ($recu / 1MB), ($taille / 1MB))',
+                '    }',
+                '    $lu = $entree.Read($tampon, 0, $tampon.Length)',
+                '  }',
+                '  $sortie.Close()',
+                '  $entree.Close()',
+                '  $reponse_http.Close()',
+                '} catch {',
+                '  try { if ($null -ne $sortie) { $sortie.Close() } } catch { }',
+                '  try { if ($null -ne $entree) { $entree.Close() } } catch { }',
+                '  # Le message de .NET, pas l URL : elle porte la cle de telechargement.',
+                '  Journal ("        " + $_.Exception.Message)',
+                '  Echec((' . self::psQuote(__('Téléchargement impossible : rien n\'a été installé. Causes habituelles : clé déjà utilisée ou expirée (régénérer le fichier dans GLPI), serveur GLPI injoignable depuis ce PC, ou certificat HTTPS inconnu de ce PC.', 'printgestion')) . ' + [Environment]::NewLine + [Environment]::NewLine + $_.Exception.Message))',
+                '}',
+                'Etape "telechargement" "ok" (($recu / 1MB).ToString("N1") + " Mo")',
+                '',
+                '# ── Empreinte : ce qui a ete telecharge doit etre exactement le MSI que GLPI a verifie ──',
+                'Etape "empreinte" "encours" ""',
+                'Avancement ' . self::psQuote(__('Vérification de l\'empreinte du fichier reçu...', 'printgestion')) . ' 100 ""',
+                '$algo = [Security.Cryptography.SHA256]::Create()',
+                '$flux = [IO.File]::OpenRead($Msi)',
+                'try { $empreinte = ([BitConverter]::ToString($algo.ComputeHash($flux)) -replace "-", "").ToLower() } finally { $flux.Close() }',
+                'Journal ("        attendue : " + $Sha)',
+                'Journal ("        recue    : " + $empreinte)',
+                'if ($empreinte -ne $Sha) {',
+                '  Remove-Item -LiteralPath $Msi -Force -ErrorAction SilentlyContinue',
+                '  Echec(' . self::psQuote(__('Le fichier téléchargé n\'est pas celui attendu (empreinte différente) : rien n\'a été installé. Prévenir l\'administrateur.', 'printgestion')) . ')',
+                '}',
+                'Etape "empreinte" "ok" ""',
+                '',
+                '# ── Installation ──',
+                'Etape "installation" "encours" ""',
+                '$arguments = ' . self::psQuote(self::buildWindowsArguments('@MSI@', $tag)),
+                '$arguments = $arguments.Replace("@MSI@", $Msi).Replace("%TEMP%", $env:TEMP)',
+                'Journal ("        msiexec " + $arguments)',
+                '# -1 : barre defilante. L installateur ne dit pas ou il en est, et une barre arretee a 40 % qui ne',
+                '# bouge plus inquiete davantage qu une barre qui defile.',
+                'Avancement ' . self::psQuote(sprintf(__('Installation de GLPI Agent %s...', 'printgestion'), $version)) . ' (-1) ' . self::psQuote(__('Environ une minute. Aucune question ne sera posée.', 'printgestion')),
+                '# Sans -Wait : on interroge le processus, ce qui laisse la fenetre se redessiner pendant ce temps.',
+                '$p = Start-Process -FilePath "msiexec.exe" -ArgumentList $arguments -PassThru',
+                'while (-not $p.HasExited) {',
+                '  [System.Windows.Forms.Application]::DoEvents()',
+                '  Start-Sleep -Milliseconds 150',
+                '}',
+                'Journal ("        code de retour : " + $p.ExitCode + "   journal du MSI : " + (Join-Path $env:TEMP "GLPI-Agent-install.log"))',
+                '# 0 installe, 3010 redemarrage demande, 1641 redemarrage lance : les trois sont des succes.',
+                'if (@(0, 3010, 1641) -notcontains $p.ExitCode) {',
+                '  Echec(' . self::psQuote(sprintf(__('Installation non terminée (code @CODE@). Journal : %s', 'printgestion'), '@LOG@'))
+                    . '.Replace("@CODE@", [string]$p.ExitCode).Replace("@LOG@", (Join-Path $env:TEMP "GLPI-Agent-install.log")))',
+                '}',
+                'Etape "installation" "ok" ""',
+                '',
+                '$decouverte = $false',
+                '$scan_local = $false',
+                '$maj_ratee = $false',
+                '# Un poste installe avant la ToolBox garde peut-etre l ancien scan maison : retire, sinon il scannerait deux fois.',
+                'Start-Process -FilePath "schtasks.exe" -ArgumentList ("/Delete /TN " + [char]34 + ' . self::psQuote(PluginPrintgestionAgentsetting::SCAN_TASK_NAME) . ' + [char]34 + " /F") -Wait -WindowStyle Hidden | Out-Null',
+                'Remove-Item -LiteralPath (Join-Path $env:ProgramData "PrintGestion\glpi-scan-imprimantes.cmd") -Force -ErrorAction SilentlyContinue',
+                '',
+                '# ── Mise a jour automatique ──',
+                'if ($avec_maj) {',
+                '  Etape "maj" "encours" ""',
+                '  Avancement ' . self::psQuote(__('Mise à jour automatique : pose de la tâche planifiée...', 'printgestion')) . ' (-1) ""',
+                '  $dossier = Join-Path $env:ProgramData "PrintGestion"',
+                '  if (-not (Test-Path -LiteralPath $dossier)) { New-Item -ItemType Directory -Path $dossier | Out-Null }',
+                '  $cible = Join-Path $dossier ' . self::psQuote(PluginPrintgestionAgentsetting::UPDATE_SCRIPT),
+                '  # Le script de la tache, mot pour mot celui du paquet ZIP. Le terminateur du bloc ci-dessous',
+                '  # doit rester colle a la marge : PowerShell ne le reconnait qu en debut de ligne.',
+                '  $script = @' . "'",
+            ],
+            explode("\r\n", PluginPrintgestionAgentsetting::buildUpdateScript($target)),
+            [
+                "'" . '@',
+                '  [IO.File]::WriteAllText($cible, $script, [Text.Encoding]::ASCII)',
+                '  $sched = ' . self::psQuote(PluginPrintgestionAgentsetting::buildScheduleArguments()),
+                '  $tache = Start-Process -FilePath "schtasks.exe" -ArgumentList $sched.Replace("@SCRIPT@", $cible) -Wait -PassThru -WindowStyle Hidden',
+                '  Journal ("        schtasks : code " + $tache.ExitCode)',
+                '  if ($tache.ExitCode -eq 0) {',
+                '    Etape "maj" "ok" ' . self::psQuote(__('le 1er du mois à 3 h', 'printgestion')),
+                '  } else {',
+                '    # Pas un echec de l installation : l agent est la et fonctionne, seule la mise a jour manque.',
+                '    $avec_maj = $false',
+                '    $maj_ratee = $true',
+                '    Etape "maj" "echec" ' . self::psQuote(__('tâche refusée par Windows', 'printgestion')),
+                '  }',
+                '} else {',
+                '  Etape "maj" "saute" ' . self::psQuote(__('non demandée', 'printgestion')),
+                '}',
+                '',
+                '# ── Premier contact : GLPI doit connaitre la sonde avant qu on lui confie les imprimantes ──',
+                '# Le compte rendu partait des la fin du MSI, souvent avant le premier inventaire de l agent : GLPI ne',
+                '# connaissait pas encore la sonde, et ne pouvait ni regler ses modules ni lui confier les imprimantes.',
+                '# On attend donc que l agent local ait fini son premier passage : son etat redevient « waiting ».',
+                'Etape "contact" "encours" ""',
+                'Avancement ' . self::psQuote(__('Premier contact de l\'agent avec GLPI...', 'printgestion')) . ' (-1) ' . self::psQuote(__('L\'agent envoie son premier inventaire : GLPI doit le connaître avant qu\'on lui confie les imprimantes.', 'printgestion')),
+                '$statut = ""',
+                '# Le service vient d etre installe : son interface met un moment a repondre (2 min au plus).',
+                'for ($i = 0; $i -lt 40; $i++) {',
+                '  try { $statut = (New-Object System.Net.WebClient).DownloadString(' . self::psQuote(self::getAgentStatusUrl()) . '); break } catch { Attendre 3 }',
+                '}',
+                'if ($statut -eq "") {',
+                '  Etape "contact" "saute" ' . self::psQuote(__('l\'agent ne répond pas encore sur ce PC', 'printgestion')),
+                '} else {',
+                '  Journal ("        agent local : " + $statut.Trim())',
+                '  # Un passage tout de suite, puis on attend qu il soit fini (3 min au plus).',
+                '  try { (New-Object System.Net.WebClient).DownloadString(' . self::psQuote(self::getAgentWakeUrl()) . ') | Out-Null } catch { }',
+                '  Attendre 5',
+                '  $fini = $false',
+                '  for ($i = 0; $i -lt 60; $i++) {',
+                '    try { $statut = (New-Object System.Net.WebClient).DownloadString(' . self::psQuote(self::getAgentStatusUrl()) . '); if ($statut -match "waiting") { $fini = $true; break } } catch { }',
+                '    Attendre 3',
+                '  }',
+                '  if ($fini) { Etape "contact" "ok" "" } else { Etape "contact" "saute" ' . self::psQuote(__('toujours en cours après trois minutes', 'printgestion')) . ' }',
+                '}',
+                '',
+            ],
+            $report === '' ? [
+                'Etape "declaration" "saute" ""',
+                'Etape "decouverte" "saute" ""',
+                '$reponse = ""',
+                '',
+            ] : [
+                '# ── Compte rendu : ce qui a ete fait sur ce PC, et ce que GLPI en fait ──',
+                'Etape "declaration" "encours" ""',
+                'Avancement ' . self::psQuote(__('Compte rendu à GLPI...', 'printgestion')) . ' (-1) ""',
+                '$reponse = ""',
+                '$declare = $false',
+                'try {',
+                '  $fait = "0"',
+                '  if ($avec_maj) { $fait = "1" }',
+                '  $rendu = ' . self::psQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . ' + "&maj=" + $fait + "&pc=" + [Uri]::EscapeDataString($env:COMPUTERNAME) + "&ips=" + [Uri]::EscapeDataString($adresses) + "&snmp=" + [Uri]::EscapeDataString($communaute) + "&freq=" + [Uri]::EscapeDataString($frequence)',
+                '  $wc2 = New-Object System.Net.WebClient',
+                '  $wc2.Headers.Add("User-Agent", "PrintGestion")',
+                '  $reponse = $wc2.DownloadString($rendu)',
+                '  $declare = $true',
+                '} catch {',
+                '  Journal ("        " + $_.Exception.Message)',
+                '}',
+                'if ($null -eq $reponse) { $reponse = "" }',
+                '$reponse = $reponse.Trim()',
+                'if ($reponse -eq "") { Journal "        reponse de GLPI : (vide)" } else { Journal ("        reponse de GLPI : " + $reponse) }',
+                'if (-not $declare) {',
+                '  Etape "declaration" "echec" ' . self::psQuote(__('GLPI n\'a pas reçu le compte rendu', 'printgestion')),
+                '} elseif ($reponse -eq "NOAGENT") {',
+                '  Etape "declaration" "echec" ' . self::psQuote(__('la sonde n\'est pas encore connue de GLPI', 'printgestion')),
+                '} else {',
+                '  Etape "declaration" "ok" ""',
+                '}',
+                '',
+                '# ── Decouverte ──',
+                '# « RUN » : GLPI a arme la decouverte. L interface locale de l agent est toujours ouverte sur ce PC, et',
+                '# ce script y tourne : on lui demande de rappeler GLPI tout de suite. Le geste du bouton « Force an Inventory ».',
+                'if ($reponse -eq "RUN") {',
+                '  Etape "decouverte" "encours" ""',
+                '  Avancement ' . self::psQuote(__('Lancement de la découverte des imprimantes...', 'printgestion')) . ' (-1) ""',
+                '  for ($essai = 0; $essai -lt ' . self::WAKE_TRIES . '; $essai++) {',
+                '    try {',
+                '      (New-Object System.Net.WebClient).DownloadString(' . self::psQuote(self::getAgentWakeUrl()) . ') | Out-Null',
+                '      $decouverte = $true',
+                '      break',
+                '    } catch {',
+                '      Attendre ' . self::WAKE_WAIT,
+                '    }',
+                '  }',
+                '  if ($decouverte) { Etape "decouverte" "ok" "" } else { Etape "decouverte" "echec" ' . self::psQuote(__('armée dans GLPI, elle partira au prochain appel de l\'agent', 'printgestion')) . ' }',
+                '} elseif ($reponse -like "SCAN *") {',
+                '  # « SCAN premiere derniere cadence » : GLPI Inventory manque au serveur, personne ne dira a l agent de',
+                '  # balayer le reseau. C est sa ToolBox native qui s en charge : plage, identifiant et tache planifiee,',
+                '  # resultats envoyes a server0. Tout reste visible et modifiable dans 127.0.0.1:62354/toolbox.',
+                '  Etape "decouverte" "encours" ""',
+                '  Avancement ' . self::psQuote(__('Configuration de la ToolBox de l\'agent...', 'printgestion')) . ' (-1) ""',
+                '  $bornes = $reponse.Split(" ", 4)',
+                '  $etc = Join-Path $env:ProgramFiles "GLPI-Agent\etc"',
+                '  if ($communaute -eq "") { $communaute = "public" }',
+                '  # Chaine YAML entre apostrophes : une apostrophe s y double.',
+                '  $yaml = (' . implode(', ', array_map(static fn(string $l): string => self::psQuote($l), PluginPrintgestionAgentsetting::buildToolboxYaml())) . ') -join [Environment]::NewLine',
+                '  $yaml = $yaml.Replace("@FIRST@", $bornes[1]).Replace("@LAST@", $bornes[2]).Replace("@DELAY@", $bornes[3]).Replace("@COMMUNITY@", $communaute.Replace("\'", "\'\'"))',
+                '  $activation = (' . implode(', ', array_map(static fn(string $l): string => self::psQuote($l), PluginPrintgestionAgentsetting::buildToolboxPluginConfig())) . ') -join [Environment]::NewLine',
+                '  try {',
+                '    if (-not (Test-Path -LiteralPath $etc)) { throw ("dossier de configuration de l agent introuvable : " + $etc) }',
+                '    $sans_bom = New-Object System.Text.UTF8Encoding($false)',
+                '    $cible_yaml = Join-Path $etc "toolbox.yaml"',
+                '    [IO.File]::WriteAllText($cible_yaml, $yaml + [Environment]::NewLine, $sans_bom)',
+                '    [IO.File]::WriteAllText((Join-Path $etc "toolbox-plugin.local"), $activation + [Environment]::NewLine, $sans_bom)',
+                '    # La communaute SNMP y est en clair : SYSTEM et les administrateurs seulement (SID, pas les noms traduits).',
+                '    Start-Process -FilePath "icacls.exe" -ArgumentList ([char]34 + $cible_yaml + [char]34 + " /inheritance:r /grant:r *S-1-5-18:F *S-1-5-32-544:F") -Wait -WindowStyle Hidden | Out-Null',
+                '    Journal ("        ToolBox : " + $cible_yaml + "   plage " + $bornes[1] + " - " + $bornes[2] + "   cadence " + $bornes[3])',
+                '    # Les plugins de l agent se lisent au demarrage. Le service est cherche par son nom affiche.',
+                '    $service = Get-Service | Where-Object { $_.Name -like "glpi-agent*" -or $_.DisplayName -like "GLPI Agent*" } | Select-Object -First 1',
+                '    if ($null -eq $service) { throw "service GLPI Agent introuvable" }',
+                '    Restart-Service -InputObject $service -Force',
+                '    Journal ("        service relance : " + $service.Name)',
+                '    $scan_local = $true',
+                '    Etape "decouverte" "ok" ' . self::psQuote(__('ToolBox de l\'agent : 127.0.0.1:62354/toolbox', 'printgestion')),
+                '  } catch {',
+                '    Journal ("        " + $_.Exception.Message)',
+                '    Etape "decouverte" "echec" ' . self::psQuote(__('ToolBox non configurée, voir le journal', 'printgestion')),
+                '  }',
+                '} elseif ($adresses -eq "") {',
+                '  Etape "decouverte" "saute" ' . self::psQuote(__('aucune adresse saisie', 'printgestion')),
+                '} else {',
+                '  Etape "decouverte" "saute" ' . self::psQuote(__('rien à lancer', 'printgestion')),
+                '}',
+                '',
+            ],
+            [
+                '# ── Resultat : ce qui s est reellement passe, jamais une promesse ──',
+                'Journal ("MSI conserve pour une reinstallation : " + $Msi)',
+                '$final = ' . self::psQuote(sprintf(__('GLPI Agent %s est installé sur ce PC.', 'printgestion'), $version)),
+                'if ($avec_maj) { $final = $final + [Environment]::NewLine + ' . self::psQuote(__('Mise à jour automatique : posée (le 1er du mois à 3 h).', 'printgestion')) . ' }',
+                'if ($maj_ratee) { $final = $final + [Environment]::NewLine + ' . self::psQuote(__('Mise à jour automatique : non posée (antivirus ou stratégie de groupe). L\'agent fonctionne, seule la mise à jour manque.', 'printgestion')) . ' }',
+                '$final = $final + [Environment]::NewLine + [Environment]::NewLine',
+                'if ($decouverte) {',
+                '  $final = $final + ' . self::psQuote(__('Les imprimantes sont déclarées dans GLPI et la découverte vient de partir : rien d\'autre à faire sur ce PC. Le résultat s\'affiche dans GLPI, fiche de l\'entité, onglet « Déploiement Agent ».', 'printgestion')),
+                '} elseif ($scan_local) {',
+                '  $final = $final + ' . self::psQuote(__('Le scan des imprimantes est confié à la ToolBox de l\'agent, à la cadence choisie : elle envoie elle-même ses résultats à GLPI. Plage, identifiant et tâche se voient et se corrigent sur ce PC, à l\'adresse http://127.0.0.1:62354/toolbox.', 'printgestion')),
+                '} elseif ($reponse -eq "NOAGENT") {',
+                '  $final = $final + ' . self::psQuote(__('GLPI ne connaît pas encore cette sonde : les imprimantes n\'ont pas pu lui être confiées. Vérifier que ce PC joint le serveur GLPI, puis raccorder les imprimantes depuis la fiche de l\'entité, onglet « Déploiement Agent ».', 'printgestion')),
+                '} else {',
+                '  $final = $final + ' . self::psQuote(__('Dernière étape, dans GLPI : fiche de l\'entité, onglet « Déploiement Agent » — vérifier que la sonde apparaît avec un contact récent, puis raccorder les imprimantes (bloc 3).', 'printgestion')),
+                '}',
+                '# Le journal de l agent lui-meme : tenu par defaut par le MSI, c est la qu on lit ce qu il a fait ensuite.',
+                '$journal_agent = Join-Path $env:ProgramFiles "GLPI-Agent\logs\glpi-agent.log"',
+                'Journal ("Journal de l agent : " + $journal_agent)',
+                '$final = $final + [Environment]::NewLine + [Environment]::NewLine + ' . self::psQuote(__('Journal de l\'agent :', 'printgestion')) . ' + " " + $journal_agent',
+                'Fin $true $final',
+                'exit 0',
+                '',
+            ]
+        );
+
+        return implode("\r\n", array_merge($batch, $ps));
+    }
+
+    // ── Retrait d'une sonde ───────────────────────────────────────────────────
+
+    /**
+     * Fichier qui retire GLPI Agent d'un PC : notre tâche planifiée, nos fichiers, l'agent, sa configuration.
+     *
+     * Il rend compte à GLPI en dernier geste, comme le fichier d'installation : sans cela l'écran d'une sonde
+     * continuerait d'afficher une tâche posée sur une machine qui n'a plus d'agent.
+     *
+     * Aucun installeur à télécharger, donc aucune clé de récupération — seulement celle du compte rendu.
+     *
+     * @return array ['ok' => bool, 'errors' => string[], 'content', 'filename', 'version', 'tag']
+     */
+    public static function buildRemovalFile(Entity $entity, string $os): array {
+        if (!isset(self::REMOVE_OS[$os])) {
+            return ['ok' => false, 'errors' => [__('Système inconnu : fichier de retrait non généré.', 'printgestion')]];
+        }
+        $tag    = trim((string) $entity->fields['tag']);
+        $safe   = trim((string) preg_replace('/[^A-Za-z0-9._-]+/', '-', $tag), '-');
+        $safe   = $safe !== '' ? $safe : 'sonde';
+        // La case « retirer aussi de GLPI » n'existe que pour qui a le droit de supprimer une sonde.
+        $purge  = Session::haveRight(Agent::$rightname, PURGE);
+        $report = (string) PluginPrintgestionAgenttoken::createReport((int) $entity->getID(), $tag, $os, $purge);
+        $purge  = $purge && $report !== '';
+        $quand  = date('Y-m-d H:i');
+        $client = (string) $entity->fields['completename'];
+
+        if ($os === 'windows') {
+            return ['ok' => true, 'errors' => [], 'content' => self::buildWindowsRemovalScript($entity, $tag, $report, $purge), 'filename' => sprintf('RETIRER-GLPI-AGENT-%s.bat', $safe), 'version' => '', 'tag' => $tag];
+        }
+
+        $nom = ($os === 'macos' ? 'retirer-glpi-agent-macos-' : 'retirer-glpi-agent-') . $safe . '.sh';
+        $contenu = $os === 'linux'
+            ? self::buildLinuxRemovalScript($entity, $tag, $report, $nom, $purge)
+            : self::buildMacosRemovalScript($entity, $tag, $report, $nom, $purge);
+        return ['ok' => true, 'errors' => [], 'content' => $contenu, 'filename' => $nom, 'version' => '', 'tag' => $tag];
+    }
+
+    /** Libellé de la case, sur les trois systèmes. */
+    private static function purgeLabel(): string {
+        return __('Retirer aussi la sonde de GLPI, avec ses réglages, alertes et raccordements Print Gestion (les imprimantes et la fiche de l\'ordinateur restent)', 'printgestion');
+    }
+
+    /** Ce que la fenêtre dit de GLPI à la fin, selon la réponse du serveur. */
+    private static function purgeEndTexts(): array {
+        return [
+            'OK'     => __('Dans GLPI, la sonde et ses éléments Print Gestion sont supprimés. Les imprimantes et la fiche de l\'ordinateur restent.', 'printgestion'),
+            'ABSENT' => __('Dans GLPI, aucune sonde de ce nom n\'a été trouvée : rien n\'y a été supprimé.', 'printgestion'),
+            'REFUSE' => __('GLPI n\'a pas supprimé la sonde : elle reste listée, et se supprime depuis la liste des sondes — case cochée, puis Actions → Supprimer.', 'printgestion'),
+        ];
+    }
+
+    /** Notes de l'étape « Compte rendu », selon la réponse du serveur. */
+    private static function purgeStepNotes(): array {
+        return [
+            'OK'     => __('sonde supprimée de GLPI', 'printgestion'),
+            'ABSENT' => __('sonde introuvable dans GLPI', 'printgestion'),
+            'REFUSE' => __('GLPI a refusé de supprimer la sonde', 'printgestion'),
+        ];
+    }
+
+    /**
+     * Compte rendu du retrait, sous Linux et macOS : il dit à GLPI que le poste n'est plus une sonde, demande la
+     * suppression si elle a été choisie ($PG_GLPI), et garde la réponse dans $PG_PURGE pour la fin.
+     */
+    private static function buildShellRemovalReportLines(string $report): array {
+        $notes = self::purgeStepNotes();
+        return [
+            '  # Compte rendu : ce poste n est plus une sonde. Un echec ici ne change rien au retrait.',
+            '  pg_etape declaration encours ""',
+            '  pg_gl=""',
+            '  if [ "$PG_GLPI" = 1 ]; then pg_gl="&gl=1"; pg_journal "        suppression de la sonde dans GLPI demandee"; fi',
+            '  PG_PURGE=""',
+            '  if pg_rep=$(pg_http ' . self::shQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . '"&maj=0&off=1${pg_gl}&pc=$(hostname)" 20); then',
+            '    PG_PURGE=$(printf "%s" "$pg_rep" | tr -d "\\r\\n")',
+            '    if [ -n "$PG_PURGE" ]; then pg_journal "        reponse de GLPI : $PG_PURGE"; fi',
+            '    case "$PG_PURGE" in',
+            '      "PURGE OK") pg_etape declaration ok ' . self::shQuote($notes['OK']) . ' ;;',
+            '      "PURGE ABSENT") pg_etape declaration ok ' . self::shQuote($notes['ABSENT']) . ' ;;',
+            '      "PURGE REFUSE") pg_etape declaration echec ' . self::shQuote($notes['REFUSE']) . ' ;;',
+            '      *) pg_etape declaration ok "" ;;',
+            '    esac',
+            '  else',
+            '    pg_etape declaration echec ' . self::shQuote(__('GLPI n\'a pas reçu le compte rendu', 'printgestion')),
+            '  fi',
+            '',
+        ];
+    }
+
+    /** Fin du retrait sous Linux et macOS : ce que la fenêtre dit de GLPI dépend de la réponse du serveur. */
+    private static function buildShellRemovalEndLines(string $done): array {
+        $fins = self::purgeEndTexts();
+        return [
+            '  case "$PG_PURGE" in',
+            '    "PURGE OK") pg_fin OK ' . self::shQuote($done . '¶¶' . $fins['OK']) . ' ;;',
+            '    "PURGE ABSENT") pg_fin OK ' . self::shQuote($done . '¶¶' . $fins['ABSENT']) . ' ;;',
+            '    "PURGE REFUSE") pg_fin OK ' . self::shQuote($done . '¶¶' . $fins['REFUSE']) . ' ;;',
+            '    *) pg_fin OK ' . self::shQuote($done . '¶¶' . __('Dans GLPI, la sonde reste listée : elle se supprime depuis la liste des sondes — case cochée, puis Actions → Supprimer.', 'printgestion')) . ' ;;',
+            '  esac',
+        ];
+    }
+
+    /**
+     * Fichier de retrait Linux : une confirmation, une fenêtre d'avancement qui se termine sur le résultat, et le même
+     * journal dans /var/tmp.
+     *
+     * La désinstallation regarde d'abord si le paquet est là (dpkg ou rpm) : « apt-get remove » d'un paquet absent rend
+     * 0, « dnf remove » rend 1 — on n'affichait donc ni la même chose, ni la vérité, selon la distribution. La sortie du
+     * gestionnaire de paquets part au journal au lieu de défiler dans le terminal.
+     */
+    private static function buildLinuxRemovalScript(Entity $entity, string $tag, string $report, string $nom, bool $purge = false): string {
+        $client = (string) $entity->fields['completename'];
+        $server = self::getServerUrl()['url'];
+        $title  = __('Retrait de GLPI Agent', 'printgestion');
+        $infos  = array_merge(self::dialogInfoLines($client, $tag, $server), [
+            '',
+            $purge
+                ? __('Ce fichier retire de ce poste : les tâches posées par Print Gestion, GLPI Agent lui-même, et leurs fichiers. Rien d\'autre n\'est touché.', 'printgestion')
+                : __('Ce fichier retire de ce poste : les tâches posées par Print Gestion, GLPI Agent lui-même, et leurs fichiers. Rien d\'autre n\'est touché. Dans GLPI, la sonde reste listée : elle se supprime ensuite depuis la liste des sondes.', 'printgestion'),
+        ]);
+        $steps  = [
+            'taches'          => __('Retrait des tâches planifiées', 'printgestion'),
+            'desinstallation' => __('Désinstallation de GLPI Agent', 'printgestion'),
+            'fichiers'        => __('Retrait des fichiers', 'printgestion'),
+            'declaration'     => __('Compte rendu à GLPI', 'printgestion'),
+        ];
+        $taches  = [
+            PluginPrintgestionAgentsetting::LINUX_CRON,
+            PluginPrintgestionAgentsetting::LINUX_SCAN_CRON,
+            PluginPrintgestionAgentsetting::LINUX_SCAN_SCRIPT,
+            // Chemin des postes installés avant le passage à cron.d.
+            PluginPrintgestionAgentsetting::LINUX_SCAN_OLD,
+        ];
+        $fichiers = [
+            '/etc/glpi-agent/conf.d/90-printgestion.cfg',
+            // La ToolBox posée quand GLPI Inventory manque, et le journal de l'agent.
+            '/etc/glpi-agent/toolbox.yaml',
+            '/etc/glpi-agent/toolbox-plugin.local',
+            self::AGENT_LOG_UNIX,
+            // Les journaux des deux tâches : ce sont des fichiers du plugin, pas de l'agent.
+            PluginPrintgestionAgentsetting::LINUX_LOG,
+            PluginPrintgestionAgentsetting::LINUX_SCAN_LOG,
+        ];
+
+        return implode("\n", array_merge(
+            [
+                '#!/bin/sh',
+                '# Retrait de GLPI Agent de ce poste - ' . $client . ' (TAG ' . $tag . '), genere le ' . date('Y-m-d H:i') . ' par Print Gestion.',
+                '# A lancer en root : sudo sh ' . $nom . '   Journal : /var/tmp.',
+                'set -u',
+                'if [ "$(id -u)" -ne 0 ]; then',
+                '  echo "A lancer en root : sudo sh $0"',
+                '  exit 1',
+                'fi',
+                '',
+            ],
+            self::buildShellJournalLines('retrait', [
+                'Retrait de GLPI Agent, prepare par Print Gestion',
+                sprintf('Client : %s   TAG : %s   serveur : %s', $client, $tag, $server),
+            ]),
+            self::buildShellToolLines(),
+            self::buildLinuxUiLines($title, $infos, $steps),
+            [
+                '# ── Confirmation : on ne retire pas un agent parce qu on a appuye sur Entree ──',
+                'if [ "$pg_gui" = zenity ]; then',
+                '  pg_zen --question --width=560 --title="$PG_TITRE" --text="$PG_INFOS_Z" --ok-label=' . self::shQuote(__('Retirer GLPI Agent', 'printgestion')) . ' --cancel-label=' . self::shQuote(__('Annuler', 'printgestion')) . ' --default-cancel >/dev/null 2>&1',
+                '  pg_rc=$?',
+                '  case "$pg_rc" in',
+                '    0) ;;',
+                '    1)',
+                '      pg_journal ' . self::shQuote(__('Retrait annulé par le technicien : rien n\'a été retiré.', 'printgestion')),
+                '      exit 0',
+                '      ;;',
+                '    *)',
+                '      pg_journal "Fenetre indisponible (code $pg_rc) : confirmation en console"',
+                '      pg_gui=""',
+                '      ;;',
+                '  esac',
+                'fi',
+                'if [ -z "$pg_gui" ]; then',
+                '  printf "%s\\n\\n%s\\n\\n" "$PG_TITRE" "$PG_INFOS"',
+                '  printf "%s " ' . self::shQuote(__('Retirer GLPI Agent de ce poste ? [o/N]', 'printgestion')),
+                '  read -r pg_rep',
+                '  case "$pg_rep" in',
+                '    [oOyY]*) ;;',
+                '    *)',
+                '      pg_journal ' . self::shQuote(__('Retrait annulé par le technicien : rien n\'a été retiré.', 'printgestion')),
+                '      echo ' . self::shQuote(__('Retrait annulé : rien n\'a été retiré.', 'printgestion')),
+                '      exit 0',
+                '      ;;',
+                '  esac',
+                'fi',
+                '',
+            ],
+            self::buildLinuxPurgeQuestionLines($purge),
+            [
+                'pg_travail() {',
+                '  pg_pct 5',
+                '  pg_etape taches encours ""',
+                '  pg_retirees=0',
+                '  for pg_f in ' . implode(' ', $taches) . '; do',
+                '    if [ -e "$pg_f" ]; then',
+                '      rm -f "$pg_f"',
+                '      pg_journal "        retire : $pg_f"',
+                '      pg_retirees=$((pg_retirees + 1))',
+                '    fi',
+                '  done',
+                '  if [ "$pg_retirees" = 0 ]; then pg_etape taches ok ' . self::shQuote(__('aucune n\'était posée', 'printgestion')) . '; else pg_etape taches ok "$pg_retirees ' . __('retirée(s)', 'printgestion') . '"; fi',
+                '  pg_pct 20',
+                '',
+                '  pg_etape desinstallation encours ""',
+                '  pg_installe=0',
+                '  if command -v dpkg >/dev/null 2>&1 && dpkg -s glpi-agent >/dev/null 2>&1; then pg_installe=1; fi',
+                '  if command -v rpm >/dev/null 2>&1 && rpm -q glpi-agent >/dev/null 2>&1; then pg_installe=1; fi',
+                '  if [ "$pg_installe" = 0 ]; then',
+                '    pg_etape desinstallation saute ' . self::shQuote(__('aucun GLPI Agent installé sur ce poste', 'printgestion')),
+                '  else',
+                '    # Le gestionnaire de paquets : c est lui qui a installe (l installeur officiel depose un .deb ou un .rpm).',
+                '    if command -v apt-get >/dev/null 2>&1; then',
+                '      apt-get -y remove glpi-agent >> "$PG_JOURNAL" 2>&1',
+                '    elif command -v dnf >/dev/null 2>&1; then',
+                '      dnf -y remove glpi-agent >> "$PG_JOURNAL" 2>&1',
+                '    elif command -v yum >/dev/null 2>&1; then',
+                '      yum -y remove glpi-agent >> "$PG_JOURNAL" 2>&1',
+                '    elif command -v zypper >/dev/null 2>&1; then',
+                '      zypper -n remove glpi-agent >> "$PG_JOURNAL" 2>&1',
+                '    else',
+                '      pg_echec ' . self::shQuote(__('Gestionnaire de paquets inconnu : retirer le paquet glpi-agent à la main.', 'printgestion')),
+                '    fi',
+                '    pg_rc=$?',
+                '    pg_journal "        code de retour : $pg_rc"',
+                '    if [ "$pg_rc" -ne 0 ]; then pg_echec "' . __('La désinstallation de GLPI Agent a échoué (code $pg_rc) : le détail du gestionnaire de paquets est dans le journal.', 'printgestion') . '"; fi',
+                '    pg_etape desinstallation ok ""',
+                '  fi',
+                '  pg_pct 70',
+                '',
+                '  pg_etape fichiers encours ""',
+                '  for pg_f in ' . implode(' ', $fichiers) . '; do',
+                '    if [ -e "$pg_f" ]; then',
+                '      rm -f "$pg_f"',
+                '      pg_journal "        retire : $pg_f"',
+                '    fi',
+                '  done',
+                '  pg_etape fichiers ok ""',
+                '  pg_pct 85',
+                '',
+            ],
+            $report === '' ? ['  PG_PURGE=""', '  pg_etape declaration saute ""', ''] : self::buildShellRemovalReportLines($report),
+            self::buildShellRemovalEndLines(__('GLPI Agent est retiré de ce poste.', 'printgestion')),
+            [
+                '}',
+                '',
+                'if [ "$pg_gui" = zenity ]; then',
+                '  pg_travail | pg_zen --progress --width=560 --title="$PG_TITRE" --text=" " --percentage=0 --no-cancel >/dev/null 2>&1',
+                'else',
+                '  pg_travail',
+                'fi',
+                'if [ "$(cat "$PG_ETAT" 2>/dev/null)" = OK ]; then exit 0; fi',
+                'exit 1',
+                '',
+            ]
+        ));
+    }
+
+    /**
+     * Linux : « retirer aussi de GLPI », posé comme une question à part, après la confirmation. zenity n'a pas de
+     * case à cocher dans une question, et une liste à cocher validerait le retrait sur Entrée. « Non » par défaut :
+     * une touche Entrée ne supprime rien de GLPI. Une fenêtre qui ne s'ouvre pas repose la question en console.
+     */
+    private static function buildLinuxPurgeQuestionLines(bool $purge): array {
+        if (!$purge) {
+            return ['PG_GLPI=0', ''];
+        }
+        $question = self::purgeLabel() . ' ?';
+        return [
+            '# ── Retirer aussi la sonde de GLPI ? Non par defaut ──',
+            'PG_GLPI=0',
+            'if [ "$pg_gui" = zenity ]; then',
+            '  pg_zen --question --width=560 --title="$PG_TITRE" --text=' . self::shQuote(htmlspecialchars($question, ENT_NOQUOTES, 'UTF-8')) . ' --ok-label=' . self::shQuote(__('Oui, aussi de GLPI', 'printgestion')) . ' --cancel-label=' . self::shQuote(__('Non, seulement ce poste', 'printgestion')) . ' --default-cancel >/dev/null 2>&1',
+            '  pg_rc=$?',
+            '  case "$pg_rc" in',
+            '    0) PG_GLPI=1 ;;',
+            '    1) ;;',
+            '    *) pg_gui="" ;;',
+            '  esac',
+            'fi',
+            'if [ -z "$pg_gui" ]; then',
+            '  printf "%s [o/N] " ' . self::shQuote($question),
+            '  read -r pg_rep',
+            '  case "$pg_rep" in [oOyY]*) PG_GLPI=1 ;; esac',
+            'fi',
+            'if [ "$PG_GLPI" = 1 ]; then pg_journal "Suppression de la sonde dans GLPI : demandee"; else pg_journal "Suppression de la sonde dans GLPI : non demandee"; fi',
+            '',
+        ];
+    }
+
+    /**
+     * Fichier de retrait macOS : la même fenêtre Cocoa que l'installation — une confirmation, les étapes, le résultat —
+     * et le même journal dans /var/tmp.
+     */
+    private static function buildMacosRemovalScript(Entity $entity, string $tag, string $report, string $nom, bool $purge = false): string {
+        $client  = (string) $entity->fields['completename'];
+        $server  = self::getServerUrl()['url'];
+        $title   = __('Retrait de GLPI Agent', 'printgestion');
+        $plist   = '/Library/LaunchDaemons/com.teclib.glpi-agent.plist';
+        $infos   = self::dialogInfoLines($client, $tag, $server);
+        $message = $purge
+            ? __('Ce fichier retire de ce Mac : le service GLPI Agent, l\'agent lui-même et sa configuration. Rien d\'autre n\'est touché.', 'printgestion')
+            : __('Ce fichier retire de ce Mac : le service GLPI Agent, l\'agent lui-même et sa configuration. Rien d\'autre n\'est touché. Dans GLPI, la sonde reste listée : elle se supprime ensuite depuis la liste des sondes.', 'printgestion');
+        $steps   = [
+            'service'         => __('Arrêt du service', 'printgestion'),
+            'desinstallation' => __('Retrait de GLPI Agent', 'printgestion'),
+            'declaration'     => __('Compte rendu à GLPI', 'printgestion'),
+        ];
+        $fenetre = [
+            'fenetre'     => $title,
+            'titre'       => __('Retrait de la sonde d\'inventaire', 'printgestion'),
+            'sous_titre'  => __('GLPI Agent va être désinstallé de ce Mac — fichier préparé par Print Gestion', 'printgestion'),
+            'bande'       => [153, 27, 27],
+            'infos'       => implode("\n", $infos),
+            'message'     => $message,
+            'formulaire'  => false,
+            // La case « retirer aussi de GLPI » : absente sans le droit de supprimer une sonde.
+            'case_glpi'   => $purge ? self::purgeLabel() : '',
+            'bouton'      => __('Retirer GLPI Agent', 'printgestion'),
+            'annuler'     => __('Annuler', 'printgestion'),
+            'ouvrir'      => __('Ouvrir le journal', 'printgestion'),
+            'fermer'      => __('Fermer', 'printgestion'),
+            'etapes'      => array_map(null, array_keys($steps), array_values($steps)),
+            'preparation' => __('Préparation…', 'printgestion'),
+            'termine'     => __('Terminé', 'printgestion'),
+            'interrompu'  => __('Interrompu', 'printgestion'),
+            'journal'     => __('Journal :', 'printgestion'),
+        ];
+
+        return implode("\n", array_merge(
+            [
+                '#!/bin/sh',
+                '# Retrait de GLPI Agent de ce Mac - ' . $client . ' (TAG ' . $tag . '), genere le ' . date('Y-m-d H:i') . ' par Print Gestion.',
+                '# A lancer en root dans le Terminal : sudo sh ' . $nom . '   Journal : /var/tmp.',
+                'set -u',
+                'if [ "$(id -u)" -ne 0 ]; then',
+                '  echo "A lancer en root : sudo sh $0"',
+                '  exit 1',
+                'fi',
+                '',
+            ],
+            self::buildShellJournalLines('retrait', [
+                'Retrait de GLPI Agent, prepare par Print Gestion',
+                sprintf('Client : %s   TAG : %s   serveur : %s', $client, $tag, $server),
+            ]),
+            self::buildShellToolLines(),
+            self::buildMacosUiLines($title, array_merge($infos, [''], [$message]), $steps, $fenetre),
+            [
+                '# ── Confirmation : on ne retire pas un agent parce qu on a appuye sur Entree ──',
+                'PG_GLPI=0',
+                'if pg_fenetre; then',
+                '  if [ "$(head -n 1 "$PG_DIR/reponses")" = annule ]; then',
+                '    pg_journal ' . self::shQuote(__('Retrait annulé par le technicien : rien n\'a été retiré.', 'printgestion')),
+                '    exit 0',
+                '  fi',
+                '  if grep -q "^glpi=1$" "$PG_DIR/reponses"; then PG_GLPI=1; fi',
+                'else',
+                '  pg_journal "Fenetre indisponible : confirmation en console"',
+                '  printf "%s\\n\\n%s\\n\\n" "$PG_TITRE" "$PG_INFOS"',
+                '  printf "%s " ' . self::shQuote(__('Retirer GLPI Agent de ce Mac ? [o/N]', 'printgestion')),
+                '  read -r pg_rep',
+                '  case "$pg_rep" in',
+                '    [oOyY]*) ;;',
+                '    *)',
+                '      pg_journal ' . self::shQuote(__('Retrait annulé par le technicien : rien n\'a été retiré.', 'printgestion')),
+                '      echo ' . self::shQuote(__('Retrait annulé : rien n\'a été retiré.', 'printgestion')),
+                '      exit 0',
+                '      ;;',
+                '  esac',
+            ],
+            $purge ? [
+                '  printf "%s [o/N] " ' . self::shQuote(self::purgeLabel() . ' ?'),
+                '  read -r pg_rep',
+                '  case "$pg_rep" in [oOyY]*) PG_GLPI=1 ;; esac',
+            ] : [],
+            [
+                'fi',
+                'if [ "$PG_GLPI" = 1 ]; then pg_journal "Suppression de la sonde dans GLPI : demandee"; else pg_journal "Suppression de la sonde dans GLPI : non demandee"; fi',
+                '',
+                'pg_travail() {',
+                '  pg_pct 5',
+                '  pg_etape service encours ""',
+                '  PG_PLIST=' . self::shQuote($plist),
+                '  # bootout sur macOS 13 et plus, unload avant : les deux, dans cet ordre.',
+                '  launchctl bootout system "$PG_PLIST" >> "$PG_JOURNAL" 2>&1',
+                '  launchctl unload "$PG_PLIST" >> "$PG_JOURNAL" 2>&1',
+                '  if [ -e "$PG_PLIST" ]; then',
+                '    rm -f "$PG_PLIST"',
+                '    pg_journal "        retire : $PG_PLIST"',
+                '    pg_etape service ok ""',
+                '  else',
+                '    pg_etape service saute ' . self::shQuote(__('aucun service GLPI Agent sur ce Mac', 'printgestion')),
+                '  fi',
+                '  pg_pct 35',
+                '',
+                '  pg_etape desinstallation encours ""',
+                '  pg_paquets=$(pkgutil --pkgs 2>/dev/null | grep -i glpi)',
+                '  if [ -d /Applications/GLPI-Agent ] || [ -n "$pg_paquets" ]; then',
+                '    # Le dossier de l agent emporte aussi la ToolBox, posee dans son etc.',
+                '    rm -rf /Applications/GLPI-Agent',
+                '    pg_journal "        retire : /Applications/GLPI-Agent"',
+                '    rm -f ' . self::AGENT_LOG_UNIX,
+                '    # Oubli du paquet : son identifiant varie selon la version, on prend ceux qui parlent de GLPI.',
+                '    for pg_paquet in $pg_paquets; do',
+                '      pkgutil --forget "$pg_paquet" >> "$PG_JOURNAL" 2>&1',
+                '    done',
+                '    pg_etape desinstallation ok ""',
+                '  else',
+                '    pg_etape desinstallation saute ' . self::shQuote(__('aucun GLPI Agent installé sur ce Mac', 'printgestion')),
+                '  fi',
+                '  pg_pct 75',
+                '',
+            ],
+            $report === '' ? ['  PG_PURGE=""', '  pg_etape declaration saute ""', ''] : self::buildShellRemovalReportLines($report),
+            self::buildShellRemovalEndLines(__('GLPI Agent est retiré de ce Mac.', 'printgestion')),
+            [
+                '}',
+                '',
+                'pg_travail',
+                'if [ "$(cat "$PG_ETAT" 2>/dev/null)" = OK ]; then exit 0; fi',
+                'exit 1',
+                '',
+            ]
+        ));
+    }
+
+    /**
+     * Fichier de retrait Windows : la même fenêtre que l'installation.
+     *
+     * Une confirmation d'abord — on ne retire pas un agent parce qu'on a appuyé sur Entrée —, puis les étapes
+     * cochées une à une, puis le résultat, et le même journal dans le dossier temporaire : pas dans
+     * %ProgramData%\PrintGestion, que le retrait efface justement.
+     *
+     * Le bandeau est rouge : on doit voir au premier coup d'œil que cette fenêtre-là enlève quelque chose.
+     */
+    private static function buildWindowsRemovalScript(Entity $entity, string $tag, string $report, bool $purge = false): string {
+        $client = (string) $entity->fields['completename'];
+        $server = self::getServerUrl()['url'];
+        $batch  = self::buildWindowsLauncherLines('Retrait de GLPI Agent', [
+            'Retrait de GLPI Agent de ce PC - ' . $client . ' (TAG ' . $tag . '), genere le ' . date('Y-m-d H:i') . ' par Print Gestion.',
+            'Clic droit, puis Executer en tant qu administrateur.',
+            'Il retire les taches planifiees, GLPI Agent et les fichiers du plugin. Journal : dossier temporaire, PrintGestion.',
+        ], 'printgestion-retrait');
+
+        $steps = [
+            'taches'          => __('Retrait des tâches planifiées', 'printgestion'),
+            'desinstallation' => __('Désinstallation de GLPI Agent', 'printgestion'),
+            'fichiers'        => __('Retrait des fichiers', 'printgestion'),
+            'declaration'     => __('Compte rendu à GLPI', 'printgestion'),
+        ];
+
+        $ps = array_merge(
+            [
+                '# Retrait de GLPI Agent, pose par Print Gestion pour le TAG ' . $tag . '.',
+                '# Lu par PowerShell seulement : cmd s arrete avant (exit /b).',
+            ],
+            self::psFormsHeader(),
+            self::buildWindowsJournalLines('retrait', [
+                'Retrait de GLPI Agent, prepare par Print Gestion',
+                sprintf('Client : %s   TAG : %s   serveur : %s', $client, $tag, $server),
+            ]),
+            [
+                'function Echec($texte) {',
+                '  if ($script:en_cours -ne "") { Etape $script:en_cours "echec" "" }',
+                '  Journal ("ERREUR  " + ($texte -replace "\r?\n", " | "))',
+                '  Fin $false $texte',
+                '  exit 1',
+                '}',
+                'trap {',
+                '  Journal ("IMPREVU " + $_)',
+                '  $texte = (' . self::psQuote(__('Le retrait s\'est arrêté sur une erreur inattendue : GLPI Agent est peut-être encore en partie sur ce PC.', 'printgestion')) . ') + [Environment]::NewLine + [Environment]::NewLine + $_',
+                '  if ($script:fenetre_prete) { try { Echec $texte } catch { Secours $texte } } else { Secours $texte }',
+                '  exit 1',
+                '}',
+                '',
+            ],
+            self::buildWindowsFrameLines(
+                __('Retrait de GLPI Agent', 'printgestion'),
+                __('Retrait de la sonde d\'inventaire', 'printgestion'),
+                __('GLPI Agent va être désinstallé de ce PC — fichier préparé par Print Gestion', 'printgestion'),
+                self::dialogInfoLines($client, $tag, $server),
+                [153, 27, 27]
+            ),
+            self::buildWindowsConfirmLines(
+                $purge
+                    ? __('Ce fichier retire de ce PC : les tâches planifiées posées par Print Gestion, GLPI Agent lui-même, et leurs fichiers. Rien d\'autre n\'est touché.', 'printgestion')
+                    : __('Ce fichier retire de ce PC : les tâches planifiées posées par Print Gestion, GLPI Agent lui-même, et leurs fichiers. Rien d\'autre n\'est touché. Dans GLPI, la sonde reste listée : elle se supprime ensuite depuis la liste des sondes.', 'printgestion'),
+                __('Retirer GLPI Agent', 'printgestion'),
+                __('Annuler', 'printgestion'),
+                $purge ? self::purgeLabel() : ''
+            ),
+            self::buildWindowsWizardLines($steps),
+            self::buildWindowsChoiceLines(__('Retrait annulé par le technicien : rien n\'a été retiré.', 'printgestion')),
+            [
+                'PageEtapes',
+                '',
+                '# ── Taches planifiees : code 0 retiree, 1 absente ──',
+                'Etape "taches" "encours" ""',
+                'Avancement ' . self::psQuote(__('Retrait des tâches planifiées...', 'printgestion')) . ' (-1) ""',
+                '$retirees = 0',
+                'foreach ($nom in @(' . self::psQuote(PluginPrintgestionAgentsetting::TASK_NAME) . ', ' . self::psQuote(PluginPrintgestionAgentsetting::SCAN_TASK_NAME) . ')) {',
+                '  $t = Start-Process -FilePath "schtasks.exe" -ArgumentList ("/Delete /TN " + [char]34 + $nom + [char]34 + " /F") -Wait -PassThru -WindowStyle Hidden',
+                '  Journal ("        " + $nom + " : code " + $t.ExitCode)',
+                '  if ($t.ExitCode -eq 0) { $retirees++ }',
+                '}',
+                'if ($retirees -eq 0) { Etape "taches" "ok" ' . self::psQuote(__('aucune n\'était posée', 'printgestion')) . ' } else { Etape "taches" "ok" ([string]$retirees + " " + ' . self::psQuote(__('retirée(s)', 'printgestion')) . ') }',
+                '',
+                '# ── Desinstallation : la cle du registre plutot que winget, qui peut etre absent ou ignorer ──',
+                '# un agent installe par le MSI. Les deux ruches sont regardees (64 et 32 bits).',
+                'Etape "desinstallation" "encours" ""',
+                'Avancement ' . self::psQuote(__('Désinstallation de GLPI Agent...', 'printgestion')) . ' (-1) ' . self::psQuote(__('Environ une minute.', 'printgestion')),
+                '$produits = @()',
+                'foreach ($cle in @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*")) {',
+                '  $produits += @(Get-ItemProperty $cle -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "GLPI Agent*" })',
+                '}',
+                'if ($produits.Count -eq 0) {',
+                '  Etape "desinstallation" "saute" ' . self::psQuote(__('aucun GLPI Agent installé sur ce PC', 'printgestion')),
+                '} else {',
+                '  $rate = $false',
+                '  foreach ($pr in $produits) {',
+                '    Journal ("        " + $pr.DisplayName + "   " + $pr.PSChildName)',
+                '    $m = Start-Process -FilePath "msiexec.exe" -ArgumentList ("/x " + $pr.PSChildName + " /qn /norestart") -PassThru',
+                '    while (-not $m.HasExited) {',
+                '      [System.Windows.Forms.Application]::DoEvents()',
+                '      Start-Sleep -Milliseconds 150',
+                '    }',
+                '    Journal ("        code de retour : " + $m.ExitCode)',
+                '    # 0 fait, 3010 et 1641 redemarrage, 1605 deja absent : tout le reste est un echec.',
+                '    if (@(0, 3010, 1641, 1605) -notcontains $m.ExitCode) { $rate = $true }',
+                '  }',
+                '  if ($rate) { Echec(' . self::psQuote(__('La désinstallation de GLPI Agent a échoué : l\'agent est peut-être encore sur ce PC. Le journal donne le code de retour de Windows Installer.', 'printgestion')) . ') }',
+                '  Etape "desinstallation" "ok" ""',
+                '}',
+                '',
+                '# ── Fichiers : ceux du plugin, les donnees que le MSI laisse, et un dossier d agent orphelin ──',
+                'Etape "fichiers" "encours" ""',
+                'Avancement ' . self::psQuote(__('Retrait des fichiers...', 'printgestion')) . ' (-1) ""',
+                '$restes = 0',
+                'foreach ($d in @((Join-Path $env:ProgramData "PrintGestion"), (Join-Path $env:ProgramData "GLPI-Agent"), (Join-Path $env:ProgramFiles "GLPI-Agent"))) {',
+                '  if (Test-Path -LiteralPath $d) {',
+                '    try {',
+                '      Remove-Item -LiteralPath $d -Recurse -Force',
+                '      Journal ("        retire : " + $d)',
+                '    } catch {',
+                '      $restes++',
+                '      Journal ("        non retire : " + $d + " - " + $_.Exception.Message)',
+                '    }',
+                '  }',
+                '}',
+                'if ($restes -eq 0) { Etape "fichiers" "ok" "" } else { Etape "fichiers" "echec" ' . self::psQuote(__('un dossier est resté, voir le journal', 'printgestion')) . ' }',
+                '',
+            ],
+            ['$script:purge = ""'],
+            $report === '' ? ['Etape "declaration" "saute" ""', ''] : [
+                '# ── Compte rendu : ce PC n est plus une sonde. Un echec ici ne change rien au retrait. ──',
+                '# Case cochee : GLPI supprime aussi la sonde, et repond PURGE OK, PURGE ABSENT ou PURGE REFUSE.',
+                'Etape "declaration" "encours" ""',
+                'Avancement ' . self::psQuote(__('Compte rendu à GLPI...', 'printgestion')) . ' (-1) ""',
+                '$gl = ""',
+                'if ($null -ne $glpi -and $glpi.Checked) { $gl = "&gl=1"; Journal "        suppression de la sonde dans GLPI demandee" }',
+                'try {',
+                '  $rep = [string](New-Object System.Net.WebClient).DownloadString(' . self::psQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . ' + "&maj=0&off=1" + $gl + "&pc=" + [Uri]::EscapeDataString($env:COMPUTERNAME))',
+                '  $script:purge = $rep.Trim()',
+                '  if ($script:purge -ne "") { Journal ("        reponse de GLPI : " + $script:purge) }',
+                '  if ($script:purge -eq "PURGE OK") { Etape "declaration" "ok" ' . self::psQuote(self::purgeStepNotes()['OK']) . ' }',
+                '  elseif ($script:purge -eq "PURGE ABSENT") { Etape "declaration" "ok" ' . self::psQuote(self::purgeStepNotes()['ABSENT']) . ' }',
+                '  elseif ($script:purge -eq "PURGE REFUSE") { Etape "declaration" "echec" ' . self::psQuote(self::purgeStepNotes()['REFUSE']) . ' }',
+                '  else { Etape "declaration" "ok" "" }',
+                '} catch {',
+                '  Journal ("        " + $_.Exception.Message)',
+                '  Etape "declaration" "echec" ' . self::psQuote(__('GLPI n\'a pas reçu le compte rendu', 'printgestion')),
+                '}',
+                '',
+            ],
+            [
+                '# Ce que la fenetre dit de GLPI depend de sa reponse. Deux phrases jointes a l execution : un retour a la',
+                '# ligne dans une chaine couperait la ligne du script.',
+                '$glpi_fin = ' . self::psQuote(__('Dans GLPI, la sonde reste listée : elle se supprime depuis la liste des sondes — case cochée, puis Actions → Supprimer.', 'printgestion')),
+                'if ($script:purge -eq "PURGE OK") { $glpi_fin = ' . self::psQuote(self::purgeEndTexts()['OK']) . ' }',
+                'elseif ($script:purge -eq "PURGE ABSENT") { $glpi_fin = ' . self::psQuote(self::purgeEndTexts()['ABSENT']) . ' }',
+                'elseif ($script:purge -eq "PURGE REFUSE") { $glpi_fin = ' . self::psQuote(self::purgeEndTexts()['REFUSE']) . ' }',
+                'Fin $true (' . self::psQuote(__('GLPI Agent est retiré de ce PC.', 'printgestion')) . ' + [Environment]::NewLine + [Environment]::NewLine + $glpi_fin)',
+                'exit 0',
+                '',
+            ]
+        );
+
+        return implode("\r\n", array_merge($batch, $ps));
+    }
+
+    /** Un appelant par système : la route sert un constructeur qui ne prend que l'entité. */
+    public static function buildWindowsRemoval(Entity $entity): array {
+        return self::buildRemovalFile($entity, 'windows');
+    }
+
+    public static function buildLinuxRemoval(Entity $entity): array {
+        return self::buildRemovalFile($entity, 'linux');
+    }
+
+    public static function buildMacosRemoval(Entity $entity): array {
+        return self::buildRemovalFile($entity, 'macos');
+    }
+
+    // ── Fichiers uniques Linux et macOS ───────────────────────────────────────
+
+    /**
+     * Fichier unique Linux : un seul .sh, ni archive à extraire ni fichier à deviner. Il ouvre une fenêtre (zenity)
+     * ou pose la question en console, va chercher l'installeur Perl officiel sur ce serveur GLPI avec une clé
+     * temporaire, vérifie son empreinte SHA-256, l'installe avec la découverte et l'inventaire réseau, et pose la
+     * tâche cron mensuelle de mise à jour si on l'a voulu.
+     *
+     * Comme pour Windows : la clé plutôt que l'installeur dans le fichier, parce qu'un script de plusieurs mégaoctets
+     * encodés se fait refuser, et parce que le binaire doit rester celui de Teclib'. La clé vaut une fois et un jour.
+     *
+     * @return array ['ok' => bool, 'errors' => string[], 'content', 'filename', 'version', 'tag', 'expires']
+     */
+    public static function buildLinuxSingleFile(Entity $entity): array {
+        $blockers = self::getPackageBlockers($entity, 'linux');
+        if (!empty($blockers)) {
+            return ['ok' => false, 'errors' => $blockers];
+        }
+        $installer = self::getCachedInstaller(true, 'linux');
+        if ($installer === null) {
+            return ['ok' => false, 'errors' => [__('Installeur Linux absent ou modifié depuis sa vérification : refaites la vérification (page « Installeur GLPI Agent »).', 'printgestion')]];
+        }
+        $token = PluginPrintgestionAgenttoken::create((int) $entity->getID(), ['linux' => $installer]);
+        if ($token === null) {
+            return ['ok' => false, 'errors' => [__('Clé de téléchargement non enregistrée : le fichier unique serait incapable de récupérer l\'agent (détail dans le journal printgestion).', 'printgestion')]];
+        }
+        $tag     = trim((string) $entity->fields['tag']);
+        $version = (string) $installer['version'];
+        return [
+            'ok'       => true,
+            'errors'   => [],
+            'content'  => self::buildLinuxSingleFileScript($entity, $installer, $tag, $token, (string) PluginPrintgestionAgenttoken::createReport((int) $entity->getID(), $tag, 'linux')),
+            'filename' => self::getSingleFileName($tag, $version, 'linux'),
+            'version'  => $version,
+            'tag'      => $tag,
+            'expires'  => date('Y-m-d H:i:s', time() + PluginPrintgestionAgenttoken::TTL),
+        ];
+    }
+
+    private static function buildLinuxSingleFileScript(Entity $entity, array $installer, string $tag, string $token, string $report): string {
+        $version = (string) $installer['version'];
+        $config  = PluginPrintgestionConfig::getInstance()->fields;
+        $update  = (int) ($config['agent_update_default'] ?? 1) === 1;
+        // Une seule version pour tout : celle que ce serveur distribue est aussi celle que les sondes visent.
+        $target  = PluginPrintgestionAgentsetting::getTargetVersion();
+        $expires = date('d/m/Y H:i', time() + PluginPrintgestionAgenttoken::TTL);
+        $size_mb = max(1, (int) round(((int) ($installer['size'] ?? 0)) / 1048576));
+        $client  = (string) $entity->fields['completename'];
+        $server  = self::getServerUrl()['url'];
+        $title   = sprintf(__('Installation de GLPI Agent %s', 'printgestion'), $version);
+        $infos   = array_merge(self::dialogInfoLines($client, $tag, $server), [
+            '',
+            sprintf(__('« Installer » télécharge l\'agent officiel depuis ce serveur (%d Mo), vérifie son empreinte, puis l\'installe.', 'printgestion'), $size_mb),
+            sprintf(__('Clé de téléchargement : une seule utilisation, jusqu\'au %s.', 'printgestion'), $expires),
+        ]);
+        $steps = [
+            'telechargement' => __('Téléchargement de l\'agent officiel', 'printgestion'),
+            'empreinte'      => __('Vérification de l\'empreinte', 'printgestion'),
+            'installation'   => sprintf(__('Installation de GLPI Agent %s', 'printgestion'), $version),
+            'maj'            => __('Mise à jour automatique', 'printgestion'),
+            'contact'        => __('Premier contact avec GLPI', 'printgestion'),
+            'declaration'    => __('Compte rendu à GLPI', 'printgestion'),
+            'decouverte'     => __('Découverte des imprimantes', 'printgestion'),
+        ];
+
+        // Les fréquences, celle d'avance en tête : le menu de zenity ne sait pas présélectionner, il montre le premier.
+        $choix = PluginPrintgestionCollectfrequency::getInstallerChoices();
+        $ordre = array_merge([PluginPrintgestionCollectfrequency::INSTALLER_DEFAULT], array_diff(array_keys($choix), [PluginPrintgestionCollectfrequency::INSTALLER_DEFAULT]));
+        $libelles = array_map(static fn(string $code): string => $code . '  —  ' . $choix[$code], $ordre);
+
+        return implode("\n", array_merge(
+            [
+                '#!/bin/sh',
+                '# GLPI Agent ' . $version . ' - fichier unique d installation pour le TAG ' . $tag . ' (Print Gestion).',
+                '# A lancer en root : sudo sh ' . self::getSingleFileName($tag, $version, 'linux'),
+                '# Il telecharge l installeur Perl officiel depuis ce serveur GLPI, verifie son empreinte SHA-256,',
+                '# puis l installe. Aucun mot de passe ici : une URL, un TAG, une empreinte et une cle a usage unique.',
+                '# Cle de telechargement : une seule utilisation, jusqu au ' . $expires . '. Journal : /var/tmp.',
+                'set -u',
+                'if [ "$(id -u)" -ne 0 ]; then',
+                '  echo "A lancer en root : sudo sh $0"',
+                '  exit 1',
+                'fi',
+                '',
+            ],
+            self::buildShellJournalLines('installation', [
+                sprintf('Installation de GLPI Agent %s, preparee par Print Gestion', $version),
+                sprintf('Client : %s   TAG : %s   serveur : %s', $client, $tag, $server),
+            ]),
+            self::buildShellToolLines(),
+            self::buildLinuxUiLines($title, $infos, $steps),
+            self::buildLinuxServiceLines(),
+            [
+                'PG_URL=' . self::shQuote(PluginPrintgestionAgenttoken::getPullURL($token, 'linux')),
+                'PG_SHA=' . self::shQuote(strtolower((string) $installer['sha256'])),
+                'PG_FICHIER="${TMPDIR:-/tmp}/' . $installer['file'] . '"',
+                '',
+                '# ── Premiere page : les questions, toutes ensemble ──',
+                'pg_ips=""',
+                'pg_snmp=""',
+                'pg_freq=""',
+                'pg_maj=' . ($update ? 'oui' : 'non'),
+                'if [ "$pg_gui" = zenity ]; then',
+                '  pg_form=$(pg_zen --forms --width=560 --title="$PG_TITRE" --text="$PG_INFOS_Z" \\',
+                '    --ok-label=' . self::shQuote(__('Installer', 'printgestion')) . ' --cancel-label=' . self::shQuote(__('Annuler', 'printgestion')) . ' --separator="|" \\',
+                '    --add-entry=' . self::shQuote(__('Adresses IP des imprimantes (vide : aucune)', 'printgestion')) . ' \\',
+                '    --add-entry=' . self::shQuote(__('Communauté SNMP (vide : public)', 'printgestion')) . ' \\',
+                // Chaque option finit par une continuation, la dernière comprise : sans elle, la redirection de la ligne
+                // suivante deviendrait une commande à part, et $? vaudrait toujours 0 — « Annuler » lancerait l'installation.
+                '    --add-combo=' . self::shQuote(__('Fréquence des relevés', 'printgestion')) . ' --combo-values=' . self::shQuote(implode('|', $libelles)) . ' \\',
+            ],
+            $update ? [] : [
+                '    --add-combo=' . self::shQuote(__('Mise à jour automatique (1er du mois à 3 h)', 'printgestion')) . ' --combo-values=' . self::shQuote(__('Non', 'printgestion') . '|' . __('Oui', 'printgestion')) . ' \\',
+            ],
+            [
+                '    2>/dev/null)',
+                '  pg_rc=$?',
+                '  case "$pg_rc" in',
+                '    0)',
+                '      pg_ips=$(printf "%s" "$pg_form" | cut -d"|" -f1)',
+                '      pg_snmp=$(printf "%s" "$pg_form" | cut -d"|" -f2)',
+                '      pg_freq=$(printf "%s" "$pg_form" | cut -d"|" -f3 | cut -d" " -f1)',
+            ],
+            $update ? [] : [
+                '      case "$(printf "%s" "$pg_form" | cut -d"|" -f4)" in ' . __('Oui', 'printgestion') . ') pg_maj=oui ;; esac',
+            ],
+            [
+                '      ;;',
+                '    1)',
+                '      pg_journal ' . self::shQuote(__('Installation annulée par le technicien : rien n\'a été installé.', 'printgestion')),
+                '      exit 0',
+                '      ;;',
+                '    *)',
+                '      # Une fenetre qui ne s ouvre pas ne vaut jamais une annulation : on redemande en console.',
+                '      pg_journal "Fenetre indisponible (code $pg_rc) : questions en console"',
+                '      pg_gui=""',
+                '      ;;',
+                '  esac',
+                'fi',
+                'if [ -z "$pg_gui" ]; then',
+                '  printf "%s\\n\\n" "$PG_TITRE"',
+                '  printf "%s\\n\\n" "$PG_INFOS"',
+                '  printf "%s " ' . self::shQuote(__('Installer maintenant ? [O/n]', 'printgestion')),
+                '  read -r pg_rep',
+                '  case "$pg_rep" in',
+                '    [nN]*)',
+                '      pg_journal ' . self::shQuote(__('Installation annulée par le technicien : rien n\'a été installé.', 'printgestion')),
+                '      echo ' . self::shQuote(__('Installation annulée : rien n\'a été installé.', 'printgestion')),
+                '      exit 0',
+                '      ;;',
+                '  esac',
+                '  printf "%s : " ' . self::shQuote(__('Adresses IP des imprimantes (192.168.1.0/24, 192.168.1.30-35, ou une liste ; vide : aucune)', 'printgestion')),
+                '  read -r pg_ips',
+                '  printf "%s [public] : " ' . self::shQuote(__('Communauté SNMP des imprimantes', 'printgestion')),
+                '  read -r pg_snmp',
+                '  printf "%s\\n" ' . self::shQuote(__('Tous les combien les imprimantes sont-elles relevées ?', 'printgestion')),
+            ],
+            array_map(static fn(int $i, string $libelle): string => '  printf "%s\\n" ' . self::shQuote('  ' . ($i + 1) . ') ' . $libelle), array_keys($libelles), $libelles),
+            [
+                '  printf "%s " ' . self::shQuote(__('Numéro [1] :', 'printgestion')),
+                '  read -r pg_num',
+                '  case "${pg_num:-1}" in',
+            ],
+            array_map(static fn(int $i, string $code): string => '    ' . ($i + 1) . ') pg_freq=' . $code . ' ;;', array_keys($ordre), $ordre),
+            [
+                '  esac',
+            ],
+            $update ? [] : [
+                '  printf "%s " ' . self::shQuote(__('Mettre à jour l\'agent automatiquement (1er du mois à 3 h) ? [o/N]', 'printgestion')),
+                '  read -r pg_rep',
+                '  case "$pg_rep" in [oOyY]*) pg_maj=oui ;; esac',
+            ],
+            [
+                'fi',
+                'if [ -z "$pg_snmp" ]; then pg_snmp=public; fi',
+                'if [ -z "$pg_freq" ]; then pg_freq=' . PluginPrintgestionCollectfrequency::INSTALLER_DEFAULT . '; fi',
+                'if [ -n "$pg_ips" ]; then pg_journal "Adresses des imprimantes : $pg_ips"; else pg_journal "Adresses des imprimantes : aucune"; fi',
+                '# Jamais la communaute elle-meme : c est un secret, et ce journal reste dans /var/tmp.',
+                'pg_journal "Communaute SNMP : renseignee (jamais ecrite dans ce journal)"',
+                'pg_journal "Frequence des releves : $pg_freq"',
+                'pg_journal "Mise a jour automatique : $pg_maj"',
+                '',
+                '# ── Le travail, etape par etape. Dans un sous-shell quand la fenetre le suit (elle lit un tube). ──',
+                'pg_travail() {',
+                '  pg_pct 2',
+                '  pg_etape telechargement encours ""',
+                '  if [ "$pg_gui" = zenity ]; then pg_telecharger "$PG_URL" "$PG_FICHIER" >/dev/null 2>&1; else pg_telecharger "$PG_URL" "$PG_FICHIER"; fi',
+                '  if [ "$?" -ne 0 ]; then pg_echec ' . self::shQuote(__('Téléchargement impossible : rien n\'a été installé. Causes habituelles : clé déjà utilisée ou expirée (régénérer le fichier dans GLPI), serveur GLPI injoignable depuis ce poste, certificat HTTPS inconnu, ou ni curl ni wget sur ce poste.', 'printgestion')) . '; fi',
+                '  pg_journal "        recu : $(wc -c < "$PG_FICHIER") octets"',
+                '  pg_etape telechargement ok ""',
+                '  pg_pct 40',
+                '',
+                '  pg_etape empreinte encours ""',
+                '  pg_reelle=$(pg_empreinte "$PG_FICHIER")',
+                '  pg_journal "        attendue : $PG_SHA"',
+                '  pg_journal "        recue    : $pg_reelle"',
+                '  if [ -z "$pg_reelle" ]; then pg_echec ' . self::shQuote(__('Aucun outil d\'empreinte sur ce poste (sha256sum, shasum ou openssl) : rien n\'a été installé, faute de pouvoir vérifier ce qui a été téléchargé.', 'printgestion')) . '; fi',
+                '  if [ "$pg_reelle" != "$PG_SHA" ]; then',
+                '    rm -f "$PG_FICHIER"',
+                '    pg_echec ' . self::shQuote(__('Le fichier téléchargé n\'est pas celui attendu (empreinte différente) : rien n\'a été installé. Prévenir l\'administrateur.', 'printgestion')),
+                '  fi',
+                '  pg_etape empreinte ok ""',
+                '  pg_pct 50',
+                '',
+                '  pg_etape installation encours ""',
+                '  # Reessais SNMP : option absente de l installeur, posee en conf.d pour survivre aux mises a jour.',
+                '  mkdir -p /etc/glpi-agent/conf.d',
+                "  cat > /etc/glpi-agent/conf.d/90-printgestion.cfg <<'PRINTGESTION_EOF'",
+                rtrim(self::buildAgentConfig($tag, false), "\n"),
+                'PRINTGESTION_EOF',
+                '  # Ce que dit l installeur part au journal : c est la qu on le relira en cas d echec.',
+                '  ' . self::buildLinuxCommand('"$PG_FICHIER"', $tag) . ' >> "$PG_JOURNAL" 2>&1',
+                '  PG_RC=$?',
+                '  pg_journal "        code de retour : $PG_RC"',
+                '  if [ "$PG_RC" -ne 0 ]; then',
+                '    pg_echec "' . __('Installation non terminée, code $PG_RC : le détail de l\'installeur est dans le journal.', 'printgestion') . '"',
+                '  fi',
+                '  pg_etape installation ok ""',
+                '  # Un poste installe avant la ToolBox garde peut-etre l ancien scan maison : retire, sinon il scannerait deux fois.',
+                '  for pg_f in ' . PluginPrintgestionAgentsetting::LINUX_SCAN_CRON . ' ' . PluginPrintgestionAgentsetting::LINUX_SCAN_SCRIPT . ' ' . PluginPrintgestionAgentsetting::LINUX_SCAN_OLD . '; do',
+                '    if [ -e "$pg_f" ]; then rm -f "$pg_f"; pg_journal "        ancien scan retire : $pg_f"; fi',
+                '  done',
+                '  pg_pct 70',
+                '',
+                '  pg_maj_ratee=0',
+                '  if [ "$pg_maj" = oui ]; then',
+                '    pg_etape maj encours ""',
+                '    {',
+            ],
+            PluginPrintgestionAgentsetting::buildLinuxScheduleLines(true, $target),
+            [
+                '    } >> "$PG_JOURNAL" 2>&1',
+                '    if [ -x ' . PluginPrintgestionAgentsetting::LINUX_CRON . ' ]; then',
+                '      pg_etape maj ok ' . self::shQuote(__('le 1er du mois à 3 h', 'printgestion')),
+                '    else',
+                '      pg_maj=non',
+                '      pg_maj_ratee=1',
+                '      pg_etape maj echec ' . self::shQuote(__('curl absent de ce poste', 'printgestion')),
+                '    fi',
+                '  else',
+                '    pg_etape maj saute ' . self::shQuote(__('non demandée', 'printgestion')),
+                '  fi',
+                '  pg_pct 78',
+                '',
+            ],
+            self::buildShellContactLines(),
+            ['  pg_pct 88', ''],
+            self::buildShellReportLines($report, '"$pg_maj"'),
+            [
+                '  # ── Resultat : ce qui s est reellement passe, jamais une promesse ──',
+                '  pg_final=' . self::shQuote(sprintf(__('GLPI Agent %s est installé sur ce poste.', 'printgestion'), $version)),
+                '  if [ "$pg_maj" = oui ]; then pg_final="$pg_final¶"' . self::shQuote(__('Mise à jour automatique : posée (le 1er du mois à 3 h).', 'printgestion')) . '; fi',
+                '  if [ "$pg_maj_ratee" = 1 ]; then pg_final="$pg_final¶"' . self::shQuote(__('Mise à jour automatique : non posée (curl absent). L\'agent fonctionne, seule la mise à jour manque.', 'printgestion')) . '; fi',
+                '  pg_final="$pg_final¶¶"',
+                '  if [ "$pg_decouverte" = 1 ]; then',
+                '    pg_final="$pg_final"' . self::shQuote(__('Les imprimantes sont déclarées dans GLPI et la découverte vient de partir : rien d\'autre à faire sur ce poste.', 'printgestion')),
+                '  elif [ "$pg_scan_local" = 1 ]; then',
+                '    pg_final="$pg_final"' . self::shQuote(__('Le scan des imprimantes est confié à la ToolBox de l\'agent, à la cadence choisie : elle envoie elle-même ses résultats à GLPI. Plage, identifiant et tâche se voient et se corrigent sur ce poste, à l\'adresse http://127.0.0.1:62354/toolbox.', 'printgestion')),
+                '  elif [ "$pg_reponse" = NOAGENT ]; then',
+                '    pg_final="$pg_final"' . self::shQuote(__('GLPI ne connaît pas encore cette sonde : les imprimantes n\'ont pas pu lui être confiées. Vérifier que ce poste joint le serveur GLPI, puis raccorder les imprimantes depuis l\'onglet « Déploiement Agent » de l\'entité.', 'printgestion')),
+                '  else',
+                '    pg_final="$pg_final"' . self::shQuote(__('Dernière étape, dans GLPI : onglet « Déploiement Agent » de l\'entité — vérifier que la sonde apparaît, puis raccorder les imprimantes (bloc 3).', 'printgestion')),
+                '  fi',
+                '  pg_journal "Journal de l agent : ' . self::AGENT_LOG_UNIX . '"',
+                '  pg_final="$pg_final¶¶"' . self::shQuote(__('Journal de l\'agent :', 'printgestion') . ' ' . self::AGENT_LOG_UNIX),
+                '  pg_fin OK "$pg_final"',
+                '}',
+                '',
+                'if [ "$pg_gui" = zenity ]; then',
+                '  pg_travail | pg_zen --progress --width=560 --title="$PG_TITRE" --text=" " --percentage=0 --no-cancel >/dev/null 2>&1',
+                'else',
+                '  pg_travail',
+                'fi',
+                'if [ "$(cat "$PG_ETAT" 2>/dev/null)" = OK ]; then exit 0; fi',
+                'exit 1',
+                '',
+            ]
+        ));
+    }
+
+    /**
+     * Fichier unique macOS : un seul .sh qui fait les quatre gestes que le technicien devait faire à la main —
+     * choisir le bon paquet selon la puce, l'installer, déposer local.cfg, relancer le service.
+     *
+     * Il lit la puce avec uname -m et ne télécharge QUE le paquet de cette puce : la clé ouvre les deux (Apple
+     * Silicon et Intel) parce que GLPI ne sait pas, au moment où l'on fabrique le fichier, sur quel Mac il tournera.
+     * Elle ne sert quand même qu'une fois, puisque le Mac n'en télécharge qu'un.
+     *
+     * Aucune question de mise à jour : sur macOS elle est manuelle (réinstaller un paquet plus récent, local.cfg est
+     * gardé). Une case à cocher qui ne ferait rien serait un mensonge.
+     *
+     * @return array ['ok' => bool, 'errors' => string[], 'content', 'filename', 'version', 'tag', 'expires']
+     */
+    public static function buildMacosSingleFile(Entity $entity): array {
+        $blockers = self::getPackageBlockers($entity, 'macos');
+        if (!empty($blockers)) {
+            return ['ok' => false, 'errors' => $blockers];
+        }
+        $installers = [];
+        foreach (self::PLATFORM_ASSETS['macos'] as $asset) {
+            $installers[$asset] = self::getCachedInstaller(true, $asset);
+            if ($installers[$asset] === null) {
+                return ['ok' => false, 'errors' => [__('Paquet macOS absent ou modifié depuis sa vérification : refaites la vérification (page « Installeur GLPI Agent »).', 'printgestion')]];
+            }
+        }
+        $token = PluginPrintgestionAgenttoken::create((int) $entity->getID(), $installers);
+        if ($token === null) {
+            return ['ok' => false, 'errors' => [__('Clé de téléchargement non enregistrée : le fichier unique serait incapable de récupérer l\'agent (détail dans le journal printgestion).', 'printgestion')]];
+        }
+        $tag     = trim((string) $entity->fields['tag']);
+        $version = (string) $installers['macos-arm64']['version'];
+        return [
+            'ok'       => true,
+            'errors'   => [],
+            'content'  => self::buildMacosSingleFileScript($entity, $installers, $tag, $token, (string) PluginPrintgestionAgenttoken::createReport((int) $entity->getID(), $tag, 'macos')),
+            'filename' => self::getSingleFileName($tag, $version, 'macos'),
+            'version'  => $version,
+            'tag'      => $tag,
+            'expires'  => date('Y-m-d H:i:s', time() + PluginPrintgestionAgenttoken::TTL),
+        ];
+    }
+
+    private static function buildMacosSingleFileScript(Entity $entity, array $installers, string $tag, string $token, string $report): string {
+        $version = (string) $installers['macos-arm64']['version'];
+        $expires = date('d/m/Y H:i', time() + PluginPrintgestionAgenttoken::TTL);
+        $size_mb = max(1, (int) round(((int) ($installers['macos-arm64']['size'] ?? 0)) / 1048576));
+        $client  = (string) $entity->fields['completename'];
+        $server  = self::getServerUrl()['url'];
+        $title   = sprintf(__('Installation de GLPI Agent %s', 'printgestion'), $version);
+        $plist   = '/Library/LaunchDaemons/com.teclib.glpi-agent.plist';
+        $infos   = self::dialogInfoLines($client, $tag, $server);
+        $notes   = [
+            sprintf(__('« Installer » télécharge le paquet officiel de ce Mac depuis ce serveur (%d Mo), vérifie son empreinte, l\'installe, puis relance l\'agent.', 'printgestion'), $size_mb),
+            sprintf(__('Clé de téléchargement : une seule utilisation, jusqu\'au %s.', 'printgestion'), $expires),
+        ];
+        $steps = [
+            'telechargement' => __('Téléchargement du paquet officiel', 'printgestion'),
+            'empreinte'      => __('Vérification de l\'empreinte', 'printgestion'),
+            'installation'   => sprintf(__('Installation de GLPI Agent %s', 'printgestion'), $version),
+            'contact'        => __('Premier contact avec GLPI', 'printgestion'),
+            'declaration'    => __('Compte rendu à GLPI', 'printgestion'),
+            'decouverte'     => __('Découverte des imprimantes', 'printgestion'),
+        ];
+        // Les fréquences, celle d'avance en tête : c'est elle que le menu montre à l'ouverture.
+        $choix    = PluginPrintgestionCollectfrequency::getInstallerChoices();
+        $ordre    = array_merge([PluginPrintgestionCollectfrequency::INSTALLER_DEFAULT], array_diff(array_keys($choix), [PluginPrintgestionCollectfrequency::INSTALLER_DEFAULT]));
+        $libelles = array_map(static fn(string $code): string => $code . '  —  ' . $choix[$code], $ordre);
+        $fenetre  = [
+            'fenetre'     => $title,
+            'titre'       => __('Sonde d\'inventaire des imprimantes', 'printgestion'),
+            'sous_titre'  => sprintf(__('GLPI Agent %s — installation préparée par Print Gestion', 'printgestion'), $version),
+            'bande'       => [31, 58, 95],
+            'infos'       => implode("\n", $infos),
+            'message'     => implode("\n", $notes),
+            'formulaire'  => true,
+            'lib_ips'     => __('Adresses IP des imprimantes de ce client', 'printgestion'),
+            'exemple_ips' => '192.168.1.0/24',
+            'aide_ips'    => __('Exemples : 192.168.1.0/24 (tout le réseau), 192.168.1.30-35 (une plage), ou des adresses séparées par des virgules. Laissé vide : rien n\'est créé dans GLPI, le raccordement restera à faire.', 'printgestion'),
+            'lib_snmp'    => __('Communauté SNMP des imprimantes', 'printgestion'),
+            'lib_freq'    => __('Fréquence des relevés', 'printgestion'),
+            'frequences'  => array_values($libelles),
+            'bouton'      => __('Installer', 'printgestion'),
+            'annuler'     => __('Annuler', 'printgestion'),
+            'ouvrir'      => __('Ouvrir le journal', 'printgestion'),
+            'fermer'      => __('Fermer', 'printgestion'),
+            'etapes'      => array_map(null, array_keys($steps), array_values($steps)),
+            'preparation' => __('Préparation…', 'printgestion'),
+            'termine'     => __('Terminé', 'printgestion'),
+            'interrompu'  => __('Interrompu', 'printgestion'),
+            'journal'     => __('Journal :', 'printgestion'),
+        ];
+
+        return implode("\n", array_merge(
+            [
+                '#!/bin/sh',
+                '# GLPI Agent ' . $version . ' - fichier unique d installation pour le TAG ' . $tag . ' (Print Gestion).',
+                '# A lancer en root dans le Terminal : sudo sh ' . self::getSingleFileName($tag, $version, 'macos'),
+                '# Il ouvre une fenetre, lit la puce du Mac, telecharge le paquet officiel signe qui lui correspond depuis',
+                '# ce serveur GLPI, verifie son empreinte SHA-256, l installe, pose local.cfg et relance l agent.',
+                '# Cle de telechargement : une seule utilisation, jusqu au ' . $expires . '. Journal : /var/tmp.',
+                'set -u',
+                'if [ "$(id -u)" -ne 0 ]; then',
+                '  echo "A lancer en root : sudo sh $0"',
+                '  exit 1',
+                'fi',
+                '',
+            ],
+            self::buildShellJournalLines('installation', [
+                sprintf('Installation de GLPI Agent %s, preparee par Print Gestion', $version),
+                sprintf('Client : %s   TAG : %s   serveur : %s', $client, $tag, $server),
+            ]),
+            self::buildShellToolLines(),
+            self::buildMacosUiLines($title, array_merge($infos, [''], $notes), $steps, $fenetre),
+            self::buildMacosServiceLines($plist),
+            [
+                '# Le bon paquet, et lui seul : les paquets sont signes et notarises par Teclib, le mauvais est refuse.',
+                'PG_ARCH=$(uname -m)',
+                'PG_URL=""',
+                'PG_SHA=""',
+                'PG_FICHIER=""',
+                'case "$PG_ARCH" in',
+                '  arm64)',
+                '    PG_URL=' . self::shQuote(PluginPrintgestionAgenttoken::getPullURL($token, 'macos-arm64')),
+                '    PG_SHA=' . self::shQuote(strtolower((string) $installers['macos-arm64']['sha256'])),
+                '    PG_FICHIER="${TMPDIR:-/tmp}/' . $installers['macos-arm64']['file'] . '"',
+                '    ;;',
+                '  x86_64)',
+                '    PG_URL=' . self::shQuote(PluginPrintgestionAgenttoken::getPullURL($token, 'macos-x86_64')),
+                '    PG_SHA=' . self::shQuote(strtolower((string) $installers['macos-x86_64']['sha256'])),
+                '    PG_FICHIER="${TMPDIR:-/tmp}/' . $installers['macos-x86_64']['file'] . '"',
+                '    ;;',
+                'esac',
+                'pg_journal "Processeur : $PG_ARCH"',
+                '',
+                '# ── Premiere page : la fenetre, ou la console si elle ne peut pas s ouvrir ──',
+                'pg_ips=""',
+                'pg_snmp=""',
+                'pg_freq=""',
+                'if pg_fenetre; then',
+                '  if [ "$(head -n 1 "$PG_DIR/reponses")" = annule ]; then',
+                '    pg_journal ' . self::shQuote(__('Installation annulée par le technicien : rien n\'a été installé.', 'printgestion')),
+                '    exit 0',
+                '  fi',
+                '  pg_ips=$(sed -n "s/^ips=//p" "$PG_DIR/reponses")',
+                '  pg_snmp=$(sed -n "s/^snmp=//p" "$PG_DIR/reponses")',
+                '  pg_freq=$(sed -n "s/^freq=//p" "$PG_DIR/reponses")',
+                '  # La communaute SNMP ne reste pas sur le disque plus longtemps que necessaire.',
+                '  rm -f "$PG_DIR/reponses"',
+                'else',
+                '  pg_journal "Fenetre indisponible : questions en console"',
+                '  printf "%s\\n\\n%s\\n\\n" "$PG_TITRE" "$PG_INFOS"',
+                '  printf "%s " ' . self::shQuote(__('Installer maintenant ? [O/n]', 'printgestion')),
+                '  read -r pg_rep',
+                '  case "$pg_rep" in',
+                '    [nN]*)',
+                '      pg_journal ' . self::shQuote(__('Installation annulée par le technicien : rien n\'a été installé.', 'printgestion')),
+                '      echo ' . self::shQuote(__('Installation annulée : rien n\'a été installé.', 'printgestion')),
+                '      exit 0',
+                '      ;;',
+                '  esac',
+                '  printf "%s : " ' . self::shQuote(__('Adresses IP des imprimantes (192.168.1.0/24, 192.168.1.30-35, ou une liste ; vide : aucune)', 'printgestion')),
+                '  read -r pg_ips',
+                '  printf "%s [public] : " ' . self::shQuote(__('Communauté SNMP des imprimantes', 'printgestion')),
+                '  read -r pg_snmp',
+                '  printf "%s\\n" ' . self::shQuote(__('Tous les combien les imprimantes sont-elles relevées ?', 'printgestion')),
+            ],
+            array_map(static fn(int $i, string $libelle): string => '  printf "%s\\n" ' . self::shQuote('  ' . ($i + 1) . ') ' . $libelle), array_keys($libelles), $libelles),
+            [
+                '  printf "%s " ' . self::shQuote(__('Numéro [1] :', 'printgestion')),
+                '  read -r pg_num',
+                '  case "${pg_num:-1}" in',
+            ],
+            array_map(static fn(int $i, string $code): string => '    ' . ($i + 1) . ') pg_freq=' . $code . ' ;;', array_keys($ordre), $ordre),
+            [
+                '  esac',
+                'fi',
+                'if [ -z "$pg_snmp" ]; then pg_snmp=public; fi',
+                'if [ -z "$pg_freq" ]; then pg_freq=' . PluginPrintgestionCollectfrequency::INSTALLER_DEFAULT . '; fi',
+                'if [ -n "$pg_ips" ]; then pg_journal "Adresses des imprimantes : $pg_ips"; else pg_journal "Adresses des imprimantes : aucune"; fi',
+                '# Jamais la communaute elle-meme : c est un secret, et ce journal reste dans /var/tmp.',
+                'pg_journal "Communaute SNMP : renseignee (jamais ecrite dans ce journal)"',
+                'pg_journal "Frequence des releves : $pg_freq"',
+                '',
+                'pg_travail() {',
+                '  pg_pct 2',
+                '  pg_etape telechargement encours ""',
+                '  if [ -z "$PG_URL" ]; then pg_echec "' . __('Processeur inconnu ($PG_ARCH) : ce Mac n\'est ni Apple Silicon ni Intel. Rien n\'a été installé.', 'printgestion') . '"; fi',
+                '  if [ "$pg_gui" = cocoa ]; then pg_telecharger "$PG_URL" "$PG_FICHIER" >/dev/null 2>&1; else pg_telecharger "$PG_URL" "$PG_FICHIER"; fi',
+                '  if [ "$?" -ne 0 ]; then pg_echec ' . self::shQuote(__('Téléchargement impossible : rien n\'a été installé. Causes habituelles : clé déjà utilisée ou expirée (régénérer le fichier dans GLPI), serveur GLPI injoignable depuis ce Mac, ou certificat HTTPS inconnu.', 'printgestion')) . '; fi',
+                '  pg_journal "        recu : $(wc -c < "$PG_FICHIER" | tr -d " ") octets"',
+                '  pg_etape telechargement ok ""',
+                '  pg_pct 40',
+                '',
+                '  pg_etape empreinte encours ""',
+                '  pg_reelle=$(pg_empreinte "$PG_FICHIER")',
+                '  pg_journal "        attendue : $PG_SHA"',
+                '  pg_journal "        recue    : $pg_reelle"',
+                '  if [ -z "$pg_reelle" ]; then pg_echec ' . self::shQuote(__('Aucun outil d\'empreinte sur ce Mac : rien n\'a été installé, faute de pouvoir vérifier ce qui a été téléchargé.', 'printgestion')) . '; fi',
+                '  if [ "$pg_reelle" != "$PG_SHA" ]; then',
+                '    rm -f "$PG_FICHIER"',
+                '    pg_echec ' . self::shQuote(__('Le fichier téléchargé n\'est pas celui attendu (empreinte différente) : rien n\'a été installé. Prévenir l\'administrateur.', 'printgestion')),
+                '  fi',
+                '  pg_etape empreinte ok ""',
+                '  pg_pct 50',
+                '',
+                '  pg_etape installation encours ""',
+                '  # Ce que dit l installeur d Apple part au journal : c est la qu on le relira en cas de refus.',
+                '  if ! installer -pkg "$PG_FICHIER" -target / >> "$PG_JOURNAL" 2>&1; then',
+                '    pg_echec ' . self::shQuote(__('Installation du paquet refusée : rien d\'autre n\'a été fait. Ouvrir Réglages Système > Confidentialité et sécurité, puis relancer.', 'printgestion')),
+                '  fi',
+                '  # local.cfg apres l installation : c est le paquet qui cree /Applications/GLPI-Agent.',
+                '  mkdir -p /Applications/GLPI-Agent/etc/conf.d',
+                "  cat > /Applications/GLPI-Agent/etc/conf.d/local.cfg <<'PRINTGESTION_EOF'",
+                rtrim(self::buildAgentConfig($tag, true), "\n"),
+                'PRINTGESTION_EOF',
+                '  # Relance du service pour qu il relise local.cfg.',
+                '  if ! pg_relancer_agent; then',
+                '    pg_echec ' . self::shQuote(__('Agent installé et configuré, mais le service n\'a pas redémarré : redémarrer le Mac, puis vérifier dans GLPI que la sonde apparaît.', 'printgestion')),
+                '  fi',
+                '  pg_etape installation ok ""',
+                '  pg_pct 72',
+                '',
+            ],
+            self::buildShellContactLines(),
+            ['  pg_pct 88', ''],
+            self::buildShellReportLines($report, 'non'),
+            [
+                '  pg_final=' . self::shQuote(sprintf(__('GLPI Agent %s est installé sur ce Mac.', 'printgestion'), $version)),
+                '  pg_final="$pg_final¶"' . self::shQuote(__('Mise à jour : manuelle sur macOS (relancer un fichier d\'installation plus récent ; la configuration est gardée).', 'printgestion')),
+                '  pg_final="$pg_final¶¶"',
+                '  if [ "$pg_decouverte" = 1 ]; then',
+                '    pg_final="$pg_final"' . self::shQuote(__('Les imprimantes sont déclarées dans GLPI et la découverte vient de partir : rien d\'autre à faire sur ce Mac.', 'printgestion')),
+                '  elif [ "$pg_scan_local" = 1 ]; then',
+                '    pg_final="$pg_final"' . self::shQuote(__('Le scan des imprimantes est confié à la ToolBox de l\'agent, à la cadence choisie : elle envoie elle-même ses résultats à GLPI. Plage, identifiant et tâche se voient et se corrigent sur ce Mac, à l\'adresse http://127.0.0.1:62354/toolbox.', 'printgestion')),
+                '  elif [ "$pg_reponse" = NOAGENT ]; then',
+                '    pg_final="$pg_final"' . self::shQuote(__('GLPI ne connaît pas encore cette sonde : les imprimantes n\'ont pas pu lui être confiées. Vérifier que ce Mac joint le serveur GLPI, puis raccorder les imprimantes depuis l\'onglet « Déploiement Agent » de l\'entité.', 'printgestion')),
+                '  else',
+                '    pg_final="$pg_final"' . self::shQuote(__('Dernière étape, dans GLPI : onglet « Déploiement Agent » de l\'entité — vérifier que la sonde apparaît, puis raccorder les imprimantes (bloc 3).', 'printgestion')),
+                '  fi',
+                '  pg_journal "Journal de l agent : ' . self::AGENT_LOG_UNIX . '"',
+                '  pg_final="$pg_final¶¶"' . self::shQuote(__('Journal de l\'agent :', 'printgestion') . ' ' . self::AGENT_LOG_UNIX),
+                '  pg_fin OK "$pg_final"',
+                '}',
+                '',
+                'pg_travail',
+                'if [ "$(cat "$PG_ETAT" 2>/dev/null)" = OK ]; then exit 0; fi',
+                'exit 1',
+                '',
+            ]
+        ));
+    }
+
     // ── Paquets Linux et macOS ────────────────────────────────────────────────
 
     /**
@@ -656,6 +3631,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
      * amont). $full : serveur, TAG, adresses autorisées et tâches réseau en plus des réessais SNMP (macOS, dont le
      * paquet ne règle que la tâche d'inventaire du poste).
      */
+    /** Journal de l'agent sous Linux et macOS : un fichier que la configuration posée par le plugin lui donne. */
+    const AGENT_LOG_UNIX = '/var/log/glpi-agent.log';
+
     public static function buildAgentConfig(string $tag, bool $full): string {
         $lines = ['# GLPI Agent : configuration posee par Print Gestion pour le TAG ' . $tag . '. Aucun identifiant ni secret.'];
         if ($full) {
@@ -666,13 +3644,18 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         }
         $lines[] = '# Un paquet SNMP perdu ne fait plus disparaitre les consommables d un releve (0 par defaut).';
         $lines[] = 'snmp-retries = ' . self::SNMP_RETRIES;
+        $lines[] = '# Journal de l agent dans un fichier, pour relire ce qu il a fait : 4 Mo au plus, comme le MSI sous Windows.';
+        $lines[] = 'logger = file';
+        $lines[] = 'logfile = ' . self::AGENT_LOG_UNIX;
+        $lines[] = 'logfile-maxsize = 4';
         return implode("\n", $lines) . "\n";
     }
 
     /** Commande de l'installeur Linux officiel, sans question : réglages passés en options (valeurs contrôlées en amont). */
     public static function buildLinuxCommand(string $installer, string $tag): string {
+        // --silent pour la même raison que /qn sous Windows : tout est passé en options, il ne reste rien à demander.
         return sprintf(
-            'perl %s --install --type=network --server="%s" --tag="%s" --httpd-trust="%s" --runnow',
+            'perl %s --install --silent --type=network --server="%s" --tag="%s" --httpd-trust="%s" --runnow',
             $installer,
             self::getServerUrl()['url'],
             $tag,
@@ -738,7 +3721,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $folder  = sprintf('GLPI-Agent-%s-linux-%s', $version, $tag);
         $config  = PluginPrintgestionConfig::getInstance()->fields;
         $update  = (int) ($config['agent_update_default'] ?? 1) === 1;
-        $target  = trim((string) ($config['agent_update_target'] ?? ''));
+        // Une seule version pour tout : celle que ce serveur distribue est aussi celle que les sondes visent.
+        $target  = PluginPrintgestionAgentsetting::getTargetVersion();
         $readme  = implode("\n", [
             sprintf(__('Installation de GLPI Agent %1$s pour Linux — %2$s (TAG : %3$s)', 'printgestion'), $version, (string) $entity->fields['completename'], $tag),
             sprintf(__('Paquet généré par Print Gestion le %1$s par %2$s.', 'printgestion'), Html::convDateTime(date('Y-m-d H:i:s')), getUserName((int) Session::getLoginUserID())),
@@ -1260,7 +4244,12 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             $blockers[$platform] = self::getPackageBlockers($entity, $platform);
         }
         echo "<div class='card mb-3'><div class='card-header d-flex align-items-center'><h3 class='card-title mb-0'>" . $esc(__('2. Télécharger l\'installeur', 'printgestion')) . "</h3>"
-            . "<div class='ms-auto'>" . PluginPrintgestionUi::infoButton(__('Contenu des paquets d\'installation', 'printgestion'), $admin ? self::getPackageDetailsHtml($tag, $version) : '') . "</div></div><div class='card-body'>";
+            // Panneau replié : « comment lancer » pour tout le monde (il n'y a plus de LISEZMOI dans une archive,
+            // puisqu'il n'y a plus d'archive), le détail technique et les archives de recours pour l'administrateur.
+            . "<div class='ms-auto'>" . PluginPrintgestionUi::infoButton(
+                __('Comment lancer le fichier téléchargé', 'printgestion'),
+                self::getLaunchHelpHtml() . ($admin ? self::getPackageDetailsHtml($tag, $version, $id) : '')
+            ) . "</div></div><div class='card-body'>";
         $attachment   = self::getDeployBlockers($entity);
         $all_blockers = array_values(array_diff(array_unique(array_merge(...array_values($blockers))), $attachment));
         $list         = static fn(array $items) => "<ul class='mb-0'>" . implode('', array_map(static fn(string $b) => '<li>' . $esc($b) . '</li>', $items)) . "</ul>";
@@ -1282,6 +4271,15 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             } else {
                 echo "<button type='button' class='btn {$class}' disabled><i class='ti {$icons[$platform]} me-1'></i>" . $esc($label) . "</button>";
             }
+        }
+        echo "</div>";
+
+        // Retirer une sonde : au même endroit que ce qui l'installe, mais en retrait — c'est le geste rare.
+        echo "<div class='d-flex flex-wrap align-items-center gap-2 mb-2'><span class='text-muted small'>"
+            . $esc(__('Retirer l\'agent d\'un PC :', 'printgestion')) . "</span>";
+        foreach ($platforms as $platform => $label) {
+            echo "<a class='btn btn-sm btn-outline-danger' href='" . $esc(self::getDownloadURL($id, self::REMOVE_OS[$platform])) . "'>"
+                . "<i class='ti {$icons[$platform]} me-1'></i>" . $esc($label) . "</a>";
         }
         echo "</div>";
 
@@ -1353,10 +4351,47 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     }
 
     /** Contenu technique des paquets (fenêtre « i » de l'administrateur) : commandes, propriétés, procédures. */
-    private static function getPackageDetailsHtml(string $tag, string $version): string {
+    /**
+     * Comment lancer le fichier téléchargé — visible par le technicien, donc sans numéro de version, sans nom de
+     * fichier (il porte la version) et sans détail technique. « Glisser le fichier dans le terminal » évite d'avoir
+     * à taper un chemin, et reste vrai quel que soit le dossier de téléchargement.
+     */
+    private static function getLaunchHelpHtml(): string {
+        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        return "<p class='mb-1'>" . $esc(__('Un seul fichier à lancer par système, sur le PC qui servira de sonde (allumé en permanence, sur le réseau des imprimantes). Une fenêtre s\'ouvre et rappelle le client : rien à saisir.', 'printgestion')) . "</p>"
+            . "<ul class='mb-2'>"
+            . "<li>" . $esc(__('Windows : clic droit sur le fichier téléchargé > Exécuter en tant qu\'administrateur.', 'printgestion')) . "</li>"
+            . "<li>" . $esc(__('Linux : dans un terminal, taper « sudo sh » puis glisser le fichier téléchargé dans la fenêtre du terminal, et valider.', 'printgestion')) . "</li>"
+            . "<li>" . $esc(__('macOS : ouvrir Terminal (Applications > Utilitaires), taper « sudo sh » puis glisser le fichier téléchargé dans la fenêtre, et valider. Le mot de passe administrateur du Mac est demandé.', 'printgestion')) . "</li>"
+            . "</ul>"
+            . "<p class='mb-3'>" . $esc(__('Le fichier va chercher l\'agent officiel sur ce serveur GLPI avec une clé qui ne vaut qu\'une fois et qu\'un jour : le télécharger au moment de partir, et le régénérer ici s\'il a déjà servi ou si le téléchargement a été interrompu. Ensuite, dans GLPI : vérifier que la sonde apparaît, puis raccorder les imprimantes (bloc 3) avant de partir.', 'printgestion')) . "</p>";
+    }
+
+    private static function getPackageDetailsHtml(string $tag, string $version, int $entities_id = 0): string {
         $esc  = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        $html = "<p>" . $esc(sprintf(__('GLPI Agent %s. Le paquet ne contient que l\'adresse du serveur GLPI et le TAG : aucun identifiant, aucun secret.', 'printgestion'), $version)) . "</p>"
-            . "<p class='small'>" . $esc(__('Windows : ZIP avec le MSI officiel servi par ce serveur et deux gestes séparés, à lancer en administrateur : 1-installer-glpi-agent.bat ne fait que lancer le MSI avec ses propriétés (assistant prérempli) ; 2-facultatif-mise-a-jour-automatique.bat, fourni si la mise à jour automatique est activée, pose seulement la tâche planifiée de mise à jour. Linux : archive .tar.gz avec l\'installeur Perl officiel et installer-glpi-agent.sh à lancer avec sudo. macOS : ZIP avec les deux paquets officiels signés et le fichier local.cfg ; mise à jour manuelle.', 'printgestion')) . "</p>";
+        $html = "<div class='fw-bold mb-1'>" . $esc(__('Ce que contient le fichier unique', 'printgestion')) . "</div>"
+            . "<p class='small'>" . $esc(sprintf(__('GLPI Agent %s. Le fichier porte l\'adresse du serveur GLPI, le TAG, l\'empreinte SHA-256 attendue et une clé de récupération à usage unique valable 24 h : aucun identifiant, aucun mot de passe. Il télécharge l\'installeur officiel de Teclib\' depuis ce serveur, refuse d\'installer quoi que ce soit si l\'empreinte diffère, puis l\'installe avec les propriétés ci-dessous. C\'est le seul livrable du plugin qui porte un secret : il se donne au technicien pour l\'intervention, il ne s\'archive pas.', 'printgestion'), $version)) . "</p>"
+            . "<p class='small'>" . $esc(__('Windows : un .bat dont la seconde moitié est du PowerShell (fenêtre WinForms) ; la mise à jour automatique est une case à cocher, décochée. Linux : un .sh (fenêtre zenity si le poste en a une, question en console sinon) qui pose aussi les réessais SNMP en conf.d et la tâche cron mensuelle si on l\'a voulu. macOS : un .sh qui lit la puce du Mac, ne télécharge que le paquet correspondant, l\'installe, dépose local.cfg et relance le service ; mise à jour manuelle.', 'printgestion')) . "</p>";
+        if ($entities_id > 0) {
+            // Recours quand l'antivirus d'un client refuse les scripts : les archives complètes, qui ne portent aucun
+            // secret mais demandent d'extraire un dossier. Rangées ici, pas dans l'écran : ce n'est plus le chemin normal.
+            $cles  = PluginPrintgestionAgenttoken::countActive($entities_id);
+            $html .= "<div class='fw-bold mt-3 mb-1'>" . $esc(__('Recours : archives complètes, sans clé', 'printgestion')) . "</div>"
+                . "<p class='small mb-1'>" . $esc(__('L\'installeur officiel est dans l\'archive : rien à télécharger depuis le PC, aucune clé, mais un dossier à extraire et un fichier à lancer dedans. À prendre si l\'antivirus du client refuse les scripts.', 'printgestion')) . "</p>"
+                . "<div class='d-flex flex-wrap gap-2 mb-2'>";
+            foreach (self::ARCHIVE_OS as $platform => $os) {
+                $html .= "<a class='btn btn-sm btn-outline-secondary' href='" . $esc(self::getDownloadURL($entities_id, $os)) . "'>"
+                    . $esc(sprintf(__('%s (archive)', 'printgestion'), self::getPlatforms()[$platform])) . "</a>";
+            }
+            $html .= "</div>";
+            if ($cles > 0) {
+                // Une clé déjà émise continue d'ouvrir jusqu'à son heure : le dire évite d'en semer sans le savoir.
+                $html .= "<p class='small mb-0'>" . $esc(sprintf(
+                    _n('%d clé déjà émise pour ce client est encore valable.', '%d clés déjà émises pour ce client sont encore valables.', $cles, 'printgestion'),
+                    $cles
+                )) . "</p>";
+            }
+        }
         if ($tag === '' || !self::isValidTag($tag)) {
             return $html . "<p class='text-danger'>" . $esc(__('Commandes non affichées : TAG de l\'entité absent ou invalide.', 'printgestion')) . "</p>";
         }
@@ -1368,9 +4403,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'SNMP_RETRIES' => __('Un paquet SNMP perdu ne fait plus disparaître les consommables d\'un relevé (0 par défaut).', 'printgestion'),
             'RUNNOW'       => __('Premier inventaire aussitôt l\'installation terminée.', 'printgestion'),
             'EXECMODE'     => __('Agent installé comme service Windows.', 'printgestion'),
-            'QUICKINSTALL' => __('Assistant sans les écrans de configuration détaillée.', 'printgestion'),
+            'QUICKINSTALL' => __('Installation directe, sans les écrans de configuration détaillée (l\'installation est muette de toute façon : /qn).', 'printgestion'),
         ];
-        $html .= "<div class='fw-bold mt-3 mb-1'>" . $esc(__('Windows : commande lancée par 1-installer-glpi-agent.bat', 'printgestion')) . "</div>"
+        $html .= "<div class='fw-bold mt-3 mb-1'>" . $esc(sprintf(__('Windows : commande lancée par %s', 'printgestion'), self::WINDOWS_INSTALL_BAT)) . "</div>"
             . "<pre class='mb-2' style='white-space:pre-wrap'>" . $esc(self::buildWindowsCommand(self::getMsiName($version), $tag)) . "</pre>"
             . "<div class='table-responsive'><table class='table table-sm'><thead><tr><th>" . $esc(__('Propriété', 'printgestion')) . "</th><th>" . $esc(__('Valeur', 'printgestion')) . "</th><th>" . $esc(__('Pourquoi', 'printgestion')) . "</th></tr></thead><tbody>";
         foreach (self::getWindowsProperties($tag) as $name => $value) {
@@ -1466,26 +4501,43 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         echo "<li>" . $esc(__('Fonctions (ADDLOCAL), réessais SNMP, mode :', 'printgestion')) . " <code>" . $esc(self::ADDLOCAL) . "</code>, <code>SNMP_RETRIES=" . (int) self::SNMP_RETRIES . "</code>, <code>RUNNOW=1 EXECMODE=1 QUICKINSTALL=1</code></li>";
         echo "<li>" . $esc(__('Linux et macOS : mêmes réglages, en options de l\'installeur Linux (--type=network) et dans conf.d, ou dans local.cfg sur macOS (tasks = inventory,netdiscovery,netinventory ; snmp-retries = 2).', 'printgestion')) . "</li>";
         echo "</ul>";
-        echo "<p class='text-muted small'>" . $esc(__('Le serveur GLPI ne peut réveiller une sonde (statut, inventaire à la demande) que s\'il la joint sur son port 62354 : impossible derrière le NAT d\'un client, sauf VPN. L\'accès depuis le poste lui-même (127.0.0.1) reste toujours ouvert.', 'printgestion'))
+        echo "<p class='text-muted small'>" . $esc(__('La sonde appelle GLPI d\'elle-même, et GLPI lui rend à ce moment-là les tâches à exécuter : une découverte préparée part donc seule, derrière la box d\'un client, sans VPN. Seul le sens inverse est fermé — réveiller une sonde (statut, inventaire à la demande) suppose de la joindre sur son port 62354. Ce qu\'on y perd n\'est pas la commande, c\'est l\'attente : au plus tard un intervalle d\'inventaire. L\'accès depuis le poste lui-même (127.0.0.1) reste toujours ouvert.', 'printgestion'))
             . ($resolved !== '' && $resolved !== $host ? ' ' . $esc(sprintf(__('Adresse du serveur GLPI selon le DNS : %s.', 'printgestion'), $resolved)) : '') . "</p>";
+        // Avertissement hors du formulaire : pleine largeur, il couperait la grille en deux s'il était dedans.
+        echo PluginPrintgestionAgentsetting::getServedVersionWarning();
         if ($can_edit) {
-            echo "<form method='post' action='" . $esc($page) . "' class='row g-3 align-items-end'>";
-            echo "<div class='col-md-3'><label class='form-label'>" . $esc(__('Version épinglée (vide : dernière vérifiée)', 'printgestion')) . "</label>"
-                . "<input type='text' class='form-control' name='agent_version' value='" . $esc($config->fields['agent_version'] ?? '') . "' placeholder='" . $esc(self::DEFAULT_VERSION) . "'></div>";
+            // Alignement par le haut : ce sont les étiquettes qui doivent se répondre d'une colonne à l'autre, pas
+            // les champs — une aide plus longue que les autres décalait tout le reste vers le bas.
+            echo "<form method='post' action='" . $esc($page) . "' class='row g-3 align-items-start'>";
+            // « Version épinglée (vide : dernière vérifiée) » était faux : vide, c'est la version de référence du
+            // plugin, pas la dernière publiée. Et c'est ce champ qui décide du fichier que le serveur distribue.
+            echo "<div class='col-md-4'><label class='form-label'>" . $esc(__('Version des agents', 'printgestion')) . "</label>"
+                . PluginPrintgestionAgentsetting::versionField('agent_version', trim((string) ($config->fields['agent_version'] ?? '')), sprintf(__('%s (référence du plugin)', 'printgestion'), self::DEFAULT_VERSION))
+                . "<div class='form-hint'>" . $esc(__('Distribuée aux nouvelles sondes, et visée par les mises à jour des autres. À récupérer ci-dessous après changement.', 'printgestion')) . "</div></div>";
+            PluginPrintgestionAgentsetting::showLatestVersionColumn(true, 'col-md-4');
+            PluginPrintgestionAgentsetting::showUpdateRuleColumn(true, 'col-md-4');
             // Adresse du serveur : déduite de l'URL de l'application, affichée, jamais saisie ici.
-            echo "<div class='col-md-5'><label class='form-label'>" . $esc(__('Adresse du serveur donnée aux agents (déduite)', 'printgestion')) . "</label>"
+            echo "<div class='col-md-6'><label class='form-label'>" . $esc(__('Adresse du serveur donnée aux agents (déduite)', 'printgestion')) . "</label>"
                 . "<div><code>" . $esc($server['url'] !== '' ? $server['url'] : '—') . "</code> <a href='" . $esc(Config::getFormURL()) . "' class='small'>" . $esc(__('Configuration → Générale, « URL de l\'application »', 'printgestion')) . "</a></div></div>";
-            echo "<div class='col-md-4'><label class='form-label'>" . $esc(__('Adresses autorisées en plus du poste (IPv4, CIDR)', 'printgestion')) . "</label>"
+            echo "<div class='col-md-6'><label class='form-label'>" . $esc(__('Adresses autorisées en plus du poste (IPv4, CIDR)', 'printgestion')) . "</label>"
                 . "<input type='text' class='form-control' name='agent_httpd_trust' value='" . $esc($config->fields['agent_httpd_trust'] ?? '') . "' placeholder='203.0.113.10'></div>";
+            PluginPrintgestionAgentsetting::showManualVersionColumn('col-md-6');
             echo "<div class='col-12'><button type='submit' data-pg-submit-once='1' name='save_settings' value='1' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button></div>";
             Html::closeForm();
+        } else {
+            echo "<div class='row g-3 align-items-start'>";
+            PluginPrintgestionAgentsetting::showLatestVersionColumn(false, 'col-md-4');
+            PluginPrintgestionAgentsetting::showUpdateRuleColumn(false, 'col-md-8');
+            echo "</div>";
+        }
+        echo "<p class='text-muted small mt-3 mb-0'>" . $esc(PluginPrintgestionAgentsetting::getUpdateNotice()) . "</p>";
+        // Statut GLPI des PC sondes : un réglage, donc ici avec les autres, et non au milieu de l'écran de
+        // consultation des sondes. Hors du formulaire ci-dessus : un <form> dans un <form> n'existe pas.
+        if ($can_edit) {
+            echo "<hr class='my-3'>";
+            PluginPrintgestionAgentsetting::showProbeStateForm($page);
         }
         $params_html = (string) ob_get_clean();
-
-        // Dernière version de GLPI Agent et mise à jour automatique des nouveaux paquets.
-        ob_start();
-        PluginPrintgestionAgentsetting::showDefaultsCard($can_edit, $page, true);
-        $defaults_html = (string) ob_get_clean();
 
         // Prérequis communs à tous les clients.
         $rule          = self::getTagRuleStatus();
@@ -1526,8 +4578,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             echo "<div data-pg-admin='1'>" . PluginPrintgestionUi::statusLine('warning', sprintf(__('Nouvelle version de GLPI Agent disponible : %1$s (servie : %2$s)', 'printgestion'), $latest['version'], $version)) . "</div>";
         }
         echo "</div></div>";
-        echo PluginPrintgestionUi::adminCard(__('Paramètres transmis à l\'installation', 'printgestion'), $params_html);
-        echo PluginPrintgestionUi::adminCard(__('Dernière version, mise à jour automatique et PC sondes', 'printgestion'), $defaults_html);
+        // Toujours dépliée : ce sont des réglages qu'on vient changer, pas un détail qu'on consulte.
+        echo PluginPrintgestionUi::adminCard(__('Paramètres transmis à l\'installation', 'printgestion'), $params_html, false);
 
         $prerequisites_ok = $inventory_on && empty($inventory['blocking']) && $rule['active'] !== null && $with_tag > 0;
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Prérequis', 'printgestion')) . "</h3></div><div class='card-body'>";

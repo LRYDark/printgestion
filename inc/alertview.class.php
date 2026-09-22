@@ -26,6 +26,15 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
     /** Cache GLPI : date de la dernière action qui a rendu la vue périmée. */
     const STALE_KEY = 'plugin_printgestion_alertview_stale';
 
+    /**
+     * Icône de l'itemtype, reprise par GLPI dans les listes, les en-têtes et les onglets. Écran des alertes toner : ce qui demande une décision.
+     *
+     * Sans elle, GLPI retombe sur l'icône par défaut de CommonDBTM, qui ne montre rien.
+     */
+    static function getIcon() {
+        return 'ti ti-alert-triangle';
+    }
+
     static function getTypeName($nb = 0) {
         return _n('Alerte toner', 'Alertes toner', $nb, 'printgestion');
     }
@@ -84,7 +93,7 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
 
     static function uninstall(Migration $migration) {
         global $DB;
-        $DB->doQuery("DROP TABLE IF EXISTS `" . self::getTable() . "`");
+        $DB->dropTable(self::getTable(), true);
         return true;
     }
 
@@ -116,7 +125,7 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
         $now  = $_SESSION['glpi_currenttime'] ?? $started;
 
         if ($ids === null) {
-            $DB->doQuery("TRUNCATE TABLE `$table`");
+            $DB->truncate($table);
         } else {
             $DB->delete($table, ['printers_id' => $ids]);
         }

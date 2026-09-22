@@ -281,8 +281,14 @@ Pour chaque client :
    système du PC sonde (Windows, Linux ou macOS).
 3. Sur place : suivre `LISEZMOI.txt`, puis vérifier dans l'onglet que l'agent apparaît avec un contact récent et la
    collecte réseau installée. Page « Sondes » : « Marquer ce PC comme sonde ».
-   - Windows : extraire, clic droit sur `1-installer-glpi-agent.bat` → Exécuter en tant qu'administrateur,
-     assistant, attendre le message final. Étape 2 facultative, geste séparé : `2-facultatif-mise-a-jour-automatique.bat`
+   - Les trois boutons (Windows, Linux, macOS) servent **un seul fichier**, rien à extraire ; une fenêtre s'ouvre,
+     « Installer » fait le reste. Windows : clic droit → Exécuter en tant qu'administrateur. Linux et macOS : dans un
+     terminal, taper `sudo sh` puis glisser le fichier téléchargé dans la fenêtre. Chaque fichier contient une clé
+     valable **une seule fois et 24 h** : le régénérer dans GLPI s'il a déjà servi, s'il a plus d'un jour, ou si le
+     téléchargement a été interrompu.
+   - Recours si l'antivirus du client refuse les scripts : archives complètes (sans clé), dans le panneau replié
+     « Comment lancer le fichier téléchargé ». Windows : extraire, clic droit sur `INSTALLER-GLPI-AGENT.bat` (seul fichier à lancer) → Exécuter en tant qu'administrateur,
+     assistant, attendre le message final. Il demande ensuite s'il faut poser la mise à jour automatique (20 s, non par défaut)
      en administrateur pose la mise à jour automatique. Sautée ou bloquée par l'antivirus : l'agent fonctionne mais ne
      se met plus à jour seul ; décocher « Mise à jour automatique » sur la sonde (page « Sondes »).
    - Linux : `tar -xzf GLPI-Agent-…-linux-<TAG>.tar.gz`, `cd` dans le dossier, `sudo sh installer-glpi-agent.sh`.

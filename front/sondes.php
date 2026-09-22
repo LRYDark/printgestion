@@ -30,12 +30,11 @@ if (!empty($source['id'])) {
 if ($is_post) {
     // Jeton CSRF déjà validé par CheckCsrfListener avant ce fichier.
     Session::checkRight('plugin_printgestion_deploiement', UPDATE);
-    if ($agent === null || (!isset($_POST['save_agent_settings']) && !isset($_POST['mark_probe_host']))) {
+    // Une seule action de sonde reste ici : marquer le PC. Le reste est devenu un fichier à lancer sur le PC.
+    if ($agent === null || !isset($_POST['mark_probe_host'])) {
         throw new NotFoundHttpException();
     }
-    $result = isset($_POST['mark_probe_host'])
-        ? PluginPrintgestionAgentsetting::markProbeHost($agent)
-        : PluginPrintgestionAgentsetting::saveForAgent($agent, $_POST);
+    $result = PluginPrintgestionAgentsetting::markProbeHost($agent);
     Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : ERROR);
     Html::back();
 }

@@ -33,12 +33,37 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
     /** Tâche planifiée posée sur le PC sonde. */
     const TASK_NAME = 'GLPI Agent - mise a jour (Print Gestion)';
 
+    /**
+     * Les trois actions d'une consigne, portées par l'URL du bouton : poser la tâche, la retirer, ou mettre à jour
+     * tout de suite sans rien changer à l'automatisation. Aucune n'est un réglage stocké — le bouton dit ce qu'il
+     * fabrique, et rien dans GLPI ne peut diverger de ce que le PC a reçu.
+     */
+    const ACTION_POSER      = '1';
+    const ACTION_RETIRER    = '0';
+    const ACTION_MAINTENANT = 'now';
+
     /** Script de mise à jour posé sur le PC sonde, dans %ProgramData%\PrintGestion. */
     const UPDATE_SCRIPT = 'glpi-agent-update.cmd';
+
+    /** Tâche du scan local des imprimantes, posée seulement quand GLPI Inventory est absent (chantier du scan). */
+    const SCAN_TASK_NAME = 'GLPI Agent - scan imprimantes (Print Gestion)';
+
+    /**
+     * Le scan Linux : un script, et une ligne de cron.d qui porte la cadence.
+     *
+     * cron.d et non cron.daily : lui seul sait dire « toutes les 3 heures » ou « le 1er du mois ». L'ancien chemin
+     * reste connu du fichier de retrait, pour les postes installés avant ce changement.
+     */
+    const LINUX_SCAN_SCRIPT = '/usr/local/sbin/glpi-agent-printgestion-scan';
+    const LINUX_SCAN_CRON   = '/etc/cron.d/printgestion-scan';
+    const LINUX_SCAN_OLD    = '/etc/cron.daily/glpi-agent-printgestion-scan';
 
     /** Tâche cron mensuelle posée sur le PC sonde Linux, et son journal. */
     const LINUX_CRON = '/etc/cron.monthly/glpi-agent-printgestion';
     const LINUX_LOG  = '/var/log/glpi-agent-printgestion-update.log';
+
+    /** Journal du scan local. En constante, pour que le fichier de retrait sache l'effacer lui aussi. */
+    const LINUX_SCAN_LOG = '/var/log/glpi-agent-printgestion-scan.log';
 
     static function getTypeName($nb = 0) {
         return _n('Sonde', 'Sondes', $nb, 'printgestion');
@@ -48,8 +73,18 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         return PLUGIN_PRINTGESTION_WEBDIR . '/front/sondes.php' . ($agents_id !== null ? '?id=' . $agents_id : '');
     }
 
-    public static function getConsigneURL(int $agents_id, string $os = 'windows'): string {
-        return PLUGIN_PRINTGESTION_WEBDIR . '/front/sonde.consigne.php?agents_id=' . $agents_id . '&os=' . rawurlencode($os);
+    /**
+     * URL du fichier de consigne. L'intention est dans l'URL, pas dans un réglage stocké : le bouton dit ce qu'il
+     * fabrique, et rien ne peut diverger entre ce que GLPI affiche et ce que le fichier fera.
+     */
+    public static function getConsigneURL(int $agents_id, string $os = 'windows', string $action = self::ACTION_POSER): string {
+        return PLUGIN_PRINTGESTION_WEBDIR . '/front/sonde.consigne.php?agents_id=' . $agents_id
+            . '&os=' . rawurlencode($os) . '&maj=' . rawurlencode($action);
+    }
+
+    /** Vrai si cette action est connue : la route refuse tout le reste plutôt que de deviner. */
+    public static function isConsigneAction(string $action): bool {
+        return in_array($action, [self::ACTION_POSER, self::ACTION_RETIRER, self::ACTION_MAINTENANT], true);
     }
 
     private static function now(): string {
@@ -85,6 +120,103 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         return (bool) preg_match('/^\d+\.\d+(\.\d+)?$/', $version);
     }
 
+    /** Mémo des versions publiées, dans la configuration GLPI du plugin (pas de colonne, donc pas de schéma). */
+    const VERSIONS_CONTEXT = 'plugin:printgestion';
+    const VERSIONS_KEY     = 'agent_published_versions';
+    const VERSIONS_AT      = 'agent_published_versions_at';
+
+    /** Durée de validité du mémo : un jour. Une release de plus attend le lendemain, ou le bouton « Vérifier ». */
+    const VERSIONS_TTL = DAY_TIMESTAMP;
+
+    /** Nombre de versions gardées : de quoi revenir en arrière, pas un historique. */
+    const VERSIONS_KEPT = 10;
+
+    /**
+     * Versions publiées de GLPI Agent, de la plus récente à la plus ancienne, pour les menus déroulants.
+     *
+     * Elles viennent de GitHub, pas du cache des fichiers : le cache n'en garde qu'une seule (récupérer une version
+     * efface la précédente), une liste des fichiers téléchargés n'aurait donc qu'une ligne.
+     *
+     * $refresh force la lecture ; sinon le mémo d'un jour suffit. Liste vide : GitHub n'a jamais répondu — l'écran
+     * repasse alors en champ libre plutôt que d'afficher un menu vide.
+     *
+     * @return string[]
+     */
+    public static function getPublishedVersions(bool $refresh = false): array {
+        $memo = Config::getConfigurationValues(self::VERSIONS_CONTEXT, [self::VERSIONS_KEY, self::VERSIONS_AT]);
+        $list = json_decode((string) ($memo[self::VERSIONS_KEY] ?? ''), true);
+        $list = is_array($list) ? array_values(array_filter($list, static fn($v) => is_string($v) && self::isValidVersion($v))) : [];
+        $age  = (int) ($memo[self::VERSIONS_AT] ?? 0);
+        // Une tentative par jour, succès ou échec : sans cette borne, un serveur sans accès à GitHub attendrait dix
+        // secondes de connexion à chaque affichage de la page. Le bouton « Vérifier sur GitHub » force la lecture.
+        if (!$refresh && $age > time() - self::VERSIONS_TTL) {
+            return $list;
+        }
+
+        try {
+            $client   = Toolbox::getGuzzleClient(['timeout' => 30, 'connect_timeout' => 10]);
+            $response = $client->request('GET', sprintf('https://api.github.com/repos/%s/releases?per_page=30', PluginPrintgestionAgentdeploy::REPOSITORY), [
+                'headers' => ['User-Agent' => 'GLPI-printgestion', 'Accept' => 'application/vnd.github+json'],
+            ]);
+            $releases = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::warning('agentsetting', 'Liste des versions de GLPI Agent non lue sur GitHub.', $e);
+            // L'heure est notée même en échec : on ne réessaie pas avant demain. Le mémo précédent, même périmé,
+            // vaut mieux que rien.
+            Config::setConfigurationValues(self::VERSIONS_CONTEXT, [self::VERSIONS_AT => (string) time()]);
+            return $list;
+        }
+
+        $found = [];
+        foreach (is_array($releases) ? $releases : [] as $release) {
+            if (!empty($release['prerelease']) || !empty($release['draft'])) {
+                continue;
+            }
+            $version = ltrim(trim((string) ($release['tag_name'] ?? '')), 'v');
+            if (self::isValidVersion($version) && !in_array($version, $found, true)) {
+                $found[] = $version;
+            }
+        }
+        if ($found === []) {
+            Config::setConfigurationValues(self::VERSIONS_CONTEXT, [self::VERSIONS_AT => (string) time()]);
+            return $list;
+        }
+        usort($found, static fn(string $a, string $b) => version_compare($b, $a));
+        $found = array_slice($found, 0, self::VERSIONS_KEPT);
+        Config::setConfigurationValues(self::VERSIONS_CONTEXT, [
+            self::VERSIONS_KEY => json_encode($found),
+            self::VERSIONS_AT  => (string) time(),
+        ]);
+        return $found;
+    }
+
+    /**
+     * Menu déroulant d'une version, ou champ libre si aucune liste n'a jamais pu être récupérée.
+     *
+     * La valeur déjà réglée est toujours proposée, même absente de la liste : un menu qui perd en silence un
+     * épinglage volontaire (ou une version retirée de GitHub) ferait basculer tout un parc sans le dire.
+     *
+     * @param string $vide libellé de l'option vide : les deux champs n'ont pas le même « rien »
+     */
+    public static function versionField(string $name, string $value, string $vide): string {
+        $versions = self::getPublishedVersions();
+        if ($versions === []) {
+            return "<input type='text' class='form-control' name='" . $name . "' maxlength='20' value='"
+                . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . "' placeholder='" . htmlspecialchars(PluginPrintgestionAgentdeploy::DEFAULT_VERSION, ENT_QUOTES, 'UTF-8') . "'>"
+                . "<div class='form-hint'>" . htmlspecialchars(__('Liste des versions publiées non récupérée (GitHub injoignable) : saisie libre.', 'printgestion'), ENT_QUOTES, 'UTF-8') . "</div>";
+        }
+        if ($value !== '' && !in_array($value, $versions, true)) {
+            array_unshift($versions, $value);
+        }
+        $html = "<select class='form-select' name='" . $name . "'>";
+        $html .= "<option value=''>" . htmlspecialchars($vide, ENT_QUOTES, 'UTF-8') . "</option>";
+        foreach ($versions as $version) {
+            $html .= "<option value='" . htmlspecialchars($version, ENT_QUOTES, 'UTF-8') . "'"
+                . ($version === $value ? ' selected' : '') . ">" . htmlspecialchars($version, ENT_QUOTES, 'UTF-8') . "</option>";
+        }
+        return $html . "</select>";
+    }
+
     /**
      * Dernière release publiée de GLPI Agent sur GitHub (ni brouillon ni préversion). Enregistrée, sauf si une
      * version a été saisie à la main : elle est alors seulement signalée.
@@ -106,6 +238,9 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         if (!self::isValidVersion($version) || !empty($release['prerelease']) || !empty($release['draft'])) {
             return ['ok' => false, 'message' => sprintf(__('Réponse inattendue de GitHub (version « %s ») : rien n\'est enregistré.', 'printgestion'), $version)];
         }
+
+        // Le même clic rafraîchit la liste des versions proposées dans les menus : elle vient de la même source.
+        self::getPublishedVersions(true);
 
         $latest = self::getLatestVersion();
         $config = PluginPrintgestionConfig::getInstance();
@@ -130,17 +265,9 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
      */
     public static function saveDefaults(array $input): array {
         $manual = trim((string) ($input['agent_latest_version'] ?? ''));
-        $target = trim((string) ($input['agent_update_target'] ?? ''));
-        $state  = max(0, (int) ($input['agent_probe_states_id'] ?? 0));
         $errors = [];
         if ($manual !== '' && !self::isValidVersion($manual)) {
             $errors[] = __('Dernière version invalide (exemple : 1.19).', 'printgestion');
-        }
-        if ($target !== '' && !self::isValidVersion($target)) {
-            $errors[] = __('Version cible invalide (exemple : 1.18).', 'printgestion');
-        }
-        if ($state > 0 && countElementsInTable(State::getTable(), ['id' => $state]) === 0) {
-            $errors[] = __('Statut des PC sondes introuvable.', 'printgestion');
         }
         if (!empty($errors)) {
             return $errors;
@@ -150,8 +277,6 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         $update = [
             'id'                    => (int) $config->getID(),
             'agent_update_default'  => empty($input['agent_update_default']) ? 0 : 1,
-            'agent_update_target'   => $target,
-            'agent_probe_states_id' => $state,
         ];
         if ($manual !== '') {
             $update['agent_latest_version'] = $manual;
@@ -182,61 +307,38 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
 
     // ── Réglages et conformité par sonde ──────────────────────────────────────
 
-    /** Réglages d'une sonde jamais réglée. */
-    public static function getDefaultSettings(): array {
-        return ['exists' => false, 'auto_update' => true, 'target_version' => '', 'date_mod' => null, 'users_id' => 0];
+    /**
+     * Version des agents : celle que le serveur distribue aux nouvelles sondes, et celle vers laquelle les sondes
+     * déjà installées convergent. Une seule, pour les deux.
+     *
+     * Il y en avait trois : une par sonde, une « cible du parc », une « servie ». Elles disaient la même chose à des
+     * moments différents, et rien ne garantissait qu'elles disent la même chose. Un parc qui vise une version que le
+     * serveur ne distribue pas est un parc qui ne se met jamais à jour.
+     *
+     * Jamais vide : faute de réglage, c'est la version de référence du plugin.
+     */
+    public static function getTargetVersion(): string {
+        return PluginPrintgestionAgentdeploy::getServedVersion();
     }
 
-    private static function settingsFromRow(array $row): array {
-        return [
-            'exists'         => true,
-            'auto_update'    => (int) $row['auto_update'] === 1,
-            'target_version' => trim((string) ($row['target_version'] ?? '')),
-            'date_mod'       => $row['date_mod'],
-            'users_id'       => (int) $row['users_id'],
-        ];
+    /**
+     * Réglages d'une sonde. Il n'en reste aucun qui lui soit propre : la version cible est celle du parc, la mise à
+     * jour automatique est une action (deux boutons de consigne) et non plus un souhait stocké. La forme du tableau
+     * est gardée pour ses lecteurs (conformité, alertes, écrans).
+     */
+    public static function getDefaultSettings(): array {
+        return ['target_version' => self::getTargetVersion()];
     }
 
     public static function getSettings(int $agents_id): array {
-        return self::getSettingsFor([$agents_id])[$agents_id];
+        return self::getDefaultSettings();
     }
 
-    /** @return array agents_id => réglages (ceux par défaut pour une sonde jamais réglée) */
+    /** @return array agents_id => réglages */
     public static function getSettingsFor(array $agents_ids): array {
-        global $DB;
-
-        $out = array_fill_keys(array_map('intval', $agents_ids), self::getDefaultSettings());
-        if (!empty($out)) {
-            foreach ($DB->request(['FROM' => self::getTable(), 'WHERE' => ['agents_id' => array_keys($out)]]) as $row) {
-                $out[(int) $row['agents_id']] = self::settingsFromRow($row);
-            }
-        }
-        return $out;
+        return array_fill_keys(array_map('intval', $agents_ids), self::getDefaultSettings());
     }
 
-    /** @return array ['ok' => bool, 'message' => string] */
-    public static function saveForAgent(Agent $agent, array $input): array {
-        $target = trim((string) ($input['target_version'] ?? ''));
-        if ($target !== '' && !self::isValidVersion($target)) {
-            return ['ok' => false, 'message' => __('Version cible invalide (exemple : 1.18) : rien n\'est enregistré.', 'printgestion')];
-        }
-        $values  = [
-            'auto_update'    => empty($input['auto_update']) ? 0 : 1,
-            'target_version' => $target === '' ? null : $target,
-            'users_id'       => (int) Session::getLoginUserID(),
-        ];
-        $setting = new self();
-        $ok      = $setting->getFromDBByCrit(['agents_id' => (int) $agent->getID()])
-            ? $setting->update(['id' => (int) $setting->getID()] + $values)
-            : $setting->add(['agents_id' => (int) $agent->getID()] + $values) > 0;
-        if (!$ok) {
-            return ['ok' => false, 'message' => __('Réglages de la sonde non enregistrés.', 'printgestion')];
-        }
-        return ['ok' => true, 'message' => sprintf(
-            __('Réglages de la sonde « %s » enregistrés. Rien ne change sur le PC tant que son paquet de consigne n\'y a pas été lancé : la tâche planifiée déjà posée reste telle quelle.', 'printgestion'),
-            $agent->fields['name']
-        )];
-    }
 
     /** Version d'un agent (texte simple ou versions par module), ramenée à « 1.19 ». */
     public static function getAgentVersion(array $agent): string {
@@ -252,26 +354,25 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
     /**
      * Conformité : version installée comparée à la version cible de la sonde, sinon à la dernière connue.
      *
-     * @return array ['state' => ok|update|pinned|unknown|no_latest, 'target' => string, 'label' => string, 'class' => string]
+     * @return array ['state' => ok|update|ahead|unknown|no_latest, 'target' => string, 'label' => string, 'class' => string]
      */
     public static function getCompliance(string $installed, array $settings, array $latest): array {
-        $pinned = $settings['target_version'] !== '';
-        $target = $pinned ? $settings['target_version'] : (string) ($latest['version'] ?? '');
+        // Une seule version compte désormais : celle que ce serveur distribue. « À jour » veut donc dire « dans la
+        // version du parc », et plus « au moins aussi récente que ce que GitHub publie ».
+        $target = $settings['target_version'];
         if (!preg_match('/^\d+(\.\d+)+$/', $installed)) {
             return ['state' => 'unknown', 'target' => $target, 'label' => __('Version installée inconnue', 'printgestion'), 'class' => 'bg-secondary text-secondary-fg'];
         }
         if ($target === '') {
-            return ['state' => 'no_latest', 'target' => '', 'label' => __('Dernière version inconnue', 'printgestion'), 'class' => 'bg-secondary text-secondary-fg'];
+            return ['state' => 'no_latest', 'target' => '', 'label' => __('Version du parc inconnue', 'printgestion'), 'class' => 'bg-secondary text-secondary-fg'];
         }
-        $cmp = version_compare($installed, $target);
-        if ($pinned) {
-            return $cmp === 0
-                ? ['state' => 'pinned', 'target' => $target, 'label' => sprintf(__('Épinglée sur %s', 'printgestion'), $target), 'class' => 'bg-blue text-blue-fg']
-                : ['state' => 'update', 'target' => $target, 'label' => sprintf(__('Version cible %s non atteinte', 'printgestion'), $target), 'class' => 'bg-orange text-orange-fg'];
-        }
-        return $cmp >= 0
-            ? ['state' => 'ok', 'target' => $target, 'label' => __('À jour', 'printgestion'), 'class' => 'bg-green text-green-fg']
-            : ['state' => 'update', 'target' => $target, 'label' => sprintf(__('À mettre à jour (%s)', 'printgestion'), $target), 'class' => 'bg-orange text-orange-fg'];
+        return match (version_compare($installed, $target)) {
+            0       => ['state' => 'ok', 'target' => $target, 'label' => __('À jour', 'printgestion'), 'class' => 'bg-green text-green-fg'],
+            -1      => ['state' => 'update', 'target' => $target, 'label' => sprintf(__('À mettre à jour (%s)', 'printgestion'), $target), 'class' => 'bg-orange text-orange-fg'],
+            // Plus récente que ce que le serveur distribue : ce n'est pas une panne, mais le parc n'est pas où on
+            // le croit — par exemple après un retour arrière de la version servie.
+            default => ['state' => 'ahead', 'target' => $target, 'label' => sprintf(__('Plus récente que la version du parc (%s)', 'printgestion'), $target), 'class' => 'bg-blue text-blue-fg'],
+        };
     }
 
     // ── PC sonde ──────────────────────────────────────────────────────────────
@@ -354,6 +455,23 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
     }
 
     /**
+     * Statut GLPI des PC sondes, enregistré depuis la page « Sondes » — là où on s'en sert. Il n'avait rien à faire
+     * au milieu des versions.
+     *
+     * @return string[] erreurs ; vide si enregistré
+     */
+    public static function saveProbeState(array $input): array {
+        $state = max(0, (int) ($input['agent_probe_states_id'] ?? 0));
+        if ($state > 0 && countElementsInTable(State::getTable(), ['id' => $state]) === 0) {
+            return [__('Statut des PC sondes introuvable.', 'printgestion')];
+        }
+        $config = PluginPrintgestionConfig::getInstance();
+        return $config->update(['id' => (int) $config->getID(), 'agent_probe_states_id' => $state])
+            ? []
+            : [__('Statut des PC sondes non enregistré.', 'printgestion')];
+    }
+
+    /**
      * Donne au PC de la sonde le statut « PC sonde » choisi par l'administrateur. Modification ordinaire de
      * l'ordinateur : sur un ordinateur inventorié, GLPI verrouille alors le champ contre les inventaires suivants.
      *
@@ -362,7 +480,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
     public static function markProbeHost(Agent $agent): array {
         $states_id = self::getProbeStateId();
         if ($states_id <= 0) {
-            return ['ok' => false, 'message' => __('Aucun statut « PC sonde » choisi : page « Installeur GLPI Agent » (droit de configuration du plugin).', 'printgestion')];
+            return ['ok' => false, 'message' => __('Aucun statut « PC sonde » choisi : réglez-le en haut de cette page (droit de configuration du plugin).', 'printgestion')];
         }
         $computer = new Computer();
         if ((string) $agent->fields['itemtype'] !== Computer::class || !$computer->getFromDB((int) $agent->fields['items_id'])) {
@@ -490,6 +608,33 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
     // ── Scripts Windows posés sur le PC sonde ─────────────────────────────────
 
     /** Contrôle administrateur en tête des .bat (sans PowerShell). */
+    /**
+     * Hook item_purge sur Agent : une sonde supprimée de GLPI — à la main, par la tâche « Cleanoldagents » ou par le
+     * fichier de retrait — emporte ses réglages, ses alertes et ses raccordements (adresses et journal compris, par
+     * Raccordement::cleanDBonPurge()). Avant, ces lignes restaient en base, rattachées à une sonde disparue.
+     *
+     * Les objets GLPI Inventory créés par un raccordement (tâches, plages, identifiants SNMP) restent : ce sont des
+     * objets d'un autre plugin, que l'administrateur peut partager entre sondes.
+     */
+    public static function cleanForAgent(CommonDBTM $agent): void {
+        global $DB;
+
+        $id = (int) $agent->getID();
+        if ($id <= 0) {
+            return;
+        }
+        try {
+            $DB->delete(self::getTable(), ['agents_id' => $id]);
+            $DB->delete(PluginPrintgestionAgentalert::getTable(), ['agents_id' => $id]);
+            $racc = new PluginPrintgestionRaccordement();
+            foreach ($racc->find(['agents_id' => $id]) as $row) {
+                $racc->delete(['id' => (int) $row['id']], true);
+            }
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::error('agentsetting', sprintf('Sonde %d supprimée : ses éléments Print Gestion n\'ont pas tous été effacés.', $id), $e);
+        }
+    }
+
     public static function buildAdminCheckLines(): array {
         return [
             'fsutil dirty query %SystemDrive% >nul 2>&1',
@@ -513,7 +658,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         $winget  = $target !== ''
             ? '"%WINGET_DIR%\\winget.exe" install --id ' . self::WINGET_ID . ' --version ' . $target . ' --force ' . $options . ' >> "%LOG%" 2>&1'
             : '"%WINGET_DIR%\\winget.exe" upgrade --id ' . self::WINGET_ID . ' ' . $options . ' >> "%LOG%" 2>&1';
-        return implode("\r\n", [
+        return implode("\r\n", array_merge([
             '@echo off',
             'rem Mise a jour de GLPI Agent posee par Print Gestion : tache planifiee mensuelle, compte SYSTEM.',
             'rem ' . ($target !== '' ? 'Version cible : ' . $target . '.' : 'Derniere version publiee.') . ' Aucun identifiant ni secret.',
@@ -533,22 +678,124 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             '  exit /b 1',
             ')',
             'pushd "%WINGET_DIR%"',
+        ],
+        // Déjà dans la version visée : ne rien faire. Sans ce contrôle, « --force » réinstallait l'agent tous les
+        // mois — service arrêté et relancé au passage — alors qu'il était déjà à jour. Les espaces autour du numéro
+        // sont voulus : la colonne de winget est alignée, et « 1.19 » ne doit pas reconnaître « 1.19.1 ».
+        $target === '' ? [] : [
+            '"%WINGET_DIR%\\winget.exe" list --id ' . self::WINGET_ID . ' --exact --accept-source-agreements 2>nul | findstr /c:" ' . $target . ' " >nul',
+            'if not errorlevel 1 (',
+            '  echo [%DATE% %TIME%] Deja en version ' . $target . ' : rien a faire>> "%LOG%"',
+            '  popd',
+            '  exit /b 0',
+            ')',
+        ],
+        [
             $winget,
             'set "RC=%ERRORLEVEL%"',
             'popd',
             'echo [%DATE% %TIME%] Fin, code %RC%>> "%LOG%"',
             'exit /b 0',
             '',
-        ]);
+        ]));
+    }
+
+    /** Nom des entrées que Print Gestion pose dans la ToolBox de l'agent : les siennes, reconnaissables à l'œil. */
+    const TOOLBOX_NAME = 'printgestion';
+
+    /**
+     * Configuration de la ToolBox de l'agent, pour le scan des imprimantes quand GLPI Inventory manque au serveur.
+     *
+     * La ToolBox est native à GLPI Agent (depuis 1.6) : plage IP, identifiant SNMP et tâche de scan planifiée, dont
+     * les résultats partent à server0 — le serveur GLPI, qui les reçoit en natif sans le plugin voisin. Le
+     * technicien voit et corrige tout dans http://127.0.0.1:62354/toolbox. Elle remplace un scan fait maison
+     * (tâche planifiée qui enchaînait glpi-netdiscovery et glpi-injector), invisible depuis cette page.
+     *
+     * Format relu dans le code de l'agent (lib/GLPI/Agent/HTTP/Server/ToolBox/*.pm) : credentials, ip_range,
+     * scheduling et jobs sont des tables indexées par nom, enabled vaut yes ou no. Pas de next_run_date : sans elle,
+     * la tâche part presque aussitôt au démarrage du service, au lieu d'attendre une période entière.
+     *
+     * Repères remplacés sur le poste : @FIRST@, @LAST@ (la plage, rendue par le serveur), @DELAY@ (la cadence) et
+     * @COMMUNITY@ (déjà échappée pour une chaîne YAML entre apostrophes). La communauté est écrite en clair : c'est le
+     * fonctionnement de la ToolBox. Le fichier est réservé aux administrateurs du poste.
+     */
+    public static function buildToolboxYaml(): array {
+        $nom = self::TOOLBOX_NAME;
+        return [
+            '# ToolBox de GLPI Agent, configuree par Print Gestion : scan des imprimantes, GLPI Inventory manquant au serveur.',
+            '# Visible et modifiable dans http://127.0.0.1:62354/toolbox',
+            'configuration:',
+            '  updating_support: yes',
+            'credentials:',
+            '  ' . $nom . '-snmp:',
+            '    type: snmp',
+            '    snmpversion: v2c',
+            "    community: '@COMMUNITY@'",
+            "    description: 'Imprimantes (Print Gestion)'",
+            'ip_range:',
+            '  ' . $nom . ':',
+            '    ip_start: @FIRST@',
+            '    ip_end: @LAST@',
+            '    credentials:',
+            '      - ' . $nom . '-snmp',
+            "    description: 'Imprimantes (Print Gestion)'",
+            'scheduling:',
+            '  ' . $nom . ':',
+            '    type: delay',
+            '    delay: @DELAY@',
+            "    description: 'Cadence choisie a l installation (Print Gestion)'",
+            'jobs:',
+            '  ' . $nom . '-imprimantes:',
+            '    type: netscan',
+            '    enabled: yes',
+            '    scheduling:',
+            '      - ' . $nom,
+            '    config:',
+            '      ip_range:',
+            '        - ' . $nom,
+            '      threads: 10',
+            '      timeout: 1',
+            '      target: server0',
+            "    description: 'Scan des imprimantes (Print Gestion)'",
+        ];
+    }
+
+    /**
+     * Activation de la ToolBox : désactivée par défaut dans l'agent. Réservée au poste lui-même et aux adresses de
+     * httpd-trust (forbid_not_trusted) : l'interface montre la communauté SNMP.
+     */
+    public static function buildToolboxPluginConfig(): array {
+        return [
+            '# Active par Print Gestion : scan des imprimantes par la ToolBox de l agent.',
+            'disabled = no',
+            '# Seuls le poste lui-meme et les adresses de httpd-trust y accedent : la page montre la communaute SNMP.',
+            'forbid_not_trusted = yes',
+        ];
+    }
+
+    /**
+     * Arguments de schtasks pour poser la tâche de mise à jour, sans le nom du programme : le 1er du mois à 3 h,
+     * compte SYSTEM, privilèges les plus élevés, remplacement d'une tâche existante. @SCRIPT@ est le chemin du
+     * script à lancer, que l'appelant remplace — le .bat par %ProgramData%\\..., la fenêtre par le chemin résolu.
+     *
+     * Les guillemets échappés autour de @SCRIPT@ sont voulus : schtasks reçoit /TR "\\"C:\\...\\script.cmd\\"", donc
+     * un chemin lui-même entre guillemets, seule forme qui survit à un espace dans le chemin.
+     */
+    public static function buildScheduleArguments(): string {
+        return '/Create /TN "' . self::TASK_NAME . '" /TR "\\"@SCRIPT@\\"" /SC MONTHLY /D 1 /ST 03:00 /RU SYSTEM /RL HIGHEST /F';
     }
 
     /**
      * Lignes .bat qui posent la tâche planifiée mensuelle (script copié depuis le dossier du ZIP, dont la présence
      * est vérifiée d'abord : un .bat lancé depuis l'aperçu du ZIP est seul dans son dossier) ou la retirent.
+     *
+     * @param bool   $enabled    vrai pour poser la tâche, faux pour la retirer
+     * @param string $source_dir sous-dossier du paquet où se trouve le script, relatif au .bat lancé (« » à côté)
      */
-    public static function buildScheduleLines(bool $enabled): array {
+    public static function buildScheduleLines(bool $enabled, string $source_dir = ''): array {
         $task   = '"' . self::TASK_NAME . '"';
         $script = '%ProgramData%\\PrintGestion\\' . self::UPDATE_SCRIPT;
+        $source = '%~dp0' . $source_dir . self::UPDATE_SCRIPT;
         if (!$enabled) {
             return [
                 'schtasks /Delete /TN ' . $task . ' /F >nul 2>&1',
@@ -556,14 +803,14 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             ];
         }
         return [
-            'if not exist "%~dp0' . self::UPDATE_SCRIPT . '" (',
+            'if not exist "' . $source . '" (',
             '  echo Fichier ' . self::UPDATE_SCRIPT . ' introuvable : extraire tout le ZIP, puis relancer depuis le dossier extrait.',
             '  pause',
             '  exit /b 1',
             ')',
             'if not exist "%ProgramData%\\PrintGestion" mkdir "%ProgramData%\\PrintGestion"',
-            'copy /Y "%~dp0' . self::UPDATE_SCRIPT . '" "' . $script . '" >nul',
-            'schtasks /Create /TN ' . $task . ' /TR "\\"' . $script . '\\"" /SC MONTHLY /D 1 /ST 03:00 /RU SYSTEM /RL HIGHEST /F >nul',
+            'copy /Y "' . $source . '" "' . $script . '" >nul',
+            'schtasks ' . str_replace('@SCRIPT@', $script, self::buildScheduleArguments()) . ' >nul',
             'if errorlevel 1 (',
             '  echo Tache planifiee de mise a jour non posee.',
             '  pause',
@@ -654,32 +901,61 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
     }
 
     /**
-     * Consigne de mise à jour d'une sonde : applique sur le PC le réglage « Mise à jour automatique » de GLPI (pose,
-     * change ou retire la tâche). Windows : ZIP (lanceur, script de la tâche planifiée, note) ; Linux : script sh
-     * seul. Fichier temporaire que l'appelant supprime.
+     * Fichier de consigne d'une sonde : lancé sur le PC, il y pose ou y retire la tâche planifiée de mise à jour
+     * automatique. Windows : ZIP (lanceur, script de la tâche, note) ; Linux : script sh seul. Fichier temporaire
+     * que l'appelant supprime.
+     *
+     * $action vient de l'URL du bouton, jamais d'un réglage stocké : le bouton dit ce qu'il fabrique, et GLPI ne
+     * garde aucun souhait qui pourrait diverger de ce que le PC a reçu.
+     *
+     * ACTION_POSER et ACTION_RETIRER ne mettent pas l'agent à jour : elles installent ou retirent la tâche qui, elle,
+     * le fera le 1er du mois. ACTION_MAINTENANT fait l'inverse : elle met à jour sur le champ et ne touche pas à la
+     * tâche — mettre à jour maintenant et automatiser sont deux décisions distinctes.
      *
      * @return array ['ok' => bool, 'errors' => string[], 'path', 'filename', 'content_type']
      */
-    public static function buildConsignePackage(Agent $agent, string $os = 'windows'): array {
-        $settings = self::getSettings((int) $agent->getID());
-        $target   = $settings['target_version'];
-        $name     = trim((string) preg_replace('/[^A-Za-z0-9._-]+/', '-', (string) $agent->fields['name']), '-');
-        $name     = $name !== '' ? $name : 'sonde-' . (int) $agent->getID();
+    public static function buildConsignePackage(Agent $agent, string $os = 'windows', string $action = self::ACTION_POSER): array {
+        $settings    = self::getSettings((int) $agent->getID());
+        $target      = $settings['target_version'];
+        $poser       = $action === self::ACTION_POSER;
+        $maintenant  = $action === self::ACTION_MAINTENANT;
+        $name        = trim((string) preg_replace('/[^A-Za-z0-9._-]+/', '-', (string) $agent->fields['name']), '-');
+        $name        = $name !== '' ? $name : 'sonde-' . (int) $agent->getID();
 
         if ($os === 'linux') {
-            $filename = 'consigne-glpi-agent-' . $name . '.sh';
+            $filename = ($maintenant ? 'mise-a-jour-maintenant-' : 'consigne-glpi-agent-') . $name . '.sh';
             $script   = implode("\n", array_merge(
                 [
                     '#!/bin/sh',
-                    '# Consigne de mise a jour de GLPI Agent pour la sonde ' . $name . ' (Print Gestion), generee le ' . date('Y-m-d H:i') . '.',
+                    '# ' . ($maintenant ? 'Mise a jour immediate' : 'Consigne de mise a jour') . ' de GLPI Agent pour la sonde ' . $name . ' (Print Gestion), generee le ' . date('Y-m-d H:i') . '.',
                     '# Aucun identifiant ni secret. A lancer sur le PC sonde : sudo sh ' . $filename,
                     'if [ "$(id -u)" -ne 0 ]; then',
                     '  echo "A lancer en root : sudo sh ' . $filename . '"',
                     '  exit 1',
                     'fi',
                 ],
-                self::buildLinuxScheduleLines($settings['auto_update'], $target),
-                [$settings['auto_update'] ? '' : 'echo "Consigne appliquee : mise a jour automatique retiree de ce PC."', '']
+                !$maintenant ? [] : array_merge(
+                    [
+                        '# Le meme script que celui de la tache, lance une fois, tout de suite. La tache planifiee,',
+                        '# elle, n est pas touchee : mettre a jour maintenant et automatiser sont deux decisions.',
+                        'PG_SCRIPT=$(mktemp)',
+                        "cat > \"\$PG_SCRIPT\" <<'PRINTGESTION_NOW'",
+                    ],
+                    explode("\n", rtrim(self::buildLinuxUpdateScript($target), "\n")),
+                    [
+                        'PRINTGESTION_NOW',
+                        'chmod 755 "$PG_SCRIPT"',
+                        'echo "Mise a jour en cours (quelques minutes)..."',
+                        '"$PG_SCRIPT"',
+                        'rm -f "$PG_SCRIPT"',
+                        'echo',
+                        'echo "Journal (' . self::LINUX_LOG . ') :"',
+                        'tail -n 20 ' . self::LINUX_LOG . ' 2>/dev/null || echo "journal introuvable"',
+                        '',
+                    ]
+                ),
+                $maintenant ? [] : self::buildLinuxScheduleLines($poser, $target),
+                $maintenant || $poser ? [''] : ['echo "Consigne appliquee : mise a jour automatique retiree de ce PC."', '']
             ));
             $path = GLPI_TMP_DIR . '/printgestion-consigne-' . bin2hex(random_bytes(8)) . '.sh';
             if (file_put_contents($path, $script) === false) {
@@ -692,18 +968,33 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             return ['ok' => false, 'errors' => [__('Système inconnu : paquet de consigne non généré.', 'printgestion')]];
         }
 
+        $log = '%ProgramData%\\PrintGestion\\glpi-agent-update.log';
         $bat = implode("\r\n", array_merge(
             [
                 '@echo off',
-                'rem Consigne de mise a jour de GLPI Agent pour la sonde ' . $name . ' (Print Gestion), generee le ' . date('Y-m-d H:i') . '.',
+                'rem ' . ($maintenant ? 'Mise a jour immediate' : 'Consigne de mise a jour') . ' de GLPI Agent pour la sonde ' . $name . ' (Print Gestion), generee le ' . date('Y-m-d H:i') . '.',
                 'rem Aucun identifiant ni secret. A lancer sur le PC sonde, en administrateur.',
             ],
             self::buildAdminCheckLines(),
-            self::buildScheduleLines($settings['auto_update']),
+            !$maintenant ? [] : [
+                'rem Le meme script que celui de la tache, lance une fois, tout de suite. La tache planifiee, elle,',
+                'rem n est pas touchee : mettre a jour maintenant et automatiser sont deux decisions.',
+                'if not exist "%ProgramData%\\PrintGestion" mkdir "%ProgramData%\\PrintGestion"',
+                'copy /Y "%~dp0' . self::UPDATE_SCRIPT . '" "%ProgramData%\\PrintGestion\\' . self::UPDATE_SCRIPT . '" >nul',
+                'echo Mise a jour en cours (quelques minutes)...',
+                'call "%ProgramData%\\PrintGestion\\' . self::UPDATE_SCRIPT . '"',
+                'echo.',
+                'rem Le script ne fait rien quand l agent travaille : son journal dit pourquoi.',
+                'echo Journal :',
+                'type "' . $log . '"',
+            ],
+            $maintenant ? [] : self::buildScheduleLines($poser),
             [
-                $settings['auto_update']
-                    ? 'echo Consigne appliquee : mise a jour automatique mensuelle, ' . ($target !== '' ? 'version cible ' . $target . '.' : 'derniere version publiee.')
-                    : 'echo Consigne appliquee : mise a jour automatique retiree de ce PC.',
+                $maintenant
+                    ? 'echo.'
+                    : ($poser
+                        ? 'echo Consigne appliquee : mise a jour automatique mensuelle, ' . ($target !== '' ? 'version cible ' . $target . '.' : 'derniere version publiee.')
+                        : 'echo Consigne appliquee : mise a jour automatique retiree de ce PC.'),
                 'pause',
                 '',
             ]
@@ -711,16 +1002,18 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         $readme = implode("\r\n", [
             sprintf(__('Consigne de mise à jour de GLPI Agent — sonde %1$s (%2$s)', 'printgestion'), $agent->fields['name'], Dropdown::getDropdownName(Entity::getTable(), (int) $agent->fields['entities_id'])),
             sprintf(__('Générée par Print Gestion le %1$s par %2$s.', 'printgestion'), Html::convDateTime(date('Y-m-d H:i:s')), getUserName((int) Session::getLoginUserID())),
-            $settings['auto_update']
-                ? sprintf(__('Réglage : mise à jour automatique activée, %s.', 'printgestion'), $target !== '' ? sprintf(__('version cible %s', 'printgestion'), $target) : __('dernière version publiée', 'printgestion'))
-                : __('Réglage : mise à jour automatique désactivée.', 'printgestion'),
+            match (true) {
+                $maintenant => __('Ce que ce fichier fait : il met GLPI Agent à jour tout de suite, une fois. Il ne touche pas à la mise à jour automatique. Si l\'agent est en train de travailler, rien n\'est fait et le journal le dit.', 'printgestion'),
+                $poser      => sprintf(__('Ce que ce fichier fait : il pose la mise à jour automatique sur ce PC, %s.', 'printgestion'), $target !== '' ? sprintf(__('version cible %s', 'printgestion'), $target) : __('dernière version publiée', 'printgestion')),
+                default     => __('Ce que ce fichier fait : il retire la mise à jour automatique de ce PC.', 'printgestion'),
+            },
             __('Aucun identifiant, mot de passe ni jeton dans ce dossier.', 'printgestion'),
             '',
             __('1. Sur le PC sonde : clic droit sur le fichier ZIP > Extraire tout.', 'printgestion'),
-            __('2. Clic droit sur consigne-mise-a-jour.bat > Exécuter en tant qu\'administrateur.', 'printgestion'),
+            sprintf(__('2. Clic droit sur %s > Exécuter en tant qu\'administrateur.', 'printgestion'), $maintenant ? 'mise-a-jour-maintenant.bat' : 'consigne-mise-a-jour.bat'),
             __('3. Le message final confirme la consigne appliquée.', 'printgestion'),
             '',
-            __('Important : le réglage de GLPI ne change rien sur le PC tant que ce fichier n\'y a pas été lancé. Décocher « Mise à jour automatique » dans GLPI ne retire pas une tâche planifiée déjà posée.', 'printgestion'),
+            __('Important : GLPI ne pousse rien. Rien ne change sur ce PC tant que ce fichier n\'y a pas été lancé.', 'printgestion'),
             sprintf(__('Mise à jour : winget (%1$s), le 1er du mois à 3 h, seulement si l\'agent est en attente. Journal : C:\\ProgramData\\PrintGestion\\glpi-agent-update.log.', 'printgestion'), self::WINGET_ID),
             __('Retour à une version plus ancienne : l\'installeur Windows peut refuser de rétrograder ; le journal le signale. Il faut alors désinstaller GLPI Agent puis le réinstaller avec le paquet de l\'entité.', 'printgestion'),
             '',
@@ -732,8 +1025,8 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             PluginPrintgestionLogger::error('agentsetting', sprintf('Paquet de consigne %s non créé.', $path));
             return ['ok' => false, 'errors' => [__('Paquet de consigne non généré (détail dans le journal printgestion).', 'printgestion')]];
         }
-        $zip->addFromString('consigne-mise-a-jour.bat', $bat);
-        if ($settings['auto_update']) {
+        $zip->addFromString($maintenant ? 'mise-a-jour-maintenant.bat' : 'consigne-mise-a-jour.bat', $bat);
+        if ($poser || $maintenant) {
             $zip->addFromString(self::UPDATE_SCRIPT, self::buildUpdateScript($target));
         }
         $zip->addFromString('LISEZMOI.txt', "\xEF\xBB\xBF" . $readme);
@@ -748,6 +1041,16 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
     }
 
     // ── Affichage ─────────────────────────────────────────────────────────────
+
+    /**
+     * Icône de l'onglet. Onglet « Sonde Print Gestion » de la fiche Agent : l'état du lien avec la sonde.
+     *
+     * Sans cette méthode, GLPI retombe sur l'icône par défaut de CommonDBTM, qui vaut « fa-empty-icon » et
+     * que createTabEntry() remplace alors par rien : le libellé reste nu à côté des onglets natifs.
+     */
+    static function getIcon() {
+        return 'ti ti-plug-connected';
+    }
 
     function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
         if ($item instanceof Agent && (int) $item->getID() > 0
@@ -767,47 +1070,147 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         return true;
     }
 
-    /** Page « Installeur GLPI Agent » : dernière version connue, mise à jour des nouveaux paquets, statut des PC sondes. */
-    public static function showDefaultsCard(bool $can_edit, string $page, bool $body_only = false): void {
+    /**
+     * Page « Installeur GLPI Agent » : version de référence (la dernière publiée, qui sert à constater un retard),
+     * ce que contiendront les prochains paquets, et le statut GLPI qui repère les PC sondes dans le parc. Aucun de
+     * ces réglages ne touche un PC déjà installé.
+     */
+    /**
+     * Ce qui décide de ce que contiendront les prochains paquets : la version des agents (champ tenu par
+     * Agentdeploy), la dernière version publiée, et la règle de mise à jour automatique.
+     *
+     * Affiché **dans** la carte « Paramètres transmis à l'installation », et non plus dans une carte à part : c'est
+     * la même question que la version servie, et une carte séparée laissait croire à un autre sujet.
+     *
+     * @param string $page URL de la page, pour les formulaires
+     */
+    /**
+     * Avertissement pleine largeur : la version distribuée est plus ancienne que la dernière publiée.
+     *
+     * Rendu **hors** du formulaire : une colonne de douze au milieu d'une grille la coupe en deux, et les colonnes
+     * suivantes repartent à la ligne sans raison visible.
+     */
+    public static function getServedVersionWarning(): string {
+        $latest = self::getLatestVersion();
+        $served = PluginPrintgestionAgentdeploy::getServedVersion();
+        if (!version_compare($served, $latest['version'], '<')) {
+            return '';
+        }
+        return "<div class='alert alert-warning'>" . htmlspecialchars(sprintf(
+            __('La version distribuée (%1$s) est plus ancienne que la dernière publiée (%2$s) : choisissez-la ci-dessous, enregistrez, puis récupérez-la.', 'printgestion'),
+            $served,
+            $latest['version']
+        ), ENT_QUOTES, 'UTF-8') . "</div>";
+    }
+
+    /** Colonne « Dernière version publiée » : ce qui apprend qu'une version plus récente existe. */
+    public static function showLatestVersionColumn(bool $can_edit, string $classes): void {
         $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $latest = self::getLatestVersion();
-        $fields = PluginPrintgestionConfig::getInstance()->fields;
-        $served = PluginPrintgestionAgentdeploy::getServedVersion();
-
-        if (!$body_only) {
-            echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Dernière version de GLPI Agent, mise à jour automatique et PC sondes', 'printgestion')) . "</h3></div><div class='card-body'>";
-        }
-        echo "<p>" . $esc(sprintf(__('Dernière version connue : %1$s (%2$s).', 'printgestion'), $latest['version'], self::getLatestSourceLabel($latest))) . "</p>";
-        if (version_compare($served, $latest['version'], '<')) {
-            echo "<div class='alert alert-warning'>" . $esc(sprintf(__('L\'installeur servi (%1$s) est plus ancien que la dernière version (%2$s) : indiquez la nouvelle version dans « Paramètres transmis » puis récupérez-la.', 'printgestion'), $served, $latest['version'])) . "</div>";
-        }
+        echo "<div class='" . $classes . "'>";
+        echo "<label class='form-label'>" . $esc(__('Dernière version publiée', 'printgestion')) . "</label>";
+        echo "<div class='pt-1'><span class='fw-bold'>" . $esc($latest['version']) . "</span></div>";
+        echo "<div class='form-hint'>" . $esc(self::getLatestSourceLabel($latest)) . "</div>";
         if ($can_edit) {
-            echo "<form method='post' action='" . $esc($page) . "' class='mb-3'><button type='submit' data-pg-submit-once='1' name='check_latest' value='1' class='btn btn-outline-primary'><i class='ti ti-refresh me-1'></i>"
-                . $esc(__('Vérifier sur GitHub maintenant', 'printgestion')) . "</button>" . Html::closeForm(false);
-            echo "<form method='post' action='" . $esc($page) . "' class='row g-3 align-items-end'>";
-            echo "<div class='col-md-6 col-xl-3'><label class='form-label'>" . $esc(__('Dernière version saisie à la main (vide : GitHub)', 'printgestion')) . "</label>"
-                . "<input type='text' class='form-control' name='agent_latest_version' maxlength='20' value='" . $esc($latest['source'] === 'manual' ? $latest['version'] : '') . "' placeholder='" . $esc($latest['version']) . "'></div>";
-            echo "<div class='col-md-6 col-xl-3'><div class='form-check'>"
-                . "<input type='hidden' name='agent_update_default' value='0'>"
-                . "<input class='form-check-input' type='checkbox' id='pg-update-default' name='agent_update_default' value='1'" . ((int) ($fields['agent_update_default'] ?? 1) === 1 ? ' checked' : '') . ">"
-                . "<label class='form-check-label' for='pg-update-default'>" . $esc(__('Nouveaux paquets Windows et Linux : poser la mise à jour automatique', 'printgestion')) . "</label></div></div>";
-            echo "<div class='col-md-6 col-xl-3'><label class='form-label'>" . $esc(__('Version cible des nouveaux paquets (vide : dernière)', 'printgestion')) . "</label>"
-                . "<input type='text' class='form-control' name='agent_update_target' maxlength='20' value='" . $esc($fields['agent_update_target'] ?? '') . "'></div>";
-            echo "<div class='col-md-6 col-xl-3'><label class='form-label'>" . $esc(__('Statut GLPI des PC sondes', 'printgestion')) . "</label>"
-                . State::dropdown(['name' => 'agent_probe_states_id', 'value' => self::getProbeStateId(), 'display' => false, 'entity' => 0, 'entity_sons' => true]) . "</div>";
-            echo "<div class='col-12'><button type='submit' data-pg-submit-once='1' name='save_update_defaults' value='1' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button></div>";
-            echo Html::closeForm(false);
-        } else {
-            echo "<p class='mb-0'>" . $esc(sprintf(
-                __('Nouveaux paquets Windows et Linux : %1$s. Statut des PC sondes : %2$s.', 'printgestion'),
-                (int) ($fields['agent_update_default'] ?? 1) === 1 ? __('mise à jour automatique posée', 'printgestion') : __('sans mise à jour automatique', 'printgestion'),
-                self::getProbeStateId() > 0 ? Dropdown::getDropdownName(State::getTable(), self::getProbeStateId()) : __('aucun', 'printgestion')
+            // Second bouton d'envoi du MÊME formulaire, et non un formulaire de plus : imbriquer deux formulaires
+            // est invalide en HTML, et le navigateur en perd un — silencieusement.
+            echo "<button type='submit' data-pg-submit-once='1' name='check_latest' value='1' class='btn btn-sm btn-outline-primary mt-2'><i class='ti ti-refresh me-1'></i>"
+                . $esc(__('Vérifier sur GitHub', 'printgestion')) . "</button>";
+        }
+        echo "</div>";
+    }
+
+    /**
+     * Colonne de la règle de mise à jour : qui décide, vous ou le technicien sur place.
+     *
+     * Deux boutons radio plutôt qu'une case et un « sinon » : la case seule laissait deviner l'autre branche, et
+     * elle renvoyait à « la case » d'une fenêtre que le lecteur n'a pas sous les yeux — elle s'ouvrira plus tard,
+     * sur le PC du client. Ici les deux cas sont écrits, et on lit ce qu'on choisit.
+     */
+    public static function showUpdateRuleColumn(bool $can_edit, string $classes): void {
+        $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $impose = (int) (PluginPrintgestionConfig::getInstance()->fields['agent_update_default'] ?? 1) === 1;
+        echo "<div class='" . $classes . "'>";
+        echo "<label class='form-label'>" . $esc(__('Mise à jour automatique des sondes', 'printgestion')) . "</label>";
+        if (!$can_edit) {
+            echo "<div class='pt-1'>" . $esc($impose
+                ? __('Toujours posée par le fichier d\'installation.', 'printgestion')
+                : __('Laissée au technicien au moment d\'installer.', 'printgestion')) . "</div></div>";
+            return;
+        }
+        foreach ([
+            ['1', $impose, __('Toujours posée', 'printgestion'), __('Le fichier d\'installation l\'installe sans rien demander.', 'printgestion')],
+            ['0', !$impose, __('Laissée au technicien', 'printgestion'), __('Il la coche ou non au moment d\'installer, décochée par défaut.', 'printgestion')],
+        ] as [$valeur, $choisi, $titre, $aide]) {
+            $id = 'pg-maj-' . $valeur;
+            echo "<div class='form-check'>"
+                . "<input class='form-check-input' type='radio' name='agent_update_default' id='" . $id . "' value='" . $valeur . "'" . ($choisi ? ' checked' : '') . ">"
+                . "<label class='form-check-label' for='" . $id . "'>" . $esc($titre)
+                . "<span class='d-block form-hint'>" . $esc($aide) . "</span></label></div>";
+        }
+        echo "</div>";
+    }
+
+    /**
+     * Colonne de secours : la dernière version saisie à la main, **seulement** si GitHub n'a pas répondu.
+     *
+     * Affichée en permanence, elle invitait à remplir un champ inutile — et une version saisie à la main prend
+     * ensuite le pas sur GitHub, en silence.
+     */
+    public static function showManualVersionColumn(string $classes): void {
+        $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $latest = self::getLatestVersion();
+        if ($latest['source'] === 'github') {
+            return;
+        }
+        echo "<div class='" . $classes . "'><label class='form-label'>" . $esc(__('Dernière version, à la main', 'printgestion')) . "</label>"
+            . "<input type='text' class='form-control' name='agent_latest_version' maxlength='20' value='" . $esc($latest['source'] === 'manual' ? $latest['version'] : '') . "' placeholder='" . $esc($latest['version']) . "'>"
+            . "<div class='form-hint'>" . $esc(__('GitHub n\'a pas répondu depuis ce serveur : renseignez la dernière version publiée pour que « À mettre à jour » reste juste. Effacer ce champ rend la main à GitHub.', 'printgestion')) . "</div></div>";
+    }
+
+    /** Rappel de ce que le plugin fait et ne fait pas des mises à jour, sous les paramètres des paquets. */
+    public static function getUpdateNotice(): string {
+        return __('Le plugin ne pousse aucune mise à jour : rien ne part d\'ici vers un PC. Selon ces réglages, le fichier d\'installation pose sur le PC une tâche planifiée mensuelle (Windows : winget, compte SYSTEM ; Linux : cron, installeur officiel vérifié), qui ne fait rien tant que l\'agent travaille ; macOS : mise à jour manuelle. Ensuite, seule une consigne lancée sur le PC change cette tâche. Microsoft ne prend pas officiellement en charge winget sous le compte SYSTEM : à vérifier au pilote.', 'printgestion');
+    }
+
+    /**
+     * Statut GLPI donné aux PC qui servent de sonde, réglé là où on s'en sert : la page « Sondes », à côté du bouton
+     * qui marque un PC. Il n'avait rien à faire au milieu des versions.
+     */
+    public static function showProbeStateForm(string $page): void {
+        $esc   = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $state = self::getProbeStateId();
+        if (!Session::haveRight('plugin_printgestion_config', UPDATE)) {
+            echo "<p class='text-muted small mb-0'>" . $esc(sprintf(
+                __('Statut donné aux PC sondes : %s.', 'printgestion'),
+                $state > 0 ? Dropdown::getDropdownName(State::getTable(), $state) : __('aucun', 'printgestion')
             )) . "</p>";
+            return;
         }
-        echo "<p class='text-muted small mt-3 mb-0'>" . $esc(__('Le plugin ne pousse aucune mise à jour. Selon ces réglages, le paquet Windows pose sur le PC une tâche planifiée mensuelle (winget, compte SYSTEM) et le paquet Linux une tâche cron mensuelle (installeur officiel téléchargé sur GitHub, empreinte vérifiée), toutes deux seulement si l\'agent est en attente ; macOS : mise à jour manuelle. Chaque sonde se règle ensuite depuis sa fiche, et le changement n\'est appliqué qu\'en lançant sa consigne sur le PC. Microsoft ne prend pas officiellement en charge winget sous le compte SYSTEM : à vérifier au pilote. Statut des PC sondes : créez-le à la racine (récursif) dans Configuration > Intitulés > Statuts des éléments, puis marquez chaque PC depuis la page « Sondes ».', 'printgestion')) . "</p>";
-        if (!$body_only) {
-            echo "</div></div>";
-        }
+        echo "<form method='post' action='" . $esc($page) . "' class='row g-2 align-items-end' data-pg-admin='1'>";
+        echo "<div class='col-md-5'><label class='form-label'>" . $esc(__('Statut GLPI des PC sondes', 'printgestion')) . "</label>"
+            . State::dropdown(['name' => 'agent_probe_states_id', 'value' => $state, 'display' => false, 'entity' => 0, 'entity_sons' => true])
+            . "<div class='form-hint'>" . $esc(__('Créez-le à la racine (récursif) dans Configuration > Intitulés > Statuts des éléments. Il sert à repérer les PC sondes dans le parc ; « Marquer ce PC comme sonde » le pose sur l\'ordinateur.', 'printgestion')) . "</div></div>";
+        echo "<div class='col-md-3'><button type='submit' data-pg-submit-once='1' name='save_probe_state' value='1' class='btn btn-outline-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button></div>";
+        echo Html::closeForm(false);
+    }
+
+    /**
+     * Ce que l'installation a déclaré avoir fait sur le PC — la seule chose que GLPI en sache.
+     *
+     * Plus rien à comparer : depuis que la case a cédé la place à deux actions, GLPI ne garde aucun souhait, donc
+     * aucun écart n'est possible. La ligne informe, elle ne juge pas. Et elle dit ce qui a été fait le jour de
+     * l'installation, jamais ce que quelqu'un a pu changer depuis sur le PC.
+     */
+    private static function showRealState(Agent $agent): string {
+        $rapport = PluginPrintgestionAgentreport::find(
+            (int) $agent->fields['entities_id'],
+            self::getHostName($agent->fields)
+        );
+        $texte = PluginPrintgestionAgentreport::describe($rapport);
+        return $rapport === null
+            ? "<p class='text-muted small mb-0'>" . htmlspecialchars($texte, ENT_QUOTES, 'UTF-8') . "</p>"
+            : PluginPrintgestionUi::statusLine(!empty($rapport['scheduled']) ? 'ok' : 'info', $texte);
     }
 
     /** Conformité, mise à jour automatique, imprimantes collectées : ce qui manque à la fiche Agent native. */
@@ -833,47 +1236,42 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         echo "<div class='col-md-3'><div class='text-muted small'>" . $esc(__('Dernière version connue', 'printgestion')) . "</div><div class='fw-bold'>" . $esc($latest['version']) . "</div>"
             . "<div class='text-muted small'>" . $esc(self::getLatestSourceLabel($latest)) . "</div></div>";
         echo "<div class='col-md-3'><div class='text-muted small'>" . $esc(__('Version visée', 'printgestion')) . "</div><div class='fw-bold'>" . $esc($compliance['target'] !== '' ? $compliance['target'] : '—') . "</div>"
-            . ($settings['target_version'] !== '' ? "<div class='text-muted small'>" . $esc(__('épinglée sur cette sonde', 'printgestion')) . "</div>" : '') . "</div>";
+            . ($settings['target_version'] !== '' ? "<div class='text-muted small'>" . $esc(__('épinglée pour tout le parc', 'printgestion')) . "</div>" : '') . "</div>";
         echo "<div class='col-md-3'><div class='text-muted small'>" . $esc(__('État', 'printgestion')) . "</div><span class='badge " . $compliance['class'] . "'>" . $esc($compliance['label']) . "</span></div>";
         echo "</div></div></div>";
         }
 
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Mise à jour automatique', 'printgestion')) . "</h3></div><div class='card-body'>";
-        if ($can_edit) {
-            echo "<form method='post' action='" . $esc(self::getPageURL($agents_id)) . "' class='row g-3 align-items-end'>" . Html::hidden('id', ['value' => $agents_id]);
-            echo "<div class='col-md-4'><div class='form-check'><input type='hidden' name='auto_update' value='0'>"
-                . "<input class='form-check-input' type='checkbox' id='pg-auto-update-{$agents_id}' name='auto_update' value='1'" . ($settings['auto_update'] ? ' checked' : '') . ">"
-                . "<label class='form-check-label' for='pg-auto-update-{$agents_id}'>" . $esc(__('Mise à jour automatique', 'printgestion')) . "</label></div></div>";
-                if ($admin) {
-        echo "<div class='col-md-4' data-pg-admin='1'><label class='form-label'>" . $esc(__('Version cible (vide : dernière connue)', 'printgestion')) . "</label>"
-                . "<input type='text' class='form-control' name='target_version' maxlength='20' value='" . $esc($settings['target_version']) . "' placeholder='" . $esc($latest['version']) . "'></div>";
-            } else {
-                echo Html::hidden('target_version', ['value' => $settings['target_version']]);
-            }
-            echo "<div class='col-md-4'><button type='submit' name='save_agent_settings' value='1' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button></div>";
-            echo Html::closeForm(false);
-        } else {
-            echo "<p>" . $esc($settings['auto_update']
-                ? sprintf(__('Mise à jour automatique : oui, %s.', 'printgestion'), $settings['target_version'] !== '' ? sprintf(__('version cible %s', 'printgestion'), $settings['target_version']) : __('dernière version connue', 'printgestion'))
-                : __('Mise à jour automatique : non.', 'printgestion')) . "</p>";
+        // La seule chose que GLPI sache de ce PC : ce que l'installation lui a déclaré. Plus de case cochée qui
+        // affirmerait un état que personne n'a vérifié.
+        echo self::showRealState($agent);
+        if ($admin && $settings['target_version'] !== '') {
+            // La version cible est celle du parc : on la rappelle, et on dit où elle se règle. Une seule fois, au
+            // même endroit pour toutes les sondes.
+            echo "<p class='mt-2 mb-0' data-pg-admin='1'>" . $esc(sprintf(
+                __('Version cible du parc : %s (page « Installeur GLPI Agent »).', 'printgestion'),
+                $settings['target_version']
+            )) . "</p>";
         }
-        if ($settings['exists'] && $admin) {
-            echo "<p class='text-muted small mt-2 mb-0' data-pg-admin='1'>" . $esc(sprintf(__('Réglé le %1$s par %2$s.', 'printgestion'), Html::convDateTime((string) $settings['date_mod']), getUserName($settings['users_id']))) . "</p>";
-        }
-        echo "<p class='mt-3 mb-2'>" . $esc(__('Pour appliquer un changement, lancez la consigne sur le PC sonde.', 'printgestion')) . ' '
-            . PluginPrintgestionUi::infoButton(__('Mise à jour automatique', 'printgestion'), $admin ? '<p>' . $esc(__('Ce réglage ne change rien tout seul sur le PC. La tâche de mise à jour y est posée par le paquet d\'installation (Windows : son étape 2 facultative, 2-facultatif-mise-a-jour-automatique.bat, que le technicien a pu sauter ; Linux : tâche cron du script d\'installation) ; pour appliquer un changement (désactiver, épingler une version, revenir en arrière), téléchargez la consigne et lancez-la sur la sonde. Décocher la case ici ne désactive pas une tâche déjà posée. Retour à une version plus ancienne : l\'installeur peut refuser de rétrograder (signalé dans le journal de la tâche) ; il faut alors désinstaller puis réinstaller avec le paquet de l\'entité.', 'printgestion')) . '</p>' : '') . "</p>";
+        echo "<p class='mt-3 mb-2'>" . $esc(__('Ces trois boutons fabriquent un fichier à lancer sur le PC sonde : GLPI ne pousse rien. « Mettre à jour maintenant » met à jour une fois, sur le champ, sans rien changer à l\'automatisation.', 'printgestion')) . ' '
+            . PluginPrintgestionUi::infoButton(__('Mise à jour automatique', 'printgestion'), $admin ? '<p>' . $esc(__('GLPI ne pousse aucune mise à jour : rien ne part d\'ici vers ce PC. La tâche de mise à jour y est posée par le fichier d\'installation (imposée si la page « Installeur GLPI Agent » le demande, sinon proposée au technicien) ; ensuite, seuls ces deux fichiers la posent ou la retirent, une fois lancés sur le PC. La ligne ci-dessus est la seule chose que GLPI sache de ce PC : ce que l\'installation lui a déclaré ce jour-là. La tâche elle-même ne met pas à jour sur commande — elle s\'exécute le 1er du mois à 3 h, et seulement si l\'agent est en attente. Retour à une version plus ancienne : renseignez la version cible, posez la consigne, et sachez que l\'installeur peut refuser de rétrograder (signalé dans le journal de la tâche) ; il faut alors désinstaller puis réinstaller avec le fichier de l\'entité.', 'printgestion')) . '</p>' : '') . "</p>";
         $platform = self::getHostPlatform($agent->fields);
         if ($platform === 'macos') {
             echo "<p class='mb-0'>" . $esc(__('Mac : pas de mise à jour automatique, réinstaller le paquet de l\'entité.', 'printgestion')) . "</p>";
         } else {
             echo "<div class='d-flex flex-wrap gap-2'>";
-            foreach ([
-                'windows' => ['ti-brand-windows', __('Paquet de consigne pour ce PC (Windows)', 'printgestion')],
-                'linux'   => ['ti-brand-ubuntu', __('Script de consigne pour ce PC (Linux)', 'printgestion')],
-            ] as $os => [$icon, $label]) {
-                if ($platform === null || $platform === $os) {
-                    echo "<a class='btn btn-outline-secondary' href='" . $esc(self::getConsigneURL($agents_id, $os)) . "'><i class='ti {$icon} me-1'></i>" . $esc($label) . "</a>";
+            // Un bouton par action, et l'action dans le libellé : personne n'a à deviner ce que le fichier fera.
+            foreach (['windows' => 'ti-brand-windows', 'linux' => 'ti-brand-ubuntu'] as $os => $icon) {
+                if ($platform !== null && $platform !== $os) {
+                    continue;
                 }
+                $suffixe = $platform === null ? sprintf(' (%s)', $os === 'windows' ? __('Windows', 'printgestion') : __('Linux', 'printgestion')) : '';
+                echo "<a class='btn btn-primary' href='" . $esc(self::getConsigneURL($agents_id, $os, self::ACTION_MAINTENANT)) . "'><i class='ti ti-refresh me-1'></i>"
+                    . $esc(__('Mettre à jour maintenant', 'printgestion') . $suffixe) . "</a>";
+                echo "<a class='btn btn-outline-primary' href='" . $esc(self::getConsigneURL($agents_id, $os, self::ACTION_POSER)) . "'><i class='ti {$icon} me-1'></i>"
+                    . $esc(__('Poser la mise à jour automatique', 'printgestion') . $suffixe) . "</a>";
+                echo "<a class='btn btn-outline-secondary' href='" . $esc(self::getConsigneURL($agents_id, $os, self::ACTION_RETIRER)) . "'><i class='ti {$icon} me-1'></i>"
+                    . $esc(__('Retirer la mise à jour automatique', 'printgestion') . $suffixe) . "</a>";
             }
             echo "</div>";
             if ($platform === null) {
@@ -949,7 +1347,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             }
         }
         if ($probe_state === 0 && PluginPrintgestionUi::isAdmin()) {
-            echo " <span class='text-muted small' data-pg-admin='1'>" . $esc(__('(aucun statut « PC sonde » choisi sur la page « Installeur GLPI Agent »)', 'printgestion')) . "</span>";
+            echo " <span class='text-muted small' data-pg-admin='1'>" . $esc(__('(aucun statut « PC sonde » choisi : il se règle sur la page « Sondes »)', 'printgestion')) . "</span>";
         }
         echo "</div></div></div>";
         self::showForAgent($agent);
@@ -965,7 +1363,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         $hosts       = self::getHosts($probes);
         $probe_state = self::getProbeStateId();
 
-        $counts = ['silent' => 0, 'update' => 0, 'pinned' => 0];
+        $counts = ['silent' => 0, 'update' => 0, 'ahead' => 0];
         $silent = [];
         foreach ($probes as $agents_id => $probe) {
             $probes[$agents_id]['compliance'] = self::getCompliance(self::getAgentVersion($probe), $settings[$agents_id], $latest);
@@ -979,19 +1377,43 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         }
 
         $admin = PluginPrintgestionUi::isAdmin();
+
+        // Une seule carte, vignettes alignées : le même rendu que « Contrôle de la remontée » et que les plugins
+        // voisins. Une carte pleine par indicateur donnait trois hauteurs différentes dès qu'un libellé était long.
         $tiles = [
-            [sprintf(__('Sondes sans contact depuis plus de %d jours', 'printgestion'), $silent_days), $counts['silent'], $counts['silent'] > 0 ? 'text-red' : 'text-green'],
-            [__('Sondes à mettre à jour', 'printgestion'), $counts['update'], $counts['update'] > 0 ? 'text-orange' : 'text-green'],
+            [
+                'count'   => $counts['silent'],
+                'label'   => __('Sondes sans contact', 'printgestion'),
+                'tooltip' => sprintf(__('Sondes sans contact depuis plus de %d jours', 'printgestion'), $silent_days),
+                'icon'    => 'ti ti-wifi-off',
+                'color'   => $counts['silent'] > 0 ? 'red' : 'green',
+            ],
+            [
+                'count' => $counts['update'],
+                'label' => __('À mettre à jour', 'printgestion'),
+                'icon'  => 'ti ti-refresh',
+                'color' => $counts['update'] > 0 ? 'orange' : 'green',
+            ],
         ];
         if ($admin) {
-            $tiles[] = [__('Sondes épinglées sur leur version cible', 'printgestion'), $counts['pinned'], 'text-blue'];
-            $tiles[] = [sprintf(__('Dernière version connue de GLPI Agent (%s)', 'printgestion'), self::getLatestSourceLabel($latest)), $latest['version'], 'text-body'];
+            // Plus récentes que ce que le serveur distribue : après un retour arrière de la version du parc.
+            if ($counts['ahead'] > 0) {
+                $tiles[] = [
+                    'count' => $counts['ahead'],
+                    'label' => __('Plus récentes que le parc', 'printgestion'),
+                    'icon'  => 'ti ti-arrow-up',
+                    'color' => 'blue',
+                ];
+            }
+            $tiles[] = [
+                'count'   => $latest['version'],
+                'label'   => __('Dernière version connue', 'printgestion'),
+                'tooltip' => sprintf(__('Dernière version connue de GLPI Agent (%s)', 'printgestion'), self::getLatestSourceLabel($latest)),
+                'icon'    => 'ti ti-package',
+                'color'   => 'secondary',
+            ];
         }
-        echo "<div class='row row-cards mb-3'>";
-        foreach ($tiles as [$label, $value, $class]) {
-            echo "<div class='col-sm-6 col-lg-3'><div class='card card-sm'><div class='card-body'><div class='h1 mb-0 {$class}'>" . $esc($value) . "</div><div class='text-muted'>" . $esc($label) . "</div></div></div></div>";
-        }
-        echo "</div>";
+        PluginPrintgestionUi::statsBar($tiles, 'printgestionSondesStatsBar');
 
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(sprintf(__('Sondes sans contact depuis plus de %d jours, par entité', 'printgestion'), $silent_days)) . "</h3></div><div class='card-body'>";
         if (empty($silent)) {
@@ -1009,23 +1431,44 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             echo "<p class='mb-0'>" . $esc(__('Aucune sonde dans vos entités.', 'printgestion')) . "</p></div></div>";
             return;
         }
-        echo "<div class='table-responsive'><table class='table table-sm table-hover align-middle mb-0'><thead><tr>"
-            . "<th>" . $esc(Entity::getTypeName(1)) . "</th><th>" . $esc(__('Sonde', 'printgestion')) . "</th>" . ($admin ? "<th data-pg-admin='1'>" . $esc(__('PC hôte', 'printgestion')) . "</th><th data-pg-admin='1'>" . $esc(__('Version', 'printgestion')) . "</th>" : '')
-            . "<th>" . $esc(__('Conformité', 'printgestion')) . "</th><th>" . $esc(__('Dernier contact', 'printgestion')) . "</th>"
-            . ($admin ? "<th data-pg-admin='1'>" . $esc(__('Mise à jour automatique', 'printgestion')) . "</th>" : '')
-            . "<th class='text-end'>" . $esc(_n('Imprimante', 'Imprimantes', Session::getPluralNumber(), 'printgestion')) . "</th></tr></thead><tbody>";
-        foreach ($probes as $agents_id => $probe) {
-            $setting = $settings[$agents_id];
-            echo "<tr><td>" . $esc($probe['entity']) . "</td>"
-                . "<td><a href='" . $esc(self::getPageURL($agents_id)) . "'>" . $esc($probe['name']) . "</a></td>"
-                . ($admin ? "<td data-pg-admin='1'>" . self::getHostHtml($probe, $hosts, $probe_state) . "</td><td data-pg-admin='1'>" . $esc(self::getAgentVersion($probe) ?: '—') . "</td>" : '')
-                . "<td><span class='badge " . $probe['compliance']['class'] . "'>" . $esc($probe['compliance']['label']) . "</span></td>"
-                . "<td>" . $esc(empty($probe['last_contact']) ? '—' : Html::convDateTime((string) $probe['last_contact']))
-                . ($probe['is_silent'] ? " <span class='badge bg-red text-red-fg'>" . $esc(__('Sans contact', 'printgestion')) . "</span>" : '') . "</td>"
-                . ($admin ? "<td data-pg-admin='1'>" . $esc($setting['auto_update'] ? ($setting['target_version'] !== '' ? sprintf(__('oui, cible %s', 'printgestion'), $setting['target_version']) : __('oui', 'printgestion')) : __('non', 'printgestion')) . "</td>" : '')
-                . "<td class='text-end'>" . (int) $probe['printers'] . "</td></tr>";
+        // Une sonde est un Agent de GLPI : les actions massives de l'Agent s'appliquent telles quelles, avec les
+        // droits de l'utilisateur sur cet objet — pas ceux du plugin. Les colonnes de l'administrateur sont
+        // absentes de la page d'un technicien, pas cachées.
+        $columns = ['entity' => Entity::getTypeName(1), 'probe' => __('Sonde', 'printgestion')];
+        if ($admin) {
+            $columns += ['host' => __('PC hôte', 'printgestion'), 'version' => __('Version', 'printgestion')];
         }
-        echo "</tbody></table></div></div></div>";
+        $columns += ['compliance' => __('Conformité', 'printgestion'), 'contact' => __('Dernier contact', 'printgestion')];
+        if ($admin) {
+            $columns['report'] = __('Mise à jour automatique (déclarée)', 'printgestion');
+        }
+        $columns['printers'] = _n('Imprimante', 'Imprimantes', Session::getPluralNumber(), 'printgestion');
+        // Les comptes rendus sont lus une fois pour toute la liste : une lecture par ligne serait une requête par ligne.
+        $rapports = PluginPrintgestionAgentreport::index();
+        $entries  = [];
+        foreach ($probes as $agents_id => $probe) {
+            $entries[] = [
+                'itemtype'   => Agent::class,
+                'id'         => (int) $agents_id,
+                'entity'     => $probe['entity'],
+                'probe'      => "<a href='" . $esc(self::getPageURL($agents_id)) . "'>" . $esc($probe['name']) . "</a>",
+                'host'       => $admin ? self::getHostHtml($probe, $hosts, $probe_state) : '',
+                'version'    => self::getAgentVersion($probe) ?: '—',
+                'compliance' => "<span class='badge " . $probe['compliance']['class'] . "'>" . $esc($probe['compliance']['label']) . "</span>",
+                'contact'    => $esc(empty($probe['last_contact']) ? '—' : Html::convDateTime((string) $probe['last_contact']))
+                    . ($probe['is_silent'] ? " <span class='badge bg-red text-red-fg'>" . $esc(__('Sans contact', 'printgestion')) . "</span>" : ''),
+                'report'     => $admin ? PluginPrintgestionAgentreport::summarize($rapports[PluginPrintgestionAgentreport::key((int) $probe['entities_id'], self::getHostName($probe))] ?? null) : '',
+                'printers'   => (int) $probe['printers'],
+            ];
+        }
+        echo PluginPrintgestionUi::datatable($columns, $entries, [
+            'probe'      => 'raw_html',
+            'host'       => 'raw_html',
+            'compliance' => 'raw_html',
+            'contact'    => 'raw_html',
+            'printers'   => 'integer',
+        ], Agent::class, Session::haveRight(Agent::$rightname, UPDATE));
+        echo "</div></div>";
     }
 
     static function uninstall(Migration $migration) {
@@ -1035,7 +1478,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         if ($task->getFromDBbyName(self::class, 'PrintgestionCheckAgentVersion')) {
             $task->delete(['id' => (int) $task->getID()]);
         }
-        $DB->doQuery('DROP TABLE IF EXISTS `' . self::getTable() . '`');
+        $DB->dropTable(self::getTable(), true);
         return true;
     }
 }

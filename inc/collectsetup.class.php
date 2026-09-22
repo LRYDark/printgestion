@@ -325,6 +325,86 @@ class PluginPrintgestionCollectsetup {
         return in_array((string) $agents_id, self::getExceptions($module), true) ? !$is_active : $is_active;
     }
 
+    /**
+     * Modules GLPI Inventory d'une sonde d'imprimantes, posés à l'installation : ce qui sert aux imprimantes, et
+     * rien d'autre. Nom du module => coché.
+     *
+     * L'inventaire de l'ordinateur reste coché : c'est lui qui fait exister la sonde dans GLPI (fiche ordinateur,
+     * rattachement à l'entité par le TAG), et c'est par ce nom d'ordinateur que le compte rendu d'installation la
+     * retrouve. Les trois premiers sont obligatoires ; les autres, s'ils manquent au serveur, n'ont rien à décocher.
+     */
+    const PRINTER_PROBE_MODULES = [
+        'INVENTORY'            => true,
+        'NETWORKDISCOVERY'     => true,
+        'NETWORKINVENTORY'     => true,
+        'InventoryComputerESX' => false,
+        'DEPLOY'               => false,
+        'Collect'              => false,
+        'WAKEONLAN'            => false,
+    ];
+
+    /**
+     * Coche ou décoche un module pour une sonde, par la même mécanique que les écrans de GLPI Inventory : l'agent
+     * figure dans les exceptions du module exactement quand l'état voulu diffère de l'activation globale.
+     *
+     * @return ?string ce qui a changé ; null si le module était déjà dans l'état voulu
+     * @throws DomainException module introuvable, ou écriture refusée
+     */
+    private static function setModuleForAgent(string $modulename, int $agents_id, bool $wanted): ?string {
+        $module = self::getModule($modulename);
+        if ($module === null) {
+            throw new DomainException(sprintf(__('module de collecte « %s » introuvable sur ce serveur', 'printgestion'), $modulename));
+        }
+        if (self::isModuleActiveForAgent($module, $agents_id) === $wanted) {
+            return null;
+        }
+        $autres     = array_values(array_diff(self::getExceptions($module), [(string) $agents_id]));
+        $exceptions = ((int) $module['is_active'] === 1) === $wanted ? $autres : array_merge($autres, [(string) $agents_id]);
+        $agentmodule = new PluginGlpiinventoryAgentmodule();
+        if (!$agentmodule->update(['id' => (int) $module['id'], 'exceptions' => exportArrayToDB($exceptions)])) {
+            throw new DomainException(sprintf(__('module « %s » non réglé pour la sonde', 'printgestion'), $modulename));
+        }
+        return sprintf($wanted ? __('Module %s activé pour la sonde.', 'printgestion') : __('Module %s désactivé pour la sonde.', 'printgestion'), $modulename);
+    }
+
+    /**
+     * Pose le profil d'une sonde d'imprimantes (PRINTER_PROBE_MODULES) sur un agent.
+     *
+     * Appelé par le compte rendu d'installation, dès que la sonde est connue de GLPI — et indépendamment du
+     * raccordement : sans les deux modules réseau, GLPI Inventory n'envoie aucune tâche réseau à la sonde, et une
+     * sonde installée sans raccordement abouti restait sourde aux imprimantes.
+     *
+     * @return array ['ok' => bool, 'events' => [[niveau, message]]]
+     */
+    public static function applyPrinterProbeProfile(int $agents_id): array {
+        if (!self::isAvailable()) {
+            return ['ok' => false, 'events' => [['info', __('GLPI Inventory absent : aucun module à régler.', 'printgestion')]]];
+        }
+        $events = [];
+        foreach (self::PRINTER_PROBE_MODULES as $modulename => $wanted) {
+            // Un module à décocher qui n'existe pas sur ce serveur est, de fait, décoché.
+            if (!$wanted && self::getModule($modulename) === null) {
+                continue;
+            }
+            try {
+                $change = self::setModuleForAgent($modulename, $agents_id, $wanted);
+                if ($change !== null) {
+                    $events[] = ['success', $change];
+                }
+            } catch (DomainException $e) {
+                $events[] = ['error', $e->getMessage()];
+            } catch (Throwable $e) {
+                \Glpi\Error\ErrorHandler::logCaughtException($e);
+                $events[] = ['error', sprintf(__('module « %s » : erreur technique, détail dans le journal PHP de GLPI', 'printgestion'), $modulename)];
+            }
+        }
+        $ok = !in_array('error', array_column($events, 0), true);
+        if ($ok && empty($events)) {
+            $events[] = ['info', __('Modules de la sonde déjà réglés pour les imprimantes.', 'printgestion')];
+        }
+        return ['ok' => $ok, 'events' => $events];
+    }
+
     private static function getNextRank(int $ranges_id): int {
         global $DB;
 
@@ -597,23 +677,13 @@ class PluginPrintgestionCollectsetup {
                 }
             }
 
+            // Les deux modules réseau seulement : l'assistant raccorde aussi des postes existants, qui peuvent faire
+            // autre chose que sonder des imprimantes. Le profil complet n'est posé qu'à l'installation.
             foreach (self::METHODS as $modulename) {
-                $module = self::getModule($modulename);
-                if ($module === null) {
-                    throw new DomainException(sprintf(__('module de collecte « %s » introuvable sur ce serveur', 'printgestion'), $modulename));
+                $change = self::setModuleForAgent($modulename, $agents_id, true);
+                if ($change !== null) {
+                    $events[] = ['success', $change];
                 }
-                if (self::isModuleActiveForAgent($module, $agents_id)) {
-                    continue;
-                }
-                $exceptions  = self::getExceptions($module);
-                $exceptions  = (int) $module['is_active'] === 1
-                    ? array_values(array_diff($exceptions, [(string) $agents_id]))
-                    : array_merge($exceptions, [(string) $agents_id]);
-                $agentmodule = new PluginGlpiinventoryAgentmodule();
-                if (!$agentmodule->update(['id' => (int) $module['id'], 'exceptions' => exportArrayToDB($exceptions)])) {
-                    throw new DomainException(sprintf(__('module « %s » non activé pour la sonde', 'printgestion'), $modulename));
-                }
-                $events[] = ['success', sprintf(__('Module %s activé pour la sonde.', 'printgestion'), $modulename)];
             }
 
             foreach ($plan['tasks'] as $method => $task_plan) {
@@ -739,30 +809,103 @@ class PluginPrintgestionCollectsetup {
         ]);
     }
 
+    /**
+     * Echeance a laquelle la sonde aura forcement rappele GLPI.
+     *
+     * L'agent travaille en tirage : il appelle GLPI, et GLPI lui rend alors les taches a executer. L'intervalle
+     * maximal entre deux appels est le reglage natif « Frequence d'inventaire (en heures) » (Administration >
+     * Inventaire), que GLPI renvoie a l'agent sous le nom « expiration ».
+     *
+     * @return array ['hours' => int, 'last' => string, 'deadline' => string] ; deadline vide si la sonde n'a
+     *               jamais contacte GLPI — il n'y a alors aucune echeance a annoncer.
+     */
+    public static function getNextContact(Agent $agent): array {
+        $hours = max(1, (int) (new \Glpi\Inventory\Conf())->inventory_frequency);
+        $last  = trim((string) ($agent->fields['last_contact'] ?? ''));
+        $stamp = $last !== '' ? strtotime($last) : false;
+        return [
+            'hours'    => $hours,
+            'last'     => $stamp !== false ? $last : '',
+            'deadline' => $stamp !== false ? date('Y-m-d H:i:s', $stamp + $hours * HOUR_TIMESTAMP) : '',
+        ];
+    }
+
+    /**
+     * Ce que la sonde fera d'elle-meme, et quand : la phrase a dire a quelqu'un qui n'est PAS devant le PC.
+     *
+     * @param string $what ce qui partira (« la découverte », « le relevé des niveaux »), insere en milieu de phrase.
+     */
+    public static function getPickupSentence(Agent $agent, string $what): string {
+        $next = self::getNextContact($agent);
+        if ($next['deadline'] === '') {
+            return sprintf(
+                __('Rien à faire à distance : %1$s partira au prochain contact de la sonde avec GLPI, qui a lieu au moins toutes les %2$d h.', 'printgestion'),
+                $what,
+                $next['hours']
+            );
+        }
+        return sprintf(
+            __('Rien à faire à distance : %1$s partira toute seule, au plus tard le %2$s — la sonde appelle GLPI au moins toutes les %3$d h.', 'printgestion'),
+            $what,
+            Html::convDateTime($next['deadline']),
+            $next['hours']
+        );
+    }
+
+    /** Ce qui prouve qu'une sonde fonctionne : son dernier contact, jamais une reponse a une demande du serveur. */
+    public static function getProofOfLife(Agent $agent): string {
+        $next = self::getNextContact($agent);
+        return $next['last'] === ''
+            ? __('Cette sonde n\'a encore jamais contacté GLPI.', 'printgestion')
+            : sprintf(__('Elle a contacté GLPI le %s.', 'printgestion'), Html::convDateTime($next['last']));
+    }
+
     /** « Demander le statut » natif : GET /status sur le port de l'agent, comme la fiche agent. */
     public static function requestStatus(Agent $agent): array {
         $name   = (string) $agent->fields['name'];
         $answer = trim((string) ($agent->requestStatus()['answer'] ?? ''));
         if ($answer === __('Not allowed')) {
-            return ['warning', sprintf(__('Statut de « %s » : la sonde refuse les demandes de ce serveur (HTTPD_TRUST). Son dernier contact reste la preuve qu\'elle fonctionne.', 'printgestion'), $name)];
+            return ['info', sprintf(
+                __('« %1$s » n\'accepte pas les demandes de ce serveur (réglage HTTPD_TRUST). Sans conséquence : c\'est la sonde qui appelle GLPI, jamais l\'inverse. %2$s', 'printgestion'),
+                $name,
+                self::getProofOfLife($agent)
+            )];
         }
         if ($answer === '' || $answer === __('Unknown')) {
-            return ['warning', sprintf(__('Statut de « %s » : pas de réponse. GLPI ne joint pas la sonde (normal derrière la box du client) : son dernier contact reste la preuve qu\'elle fonctionne.', 'printgestion'), $name)];
+            // Jamais de contact : le seul cas ou l'absence de reponse dit vraiment quelque chose.
+            if (self::getNextContact($agent)['last'] === '') {
+                return ['warning', sprintf(
+                    __('« %s » ne répond pas, et n\'a encore jamais contacté GLPI : vérifier que l\'agent tourne sur le PC et que l\'URL du serveur qu\'il connaît est la bonne.', 'printgestion'),
+                    $name
+                )];
+            }
+            return ['info', sprintf(
+                __('GLPI n\'a pas de canal direct vers « %1$s », et n\'en a pas besoin : c\'est la sonde qui appelle GLPI, jamais l\'inverse. %2$s', 'printgestion'),
+                $name,
+                self::getProofOfLife($agent)
+            )];
         }
         return ['success', sprintf(__('Statut de « %1$s » : %2$s.', 'printgestion'), $name, $answer)];
     }
 
     /** Réveil natif (GET /now sur le port de l'agent, comme « Demander un inventaire » de la fiche agent). */
     private static function wakeUp(Agent $agent, string $what): array {
-        $port   = (int) ($agent->fields['port'] ?? 0) ?: Agent::DEFAULT_PORT;
         $answer = trim((string) ($agent->requestInventory()['answer'] ?? ''));
+        // Un reveil reussi fait seulement gagner l'attente. Echoue, il ne change rien : la consigne est deja
+        // posee cote serveur, et la sonde la prendra a son prochain appel. Donc jamais un avertissement.
         if ($answer === __('Not allowed')) {
-            return ['warning', sprintf(__('La sonde refuse l\'ordre de ce serveur (HTTPD_TRUST) : sur le PC sonde, ouvrez http://127.0.0.1:%1$d et cliquez « Force an Inventory » pour lancer %2$s.', 'printgestion'), $port, $what)];
+            return ['info', sprintf(
+                __('La sonde n\'accepte pas les ordres de ce serveur (réglage HTTPD_TRUST). %s', 'printgestion'),
+                self::getPickupSentence($agent, $what)
+            )];
         }
         if ($answer === '' || $answer === __('Unknown')) {
-            return ['warning', sprintf(__('GLPI ne joint pas la sonde pour lancer %1$s (normal derrière la box du client). Sur le PC sonde, ouvrez http://127.0.0.1:%2$d et cliquez « Force an Inventory » ; sinon elle partira au prochain contact de l\'agent.', 'printgestion'), $what, $port)];
+            return ['info', sprintf(
+                __('GLPI ne pousse rien vers la sonde, et n\'a pas à le faire. %s', 'printgestion'),
+                self::getPickupSentence($agent, $what)
+            )];
         }
-        return ['success', sprintf(__('Sonde réveillée par GLPI : elle lance %s maintenant.', 'printgestion'), $what)];
+        return ['success', sprintf(__('Sonde réveillée par GLPI : elle lance %s maintenant, sans attendre.', 'printgestion'), $what)];
     }
 
     /**

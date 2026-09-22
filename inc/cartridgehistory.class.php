@@ -382,6 +382,46 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
     }
 
     /**
+     * Ouvre une cartouche native sur une imprimante, par la classe Cartridge de GLPI.
+     *
+     * add() puis update() : Cartridge::prepareInputForAdd() ne garde de l'entrée que la référence — l'entité et la date
+     * d'entrée viennent d'elle, comme l'ajout au stock de l'écran natif. Pas install() : elle prendrait une cartouche du
+     * stock réel de l'administrateur, et une détection SNMP n'a pas à consommer son stock. La trace posée sur
+     * l'imprimante est celle d'install(), avec son texte traduit par GLPI.
+     *
+     * @return int identifiant de la cartouche ; 0 si GLPI a refusé (elle n'est alors pas laissée à moitié créée)
+     */
+    private static function openNativeCartridge(int $cartridgeitems_id, int $printers_id, string $date, int $pages): int {
+        $cartridge = new Cartridge();
+        $id        = (int) $cartridge->add(['cartridgeitems_id' => $cartridgeitems_id]);
+        if ($id <= 0) {
+            return 0;
+        }
+        if (!$cartridge->update(['id' => $id, 'printers_id' => $printers_id, 'date_in' => $date, 'date_use' => $date, 'pages' => $pages])) {
+            $cartridge->delete(['id' => $id], true);
+            return 0;
+        }
+        Log::history($printers_id, Printer::class, ['0', '', __('Installing a cartridge')], 0, Log::HISTORY_LOG_SIMPLE_MESSAGE);
+        return $id;
+    }
+
+    /**
+     * Clôt une cartouche native, par la classe Cartridge de GLPI.
+     *
+     * update() plutôt qu'uninstall() : uninstall() prend le dernier compteur enregistré sur l'imprimante, alors que le
+     * plugin a déjà le plus récent (le journal des pages). GLPI stocke dans « pages » le compteur de l'imprimante au
+     * moment de la clôture, pas un écart. La trace posée sur l'imprimante est celle d'uninstall().
+     */
+    private static function closeNativeCartridge(int $cartridges_id, int $printers_id, string $date, int $pages): bool {
+        $cartridge = new Cartridge();
+        if (!$cartridge->update(['id' => $cartridges_id, 'date_out' => $date, 'pages' => $pages])) {
+            return false;
+        }
+        Log::history($printers_id, Printer::class, ['0', '', __('Uninstalling a cartridge')], 0, Log::HISTORY_LOG_SIMPLE_MESSAGE);
+        return true;
+    }
+
+    /**
      * Bootstrap initial : pour chaque imprimante × propriété toner usable,
      * crée une entrée native glpi_cartridges "en cours d'utilisation" si aucune
      * n'existe déjà. Idempotent : skip les couples déjà présents.
@@ -447,23 +487,13 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
             $install_date = ($date_creation_snmp !== '' && $date_creation_snmp !== '0000-00-00 00:00:00')
                 ? substr($date_creation_snmp, 0, 10)
                 : date('Y-m-d');
-            $now = date('Y-m-d H:i:s');
-
-            // Compteur imprimante actuel (utilisé pour glpi_cartridges.pages ET
+            // Compteur imprimante actuel (utilisé pour la cartouche native ET
             // pour la ligne miroir interne — une seule query)
             $current_counter = self::getPrinterPagesCounter($printers_id);
 
-            $DB->insert('glpi_cartridges', [
-                'entities_id'       => (int)$r['entities_id'],
-                'cartridgeitems_id' => $cartridgeitems_id,
-                'printers_id'       => $printers_id,
-                'date_in'           => $install_date,
-                'date_use'          => $install_date,
-                'date_out'          => null,
-                'pages'             => $current_counter,
-                'date_creation'     => $now,
-                'date_mod'          => $now,
-            ]);
+            if (self::openNativeCartridge($cartridgeitems_id, $printers_id, $install_date, $current_counter) <= 0) {
+                continue;
+            }
 
             // Création miroir dans la table interne — sert à suivre level_at_install
             // et à garder un historique SNMP cohérent au prochain changement.
@@ -522,17 +552,11 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
     ): void {
         global $DB;
 
-        // Entité de l'imprimante (requise pour glpi_cartridges)
-        $printerRow = $DB->request([
-            'SELECT' => ['entities_id'],
-            'FROM'   => 'glpi_printers',
-            'WHERE'  => ['id' => $printers_id],
-            'LIMIT'  => 1,
-        ])->current();
-        if (!is_array($printerRow)) {
+        // L'imprimante doit exister. Son entité n'est plus lue : la cartouche prend celle de sa référence,
+        // la règle de la classe native.
+        if (countElementsInTable(Printer::getTable(), ['id' => $printers_id]) === 0) {
             return;
         }
-        $entities_id = (int)$printerRow['entities_id'];
 
         // Résolution stricte (modèle obligatoire) : pas de synchronisation native sans référence sûre.
         $cartridgeitems_id = PluginPrintgestionSnmpmapping::resolveCartridgeItemForSnmp($printers_id, $property);
@@ -555,30 +579,11 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
         ]);
 
         foreach ($activeCartridges as $active) {
-            // GLPI stocke dans glpi_cartridges.pages le COMPTEUR IMPRIMANTE au moment
-            // où la cartouche est clôturée (pas un delta). Le calcul "pages imprimées"
-            // est fait dynamiquement par GLPI comme diff entre cartouches successives.
-            $DB->update('glpi_cartridges', [
-                'date_out' => $today,
-                'pages'    => $current_counter,
-                'date_mod' => $detected_at,
-            ], ['id' => (int)$active['id']]);
+            self::closeNativeCartridge((int) $active['id'], $printers_id, $today, $current_counter);
         }
 
-        // 2. Crée la nouvelle cartouche active (date_in = date_use = today, date_out = null)
-        // On initialise pages = compteur actuel (même pattern que l'ajout natif GLPI,
-        // cf. Cartridge.php:330 $toadd['pages'] = $printer->fields['last_pages_counter']).
-        $DB->insert('glpi_cartridges', [
-            'entities_id'       => $entities_id,
-            'cartridgeitems_id' => $cartridgeitems_id,
-            'printers_id'       => $printers_id,
-            'date_in'           => $today,
-            'date_use'          => $today,
-            'date_out'          => null,
-            'pages'             => $current_counter,
-            'date_creation'     => $detected_at,
-            'date_mod'          => $detected_at,
-        ]);
+        // 2. La nouvelle cartouche active, pages initialisées au compteur actuel.
+        self::openNativeCartridge($cartridgeitems_id, $printers_id, $today, $current_counter);
     }
 
     /**

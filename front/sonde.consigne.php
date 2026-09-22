@@ -1,7 +1,9 @@
 <?php
 /**
- * Paquet de consigne de mise à jour d'une sonde (Windows) : applique sur le PC le réglage « Mise à jour
- * automatique » de GLPI (pose, change ou retire la tâche planifiée). Aucun identifiant ni secret.
+ * Fichier de consigne d'une sonde, à lancer sur le PC : il pose (« maj=1 ») ou retire (« maj=0 ») la tâche planifiée
+ * de mise à jour automatique, ou met l'agent à jour tout de suite sans toucher à la tâche (« maj=now »).
+ * L'intention est dans l'URL, pas dans un réglage stocké : le bouton dit ce qu'il fabrique. Aucun identifiant ni
+ * secret.
  * Droit Déploiement en lecture ; sonde dans les entités de l'utilisateur. ZIP généré à la demande, supprimé
  * en fin de requête.
  */
@@ -28,7 +30,12 @@ if (!in_array($os, ['windows', 'linux'], true)) {
     throw new NotFoundHttpException();
 }
 
-$package = PluginPrintgestionAgentsetting::buildConsignePackage($agent, $os);
+// Sans « maj », on ne devine pas : poser une tâche planifiée par défaut serait agir sans qu'on l'ait demandé.
+$action = (string) ($_GET['maj'] ?? '');
+if (!PluginPrintgestionAgentsetting::isConsigneAction($action)) {
+    throw new NotFoundHttpException();
+}
+$package = PluginPrintgestionAgentsetting::buildConsignePackage($agent, $os, $action);
 if (!$package['ok']) {
     Session::addMessageAfterRedirect(htmlspecialchars(implode(' ', $package['errors']), ENT_QUOTES, 'UTF-8'), false, ERROR);
     Html::redirect(PluginPrintgestionAgentsetting::getPageURL((int) $agent->getID()));

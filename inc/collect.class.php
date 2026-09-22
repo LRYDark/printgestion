@@ -200,7 +200,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
             PluginPrintgestionAgentsetting::getLatestVersion()
         );
         return match ($compliance['state']) {
-            'ok', 'pinned' => 'ok',
+            'ok', 'ahead' => 'ok',
             'update'       => 'update',
             default        => 'unknown',
         };
@@ -771,21 +771,26 @@ class PluginPrintgestionCollect extends CommonGLPI {
         if (empty($analysis['agents'])) {
             echo "<div class='card-body text-muted'>" . $esc(__('Aucun agent connu pour ces imprimantes (journal d\'import GLPI vide).', 'printgestion')) . "</div></div>";
         } else {
-            echo "<div class='table-responsive'><table class='table table-sm card-table'><thead><tr>"
-                . "<th>" . $esc(__('Agent', 'printgestion')) . "</th>" . ($admin ? "<th data-pg-admin='1'>" . $esc(__('Version', 'printgestion')) . "</th>" : '')
-                . "<th>" . $esc(__('Dernier contact', 'printgestion')) . "</th>"
-                . "<th class='text-end'>" . $esc(__('Imprimantes', 'printgestion')) . "</th><th>" . $esc(__('État', 'printgestion')) . "</th></tr></thead><tbody>";
+            $columns = ['agent' => __('Agent', 'printgestion')];
+            if ($admin) {
+                $columns['version'] = __('Version', 'printgestion');
+            }
+            $columns += ['contact' => __('Dernier contact', 'printgestion'), 'printers' => __('Imprimantes', 'printgestion'), 'state' => __('État', 'printgestion')];
+            $entries = [];
             foreach ($analysis['agents'] as $agent) {
                 [$badge_class, $badge_label] = $version_badges[$agent['version_status']];
-                echo "<tr><td><a href='" . $esc(PluginPrintgestionAgentsetting::getPageURL($agent['id'])) . "'>" . $esc($agent['name']) . "</a></td>"
-                    . ($admin ? "<td data-pg-admin='1'>" . $esc($agent['version'] !== '' ? $agent['version'] : '—') . " <span class='badge {$badge_class}'>" . $esc($badge_label) . "</span></td>" : '')
-                    . "<td>" . $esc($date($agent['last_contact'])) . "</td>"
-                    . "<td class='text-end'>" . (int) $agent['printers'] . "</td>"
-                    . "<td>" . ($agent['is_silent']
+                $entries[] = [
+                    'agent'    => "<a href='" . $esc(PluginPrintgestionAgentsetting::getPageURL($agent['id'])) . "'>" . $esc($agent['name']) . "</a>",
+                    'version'  => $esc($agent['version'] !== '' ? $agent['version'] : '—') . " <span class='badge {$badge_class}'>" . $esc($badge_label) . "</span>",
+                    'contact'  => $date($agent['last_contact']),
+                    'printers' => (int) $agent['printers'],
+                    'state'    => $agent['is_silent']
                         ? "<span class='badge bg-red text-red-fg'>" . $esc(__('Ne remonte plus', 'printgestion')) . "</span>"
-                        : "<span class='badge bg-green text-green-fg'>" . $esc(__('Actif', 'printgestion')) . "</span>") . "</td></tr>";
+                        : "<span class='badge bg-green text-green-fg'>" . $esc(__('Actif', 'printgestion')) . "</span>",
+                ];
             }
-            echo "</tbody></table></div></div>";
+            echo PluginPrintgestionUi::datatable($columns, $entries, ['agent' => 'raw_html', 'version' => 'raw_html', 'printers' => 'integer', 'state' => 'raw_html']);
+            echo "</div>";
         }
 
         // Imprimantes de l'état choisi (par défaut : tout sauf la collecte normale).
@@ -800,20 +805,32 @@ class PluginPrintgestionCollect extends CommonGLPI {
         if (empty($rows)) {
             echo "<div class='card-body text-muted'>" . $esc(__('Aucune.', 'printgestion')) . "</div></div>";
         } else {
-            echo "<div class='table-responsive'><table class='table table-sm card-table'><thead><tr>"
-                . "<th>" . $esc(_n('Imprimante', 'Imprimantes', 1, 'printgestion')) . "</th><th>" . $esc(Entity::getTypeName(1)) . "</th>"
-                . "<th>" . $esc(__('État', 'printgestion')) . "</th><th>" . $esc(__('Dernier inventaire SNMP', 'printgestion')) . "</th>"
-                . ($admin ? "<th data-pg-admin='1'>" . $esc(__('Dernière découverte', 'printgestion')) . "</th><th data-pg-admin='1'>" . $esc(__('Agent', 'printgestion')) . "</th>" : '')
-                . "</tr></thead><tbody>";
-            foreach (array_slice($rows, 0, 1000) as $printer) {
-                echo "<tr><td><a href='" . $esc(Printer::getFormURLWithID($printer['id'])) . "'>" . $esc($printer['name']) . "</a></td>"
-                    . "<td>" . $esc($printer['entity']) . "</td>"
-                    . "<td><span class='badge bg-" . $colors[$printer['state']] . "-lt'>" . $esc($labels[$printer['state']]) . "</span></td>"
-                    . "<td>" . $esc($date($printer['last_inventory'])) . "</td>"
-                    . ($admin ? "<td data-pg-admin='1'>" . $esc($date($printer['last_discovery'])) . "</td><td data-pg-admin='1'>" . $esc($printer['agent_name']) . "</td>" : '')
-                    . "</tr>";
+            // Ce sont des imprimantes de GLPI : les actions massives de Printer s'appliquent telles quelles.
+            $columns = [
+                'printer'   => _n('Imprimante', 'Imprimantes', 1, 'printgestion'),
+                'entity'    => Entity::getTypeName(1),
+                'state'     => __('État', 'printgestion'),
+                'inventory' => __('Dernier inventaire SNMP', 'printgestion'),
+            ];
+            if ($admin) {
+                $columns += ['discovery' => __('Dernière découverte', 'printgestion'), 'agent' => __('Agent', 'printgestion')];
             }
-            echo "</tbody></table></div></div>";
+            $entries = [];
+            foreach (array_slice($rows, 0, 1000) as $printer) {
+                $entries[] = [
+                    'itemtype'  => Printer::class,
+                    'id'        => (int) $printer['id'],
+                    'printer'   => "<a href='" . $esc(Printer::getFormURLWithID($printer['id'])) . "'>" . $esc($printer['name']) . "</a>",
+                    'entity'    => $printer['entity'],
+                    'state'     => "<span class='badge bg-" . $colors[$printer['state']] . "-lt'>" . $esc($labels[$printer['state']]) . "</span>",
+                    'inventory' => $date($printer['last_inventory']),
+                    'discovery' => $date($printer['last_discovery']),
+                    'agent'     => $printer['agent_name'],
+                ];
+            }
+            echo PluginPrintgestionUi::datatable($columns, $entries, ['printer' => 'raw_html', 'state' => 'raw_html'],
+                Printer::class, Session::haveRight(Printer::$rightname, UPDATE));
+            echo "</div>";
         }
 
         $printer_ids = array_keys($analysis['printers']);
@@ -924,7 +941,8 @@ class PluginPrintgestionCollect extends CommonGLPI {
                         'resets'           => number_format($row['before'], 0, ',', ' ') . ' → ' . number_format($row['after'], 0, ',', ' '),
                         default            => number_format($row['total'], 0, ',', ' '),
                     };
-                    echo "<tr><td><a href='" . $esc(Printer::getFormURLWithID($row['id'])) . "'>" . $esc($row['name']) . "</a></td>"
+                    $fiche = $esc(Printer::getFormURLWithID($row['id']));
+                    echo "<tr data-pg-href='{$fiche}' style='cursor:pointer'><td><a href='{$fiche}'>" . $esc($row['name']) . "</a></td>"
                         . "<td>" . $esc($row['model']) . "</td><td>" . $esc(Html::convDate($row['date'])) . "</td>"
                         . "<td class='text-end'>" . $esc($figure) . "</td></tr>";
                 }

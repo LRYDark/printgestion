@@ -50,6 +50,15 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      *  au-delà : « … et N autres » (le détail complet reste dans l'Excel joint). */
     const MAIL_LIST_MAX = 20;
 
+    /**
+     * Icône de l'itemtype, reprise par GLPI dans les listes, les en-têtes et les onglets. Expédition d'une cartouche : le colis qui part chez le client.
+     *
+     * Sans elle, GLPI retombe sur l'icône par défaut de CommonDBTM, qui ne montre rien.
+     */
+    static function getIcon() {
+        return 'ti ti-truck-delivery';
+    }
+
     static function getTypeName($nb = 0) {
         return _n('Expédition cartouche', 'Expéditions cartouches', $nb, 'printgestion');
     }

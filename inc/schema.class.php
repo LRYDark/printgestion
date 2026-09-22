@@ -682,8 +682,9 @@ class PluginPrintgestionSchema {
         global $DB;
 
         foreach (array_merge(array_reverse(array_keys(self::TABLES)), self::LEGACY_TABLES) as $table) {
-            $DB->doQuery('DROP TABLE IF EXISTS `' . $table . '`');
+            $DB->dropTable($table, true);
         }
-        $DB->delete('glpi_configs', ['context' => self::CONFIG_CONTEXT]);
+        // Tous les réglages du contexte du plugin, par la classe Config : ceux qu'elle connaît, un par un.
+        Config::deleteConfigurationValues(self::CONFIG_CONTEXT, array_keys(Config::getConfigurationValues(self::CONFIG_CONTEXT)));
     }
 }

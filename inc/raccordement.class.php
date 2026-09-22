@@ -47,12 +47,30 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         return _n('Raccordement d\'imprimantes', 'Raccordements d\'imprimantes', $nb, 'printgestion');
     }
 
-    public static function getPageURL(?int $id = null, ?int $entities_id = null): string {
-        $url = PLUGIN_PRINTGESTION_WEBDIR . '/front/raccordement.php';
+    /** Nombre d'étapes de l'assistant, et donc la borne de tout numéro d'étape reçu. */
+    const STEPS = 5;
+
+    /**
+     * Étape ouverte par la page en cours de rendu.
+     *
+     * Elle est posée une fois par showWizard() et lue par les formulaires, qui la renvoient telle quelle pour que
+     * l'enregistrement ramène là où l'on travaillait. La passer en paramètre à chaque méthode d'affichage aurait
+     * fait huit signatures à changer pour une donnée qui ne vaut que le temps d'un rendu.
+     */
+    private static int $view = 0;
+
+    public static function getPageURL(?int $id = null, ?int $entities_id = null, int $step = 0): string {
+        $url  = PLUGIN_PRINTGESTION_WEBDIR . '/front/raccordement.php';
+        $etat = $step >= 1 && $step <= self::STEPS ? '&step=' . $step : '';
         if ($id !== null) {
-            return $url . '?id=' . $id;
+            return $url . '?id=' . $id . $etat;
         }
         return $entities_id !== null ? $url . '?entities_id=' . $entities_id : $url;
+    }
+
+    /** Champ caché qui fait revenir l'enregistrement sur l'étape affichée. */
+    public static function stepField(): string {
+        return self::$view >= 1 ? Html::hidden('step', ['value' => self::$view]) : '';
     }
 
     public static function getStatusLabels(): array {
@@ -124,7 +142,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
     }
 
     /** Adresses de l'étape 2, remplacées en bloc tant que la configuration n'est pas créée. */
-    private function replaceIps(array $ips): bool {
+    protected function replaceIps(array $ips): bool {
         global $DB;
 
         $DB->beginTransaction();
@@ -147,12 +165,33 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         return true;
     }
 
+    private function countIps(): int {
+        return countElementsInTable(self::IPS_TABLE, ['plugin_printgestion_raccordements_id' => (int) $this->getID()]);
+    }
+
+    /**
+     * Étape la plus avancée que l'état des données permet d'ouvrir — au-delà, il n'y aurait rien à montrer.
+     *
+     * Sans adresse, la collecte n'a rien à configurer ; sans découverte lancée, il n'y a aucune imprimante à qui
+     * appliquer un lieu.
+     */
+    public function getReachableStep(): int {
+        if (!empty($this->fields['date_triggered'])) {
+            return 5;
+        }
+        return $this->countIps() > 0 ? 4 : 2;
+    }
+
+    /** Étape ouverte quand la page n'en demande aucune : celle où il reste quelque chose à faire. */
     public function getCurrentStep(): int {
-        if (in_array($this->fields['status'], [self::STATUS_CONFIGURED, self::STATUS_TRIGGERED, self::STATUS_CLOSED], true)
+        if ($this->fields['status'] === self::STATUS_CLOSED) {
+            return 5;
+        }
+        if (in_array($this->fields['status'], [self::STATUS_CONFIGURED, self::STATUS_TRIGGERED], true)
             || !empty($this->fields['date_configured'])) {
             return 4;
         }
-        return countElementsInTable(self::IPS_TABLE, ['plugin_printgestion_raccordements_id' => (int) $this->getID()]) > 0 ? 3 : 2;
+        return $this->countIps() > 0 ? 3 : 2;
     }
 
     // ── Adresses saisies ──────────────────────────────────────────────────────
@@ -425,9 +464,191 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
      * Action POST de l'assistant (droit en modification et accès à l'entité vérifiés par la page) ;
      * renvoie l'adresse de retour. Chaque action sur un raccordement est tracée dans son journal.
      */
+    /**
+     * Raccordement créé sans assistant, à partir des adresses saisies dans la fenêtre d'installation, sur le PC.
+     *
+     * Le but est qu'un technicien reparte sans rien avoir à faire dans GLPI. Ce qui est créé ici est exactement ce
+     * que l'assistant crée : un raccordement visible dans son écran, avec son journal étape par étape, donc
+     * vérifiable et corrigible. Rien de caché, rien d'irréversible.
+     *
+     * Sans communauté SNMP, on s'arrête après les adresses : la configuration de collecte demande des identifiants,
+     * et en inventer serait pire que de laisser un clic à faire.
+     *
+     * Appelé depuis une page sans session (le compte rendu du fichier d'installation) : aucune vérification de droit
+     * ici, c'est la clé à usage unique qui a ouvert, et l'entité est celle pour laquelle le fichier a été fabriqué.
+     *
+     * @return array ['ok' => bool, 'id' => int, 'messages' => string[]]
+     */
+    /**
+     * La sonde d'un PC, retrouvée par le nom de son ordinateur ; 0 si GLPI ne la connaît pas encore.
+     *
+     * Au moment où le fichier d'installation rend compte, il ne connaît rien d'autre de GLPI. La plus récemment
+     * vue l'emporte si deux agents portent le même ordinateur.
+     */
+    public static function findAgentByComputer(int $entities_id, string $computer): int {
+        global $DB;
+
+        $nom = trim($computer);
+        if ($nom === '') {
+            return 0;
+        }
+        foreach ($DB->request([
+            'SELECT'     => ['a.id'],
+            'FROM'       => Agent::getTable() . ' AS a',
+            'INNER JOIN' => [Computer::getTable() . ' AS c' => ['ON' => ['a' => 'items_id', 'c' => 'id']]],
+            'WHERE'      => [
+                'a.entities_id' => $entities_id,
+                'a.itemtype'    => Computer::class,
+                'c.name'        => $nom,
+                'c.is_deleted'  => 0,
+            ],
+            'ORDER'      => ['a.last_contact DESC'],
+            'LIMIT'      => 1,
+        ]) as $row) {
+            return (int) $row['id'];
+        }
+        return 0;
+    }
+
+    public static function createFromInstaller(int $entities_id, string $computer, string $ips_text, string $community): array {
+        global $DB;
+
+        $entity = new Entity();
+        if (!$entity->getFromDB($entities_id)) {
+            return ['ok' => false, 'id' => 0, 'messages' => ['Entité introuvable.']];
+        }
+        $nom = trim($computer);
+        if ($nom === '') {
+            return ['ok' => false, 'id' => 0, 'messages' => ['Nom du PC absent : sonde introuvable.']];
+        }
+
+        $agents_id = self::findAgentByComputer($entities_id, $nom);
+        if ($agents_id === 0) {
+            return ['ok' => false, 'id' => 0, 'messages' => [sprintf('Aucune sonde nommée « %s » dans cette entité : le raccordement reste à créer à la main.', $nom)]];
+        }
+
+        $parsed = self::parseIps($ips_text);
+        if (!empty($parsed['errors']) || empty($parsed['ips'])) {
+            return ['ok' => false, 'id' => 0, 'messages' => array_merge(
+                ['Adresses refusées, rien n\'a été créé :'],
+                $parsed['errors'] ?: ['aucune adresse lisible.']
+            )];
+        }
+
+        $start = self::start($entity, $agents_id);
+        if ($start['id'] === 0) {
+            return ['ok' => false, 'id' => 0, 'messages' => array_map(static fn(array $m): string => $m[1], $start['messages'])];
+        }
+        $racc = new self();
+        if (!$racc->getFromDB($start['id'])) {
+            return ['ok' => false, 'id' => 0, 'messages' => ['Raccordement créé mais introuvable.']];
+        }
+        $messages = array_map(static fn(array $m): string => $m[1], $start['messages']);
+        $racc->addLog(1, 'info', __('Étape 1 remplie par le fichier d\'installation, sur le PC.', 'printgestion'));
+
+        // Réinstallation sur un PC qui a déjà un raccordement : start() l'a repris, et l'assistant fige les
+        // adresses dès que la configuration de collecte existe. Les réécrire d'ici laisserait la plage IP de GLPI
+        // Inventory en désaccord avec ce que le raccordement affiche.
+        if ((string) $racc->fields['status'] !== self::STATUS_OPEN) {
+            $connues = array_map(static fn(array $row): int => (int) $row['ip_num'], $racc->getIps());
+            $voulues = array_map('intval', array_keys($parsed['ips']));
+            sort($connues);
+            sort($voulues);
+            if ($connues !== $voulues) {
+                $refus = sprintf(
+                    __('Raccordement n° %d déjà configuré avec d\'autres adresses : celles saisies sur le PC sont ignorées, rien n\'est écrasé. À corriger dans l\'assistant.', 'printgestion'),
+                    (int) $racc->getID()
+                );
+                $racc->addLog(2, 'warning', $refus);
+                return ['ok' => false, 'id' => (int) $racc->getID(), 'messages' => array_merge($messages, [$refus]), 'triggered' => false];
+            }
+            // Mêmes adresses : rien à réécrire, et relancer la découverte est justement ce qu'on attend.
+            $reprise = sprintf(
+                __('Réinstallation sur le même PC, mêmes adresses : la découverte est relancée sur le raccordement n° %d.', 'printgestion'),
+                (int) $racc->getID()
+            );
+            $racc->addLog(4, 'info', $reprise);
+            return $racc->launchFromInstaller(array_merge($messages, [$reprise]));
+        }
+
+        if (!$racc->replaceIps($parsed['ips'])) {
+            $racc->addLog(2, 'error', __('Adresses non enregistrées (erreur de base de données).', 'printgestion'));
+            return ['ok' => false, 'id' => (int) $racc->getID(), 'messages' => array_merge($messages, ['Adresses non enregistrées.'])];
+        }
+        $resume = sprintf(
+            _n('%1$d adresse déclarée depuis le PC (%2$s).', '%1$d adresses déclarées depuis le PC (%2$s).', count($parsed['ips']), 'printgestion'),
+            count($parsed['ips']),
+            self::summarizeIps(array_keys($parsed['ips']))
+        );
+        $racc->addLog(2, 'success', $resume);
+        $messages[] = $resume;
+
+        if ($community === '') {
+            $attente = __('Communauté SNMP non saisie : la configuration de collecte reste à créer dans l\'assistant.', 'printgestion');
+            $racc->addLog(3, 'info', $attente);
+            return ['ok' => true, 'id' => (int) $racc->getID(), 'messages' => array_merge($messages, [$attente])];
+        }
+
+        // Configuration de collecte : la même que celle de l'étape 3 de l'assistant, avec les identifiants SNMP
+        // saisis sur le PC (réutilisés s'ils existent déjà dans GLPI, créés sinon).
+        $plan = PluginPrintgestionCollectsetup::plan($racc, [
+            'credential_mode'  => 'new',
+            'snmpversion'      => '2',
+            'community'        => $community,
+            'credential_name'  => sprintf(__('SNMP v2c « %s »', 'printgestion'), $community),
+        ]);
+        if (!empty($plan['errors'])) {
+            foreach ($plan['errors'] as $error) {
+                $racc->addLog(3, 'error', $error);
+            }
+            $racc->addLog(3, 'error', __('Configuration refusée : les adresses sont enregistrées, la collecte reste à créer dans l\'assistant.', 'printgestion'));
+            return ['ok' => true, 'id' => (int) $racc->getID(), 'messages' => array_merge($messages, $plan['errors'])];
+        }
+        $result = PluginPrintgestionCollectsetup::apply($racc, $plan);
+        foreach (array_merge($plan['notes'], array_map(static fn(array $e): string => $e[1], $result['events'])) as $note) {
+            $messages[] = $note;
+        }
+        foreach ($result['events'] as [$level, $message]) {
+            $racc->addLog(3, $level, $message);
+        }
+        if (!$result['ok']) {
+            return ['ok' => false, 'id' => (int) $racc->getID(), 'messages' => $messages, 'triggered' => false];
+        }
+        $racc->addLog(3, 'success', __('Étape 3 validée : configuration de collecte créée depuis le fichier d\'installation.', 'printgestion'));
+
+        return $racc->launchFromInstaller($messages);
+    }
+
+    /**
+     * Lance la découverte au nom du fichier d'installation, et rend le résultat au format de createFromInstaller().
+     *
+     * C'est le geste qui manquait : sans lui le raccordement restait « configuré » et personne ne scannait — il
+     * fallait rouvrir l'assistant pour un clic, alors que le technicien était déjà reparti. Le drapeau `triggered`
+     * décide ensuite si le serveur demande au PC de réveiller son agent.
+     *
+     * @return array ['ok' => bool, 'id' => int, 'messages' => string[], 'triggered' => bool]
+     */
+    private function launchFromInstaller(array $messages): array {
+        // apply() vient d'écrire les tâches créées dans le raccordement : on relit avant de les lire.
+        if (!$this->getFromDB((int) $this->getID())) {
+            return ['ok' => false, 'id' => (int) $this->getID(), 'messages' => $messages, 'triggered' => false];
+        }
+        $lancement = PluginPrintgestionCollectsetup::trigger($this);
+        foreach ($lancement['events'] as [$level, $message]) {
+            $this->addLog(4, $level, $message);
+            $messages[] = $message;
+        }
+        if ($lancement['ok']) {
+            $this->addLog(4, 'success', __('Étape 4 validée : découverte lancée depuis le fichier d\'installation.', 'printgestion'));
+        }
+        return ['ok' => $lancement['ok'], 'id' => (int) $this->getID(), 'messages' => $messages, 'triggered' => $lancement['ok']];
+    }
+
     public static function processAction(array $post, Entity $entity, ?self $racc): string {
         $entities_id = (int) $entity->getID();
-        $back        = $racc !== null ? self::getPageURL((int) $racc->getID()) : self::getPageURL(null, $entities_id);
+        // L'etape d'ou vient le formulaire : sans elle, enregistrer a l'etape 5 renverrait a l'etape 4.
+        $vue         = (int) ($post['step'] ?? 0);
+        $back        = $racc !== null ? self::getPageURL((int) $racc->getID(), null, $vue) : self::getPageURL(null, $entities_id);
         $status      = $racc !== null ? (string) $racc->fields['status'] : '';
         $flash       = static function (string $level, string $message): void {
             $types = ['success' => INFO, 'info' => INFO, 'warning' => WARNING, 'error' => ERROR];
@@ -646,7 +867,6 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         $esc         = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $entities_id = (int) $entity->getID();
         $can_edit    = Session::haveRight(self::$rightname, UPDATE);
-        $step        = $racc !== null ? $racc->getCurrentStep() : 1;
 
         echo "<div class='card mb-3'><div class='card-body d-flex flex-wrap align-items-center gap-3'>";
         echo "<h2 class='mb-0'>" . $esc($racc !== null ? sprintf(__('Raccordement n° %d', 'printgestion'), (int) $racc->getID()) : __('Nouveau raccordement', 'printgestion')) . "</h2>";
@@ -673,39 +893,105 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             return;
         }
 
-        // Étape 5 (lieu, commentaire, contrat) dès que la découverte est lancée.
-        if ($racc !== null && in_array($racc->fields['status'], [self::STATUS_TRIGGERED, self::STATUS_CLOSED], true)) {
-            $step = 5;
-        }
-        echo "<ul class='steps steps-counter steps-blue mb-3'>";
-        foreach ([
-            1 => __('Sonde présente', 'printgestion'),
-            2 => __('Imprimantes', 'printgestion'),
-            3 => __('Configuration de la collecte', 'printgestion'),
-            4 => __('Déclenchement et vérification', 'printgestion'),
-            5 => __('Lieu, commentaire, contrat', 'printgestion'),
-        ] as $number => $label) {
-            echo "<li class='step-item" . ($number === $step ? ' active' : '') . "'>" . $esc($label) . "</li>";
-        }
-        echo "</ul>";
-
-        self::showStep1($entity, $racc, $can_edit);
+        // Pas encore de raccordement : il n'y a qu'une chose à faire, choisir la sonde.
         if ($racc === null) {
+            self::showStep1($entity, null, $can_edit);
             return;
         }
-        $racc->showStep2($can_edit);
-        PluginPrintgestionRaccordementdetail::showDetails($racc, $can_edit);
-        if ($step >= 3) {
-            $racc->showStep3($can_edit);
-        }
-        if ($step >= 4) {
-            $racc->showStep4($can_edit);
-        }
-        if ($step >= 5) {
+
+        // Étape demandée par la page, bornée par ce que l'état des données permet d'ouvrir. Hors bornes (lien
+        // vieilli, adresse tapée à la main), on retombe sur celle où il reste quelque chose à faire.
+        $reachable  = $racc->getReachableStep();
+        $asked      = (int) ($_GET['step'] ?? 0);
+        $step       = ($asked >= 1 && $asked <= $reachable) ? $asked : $racc->getCurrentStep();
+        self::$view = $step;
+
+        self::showStepBar($racc, $step, $reachable);
+        $racc->showRecap();
+
+        if ($step === 1) {
+            self::showStep1($entity, $racc, $can_edit);
+        } elseif ($step === 2) {
+            $racc->showStep2($can_edit);
+        } elseif ($step === 3) {
+            PluginPrintgestionRaccordementdetail::showDetails($racc, $can_edit);
+        } elseif ($step === 5) {
             PluginPrintgestionRaccordementdetail::showStep5($racc, $can_edit);
+        } else {
+            // Étape 4 : configurer la collecte, puis lancer la découverte. Les deux tiennent dans la même étape
+            // parce qu'il n'y a aucune décision à prendre entre elles : une fois la configuration créée, la seule
+            // suite possible est de lancer la découverte.
+            $racc->showStep3($can_edit);
+            if ($racc->fields['status'] !== self::STATUS_OPEN) {
+                $racc->showStep4($can_edit);
+            }
         }
+
+        // « Suivant » : l'étape d'après quand elle est ouvrable. Sans ce bouton, il faudrait deviner que la barre
+        // du haut est cliquable.
+        if ($step < $reachable) {
+            echo "<div class='text-end mb-3'><a class='btn btn-primary' href='" . $esc(self::getPageURL((int) $racc->getID(), null, $step + 1)) . "'>"
+                . $esc(self::getStepLabels()[$step + 1]) . "<i class='ti ti-arrow-right ms-1'></i></a></div>";
+        }
+
         $racc->showAbandonForm($can_edit);
         $racc->showLogs();
+    }
+
+    /** Les cinq étapes, dans l'ordre : un seul endroit où elles sont nommées. */
+    public static function getStepLabels(): array {
+        return [
+            1 => __('Sonde', 'printgestion'),
+            2 => __('Adresses des imprimantes', 'printgestion'),
+            3 => __('Lieu, commentaire, contrat', 'printgestion'),
+            4 => __('Configuration et découverte', 'printgestion'),
+            5 => __('Application aux imprimantes', 'printgestion'),
+        ];
+    }
+
+    /**
+     * La barre 1 -> 5, qui est aussi la navigation : les étapes ouvrables sont des liens, les autres des libellés
+     * éteints. C'est ce qui permet de revenir corriger un oubli sans tout réafficher.
+     */
+    private static function showStepBar(self $racc, int $step, int $reachable): void {
+        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        echo "<ul class='steps steps-counter steps-blue mb-3'>";
+        foreach (self::getStepLabels() as $number => $label) {
+            $classes = 'step-item' . ($number === $step ? ' active' : '');
+            if ($number <= $reachable) {
+                echo "<li class='{$classes}'><a href='" . $esc(self::getPageURL((int) $racc->getID(), null, $number)) . "'>" . $esc($label) . "</a></li>";
+            } else {
+                echo "<li class='{$classes}'><span class='text-muted'>" . $esc($label) . "</span></li>";
+            }
+        }
+        echo "</ul>";
+    }
+
+    /**
+     * Une ligne de rappel de ce qui est déjà décidé : sonde et adresses.
+     *
+     * Une seule étape étant visible, ces deux faits ne sont plus à l'écran quand on travaille plus loin — et ce
+     * sont justement ceux dont dépend tout le reste.
+     */
+    private function showRecap(): void {
+        $esc   = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $parts = [];
+        $agent = new Agent();
+        if ($agent->getFromDB((int) $this->fields['agents_id'])) {
+            $parts[] = "<i class='ti ti-device-desktop me-1'></i>" . $esc($agent->fields['name']);
+        }
+        $longs = array_map(static fn(array $row): int => (int) $row['ip_num'], $this->getIps());
+        if (!empty($longs)) {
+            $parts[] = "<i class='ti ti-printer me-1'></i>" . $esc(sprintf(
+                _n('%1$d adresse : %2$s', '%1$d adresses : %2$s', count($longs), 'printgestion'),
+                count($longs),
+                self::summarizeIps($longs)
+            ));
+        }
+        if (empty($parts)) {
+            return;
+        }
+        echo "<div class='text-muted small mb-3 d-flex flex-wrap gap-3'><span>" . implode("</span><span>", $parts) . "</span></div>";
     }
 
     /**
@@ -735,7 +1021,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         $esc     = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $confirm = __('Abandonner ce raccordement ? Rien n\'est supprimé : le journal est gardé et la configuration de collecte déjà créée reste en place.', 'printgestion');
         echo "<form method='post' action='" . $esc(self::getPageURL()) . "' class='mb-3 text-end'>"
-            . Html::hidden('id', ['value' => (int) $this->getID()])
+            . self::stepField() . Html::hidden('id', ['value' => (int) $this->getID()])
             . "<button type='submit' name='abandon' value='1' class='btn btn-outline-danger' onclick=\"return confirm(" . $esc(json_encode($confirm)) . ");\">"
             . "<i class='ti ti-player-stop me-1'></i>" . $esc(__('Abandonner le raccordement', 'printgestion')) . "</button>"
             . Html::closeForm(false);
@@ -743,7 +1029,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
 
     private static function showStep1(Entity $entity, ?self $racc, bool $can_edit): void {
         $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('1. Sonde présente', 'printgestion')) . "</h3></div><div class='card-body'>";
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Sonde', 'printgestion')) . "</h3></div><div class='card-body'>";
 
         if ($racc !== null) {
             $agent = new Agent();
@@ -811,7 +1097,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             if ($can_edit) {
                 echo "<form method='post' action='" . $esc(self::getPageURL()) . "' class='d-inline-flex gap-1'>";
                 echo $racc !== null
-                    ? Html::hidden('id', ['value' => (int) $racc->getID()])
+                    ? self::stepField() . Html::hidden('id', ['value' => (int) $racc->getID()])
                     : Html::hidden('entities_id', ['value' => (int) $entity->getID()]) . Html::hidden('agents_id', ['value' => (int) $agent['id']]);
                 echo "<button type='submit' name='request_status' value='1' class='btn btn-sm btn-outline-secondary'><i class='ti ti-refresh me-1'></i>" . $esc(__('Demander le statut', 'printgestion')) . "</button>";
                 if ($racc === null) {
@@ -829,13 +1115,13 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         $esc      = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $longs    = array_map(static fn(array $row): int => (int) $row['ip_num'], $this->getIps());
         $editable = $can_edit && $this->fields['status'] === self::STATUS_OPEN;
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('2. Imprimantes à raccorder', 'printgestion')) . "</h3></div><div class='card-body'>";
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Adresses des imprimantes', 'printgestion')) . "</h3></div><div class='card-body'>";
         if (!empty($longs)) {
             echo "<p>" . $esc(sprintf(_n('%1$d adresse déclarée : %2$s', '%1$d adresses déclarées : %2$s', count($longs), 'printgestion'), count($longs), self::summarizeIps($longs))) . "</p>";
         }
         if ($editable) {
-            echo "<p class='text-muted small'>" . $esc(__('Rien n\'est appliqué aux imprimantes à cette étape : les adresses restent en attente jusqu\'à la création de la configuration (étape 3).', 'printgestion')) . "</p>";
-            echo "<form method='post' action='" . $esc(self::getPageURL()) . "'>" . Html::hidden('id', ['value' => (int) $this->getID()]);
+            echo "<p class='text-muted small'>" . $esc(__('Rien n\'est appliqué aux imprimantes à cette étape : les adresses restent en attente jusqu\'à la création de la configuration (étape 4).', 'printgestion')) . "</p>";
+            echo "<form method='post' action='" . $esc(self::getPageURL()) . "'>" . self::stepField() . Html::hidden('id', ['value' => (int) $this->getID()]);
             echo "<label class='form-label' for='pg-racc-ips'>" . $esc(__('Adresses IP des imprimantes', 'printgestion')) . "</label>";
             echo "<textarea class='form-control font-monospace' id='pg-racc-ips' name='ips' rows='6' placeholder='192.168.1.20&#10;192.168.1.30-35&#10;192.168.1.0/24'>"
                 . $esc(self::summarizeIps($longs, '-', "\n")) . "</textarea>";
@@ -880,7 +1166,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
 
     private function showStep3(bool $can_edit): void {
         $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('3. Configuration de la collecte', 'printgestion')) . "</h3></div><div class='card-body'>";
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Configuration de la collecte', 'printgestion')) . "</h3></div><div class='card-body'>";
         if ($this->fields['status'] !== self::STATUS_OPEN) {
             // Technicien : l'état ; administrateur : les objets créés ou réutilisés, repliés.
             ob_start();
@@ -901,7 +1187,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         self::showPlan($plan);
 
         if ($can_edit) {
-            echo "<form method='post' action='" . $esc(self::getPageURL()) . "'>" . Html::hidden('id', ['value' => (int) $this->getID()]);
+            echo "<form method='post' action='" . $esc(self::getPageURL()) . "'>" . self::stepField() . Html::hidden('id', ['value' => (int) $this->getID()]);
             echo "<div class='row g-3'><div class='col-lg-6'><div class='form-check'>"
                 . "<input class='form-check-input' type='radio' name='credential_mode' id='pg-cred-existing' value='existing'" . (empty($credentials) ? ' disabled' : ' checked') . ">"
                 . "<label class='form-check-label fw-bold' for='pg-cred-existing'>" . $esc(__('Identifiants SNMP existants', 'printgestion')) . "</label></div>";
@@ -1010,7 +1296,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         $counts  = $this->getResultCounts();
         $waiting = !empty($counts['waiting_discovery']) || !empty($counts['waiting_inventory']) || !empty($counts['pending']);
         $running = in_array($status, [self::STATUS_CONFIGURED, self::STATUS_TRIGGERED], true);
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('4. Déclenchement et vérification', 'printgestion')) . "</h3></div><div class='card-body'>";
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Découverte', 'printgestion')) . "</h3></div><div class='card-body'>";
 
         if ($status === self::STATUS_CONFIGURED) {
             echo "<p>" . $esc(__('La collecte est configurée. Lancez la découverte : la sonde recevra sa consigne, et GLPI tentera de la réveiller.', 'printgestion')) . "</p>";
@@ -1019,7 +1305,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             $this->showProgress();
         }
         if ($can_edit && $running) {
-            echo "<form method='post' action='" . $esc(self::getPageURL()) . "' class='d-flex flex-wrap gap-2 mb-3'>" . Html::hidden('id', ['value' => $id]);
+            echo "<form method='post' action='" . $esc(self::getPageURL()) . "' class='d-flex flex-wrap gap-2 mb-3'>" . self::stepField() . Html::hidden('id', ['value' => $id]);
             echo "<button type='submit' name='trigger' value='1' class='btn " . ($status === self::STATUS_CONFIGURED ? 'btn-primary' : 'btn-outline-primary') . "'><i class='ti ti-radar me-1'></i>"
                 . $esc($status === self::STATUS_CONFIGURED ? __('Lancer la découverte', 'printgestion') : __('Relancer la découverte', 'printgestion')) . "</button>";
             if ($status === self::STATUS_TRIGGERED) {
@@ -1029,12 +1315,26 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             echo Html::closeForm(false);
         }
         if ($running) {
-            $agent     = new Agent();
-            $port      = $agent->getFromDB((int) $this->fields['agents_id']) ? ((int) $agent->fields['port'] ?: Agent::DEFAULT_PORT) : Agent::DEFAULT_PORT;
-            $frequency = max(1, (int) (new \Glpi\Inventory\Conf())->inventory_frequency);
-            echo "<div class='alert alert-info'><strong>" . $esc(__('Sur place, si GLPI ne joint pas la sonde', 'printgestion')) . "</strong> "
-                . $esc(sprintf(__('(cas normal derrière la box du client) : sur le PC sonde, ouvrez http://127.0.0.1:%1$d dans un navigateur et cliquez « Force an Inventory ». Il faut deux passages : la découverte, puis le relevé des niveaux dès que l\'assistant l\'annonce. Sans ce geste, chaque passage attend le prochain contact de l\'agent (jusqu\'à %2$d h).', 'printgestion'), $port, $frequency))
-                . "</div>";
+            global $CFG_GLPI;
+
+            // Ce qu'attend quelqu'un qui n'est pas devant le PC : une echeance, pas un mode d'emploi sur place.
+            $agent = new Agent();
+            $known = $agent->getFromDB((int) $this->fields['agents_id']);
+            $port  = $known ? ((int) $agent->fields['port'] ?: Agent::DEFAULT_PORT) : Agent::DEFAULT_PORT;
+            $note  = "<p class='mb-1'>" . $esc(sprintf(
+                __('Sur le PC sonde, ouvrez http://127.0.0.1:%d dans un navigateur et cliquez « Force an Inventory » : la consigne part aussitôt, sans attendre l\'échéance.', 'printgestion'),
+                $port
+            )) . "</p><p class='mb-0 text-muted small'>"
+                . $esc(__('Il faut deux passages : la découverte, puis le relevé des niveaux dès que l\'assistant l\'annonce.', 'printgestion')) . "</p>";
+            if (PluginPrintgestionUi::isAdmin()) {
+                $note .= "<hr class='my-2'><p class='mb-0 text-muted small'>" . $esc(__('L\'attente maximale est le réglage natif « Fréquence d\'inventaire (en heures) » : ', 'printgestion'))
+                    . "<a href='" . $esc($CFG_GLPI['root_doc'] . '/front/inventory.conf.php') . "'>" . $esc(__('Administration → Inventaire', 'printgestion')) . "</a>"
+                    . $esc(__(' — il vaut pour tous les agents du serveur.', 'printgestion')) . "</p>";
+            }
+            echo PluginPrintgestionUi::statusLine('info', $known
+                ? PluginPrintgestionCollectsetup::getPickupSentence($agent, __('la découverte', 'printgestion'))
+                : __('La sonde prendra la consigne à son prochain contact avec GLPI.', 'printgestion'));
+            echo PluginPrintgestionUi::foldedNote(__('Gagner l\'attente, si vous êtes devant le PC sonde', 'printgestion'), $note);
         }
         if (!empty($this->fields['date_triggered'])) {
             $this->showResults();
@@ -1054,7 +1354,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         if ($can_edit && $status === self::STATUS_TRIGGERED && $waiting && !$timed_out) {
             echo "<p class='text-muted small mt-2 mb-0'>" . $esc(sprintf(__('Vérification automatique toutes les 60 secondes tant que des résultats sont en attente, pendant %d minutes au plus.', 'printgestion'), (int) (self::VERIFY_LIMIT / MINUTE_TIMESTAMP))) . "</p>";
             echo "<form method='post' action='" . $esc(self::getPageURL()) . "' id='pg-racc-autoverify' class='d-none'>"
-                . Html::hidden('id', ['value' => $id]) . Html::hidden('verify', ['value' => 1]) . Html::hidden('auto', ['value' => 1])
+                . self::stepField() . Html::hidden('id', ['value' => $id]) . Html::hidden('verify', ['value' => 1]) . Html::hidden('auto', ['value' => 1])
                 . Html::closeForm(false);
             echo "<script>setTimeout(function () { var form = document.getElementById('pg-racc-autoverify'); if (form) { form.submit(); } }, 60000);</script>";
         }
@@ -1184,7 +1484,8 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             'error'   => ['ti-alert-octagon', 'text-red'],
         ];
         $users = [];
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Journal du raccordement', 'printgestion')) . "</h3></div><div class='card-body'>";
+        // Construit d'abord, montre ensuite : le journal ne s'ouvre que lorsqu'on cherche ce qui s'est passé.
+        ob_start();
         echo "<div class='table-responsive'><table class='table table-sm mb-0'><thead><tr>"
             . "<th>" . $esc(__('Date', 'printgestion')) . "</th><th>" . $esc(__('Utilisateur', 'printgestion')) . "</th>"
             . "<th>" . $esc(__('Étape', 'printgestion')) . "</th><th>" . $esc(__('Événement', 'printgestion')) . "</th></tr></thead><tbody>";
@@ -1200,7 +1501,8 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 . "<td class='text-nowrap'>" . $esc($users[$users_id]) . "</td><td>" . (int) $log['step'] . "</td>"
                 . "<td><i class='ti {$icon} {$class} me-1'></i>" . $esc($log['message']) . "</td></tr>";
         }
-        echo "</tbody></table></div></div></div>";
+        echo "</tbody></table></div>";
+        echo PluginPrintgestionUi::foldedNote(__('Journal du raccordement', 'printgestion'), (string) ob_get_clean());
     }
 
     /** Onglet Déploiement Agent de l'entité, bloc 3 : raccordements de l'entité et accès à l'assistant. */
@@ -1288,11 +1590,19 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         }
         $statuses = self::getStatusLabels();
         $labels   = self::getResultLabels();
-        echo "<div class='table-responsive'><table class='table table-sm table-hover align-middle mb-0'><thead><tr>"
-            . "<th>" . $esc(__('N°', 'printgestion')) . "</th>" . ($with_entity ? "<th>" . $esc(__('Entité', 'printgestion')) . "</th>" : '')
-            . "<th>" . $esc(__('Sonde', 'printgestion')) . "</th><th>" . $esc(__('Statut', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Adresses', 'printgestion')) . "</th><th>" . $esc(__('Résultats', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Créé le', 'printgestion')) . "</th><th>" . $esc(__('Par', 'printgestion')) . "</th></tr></thead><tbody>";
+        $columns  = ['num' => __('N°', 'printgestion')];
+        if ($with_entity) {
+            $columns['entity'] = __('Entité', 'printgestion');
+        }
+        $columns += [
+            'probe'   => __('Sonde', 'printgestion'),
+            'status'  => __('Statut', 'printgestion'),
+            'ips'     => __('Adresses', 'printgestion'),
+            'results' => __('Résultats', 'printgestion'),
+            'created' => __('Créé le', 'printgestion'),
+            'user'    => __('Par', 'printgestion'),
+        ];
+        $entries = [];
         foreach ($rows as $row) {
             $id                            = (int) $row['id'];
             [$status_label, $status_class] = $statuses[$row['status']] ?? [$row['status'], 'bg-secondary text-secondary-fg'];
@@ -1302,22 +1612,102 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                     $badges .= "<span class='badge {$class} me-1'>" . $esc($label . ' ' . $counts[$id][$result]) . "</span>";
                 }
             }
-            echo "<tr><td><a href='" . $esc(self::getPageURL($id)) . "'>" . $id . "</a></td>"
-                . ($with_entity ? "<td>" . $esc(Dropdown::getDropdownName('glpi_entities', (int) $row['entities_id'])) . "</td>" : '')
-                . "<td>" . $esc($agents[(int) $row['agents_id']] ?? sprintf(__('n° %d', 'printgestion'), (int) $row['agents_id'])) . "</td>"
-                . "<td><span class='badge {$status_class}'>" . $esc($status_label) . "</span></td>"
-                . "<td>" . (int) array_sum($counts[$id] ?? []) . "</td><td>" . ($badges !== '' ? $badges : '—') . "</td>"
-                . "<td class='text-nowrap'>" . $esc(Html::convDateTime((string) $row['date_creation'])) . "</td>"
-                . "<td>" . $esc(getUserName((int) $row['users_id'])) . "</td></tr>";
+            // Ligne entière cliquable (pg-datatable) : elle ouvre le lien du « N° », trop petit pour qu'on pense à le viser.
+            $entries[] = [
+                'itemtype' => self::class,
+                'id'       => $id,
+                'num'      => "<a href='" . $esc(self::getPageURL($id)) . "'>" . $id . "</a>",
+                'entity'   => Dropdown::getDropdownName('glpi_entities', (int) $row['entities_id']),
+                'probe'    => $agents[(int) $row['agents_id']] ?? sprintf(__('n° %d', 'printgestion'), (int) $row['agents_id']),
+                'status'   => "<span class='badge {$status_class}'>" . $esc($status_label) . "</span>",
+                'ips'      => (int) array_sum($counts[$id] ?? []),
+                'results'  => $badges !== '' ? $badges : '—',
+                'created'  => (string) $row['date_creation'],
+                'user'     => getUserName((int) $row['users_id']),
+            ];
         }
-        echo "</tbody></table></div>";
+        echo PluginPrintgestionUi::datatable($columns, $entries, [
+            'num'     => 'raw_html',
+            'status'  => 'raw_html',
+            'results' => 'raw_html',
+            'created' => 'datetime',
+        ], self::class, Session::haveRight(self::$rightname, UPDATE));
+    }
+
+    /**
+     * Options de recherche natives : moteur de recherche de GLPI, export et actions massives du raccordement.
+     *
+     * Rien n'y est modifiable en masse : le statut et les dates suivent le déroulé de l'assistant, les forcer d'une
+     * liste mentirait sur ce qui a été fait.
+     */
+    public function rawSearchOptions() {
+        $table = self::getTable();
+        $tab   = [];
+
+        $tab[] = ['id' => 'common', 'name' => self::getTypeName(Session::getPluralNumber())];
+        $tab[] = ['id' => '2', 'table' => $table, 'field' => 'id',
+                  'name' => __('N°', 'printgestion'), 'datatype' => 'number', 'massiveaction' => false];
+        $tab[] = ['id' => '80', 'table' => 'glpi_entities', 'field' => 'completename',
+                  'name' => Entity::getTypeName(1), 'datatype' => 'dropdown', 'massiveaction' => false];
+        $tab[] = ['id' => '3', 'table' => Agent::getTable(), 'field' => 'name',
+                  'name' => __('Sonde', 'printgestion'), 'datatype' => 'dropdown', 'massiveaction' => false];
+        $tab[] = ['id' => '4', 'table' => $table, 'field' => 'status',
+                  'name' => __('Statut', 'printgestion'), 'datatype' => 'specific', 'searchtype' => ['equals', 'notequals'], 'massiveaction' => false];
+        $tab[] = ['id' => '5', 'table' => User::getTable(), 'field' => 'name',
+                  'name' => __('Par', 'printgestion'), 'datatype' => 'dropdown', 'right' => 'all', 'massiveaction' => false];
+        $tab[] = ['id' => '6', 'table' => $table, 'field' => 'date_creation',
+                  'name' => __('Créé le', 'printgestion'), 'datatype' => 'datetime', 'massiveaction' => false];
+        $tab[] = ['id' => '19', 'table' => $table, 'field' => 'date_mod',
+                  'name' => __('Last update'), 'datatype' => 'datetime', 'massiveaction' => false];
+        $tab[] = ['id' => '7', 'table' => $table, 'field' => 'date_triggered',
+                  'name' => __('Découverte lancée le', 'printgestion'), 'datatype' => 'datetime', 'massiveaction' => false];
+        $tab[] = ['id' => '8', 'table' => $table, 'field' => 'date_verified',
+                  'name' => __('Vérifié le', 'printgestion'), 'datatype' => 'datetime', 'massiveaction' => false];
+
+        return $tab;
+    }
+
+    static function getSpecificValueToDisplay($field, $values, array $options = []) {
+        if (!is_array($values)) {
+            $values = [$field => $values];
+        }
+        if ($field === 'status') {
+            [$label, $class] = self::getStatusLabels()[(string) ($values[$field] ?? '')] ?? [(string) ($values[$field] ?? ''), 'bg-secondary text-secondary-fg'];
+            return "<span class='badge {$class}'>" . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . "</span>";
+        }
+        return parent::getSpecificValueToDisplay($field, $values, $options);
+    }
+
+    static function getSpecificValueToSelect($field, $name = '', $values = '', array $options = []) {
+        if (!is_array($values)) {
+            $values = [$field => $values];
+        }
+        if ($field === 'status') {
+            $options['display'] = false;
+            $options['value']   = $values[$field] ?? '';
+            return Dropdown::showFromArray($name, array_map(static fn(array $status): string => $status[0], self::getStatusLabels()), $options);
+        }
+        return parent::getSpecificValueToSelect($field, $name, $values, $options);
+    }
+
+    /**
+     * Adresses et journal d'un raccordement purgé.
+     *
+     * Sans cela, une suppression — désormais possible en lot depuis la liste — laisserait en base des adresses et
+     * des lignes de journal rattachées à un raccordement qui n'existe plus.
+     */
+    public function cleanDBonPurge() {
+        global $DB;
+
+        $DB->delete(self::IPS_TABLE, ['plugin_printgestion_raccordements_id' => (int) $this->getID()]);
+        $DB->delete(self::LOGS_TABLE, ['plugin_printgestion_raccordements_id' => (int) $this->getID()]);
     }
 
     static function uninstall(Migration $migration) {
         global $DB;
 
         foreach ([self::LOGS_TABLE, self::IPS_TABLE, self::getTable()] as $table) {
-            $DB->doQuery('DROP TABLE IF EXISTS `' . $table . '`');
+            $DB->dropTable($table, true);
         }
         return true;
     }

@@ -45,6 +45,16 @@ class PluginPrintgestionCartridgesnmp extends CommonDBTM {
         return Session::haveRight('plugin_printgestion_config', UPDATE) && $item->can((int) $item->getID(), UPDATE);
     }
 
+    /**
+     * Icône de l'onglet. Onglet « Print Gestion » de la fiche Cartouche : sa liaison aux propriétés SNMP des imprimantes.
+     *
+     * Sans cette méthode, GLPI retombe sur l'icône par défaut de CommonDBTM, qui vaut « fa-empty-icon » et
+     * que createTabEntry() remplace alors par rien : le libellé reste nu à côté des onglets natifs.
+     */
+    static function getIcon() {
+        return 'ti ti-printer';
+    }
+
     function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
         if ($item->getType() == 'CartridgeItem' && self::canViewBindings()) {
             $nb = countElementsInTable(self::getTable(), ['cartridgeitems_id' => $item->getID()]);

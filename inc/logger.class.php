@@ -31,6 +31,15 @@ class PluginPrintgestionLogger {
         self::write('AVERTISSEMENT', $context, $message, $e);
     }
 
+    /**
+     * Information : l'opération a abouti, mais elle mérite une trace. Réservé à ce qui se demande après coup — qui
+     * a récupéré l'installeur, quand, depuis quelle adresse. Pas un journal de fonctionnement : le reste du plugin
+     * n'écrit que ses échecs.
+     */
+    public static function info(string $context, string $message): void {
+        self::write('INFO', $context, $message, null);
+    }
+
     /** Chemin du fichier journal. */
     public static function getPath(): string {
         return GLPI_LOG_DIR . '/' . self::LOG_NAME . '.log';

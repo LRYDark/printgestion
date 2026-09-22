@@ -32,6 +32,16 @@ class PluginPrintgestionContractrate extends CommonDBTM {
         return Session::haveRight('plugin_printgestion_contrats', UPDATE) && $contract->can((int) $contract->getID(), UPDATE);
     }
 
+    /**
+     * Icône de l'onglet. Onglet « Tarifs Print Gestion » de la fiche Contrat : le coût à la page.
+     *
+     * Sans cette méthode, GLPI retombe sur l'icône par défaut de CommonDBTM, qui vaut « fa-empty-icon » et
+     * que createTabEntry() remplace alors par rien : le libellé reste nu à côté des onglets natifs.
+     */
+    static function getIcon() {
+        return 'ti ti-coin';
+    }
+
     function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
         if ($item->getType() == 'Contract' && self::canViewRates()) {
             $nb = countElementsInTable(self::getTable(), ['contracts_id' => $item->getID()]);

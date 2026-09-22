@@ -30,6 +30,63 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
     /** Unités et bornes des modificateurs (mêmes bornes que TASK_HOURLY_MODIFIER et TASK_DAILY_MODIFIER du MSI). */
     const UNITS = ['hourly' => [1, 23], 'daily' => [1, 365]];
 
+    /**
+     * Ce que la fenêtre d'installation propose au technicien, et ce que chaque choix donne des deux côtés.
+     *
+     * Une seule table pour trois usages : le menu, la fréquence enregistrée dans GLPI (qui replanifie les tâches du
+     * plugin voisin **et** fait suivre le seuil « cette imprimante ne remonte plus »), et la planification de la
+     * tâche de scan de la ToolBox de l'agent quand GLPI Inventory manque. Un second endroit où lire « tous les
+     * combien » finirait par contredire le premier.
+     *
+     * Six choix seulement : un technicien devant une liste de vingt ne choisit pas, il prend le premier.
+     *
+     * La cadence du scan local est dans le format de la ToolBox (un nombre, puis s, m, h, d ou w) : la même pour les
+     * trois systèmes, là où l'ancien scan fait maison la traduisait en arguments schtasks et en expression cron.
+     *
+     * code => [unité, multiplicateur, délai ToolBox]
+     */
+    const INSTALLER_CHOICES = [
+        'hourly:1' => ['hourly', 1,  '1h'],
+        'hourly:3' => ['hourly', 3,  '3h'],
+        'hourly:6' => ['hourly', 6,  '6h'],
+        'daily:1'  => ['daily',  1,  '1d'],
+        'daily:14' => ['daily',  14, '2w'],
+        'daily:30' => ['daily',  30, '30d'],
+    ];
+
+    /** Choix par défaut de la fenêtre : celui qui convient à presque tous les parcs. */
+    const INSTALLER_DEFAULT = 'daily:1';
+
+    /** Libellés du menu, dans l'ordre d'affichage. */
+    public static function getInstallerChoices(): array {
+        return [
+            'hourly:1' => __('Toutes les heures', 'printgestion'),
+            'hourly:3' => __('Toutes les 3 heures', 'printgestion'),
+            'hourly:6' => __('Toutes les 6 heures', 'printgestion'),
+            'daily:1'  => __('Une fois par jour', 'printgestion'),
+            'daily:14' => __('Toutes les 2 semaines', 'printgestion'),
+            'daily:30' => __('Une fois par mois', 'printgestion'),
+        ];
+    }
+
+    /**
+     * Un choix de la fenêtre, ou null s'il est inconnu — ce qui vient d'un poste client n'entre jamais sans contrôle.
+     *
+     * @return ?array ['frequency', 'modifier', 'label', 'toolbox']
+     */
+    public static function parseInstallerChoice(string $code): ?array {
+        if (!isset(self::INSTALLER_CHOICES[$code])) {
+            return null;
+        }
+        [$unite, $facteur, $delai] = self::INSTALLER_CHOICES[$code];
+        return [
+            'frequency' => $unite,
+            'modifier'  => $facteur,
+            'label'     => self::getInstallerChoices()[$code],
+            'toolbox'   => $delai,
+        ];
+    }
+
     const DEFAULT_FREQUENCY = 'daily';
     const DEFAULT_MODIFIER  = 1;
 
@@ -480,7 +537,7 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
         if ($task->getFromDBbyName(self::class, 'PrintgestionCollectSchedule')) {
             $task->delete(['id' => (int) $task->getID()]);
         }
-        $DB->doQuery('DROP TABLE IF EXISTS `' . self::getTable() . '`');
+        $DB->dropTable(self::getTable(), true);
         return true;
     }
 }

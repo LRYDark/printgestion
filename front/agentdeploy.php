@@ -38,23 +38,28 @@ if (isset($_POST['create_tag'])) {
     Html::redirect(Entity::getFormURLWithID($entities_id) . '&forcetab=' . urlencode('PluginPrintgestionAgentdeploy$1'));
 }
 
+// Statut GLPI des PC sondes : réglage global, droit de configuration du plugin comme les autres de cette page.
+if (isset($_POST['save_probe_state'])) {
+    Session::checkRight('plugin_printgestion_config', UPDATE);
+    $errors = PluginPrintgestionAgentsetting::saveProbeState($_POST);
+    Session::addMessageAfterRedirect(
+        empty($errors)
+            ? __('Statut des PC sondes enregistré.', 'printgestion')
+            : implode('<br>', array_map(static fn(string $error) => htmlspecialchars($error, ENT_QUOTES, 'UTF-8'), $errors)),
+        false,
+        empty($errors) ? INFO : ERROR
+    );
+    Html::redirect($page);
+}
+
 if (isset($_POST['fetch_github']) || isset($_POST['verify_deposit']) || isset($_POST['save_settings'])
-    || isset($_POST['check_latest']) || isset($_POST['save_update_defaults'])) {
+    || isset($_POST['check_latest'])) {
     // Jeton CSRF déjà validé par CheckCsrfListener avant ce fichier.
     Session::checkRight('plugin_printgestion_config', UPDATE);
 
     if (isset($_POST['check_latest'])) {
         $result = PluginPrintgestionAgentsetting::checkLatestFromGitHub();
         Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : ERROR);
-    } elseif (isset($_POST['save_update_defaults'])) {
-        $errors = PluginPrintgestionAgentsetting::saveDefaults($_POST);
-        Session::addMessageAfterRedirect(
-            empty($errors)
-                ? __('Dernière version et mise à jour automatique des nouveaux paquets enregistrées.', 'printgestion')
-                : implode('<br>', array_map(static fn(string $error) => htmlspecialchars($error, ENT_QUOTES, 'UTF-8'), $errors)),
-            false,
-            empty($errors) ? INFO : ERROR
-        );
     } elseif (isset($_POST['save_settings'])) {
         $errors = PluginPrintgestionAgentdeploy::saveSettings($_POST);
         if (empty($errors)) {

@@ -88,9 +88,9 @@ printgestion/
 | `Snmprule` | Règle de lecture SNMP par constructeur (ignorer / inverser une propriété) : table, carte de configuration, droit de configuration du plugin |
 | `Collect` | Contrôle de la remontée (lecture seule) : prérequis, états de collecte datés par le journal d'import GLPI, agents et versions, valeurs de consommables et compteurs par modèle, doublons de numéro de série |
 | `Agentdeploy` | Déploiement Agent : onglet de l'entité (TAG, règle d'affectation, agents), installeur GLPI Agent servi et vérifié, paquet Windows pré-paramétré |
-| `Raccordement` | Assistant de raccordement des imprimantes (4 étapes, journal horodaté), page « Raccordements », bloc 3 de l'onglet Déploiement Agent de l'entité |
+| `Raccordement` | Assistant de raccordement des imprimantes (5 étapes, **une seule ouverte à la fois**, journal horodaté replié), page « Raccordements » (actions massives natives, `cleanDBonPurge()`), bloc 3 de l'onglet Déploiement Agent de l'entité |
 | `Collectsetup` | Service (sans table) : configuration de collecte créée dans GLPI Inventory (plage, identifiants SNMP, modules de la sonde, tâches), déclenchement, vérification adresse par adresse |
-| `Raccordementdetail` | Lieu (hiérarchie créée dans l'entité), commentaire et contrat des imprimantes d'un raccordement : saisie en attente (carte 2 bis), application aux imprimantes remontées avec verrou natif (étape 5) |
+| `Raccordementdetail` | Lieu, commentaire et contrat des imprimantes d'un raccordement : saisie en attente avec les sélecteurs natifs de GLPI (étape 3), application aux imprimantes remontées avec verrou natif (étape 5) |
 | `Printeragent` | Fiche imprimante : sonde responsable (plage et tâche GLPI Inventory), version, dernier contact, dernier inventaire réseau réussi ; dans la carte native « Informations d'inventaire », sinon sous le formulaire |
 | `Agentsetting` | Sondes : dernière version connue de GLPI Agent (GitHub, saisie), conformité, réglages de mise à jour par sonde, paquet de consigne, imprimantes collectées, statut du PC sonde ; onglet de la fiche Agent et page « Sondes » |
 | `Agentalert` | Alertes « sonde sans contact » et « imprimante qui ne remonte plus » (tâche quotidienne), réglages et action dans « Agent cleanup », cartes du tableau de bord |
@@ -528,22 +528,203 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
      l'administrateur ; l'onglet n'est jamais vert quand rien ne remontera. Boutons Windows, Linux et
      macOS (actifs dès que leurs fichiers officiels sont vérifiés et le rattachement complet), commande
      Windows et propriétés MSI expliquées, commande Linux, procédure macOS et son `local.cfg` (phase 6).
-- **Paquet Windows** (`front/agentdeploy.download.php`, droit `deploiement` READ et accès à l'entité) : ZIP généré
-  à la demande dans `GLPI_TMP_DIR` et supprimé en fin de requête : MSI officiel (stocké, empreinte recalculée
-  avant envoi) et deux gestes séparés, en ASCII et CRLF. Geste 1, `1-installer-glpi-agent.bat` : lance seulement
-  la commande d'installation (`start /wait`, codes 0, 3010 et 1641 acceptés) après avoir vérifié que le MSI est à
-  côté ; ni contrôle administrateur, ni copie, ni tâche. Geste 2, facultatif, présent seulement si « Nouveaux
-  paquets Windows : poser la mise à jour automatique » est coché : `2-facultatif-mise-a-jour-automatique.bat`
-  (contrôle administrateur, copie de `glpi-agent-update.cmd`, tâche planifiée ; n'installe rien) et
-  `glpi-agent-update.cmd` (script de la tâche, voir phase 5). Pourquoi deux fichiers : un .bat ne se signe pas et
-  les antivirus ou EDR se méfient d'un script qui enchaîne installation et création de tâche planifiée ; séparés,
-  le premier ne lance que le MSI signé, et un blocage du second n'empêche pas l'installation. Plus
-  `commande-cmd.txt` (la commande d'installation seule, à coller dans cmd) et `LISEZMOI.txt` (étape 1
-  obligatoire ; étape 2 facultative et ce qu'on perd en la sautant). Chaque téléchargement est tracé dans
-  l'historique de l'entité. Aucun identifiant, jeton ni secret : URL du serveur et TAG seulement.
+- **Fichiers uniques : ce que servent les trois boutons** (`front/agentdeploy.download.php`, `os=windows|linux|macos`,
+  droit `deploiement` READ et accès à l'entité). Un seul fichier par système, quelques kilo-octets, rendu sans fichier
+  temporaire : il va chercher l'installeur officiel sur ce serveur avec une clé à usage unique, **recalcule son
+  SHA-256 et refuse tout écart**, puis installe. Une fenêtre s'il y en a une sur le poste (WinForms, zenity,
+  osascript), la question en console sinon — une fenêtre est un confort, jamais un passage obligé, et une fenêtre
+  **indisponible** ne vaut jamais une annulation (osascript rend le même code pour « Annuler » et pour « pas de
+  session graphique » : on distingue sur le message, et dans le doute on redemande en console).
+  `Agentdeploy::buildWindowsDialogLines()` et les briques shell (`buildLinuxUiLines()`, `buildMacosUiLines()`) écrivent la fenêtre une seule fois pour tous les
+  paquets : une seule case de mise à jour, au même état par défaut (décochée), quel que soit le système.
+  - **Windows** : un `.bat` dont la seconde moitié est du PowerShell. La moitié cmd (ASCII pur) ne
+  fait que trois choses : contrôle administrateur, écriture de la partie qui suit le marqueur `#PG-POWERSHELL` dans
+  `%TEMP%`, et lancement ; elle s'arrête sur `exit /b`, si bien que cmd ne lit jamais le PowerShell. Deux parties
+  dans un fichier parce que Windows n'exécute pas un `.ps1` au double-clic (il l'ouvre dans le Bloc-notes). Rien
+  n'est encodé ni caché : le technicien et l'antivirus lisent tout.
+    **Une seule fenêtre du début à la fin, et sans console** — voir « Fenêtre unique et journal » plus bas. Le
+    téléchargement se fait **morceau par morceau** (`HttpWebRequest` + lecture par blocs de 256 Ko, TLS 1.2 forcé) pour
+    pouvoir annoncer « 12 Mo sur 22 Mo » — `WebClient.DownloadFile` ne rend la main qu'à la fin et ne sait rien dire
+    pendant. L'installation, elle, n'a pas d'avancement à donner : barre défilante, et `Start-Process` **sans
+    `-Wait`** (on interroge `HasExited` avec `DoEvents`, sinon la fenêtre blanchit). Un `trap` rattrape l'imprévu :
+    « Stop » arrêterait tout sans un mot. **Aucune panne n'est muette**, à aucun moment : une fois la fenêtre
+    construite (`$script:fenetre_prete`, posé à la fin de `buildWindowsWizardLines()`), le piège passe par `Echec()`
+    et la page des étapes ; avant, par `Secours()` (`psFormsHeader()`), une boîte de message Windows avec l'erreur et
+    le chemin du journal — `Echec()` touchait alors une fenêtre pas encore construite, l'erreur de l'erreur était
+    avalée et PowerShell sortait sans rien montrer. Un script que PowerShell ne sait même pas lire ne démarre pas
+    du tout, et aucun piège ne joue : le lanceur l'analyse donc juste après l'avoir écrit
+    (`buildWindowsParseCheck()`, `Parser::ParseFile`), tant que la console est là — erreurs dans
+    `%TEMP%\PrintGestion\lanceur-*.log`, boîte de message « fichier abîmé, retéléchargez-le », code 2. Toute chaîne
+    passe par `psQuote()`, qui double l'apostrophe droite **et** les typographiques ’ ‘ ‚ ‛ : PowerShell les prend
+    toutes pour des apostrophes, et un client « L’Atelier » rendait sinon le fichier entier illisible.
+    Essais : `essai_windows_complet.py` (installation et retrait lancés sans console, avec et sans panne simulée),
+    `essai_lanceur_analyse.py` (fichier sain, fichier abîmé).
+  - **Linux** : un `.sh` (`sudo sh <fichier>`) — contrôle root, fenêtre zenity ou question en console (mise à jour
+    automatique **non** par défaut), téléchargement (curl, sinon wget), empreinte (`sha256sum`, sinon `shasum`, sinon
+    `openssl` ; **aucun des trois : on refuse d'installer**, faute de pouvoir vérifier), pose de
+    `/etc/glpi-agent/conf.d/90-printgestion.cfg` (réessais SNMP, absents des options de l'installeur), installeur Perl
+    officiel avec la découverte et l'inventaire réseau, puis la tâche cron mensuelle si elle a été acceptée.
+  - **macOS** : un `.sh` (`sudo sh <fichier>`) qui fait les quatre gestes que le technicien faisait à la main — il lit
+    la puce (`uname -m`), ne télécharge **que** le paquet de cette puce, vérifie l'empreinte, `installer -pkg`, pose
+    `local.cfg` puis relance le service (`launchctl bootout`/`bootstrap`, avec repli `unload`/`load` pour macOS 12 et
+    avant). Aucune question de mise à jour : sur macOS elle est manuelle, et une case qui ne ferait rien serait un
+    mensonge. La clé ouvre les deux paquets (GLPI ne sait pas sur quel Mac le fichier tournera) mais ne sert qu'une
+    fois, puisque le Mac n'en télécharge qu'un.
+
+  Pourquoi la clé plutôt que l'installeur dans le fichier : plusieurs mégaoctets encodés dans un script sont le motif
+  que les antivirus refusent le plus volontiers, et un exécutable fabriqué ici ne serait pas signé (SmartScreen,
+  Gatekeeper). Ces fichiers portent donc l'URL du serveur, le TAG, l'empreinte attendue et **une clé de récupération à
+  usage unique valable 24 h** : ce sont les seuls livrables du plugin qui portent un secret. Ils se donnent au
+  technicien pour l'intervention, ils ne s'archivent pas ; l'historique de l'entité note l'émission de la clé avec sa
+  date de péremption, et le panneau « Comment lancer le fichier téléchargé » compte celles qui valent encore.
+- **Fenêtre unique et journal (Windows, Linux, macOS).** Installation comme retrait : **une** fenêtre qui change de
+  page — réglages (ou confirmation, pour le retrait), puis les étapes cochées une à une, puis le résultat au même
+  endroit avec « Ouvrir le journal » et « Fermer ». Plus de boîte de message ni de seconde fenêtre.
+  - **Windows** (`buildWindowsFrameLines()`, `buildWindowsWizardLines()`, `buildWindowsChoiceLines()`,
+    `buildWindowsConfirmLines()`, `buildWindowsLauncherLines()`) : PowerShell est lancé **d'emblée sans console**
+    (`Start-Process -WindowStyle Hidden`). La cacher après coup ne marche pas sous Windows 11 quand le Terminal Windows
+    est l'hôte par défaut : la fenêtre à cacher n'est alors plus celle qu'on croit. Reste l'éclair d'une seconde de
+    cmd — le prix d'un `.bat`, dont les deux autres formes sont pires (`.ps1` ouvert dans le Bloc-notes, `.exe` non
+    signé arrêté par SmartScreen). Conséquence : **plus aucun `pause`** après le lancement (il bloquerait tout, sans
+    console pour le voir) — contrôlé par `verifier_scripts.py`. Autre conséquence : Windows applique ce « masqué »
+    au **premier affichage d'une fenêtre** du processus — la nôtre. Elle existait sans être à l'écran et attendait
+    un clic impossible : la console clignotait, le journal s'arrêtait à la ligne « PC : », sans erreur. La fenêtre
+    est donc affichée deux fois (`$f.Show(); $f.Hide(); $f.Show()`), le deuxième affichage étant respecté ; même
+    geste dans le garde-fou de `Fin`. Mesuré par `IsWindowVisible` : l'état `Visible` de .NET répond « oui » dans
+    les deux cas, il ne prouve rien. La boîte de message de `Secours()` n'est pas touchée par ce masque. Les boutons n'ont plus de `DialogResult` : la page 1
+    attend son clic sans fermer la fenêtre, qui continue page suivante ; pendant le travail la croix ne ferme rien.
+    Le lanceur nettoie ses propres lignes `rem` et `title` : cmd exécute `< > | &` même là, et le nom d'entité
+    « Root entity > EASI SUPPORT » créait un fichier parasite à chaque lancement du fichier de retrait.
+  - **Linux** (`buildLinuxUiLines()`) : zenity, sous le compte de la personne connectée (`SUDO_USER`) et non en root
+    — depuis Wayland, root n'ouvre plus de fenêtre sur la session d'un autre ; l'affichage est retrouvé même quand sudo
+    a effacé `DISPLAY` (socket X11 ou Wayland de la session). Un formulaire (`zenity --forms`, les trois questions
+    ensemble), puis une fenêtre d'avancement qui se termine sur le résultat. zenity ne change pas de page : deux
+    fenêtres qui se suivent, jamais deux à la fois. Chaque option du formulaire finit par une continuation, la dernière
+    comprise : sans elle, `2>/dev/null)` deviendrait une commande à part et `$?` vaudrait toujours 0 — « Annuler »
+    aurait lancé l'installation.
+  - **macOS** (`buildMacosUiLines()`, `resources/macos-fenetre.js`) : une vraie fenêtre Cocoa en JavaScript for
+    Automation, avec les mêmes pages que sous Windows. Le script tourne en root, la fenêtre sous le compte de la
+    personne connectée (`launchctl asuser` puis `sudo -u`). Ils se parlent par deux fichiers dans un dossier privé
+    (700, à la personne connectée) : `reponses` écrit par la fenêtre, `etat` écrit par le script (`dire|…`, `pct|…`,
+    `etape|clé|état|note`, `fin|OK|message`). En partant, le script attend la fermeture de la fenêtre : elle doit
+    avoir lu la fin avant que son dossier disparaisse. La fenêtre est un fichier à part entière pour être relue par
+    `node --check` ; le fichier de l'entité la recopie, précédée de « var T = {...}; » qui porte les textes.
+  - **Une fenêtre qui ne s'ouvre pas ne vaut jamais une annulation** : session SSH, personne à l'écran, zenity absent
+    — on reprend en console, avec les mêmes étapes (`[ OK ]`, `[ECHEC]`, `[ -- ]`) et le même journal.
+  - **L'interface d'étapes est commune à Linux et macOS** (`pg_etape`, `pg_dire`, `pg_pct`, `pg_fin`, `pg_echec`),
+    et deux étapes sont partagées mot pour mot : le premier contact (`buildShellContactLines()`) et le compte rendu
+    avec ce qu'il déclenche (`buildShellReportLines()`).
+  - **Le journal** (`buildWindowsJournalLines()`, `buildShellJournalLines()`) : un fichier par exécution —
+    `%TEMP%\PrintGestion\installation-AAAAMMJJ-HHMMSS.log` sous Windows, `/var/tmp/printgestion-…log` ailleurs (et non
+    `/tmp`, vidé au redémarrage). Chaque étape horodatée (DEBUT, OK, ECHEC, SAUTE), avec ce qui sert à comprendre :
+    empreinte attendue et reçue, code de retour de l'installeur, réponse de GLPI. La sortie des installeurs et des
+    gestionnaires de paquets y part au lieu de défiler dans le terminal. **Jamais la communauté SNMP ni la clé de
+    téléchargement** : ce sont des secrets, et ce fichier traîne dans un dossier temporaire.
+  - **Nouvelle étape « Premier contact avec GLPI »**, avant le compte rendu. Il partait dès la fin de l'installation,
+    souvent avant le premier inventaire de l'agent : GLPI ne connaissait pas encore la sonde, et ne pouvait ni régler
+    ses modules ni lui confier les imprimantes. Le script attend désormais que l'agent local ait fini un passage (son
+    état `/status` redevient « waiting », 2 + 3 minutes au plus). Si GLPI ne la connaît toujours pas, il le dit :
+    réponse **`NOAGENT`** au compte rendu, et la fenêtre l'annonce au lieu d'un succès. Un ancien fichier, qui ne
+    connaît pas cette réponse, l'ignore.
+- **Les adresses des imprimantes se saisissent sur le PC** (fenêtre d'installation du fichier unique, Windows,
+  Linux et macOS) : deux champs, « Adresses IP des imprimantes » (même syntaxe que l'assistant : `192.168.1.0/24`,
+  `192.168.1.30-35`, une liste) et « Communauté SNMP » (préremplie `public`). Elles partent avec le compte rendu, et
+  **GLPI crée le raccordement tout seul, ET lance la découverte** (`Raccordement::createFromInstaller()`) : plage IP, identifiants SNMP,
+  tâches de découverte et d'inventaire — exactement ce que l'assistant crée, dans un raccordement visible dans son
+  écran, avec son journal étape par étape. Le but est qu'un technicien reparte sans rien avoir à faire dans GLPI.
+  La sonde est retrouvée par le **nom de son PC** : au moment du compte rendu, le fichier ne connaît rien d'autre de
+  GLPI. Sans communauté SNMP, la création s'arrête après les adresses — inventer des identifiants serait pire que de
+  laisser un clic à faire. La communauté n'est **jamais gardée** dans les mémos du plugin : elle sert à créer (ou
+  retrouver) les identifiants SNMP de GLPI, c'est là qu'elle vit.
+- **La fréquence des relevés se choisit aussi dans la fenêtre** (`Collectfrequency::INSTALLER_CHOICES`) : six choix
+  et pas un de plus — toutes les heures, 3 h, 6 h, **une fois par jour (défaut)**, 2 semaines, un mois. Un technicien
+  devant une liste de vingt ne choisit pas, il prend le premier. Le code part avec le compte rendu, dans une liste
+  fermée : ce qui vient d'un poste client est refusé s'il n'en fait pas partie.
+  Le serveur l'enregistre comme **fréquence de relevés de l'entité** — la même valeur que le chevron « Fréquence des
+  relevés » de l'onglet Déploiement Agent — **avant** de créer le raccordement, pour que les tâches naissent
+  directement à la bonne cadence. Et parce que `Collectfrequency::getSilentDaysForEntity()` vaut
+  `max(silent_days, fréquence + 1 jour)`, le seuil « cette imprimante ne remonte plus » suit tout seul : un parc
+  relevé une fois par mois n'est pas signalé en retard au bout de trois jours.
+  **Ce que cela ne change pas, volontairement** : l'alerte « sonde sans contact ». L'agent contacte GLPI à la
+  fréquence d'inventaire de GLPI (24 h par défaut), qu'il scanne ou non ; faire suivre cette alerte à un scan
+  mensuel reviendrait à ne plus voir pendant un mois une sonde réellement morte.
+- **Sans GLPI Inventory, le scan est confié à la ToolBox de l'agent** (`Agentsetting::buildToolboxYaml()`,
+  `buildToolboxPluginConfig()`) : le plugin voisin apporte la *planification* des tâches réseau, mais la *réception*
+  des inventaires est native dans GLPI. Quand il manque, le compte rendu répond `SCAN <première> <dernière> <délai>`
+  — la plage est calculée par l'analyseur d'adresses du plugin, côté serveur, et le délai vient du choix de
+  fréquence (`Collectfrequency::INSTALLER_CHOICES`, troisième valeur : `1h`, `3h`, `6h`, `1d`, `2w`, `30d`). Le
+  fichier d'installation écrit alors, dans le dossier `etc` de l'agent (`C:\Program Files\GLPI-Agent\etc`,
+  `/etc/glpi-agent`, `/Applications/GLPI-Agent/etc`) :
+  - `toolbox.yaml` : une communauté (`credentials`, SNMP v2c), une plage (`ip_range`), une planification
+    (`scheduling`, `type: delay`) et une tâche `netscan` (`jobs`, 10 fils, délai d'attente 1 s, `target: server0`,
+    c'est-à-dire le serveur GLPI de l'agent). Sans `next_run_date`, l'agent lance la tâche dès son redémarrage ;
+  - `toolbox-plugin.local` : `disabled = no`, `forbid_not_trusted = yes` (l'interface n'est ouverte qu'aux adresses
+    de `httpd-trust`, 127.0.0.1 ici).
+  Puis l'agent est redémarré. C'est **l'agent lui-même** qui planifie, scanne et envoie : plus de tâche planifiée
+  (`schtasks`, `/etc/cron.d`) ni de script `glpi-netdiscovery` + `glpi-injector` maison, et la tâche se voit et se
+  modifie à la main sur `http://127.0.0.1:62354/toolbox` du PC sonde. Le format a été relu dans les sources de
+  GLPI Agent (≥ 1.6) : `lib/GLPI/Agent/HTTP/Server/ToolBox*.pm`. Les restes de l'ancienne tâche maison
+  (`PrintGestion-Scan-Imprimantes`, `glpi-scan-imprimantes.cmd`, `/etc/cron.d/printgestion-scan`) sont retirés à
+  l'installation. Windows, Linux et macOS. **Ce que ça coûte** : la communauté SNMP se retrouve dans `toolbox.yaml`
+  — seul moyen de scanner quand aucun serveur n'est là pour le dire. Le fichier est réservé à SYSTEM et aux
+  administrateurs sous Windows (`icacls /inheritance:r`), `chmod 600` ailleurs ; la communauté est écrite entre
+  apostrophes YAML (apostrophe doublée) et n'apparaît jamais dans le journal.
+- **Journal de l'agent** : sous Windows, celui que le MSI pose par défaut (`C:\Program Files\GLPI-Agent\logs\glpi-agent.log`) ;
+  sous Linux et macOS, `logger = file`, `logfile = /var/log/glpi-agent.log`, `logfile-maxsize = 4` dans la
+  configuration posée (`Agentdeploy::buildAgentConfig()`). Le chemin est écrit dans le journal de l'installation et
+  dans la fenêtre de fin : c'est le premier fichier à demander quand une sonde ne remonte rien. Le retrait l'efface sous Linux et macOS ; sous Windows il
+  part avec le dossier de l'agent si la désinstallation du MSI le retire.
+- **Retirer une sonde** (`Agentdeploy::buildRemovalFile()`, `os=windows|linux|macos-retrait`) : un fichier par
+  système, sous les boutons d'installation. Il retire la tâche de mise à jour, celle du scan, les fichiers du
+  plugin, puis l'agent — Windows par la clé de désinstallation du registre (winget peut être absent, ou ne rien
+  connaître d'un agent installé par le MSI), Linux par le gestionnaire de paquets de la distribution, macOS par
+  l'arrêt du service et l'oubli du paquet. Il rend compte à GLPI (`off=1`) : sans cela, la fiche d'une sonde
+  continuerait d'afficher une tâche posée sur une machine qui n'a plus d'agent.
+- **Archives complètes : le recours** (`os=windows-zip|linux-targz|macos-zip`, `Agentdeploy::ARCHIVE_OS`), atteignables
+  depuis le panneau replié « Comment lancer le fichier téléchargé », pas depuis l'écran : elles emportent l'installeur
+  officiel, donc **aucune clé et aucun téléchargement depuis le poste**, au prix d'un dossier à extraire. À prendre
+  quand l'antivirus d'un client refuse les scripts. Le ZIP Windows est généré
+  à la demande dans `GLPI_TMP_DIR` et supprimé en fin de requête. À la racine, deux éléments seulement :
+  `INSTALLER-GLPI-AGENT.bat`, **le seul fichier à lancer**, et `LISEZMOI.txt`. Tout le reste est une donnée, rangée
+  dans `fichiers/` : le MSI officiel (stocké, empreinte recalculée avant envoi), `fenetre-installation.ps1`,
+  `glpi-agent-update.cmd` (script de la tâche, voir phase 5) et `commande-cmd.txt` (la commande d'installation
+  seule, à coller dans cmd si Windows refuse le `.bat`). Un dossier qui montre six éléments dont un seul se lance ne
+  dit pas lequel.
+  Le `.bat` (ASCII, CRLF) : contrôle administrateur (`fsutil dirty query`), MSI présent, puis **la fenêtre**
+  (`powershell -STA -File`), puis l'installation (`start /wait`, codes 0, 3010 et 1641 acceptés), puis la tâche
+  planifiée si la case était cochée. La fenêtre passe avant l'installation parce qu'elle montre ce qui va être
+  installé et pour qui ; ce que le `.bat` vérifie avant, lui, ce sont les deux choses qui la rendraient inutile.
+  Elle rend un mot sur sa sortie standard (`AVEC`, `SANS`, `ANNULE`) et ne décide de rien : sans PowerShell, ou
+  fenêtre fermée sans réponse, la question revient en console (`choice`, 20 s, non par défaut). La case de mise à
+  jour n'est proposée que si « Nouveaux paquets Windows : poser la mise à jour automatique » est coché ; sinon la
+  fenêtre l'annonce sans le redemander. `Agentdeploy::buildWindowsDialogLines()` construit la fenêtre une
+  seule fois pour l'archive et pour le fichier unique : une seule écriture, donc la même case au même état par défaut.
+  Chaque téléchargement est tracé dans l'historique de l'entité. Aucun identifiant, jeton ni secret dans les archives :
+  URL du serveur et TAG seulement.
+- **Clé de récupération** (`inc/agenttoken.class.php`, `front/agentpull.php`) : 24 octets tirés au hasard, **jamais
+  stockés en clair** — seule l'empreinte SHA-256 est gardée, comme un mot de passe. Rangement : `glpi_configs`,
+  contexte `plugin:printgestion`, clé `agent_pull_tokens` (JSON encodé en base64 — la valeur passe tantôt par
+  `CommonDBTM`, tantôt par une écriture directe, et un guillemet échappé par l'un et pas par l'autre rendrait la
+  liste illisible en silence ; 30 entrées au plus, expirées purgées à chaque lecture) ; pas de table dédiée, une poignée de lignes qui vivent un jour ne valent pas une étape de schéma.
+  L'écriture se fait **par comparaison de l'ancienne valeur** (`UPDATE … WHERE value = <valeur lue>`, trois essais) :
+  deux requêtes simultanées ne peuvent pas consommer la même clé. Elle est consommée **avant** d'envoyer le MSI, et
+  non après : une clé refermée seulement en fin d'envoi se rejouerait en coupant la connexion. Le prix est assumé —
+  un téléchargement interrompu se refait en régénérant le fichier dans GLPI, un clic.
+  `front/agentpull.php` est **la seule page du plugin joignable sans session**, déclarée par
+  `plugin_printgestion_boot()` via `SessionManager::registerPluginStatelessPath()` — appelée à l'amorçage, avant
+  `SessionStart`, le seul moment où c'est possible. Elle ne lit que `t`, revérifie le module `deploiement`, recalcule
+  l'empreinte du MSI et refuse s'il n'est plus celui que la clé nommait. Toute demande refusée (clé inconnue,
+  expirée, déjà servie) répond le même 404 sans explication ; le journal `printgestion.log` garde l'adresse et le
+  motif, l'historique de l'entité la récupération (sans auteur : personne n'était connecté, c'est la clé qui a
+  ouvert). Ce que la clé ouvre : ce MSI, un binaire public de Teclib', et rien d'autre — ni session, ni donnée de
+  GLPI, ni écriture.
 - **Commande** : `msiexec /i "<MSI>" SERVER="…" TAG="…" ADDLOCAL="feat_AGENT,feat_NETINV" HTTPD_TRUST="127.0.0.1/32[,…]"
-  SNMP_RETRIES="2" RUNNOW="1" EXECMODE="1" QUICKINSTALL="1" /l*v "%TEMP%\GLPI-Agent-install.log"`, sans `/quiet`
-  (assistant standard prérempli), jamais lancée par PowerShell. `SERVER` : réglage, sinon `<url_base>/`, l'URL
+  SNMP_RETRIES="2" RUNNOW="1" EXECMODE="1" QUICKINSTALL="1" /qn /norestart /l*v "%TEMP%\GLPI-Agent-install.log"`,
+  jamais lancée par PowerShell. **`/qn`** : muette, puisque tout est déjà renseigné — l'assistant n'avait plus rien à
+  demander, il ne donnait qu'une occasion de se tromper. **`/norestart`** est son compagnon obligé : sans lui,
+  l'installeur peut redémarrer le PC de lui-même pendant que quelqu'un travaille ; le code 3010 dit qu'un redémarrage
+  est attendu, c'est à nous de le dire. Linux : même raison, `--silent` sur l'installeur Perl. macOS : `installer -pkg`
+  l'était déjà. `SERVER` : réglage, sinon `<url_base>/`, l'URL
   de l'application GLPI (Configuration → Générale), racine comprise. Jamais `…/plugins/glpiinventory/` : GLPI 11
   reçoit les agents à sa racine (`CatchInventoryAgentRequestListener`) et GLPI Inventory y greffe ses tâches
   réseau par hooks ; le chemin du plugin ne répondait que par une route de compatibilité du plugin, qui tombe en
@@ -567,6 +748,64 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
   Inventory, l'agent ne reçoit aucune tâche réseau, et l'URL du serveur à lui donner change à l'installation
   du plugin.
 
+### Listes du module : gabarit natif (`inc/ui.class.php`)
+
+Les lignes des listes que le plugin affiche sont de vrais objets GLPI — `Agent` pour les sondes, `Printer` pour le
+contrôle de la remontée, `PluginPrintgestionRaccordement` pour les raccordements. Elles sont rendues par le gabarit
+du cœur `components/datatable.html.twig`, par le même appel que `src/Certificate_Item.php` :
+`Ui::datatable($columns, $entries, $formatters, $itemtype, $can_edit)`. Tableau, cases à cocher et barre d'actions
+massives sont donc ceux de GLPI : il déduit l'itemtype du nom des cases et n'offre que les actions permises par les
+droits de l'utilisateur **sur cet objet** (`Agent::$rightname`, `Printer::$rightname`) — aucune règle de sécurité
+n'est recopiée. Sans ligne ou sans droit en modification, pas de cases. Les colonnes réservées à l'administrateur
+ne sont pas ajoutées pour un technicien : absentes de sa page, pas cachées. Le HTML passé en `raw_html` est échappé
+par l'appelant ; le reste est échappé par Twig.
+
+Le plugin n'ajoute au gabarit que deux gestes, par la classe `pg-datatable` du conteneur :
+- **la barre naît cachée** (`printgestion.css` : `.pg-datatable:not(.pg-coche) > .mb-2:first-child`) et
+  `printgestion.js` pose `pg-coche` au premier élément coché. Ce n'est pas qu'une question d'allure : **GLPI déduit
+  l'itemtype des cases cochées**, donc ouvrir le menu sans rien avoir sélectionné ne donnerait qu'une liste vide. Le
+  compte se fait après un `setTimeout(0)` — `change` part **avant** que le `onclick` de « tout cocher » ait fini ;
+- **toute la ligne ouvre sa page** : un clic hors lien, bouton ou case suit le premier lien de la ligne (Ctrl ou
+  Maj : nouvel onglet). La cellule de la case à cocher est exclue.
+
+`Ui::datatable()` **oublie la sélection mémorisée** pour l'itemtype affiché (`$_SESSION['glpimassiveactionselected']`),
+qui survivait d'une page à l'autre. `Raccordement::cleanDBonPurge()` efface adresses et journal d'un raccordement
+supprimé en lot. `Raccordement::rawSearchOptions()` donne au raccordement ses options de recherche natives
+(numéro, entité, sonde, statut, auteur, dates) ; rien n'y est modifiable en masse, le statut et les dates suivant le
+déroulé de l'assistant.
+
+Restent dessinés à la main, volontairement : les tableaux d'analyse de l'administrateur (valeurs de consommables et
+compteurs par modèle, repliés) — des lignes groupées par modèle sur plusieurs rangs et une couleur par cellule,
+que le gabarit ne sait pas faire, et aucun objet GLPI à cocher dessus.
+
+### Ce qui passe par GLPI, et ce qui reste au plugin
+
+Règle : ce que GLPI sait faire passe par sa classe ou son API, pour qu'une évolution de son schéma ne casse pas le
+plugin et que l'historique, les hooks des autres plugins et les contrôles jouent.
+- **Cartouches natives** : `Cartridge::add()` puis `update()` pour l'ouverture, `update()` pour la clôture
+  (`Cartridgehistory::openNativeCartridge()`, `closeNativeCartridge()`), avec la trace d'`install()`/`uninstall()`
+  sur l'imprimante. Pas `install()` : elle prend une cartouche du stock réel, et une détection SNMP n'a pas à le
+  consommer. Pas `uninstall()` : elle prend le dernier compteur enregistré, le plugin a plus récent. La cartouche
+  prend l'entité de sa référence, la règle de GLPI.
+- **Tâches automatiques** : `CronTask::update()` pour le mode et l'état, `CronTask::resetState()` pour une tâche
+  bloquée ou désactivée — ce que fait le bouton natif « Réinitialiser l'état ».
+- **Désinstallation** : `Config::deleteConfigurationValues()` pour les réglages, `$DB->dropTable($table, true)` pour
+  les tables ; `$DB->truncate()` pour vider la table matérialisée des alertes ; `$DB->update()` avec jointure pour
+  recaler les entités (`Entityscope::reconcile()`).
+- Déjà natifs : `Lockedfield`, `Toolbox::getGuzzleClient()`, `Toolbox::logInFile()`, les listes déroulantes Lieu et
+  Contrat, `Contract_Item`, `NotificationTarget`, `CronTask`, les droits, `Log::history()`, l'API des actions massives.
+
+Ce qui reste au plugin, et pourquoi :
+- `Schema::install()` : `CREATE TABLE` par `doQuery()` — c'est le geste de tous les plugins, GLPI n'a pas d'API de
+  création de table ;
+- `Tonerreading` : un `INSERT … ON DUPLICATE KEY UPDATE` groupé par lots. `$DB->updateOrInsert()` ferait une requête
+  par relevé, soit des milliers par passage de la tâche ;
+- `Collectfrequency` écrit la date de début (`datetime_start`) des tâches de GLPI Inventory directement : sa classe
+  refuse de modifier une tâche active et annule ses jobs à la désactivation. La présence des colonnes est vérifiée
+  avant chaque écriture (`assertInventoryTaskColumns()`) ;
+- `Agenttoken` : la consommation atomique du jeton (compare-and-set sur une ligne) — aucune classe de GLPI ne
+  fournit ce verrou.
+
 ### Déploiement Agent — phase 2 : assistant de raccordement (`inc/raccordement.class.php`, `inc/collectsetup.class.php`, `front/raccordement.php`)
 
 Raccorder les imprimantes d'un client à sa sonde, sur place, et vérifier le résultat avant de partir. Accès : bloc 3
@@ -574,6 +813,16 @@ de l'onglet « Déploiement Agent » de l'entité (« Nouveau raccordement ») e
 Lecture : droit `deploiement` READ ; toute action (POST) : `deploiement` UPDATE ; l'entité du raccordement est
 revérifiée à chaque requête (hors périmètre : 404). Lieu, commentaire et contrat des imprimantes : phase 3.
 
+- **Une étape ouverte à la fois** (`showWizard()`). La barre 1 → 5 est la navigation : les étapes que l'état des
+  données permet d'ouvrir (`getReachableStep()` : 2 sans adresse, 4 dès qu'il y a des adresses, 5 dès que la
+  découverte est lancée) sont des liens, les autres des libellés éteints. L'étape voyage dans l'URL (`&step=N`,
+  bornée à la relecture) et dans chaque formulaire (champ caché `step`, `stepField()`) : après un enregistrement on
+  revient là où l'on travaillait, et non sur l'étape que l'état des données suggère — sans quoi enregistrer à
+  l'étape 5 renverrait à l'étape 4. Sans `step` demandé, `getCurrentStep()` ouvre celle où il reste à faire.
+  Les cinq étapes (`getStepLabels()`, seul endroit où elles sont nommées) : **1** sonde, **2** adresses des
+  imprimantes, **3** lieu / commentaire / contrat, **4** configuration de la collecte **et** découverte (aucune
+  décision entre les deux), **5** application aux imprimantes. Les titres de cartes ne répètent plus le numéro.
+  Le journal est replié (`Ui::foldedNote()`, ouvrable par tous les profils, pas seulement l'administrateur).
 - **Statuts** : `open` → `configured` → `triggered` → `closed`, ou `abandoned` depuis tout statut non clos. Chaque
   action revérifie le statut : on ne passe jamais à l'étape suivante si la précédente a échoué. Une sonde n'a
   qu'un raccordement en cours : « Raccorder avec cette sonde » reprend celui qui existe.
@@ -595,7 +844,17 @@ revérifiée à chaque requête (hors périmètre : 404). Lieu, commentaire et c
   de l'entité valide et unique, règle d'affectation par TAG active) ; sonde de l'entité (`glpi_agents.entities_id`) : dernier
   contact de moins de deux fois la fréquence d'inventaire (sinon bloquant ; « récent » sous une heure), modules
   `use_module_network_discovery` et `use_module_network_inventory` déclarés par l'agent (sinon : réinstaller avec
-  `feat_NETINV`), TAG de l'agent égal à celui de l'entité. « Demander le statut » : `Agent::requestStatus()` natif.
+  `feat_NETINV`), TAG de l'agent égal à celui de l'entité. « Demander le statut » : `Agent::requestStatus()` natif — **son échec n'est pas un défaut**. Ce sens du réseau
+  (GLPI vers le port 62354 du PC) ne marche pas derrière la box d'un client, et n'a pas à marcher : l'agent
+  travaille en **tirage**, c'est lui qui appelle GLPI, et GLPI lui rend alors la liste des tâches à exécuter
+  (`Glpi\Inventory\Request::handleNetDiscoveryTask()`, où GLPI Inventory déclare `netdiscovery` via le hook
+  `handle_netdiscovery_task`). Une découverte préparée part donc seule, sans VPN et sans que personne touche au PC.
+  D'où la règle de rédaction, tenue par `Collectsetup` : pas de réponse à une demande du serveur → **information**,
+  avec la preuve de vie (`getProofOfLife()` : dernier contact) ou l'échéance (`getPickupSentence()` : au plus tard
+  dernier contact + `inventory_frequency`, réglage natif Administration → Inventaire, 24 h par défaut, 1 à 240).
+  Seul cas resté en avertissement : une sonde **qui n'a jamais contacté GLPI** — là, l'absence de réponse dit
+  vraiment quelque chose. Le geste sur place (`http://127.0.0.1:62354`, « Force an Inventory ») n'est plus la
+  consigne principale : il est replié, présenté comme le moyen de gagner l'attente quand on est devant la machine.
   Ces conditions sont revérifiées avant les étapes 3 et 4.
 - **Étape 2, imprimantes** : adresses IPv4, plages `a-b` ou `a-N`, réseaux de /22 à /32 (sans réseau ni diffusion),
   1 024 au plus ; enregistrées en attente (`raccordementips.result = pending`), remplaçables tant que la
@@ -651,19 +910,64 @@ revérifiée à chaque requête (hors périmètre : 404). Lieu, commentaire et c
   crée le lieu SNMP (sysLocation) dans l'entité et le rattache à l'imprimante, même avec « Lieu » désactivé dans
   la configuration de l'inventaire (verrouillé en phase 3).
 
+#### Les modules de la sonde, réglés dès l'installation
+
+Constat sur un agent réel (onglet « Modules des agents » de GLPI Inventory) : « Découverte réseau » et « Inventaire
+réseau (SNMP) » décochés. Tant qu'ils le sont, GLPI Inventory n'envoie **aucune** tâche réseau à la sonde — réveil
+local ou non. Ils n'étaient activés qu'à la configuration d'un raccordement (`Collectsetup::apply()`).
+
+Le compte rendu d'installation pose désormais le profil d'une sonde d'imprimantes
+(`Collectsetup::PRINTER_PROBE_MODULES`, `applyPrinterProbeProfile()`), **indépendamment des adresses** : cochés
+`INVENTORY`, `NETWORKDISCOVERY`, `NETWORKINVENTORY` ; décochés `InventoryComputerESX`, `DEPLOY`, `Collect`,
+`WAKEONLAN`. L'inventaire de l'ordinateur reste coché : c'est lui qui fait exister la sonde dans GLPI (fiche
+ordinateur, rattachement à l'entité par le TAG), et c'est par ce nom que le compte rendu la retrouve
+(`Raccordement::findAgentByComputer()`). Le réglage passe par la mécanique des écrans de GLPI Inventory
+(`setModuleForAgent()` : l'agent figure dans les exceptions d'un module exactement quand l'état voulu diffère de
+l'activation globale) ; `apply()` s'en sert aussi, mais ne règle que les deux modules réseau — l'assistant raccorde
+aussi des postes existants, qui peuvent faire autre chose que sonder des imprimantes.
+
+#### La chaîne complète, depuis le PC, sans personne devant GLPI
+
+`createFromInstaller()` s'arrêtait après `Collectsetup::apply()` : le raccordement restait `configured`, la
+découverte n'était **jamais** lancée, et il fallait rouvrir l'assistant pour un clic. Deux gestes la complètent :
+
+1. `createFromInstaller()` enchaîne sur `Collectsetup::trigger()` (relecture du raccordement d'abord : `apply()`
+   vient d'y écrire les tâches créées). La tâche passe en « préparée » pour cette sonde, et le raccordement en
+   `triggered` ; le retour porte `triggered => bool`.
+2. `front/agentreport.php` répond **`RUN`** au PC, qui appelle alors `http://127.0.0.1:62354/now`
+   (`Agentdeploy::getAgentWakeUrl()`) — **l'interface locale de l'agent, sur le poste où le script tourne**. C'est
+   le même appel que le bouton « Force an Inventory », fait par le script. L'agent rappelle GLPI dans la seconde,
+   reçoit la consigne et scanne. `WAKE_TRIES` × `WAKE_WAIT` secondes de patience : le service vient d'être
+   installé, son interface met quelques secondes à répondre.
+
+Le réveil local n'est jamais bloquant : s'il échoue, la consigne reste armée côté serveur et partira au prochain
+appel de l'agent — c'est ce que le script affiche, au lieu de laisser croire que rien ne se passera. Le message
+final de la fenêtre Windows suit (`$decouverte`) : « rien d'autre à faire sur ce PC » seulement si le réveil a
+abouti. `RUN` et `SCAN …` s'excluent : le premier vaut avec GLPI Inventory, le second sans.
+
 ### Déploiement Agent — phase 3 : lieu, commentaire et contrat (`inc/raccordementdetail.class.php`)
 
-- **Carte 2 bis** (lecture : droit `deploiement` READ ; saisie : UPDATE, tout statut sauf abandonné) : pour chaque
+- **Étape 3** (lecture : droit `deploiement` READ ; saisie : UPDATE, tout statut sauf abandonné) : pour chaque
   adresse, lieu, commentaire et contrat **en attente** (`raccordementips.locations_id`, `comment`, `contracts_id`,
   phase 3). Valeurs par défaut qui complètent les adresses sans valeur ; jusqu'à 64 adresses ligne à ligne,
   au-delà seulement celles qui ont une imprimante ou des valeurs. Remplacer la liste d'adresses garde les valeurs
   des adresses restantes.
-  - Lieu : chemin « Siège > Bâtiment B > Étage 4 > Bureau 3 » ou nom simple, autocomplétion sur les lieux de
-    l'entité. Niveaux manquants créés dans l'entité, non récursifs, cherchés par nom + parent + entité (la clé
-    unique de `glpi_locations`), comme le formulaire natif ; 10 niveaux et 255 caractères par niveau au plus.
-  - Contrat : ceux de l'entité et, récursifs, de ses entités parentes (ni supprimés ni modèles).
-  - Enregistrement tout ou rien (transaction, lieux compris). Une adresse déjà appliquée qu'on modifie repasse en
-    attente.
+  - **Lieu et contrat : les sélecteurs natifs de GLPI** (`Location::dropdown()`, `Contract::dropdown()`), et non
+    plus un champ texte et un `<select>` maison. Le sélecteur des lieux porte son bouton « + » (formulaire de
+    création habituel, droits de l'utilisateur) — sur la ligne des valeurs par défaut seulement, sinon il y aurait
+    une fenêtre de création par adresse. Le champ texte acceptait un chemin « Siège > Bâtiment B » et créait les
+    niveaux manquants : pratique, mais une faute de frappe créait un lieu jumeau, et ce n'était pas l'outil de GLPI.
+  - **Même règle d'entité des deux côtés de l'écran** : le formulaire propose et `validate()` accepte ce que
+    `getEntitiesRestrictCriteria($table, '', $entities_id, true)` rend — l'entité, plus les entités parentes pour
+    les objets cochés « visible dans les sous-entités ». C'est exactement la règle qu'applique `Dropdown` côté
+    AJAX. Les lieux étaient auparavant filtrés sur le seul `entities_id` : le sélecteur en proposait que la
+    validation aurait refusés.
+  - **Liste de contrats vide : on dit pourquoi** (`getContractHint()`). Aucun contrat visible depuis l'entité du
+    client est presque toujours un rattachement à corriger, pas une panne : selon qu'il en existe ou non dans les
+    entités de l'utilisateur, le message renvoie vers la création d'un contrat ou vers le déplacement /
+    la case « visible dans les sous-entités » de ceux qui existent. Le compte se fait dans le périmètre de
+    l'utilisateur, jamais au-delà.
+  - Enregistrement tout ou rien (transaction). Une adresse déjà appliquée qu'on modifie repasse en attente.
 - **Étape 5** (`apply_details`, UPDATE, statuts `triggered` et `closed`) : seulement aux adresses où la vérification
   a trouvé une imprimante dans l'entité (trouvée, sans niveaux, niveaux en attente) ; jamais à une adresse sans
   imprimante ni à une imprimante d'une autre entité (raison affichée). Une transaction par imprimante :
@@ -715,28 +1019,100 @@ connue : « À jour », « À mettre à jour (X) », « Épinglée sur X », « 
 « Contrôle de la remontée » et l'onglet de l'entité (`Collect::getAgentVersionStatus()`), qui gardent « Trop
 ancienne » avant 1.15.
 
-**Réglages par sonde** (`glpi_plugin_printgestion_agentsettings`, ligne créée au premier enregistrement) : « Mise à
-jour automatique » (cochée par défaut) et « Version cible » (vide : dernière connue ; une valeur : épinglage, retour
-arrière compris). Onglet « Sonde Print Gestion » de la fiche Agent native (droit Déploiement en lecture, agent
+**Une page, trois cartes** (« Installeur GLPI Agent ») : l'installeur (état et boutons de récupération), les
+paramètres transmis à l'installation, les prérequis. La carte « Prochains paquets, version de référence et repérage
+des sondes » a été dissoute le 21/09/2026 : c'était un tiroir de quatre contenus sans rien en commun. La dernière
+version publiée et le bouton « Vérifier sur GitHub » ont rejoint la version des agents (même question), « Imposer la
+mise à jour automatique » a rejoint les paramètres des paquets (c'en est un), la saisie de secours de la dernière
+version **n'apparaît que si GitHub n'a pas répondu** (affichée en permanence, elle invitait à remplir pour rien — et
+une version saisie à la main prend le pas sur GitHub, en silence), et le statut GLPI des PC sondes est parti sur la
+page « Sondes », à côté du bouton qui le pose. Un seul formulaire, un seul « Enregistrer »
+(`Agentdeploy::saveSettings()` enchaîne sur `Agentsetting::saveDefaults()`).
+
+**Une seule version, choisie dans une liste** (`Agentsetting::getTargetVersion()`, `getPublishedVersions()`,
+`versionField()`). Il y en avait trois : une par sonde, une « cible du parc » (`agent_update_target`) et une
+« servie » (`agent_version`). Elles disaient la même chose à des moments différents, et rien ne garantissait qu'elles
+la disent pareil — un parc qui vise une version que le serveur ne distribue pas ne se met jamais à jour. Il ne reste
+que **« Version des agents »** (`agent_version`) : le fichier distribué aux nouvelles sondes **et** ce vers quoi les
+sondes déjà installées convergent. Jamais vide : faute de réglage, la version de référence du plugin (l'ancien
+libellé « Version épinglée (vide : dernière vérifiée) » était faux sur ce point). `agent_update_target` reste dans le
+schéma, plus personne ne l'écrit ni ne la lit.
+Conséquence sur le badge : « À jour » veut désormais dire « dans la version du parc », et une sonde plus récente que
+ce que le serveur distribue est signalée à part (`ahead`) plutôt que comptée à jour — après un retour arrière, le
+parc n'est pas où on le croit.
+Elle se choisit dans la liste des releases publiées sur GitHub, plus dans un champ libre : une faute de frappe y
+passait inaperçue, et le serveur cherchait alors un fichier qui n'existe pas.
+La liste **ne vient pas des fichiers téléchargés** : le cache n'en garde qu'un seul (récupérer une version efface la
+précédente), elle n'aurait eu qu'une ligne. Elle vient de l'API GitHub (30 dernières releases, ni brouillons ni
+préversions, 10 gardées), mémorisée un jour dans `glpi_configs` (contexte `plugin:printgestion`) — **une tentative par
+jour, succès ou échec** : sans cette borne, un serveur sans accès à GitHub attendrait dix secondes de connexion à
+chaque affichage de la page. Le bouton « Vérifier sur GitHub maintenant » force la lecture.
+Deux garde-fous : une valeur déjà réglée mais absente de la liste reste proposée et sélectionnée (un menu qui perd en
+silence un épinglage ferait basculer tout un parc sans le dire) ; et si aucune liste n'a jamais pu être récupérée, le
+**champ libre revient**, avec la raison — un menu vide empêcherait de changer de version. Les deux enregistrements
+revérifient le format, un menu se forge aussi facilement qu'un champ.
+
+**Plus aucun réglage par sonde.** Il en restait deux, tous deux supprimés le 20/09/2026 :
+
+- « Mise à jour automatique » : une case qui ne s'appliquait qu'en lançant un fichier ailleurs, donc une case qui
+  finit par mentir — elle affichait « oui » pour des PC où personne n'avait rien posé. Devenue **trois actions**
+  (`Agentsetting::ACTION_POSER|ACTION_RETIRER|ACTION_MAINTENANT`), portées par l'URL du bouton (`&maj=1|0|now`).
+- « Version cible » par sonde : elle faisait doublon avec la version cible du parc (page « Installeur GLPI Agent »),
+  et se répétait sur chaque fiche. Une version qui casse quelque chose casse partout : on épingle pour tout le parc.
+  `Agentsetting::getTargetVersion()` est désormais la seule source, pour le badge de conformité **comme** pour ce que
+  la tâche installera.
+
+La table `glpi_plugin_printgestion_agentsettings` n'est donc plus ni lue ni écrite (colonnes `auto_update` et
+`target_version` laissées dans le schéma) ; `getSettingsFor()` garde sa forme pour ses lecteurs (conformité, alertes,
+écrans) et rend la version cible du parc. La page « Sondes » n'a plus qu'une action en POST : marquer le PC sonde. Onglet « Sonde Print Gestion » de la fiche Agent native (droit Déploiement en lecture, agent
 visible) : conformité, réglages, imprimantes collectées, rien de ce que la fiche native affiche déjà. Même contenu
 dans la page « Sondes » du module (`front/sondes.php`), pour les profils sans droit Agent. Enregistrement : droit
 Déploiement en modification, sonde dans les entités de l'utilisateur.
 
+**Qui décide de la mise à jour automatique** (règle du OU, décidée le 20/09/2026) : le réglage
+« Mise à jour automatique des sondes » (page « Installeur GLPI Agent ») se règle par **deux boutons radio**, et
+non par une case : une case seule laisse deviner l'autre branche, et son aide renvoyait à « la case » d'une fenêtre
+que le lecteur n'a pas sous les yeux — elle s'ouvrira plus tard, sur le PC du client. « **Toujours posée** » : le
+fichier d'installation pose la tâche sans rien demander, et la fenêtre l'annonce. « **Laissée au technicien** » : la
+case apparaît dans la fenêtre d'installation, décochée, et il peut l'ajouter sur place. La tâche est donc
+posée dès que l'un des deux la veut, jamais contre l'avis des deux. Deux avis pour une même décision finissent
+toujours par se contredire, et personne ne saurait lequel a gagné ; ici il n'y a qu'un seul point de décision à la
+fois. Le bloc qui pose la tâche est écrit dans le fichier **dans les deux cas** : c'est la réponse qui décide, pas la
+présence du bloc.
+
+**Ce que le PC déclare avoir fait** (`inc/agentreport.class.php`, `front/agentreport.php`) : en dernier geste,
+l'installation dit à GLPI si la tâche a été posée — seconde clé à usage unique, nom du PC, un oui/non. Sans cela,
+l'écran d'une sonde affichait un **souhait** comme s'il était l'état du PC (case cochée par défaut, PC sans tâche).
+Le compte rendu est rapproché par le **nom du PC** : au moment de l'installation l'agent n'existe pas encore dans
+GLPI, il n'y a aucun identifiant à transmettre. La fiche de la sonde affiche la phrase, et **signale l'écart** avec le
+réglage souhaité (orange, avec ce qu'il faut faire). Ce compte rendu dit ce qui a été fait ce jour-là, jamais ce que
+quelqu'un a changé depuis : le texte le formule ainsi. La ligne de rangement est créée à la fabrication du fichier,
+pendant qu'une session existe — le PC, sans session, n'emprunte que l'écriture directe. Un échec du compte rendu
+n'interrompt rien et ne s'affiche pas : la fiche dira « GLPI ne sait pas », ce qui sera vrai.
+
 **Mise à jour réelle, posée sur le PC** : le plugin ne pousse rien (jamais la tâche Deploy de GLPI Inventory, ni
-jeton, ni API). Si « Nouveaux paquets Windows : poser la mise à jour automatique » est coché (défaut), le paquet de
-l'entité contient l'étape 2 facultative, `2-facultatif-mise-a-jour-automatique.bat`, que le technicien lance
-séparément après l'installation, en administrateur : elle copie `glpi-agent-update.cmd` dans
+jeton, ni API). Le fichier d'installation copie `glpi-agent-update.cmd` dans
 `%ProgramData%\PrintGestion` et pose la tâche planifiée « GLPI Agent - mise a jour (Print Gestion) » : le 1er du mois
 à 3 h, compte SYSTEM. GLPI ne sait pas si cette étape a été faite : une sonde qui ne se met pas à jour apparaît
 « À mettre à jour » dans la page « Sondes » dès qu'une version plus récente est visée. Le script
 ne fait rien si l'agent n'est pas en attente (`http://127.0.0.1:62354/status`), cherche `winget.exe` dans
 `%ProgramFiles%\WindowsApps\Microsoft.DesktopAppInstaller_*` (absent du PATH de SYSTEM) et lance
 `winget upgrade --id GLPI-Project.GLPI-Agent` ou, version épinglée, `winget install --version X --force`, toujours avec
-`--custom "ADDLOCAL=feat_AGENT,feat_NETINV"` pour garder l'inventaire réseau ; journal
-`%ProgramData%\PrintGestion\glpi-agent-update.log`. Un changement de réglage n'est appliqué qu'en lançant sur le PC le
-**paquet de consigne** de la sonde (`front/sonde.consigne.php`, droit Déploiement en lecture), qui pose, change ou
-retire la tâche. Décocher la case dans GLPI ne retire pas une tâche déjà posée : sans la tâche Deploy ni jeton, tous
-deux exclus, GLPI n'a aucun moyen de changer cette tâche au contact de l'agent. Limites : winget sous SYSTEM n'est pas
+`--custom "ADDLOCAL=feat_AGENT,feat_NETINV"` pour garder l'inventaire réseau. **La version installée est comparée
+à la version visée avant d'agir** (`winget list` + `findstr`, espaces autour du numéro pour que « 1.19 » ne
+reconnaisse pas « 1.19.1 ») : sans ce contrôle, `--force` réinstallait l'agent tous les mois — service arrêté et
+relancé au passage — alors qu'il était déjà à jour. Le script Linux comparait déjà. Journal
+`%ProgramData%\PrintGestion\glpi-agent-update.log`. Après l'installation, la tâche ne se pose et ne se retire qu'en
+lançant sur le PC un **fichier de consigne** (`front/sonde.consigne.php?...&maj=1|0`, droit Déploiement en lecture),
+fabriqué par les deux boutons de la fiche de la sonde. `maj` est obligatoire : sans intention explicite, la page
+refuse — poser une tâche planifiée par défaut serait agir sans qu'on l'ait demandé.
+Trois boutons, trois fichiers : **Poser** (`maj=1`) et **Retirer** (`maj=0`) n'agissent que sur la tâche, qui fera
+la mise à jour le 1er du mois ; **Mettre à jour maintenant** (`maj=now`) fait l'inverse — il lance le script de mise
+à jour une seule fois, tout de suite, et **ne touche pas** à la tâche. Mettre à jour maintenant et automatiser sont
+deux décisions distinctes. Ce troisième fichier affiche le journal à la fin : le script ne fait rien quand l'agent
+travaille, et il faut pouvoir lire pourquoi.
+Tout cela reste un fichier à lancer **sur le PC** : sans la tâche Deploy de GLPI Inventory ni jeton, tous deux exclus,
+GLPI n'a aucun moyen d'agir sur un poste au contact de l'agent. Limites : winget sous SYSTEM n'est pas
 pris en charge officiellement par Microsoft (à vérifier au pilote) ; l'installeur Windows peut refuser une
 rétrogradation (journal) : désinstaller, puis réinstaller avec le paquet de l'entité.
 
@@ -834,7 +1210,8 @@ Silicon et Intel, stockés sans recompression), `local.cfg`, `LISEZMOI.txt` ; pa
 le paquet 1.19 : signé « Developer ID Installer: Teclib » et notarisé (accepté par Gatekeeper, macOS 26), réservé à
 son architecture (`hostArchitectures`), macOS 11 minimum ; son `agent.cfg` règle `tasks = inventory` et
 `httpd-trust = 127.0.0.1` puis inclut `conf.d` ; son script d'installation démarre le service. `local.cfg` donne
-donc `server`, `tag`, `tasks = inventory,netdiscovery,netinventory`, `httpd-trust` et `snmp-retries = 2`. Procédure
+donc `server`, `tag`, `tasks = inventory,netdiscovery,netinventory`, `httpd-trust`, `snmp-retries = 2` et le
+journal de l'agent (`logger = file`, `logfile = /var/log/glpi-agent.log`, `logfile-maxsize = 4`). Procédure
 affichée dans l'onglet et la note : installer le bon paquet, puis dans Terminal
 `sudo cp ~/Downloads/<dossier>/local.cfg /Applications/GLPI-Agent/etc/conf.d/local.cfg`,
 `sudo launchctl bootout system /Library/LaunchDaemons/com.teclib.glpi-agent.plist` et
@@ -1098,6 +1475,21 @@ demandes validées est en service. Une mise à jour du plugin ne change pas l'é
 
 À l'installation, seul le profil qui installe reçoit les droits du plugin (`Profile::createFirstAccess`) ; les autres
 profils partent à zéro et se règlent dans Administration → Profils → Print Gestion.
+
+**Une seule exception, assumée** : `front/agentpull.php` ne demande aucun droit et ne demande même pas d'être
+connecté — c'est la page où le fichier unique d'installation vient chercher le MSI de GLPI Agent, depuis le PC d'un
+client qui n'a aucun compte GLPI. Son contrôle d'accès est la clé de récupération : usage unique, 24 h, empreinte
+seule stockée, consommée avant l'envoi (voir phase 4). Ce qu'elle donne : le MSI officiel de Teclib' déjà servi par
+ce serveur, et rien d'autre — ni session, ni donnée de GLPI, ni écriture. Toute autre demande est un 404 muet, tracé
+dans `printgestion.log`. Le harnais vérifie les trois comportements : sert sans compte, ne sert qu'une fois, refuse
+une clé inventée.
+
+`front/agentreport.php` est la seconde, et elle **écrit** : le compte rendu d'installation, et avec lui la création
+du raccordement à partir des adresses saisies sur le PC. Ce que ça ouvre, et il faut le dire : qui détient le fichier
+d'installation d'une intervention peut, une fois, faire créer dans cette entité-là un raccordement visant les
+adresses de son choix — donc faire balayer en SNMP une plage de ce réseau. C'est borné par la clé (usage unique,
+24 h, une seule entité), c'est visible dans l'écran Raccordements avec son journal, et ça ne donne accès à aucune
+donnée de GLPI. Le fichier se donne au technicien pour l'intervention ; il ne s'archive pas.
 
 ---
 

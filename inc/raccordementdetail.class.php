@@ -3,9 +3,9 @@
  * PluginPrintgestionRaccordementdetail — lieu, commentaire et contrat des imprimantes d'un raccordement
  * (module Collecte SNMP / Déploiement Agent, phase 3).
  *
- * Étape 2 : déclarés pour chaque adresse et gardés en attente. Le lieu accepte une saisie hiérarchique
- * (« Siège > Bâtiment B > Étage 4 > Bureau 3 ») ou plate ; les niveaux manquants sont créés dans
- * l'entité du client, comme le formulaire natif des lieux. Le contrat est choisi parmi ceux de l'entité.
+ * Étape 2 : déclarés pour chaque adresse et gardés en attente. Lieu et contrat se choisissent avec les
+ * sélecteurs natifs de GLPI — celui des lieux porte son bouton « + » qui ouvre le formulaire de création
+ * habituel. Un champ texte maison créait des lieux jumeaux à la première faute de frappe.
  *
  * Étape 5 : appliqués seulement aux imprimantes réellement remontées dans l'entité du raccordement,
  * jamais à une adresse sans imprimante ni à une imprimante d'une autre entité. Le champ Lieu est
@@ -20,9 +20,6 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionRaccordementdetail {
 
-    /** Niveaux au plus dans un chemin de lieu. */
-    const MAX_LEVELS = 10;
-
     /** Longueur maximale d'un commentaire. */
     const MAX_COMMENT = 2000;
 
@@ -34,19 +31,13 @@ class PluginPrintgestionRaccordementdetail {
 
     // ── Lieux ─────────────────────────────────────────────────────────────────
 
-    /** Niveaux d'une saisie de lieu « A > B > C » : espaces nettoyés, niveaux vides ignorés. */
-    public static function parseLocationPath(string $text): array {
-        $levels = [];
-        foreach (explode('>', $text) as $level) {
-            $level = trim((string) preg_replace('/\s+/u', ' ', $level));
-            if ($level !== '') {
-                $levels[] = $level;
-            }
-        }
-        return $levels;
-    }
-
-    /** Lieux de l'entité (chemins complets), pour l'autocomplétion. */
+    /**
+     * Lieux utilisables depuis cette entité, chemins complets.
+     *
+     * Même règle que le sélecteur natif : ceux de l'entité, plus ceux d'une entité parente cochés « visible dans
+     * les sous-entités ». Filtrer sur le seul entities_id laissait proposer par le sélecteur des lieux que cette
+     * liste refusait ensuite à l'enregistrement.
+     */
     public static function getEntityLocations(int $entities_id): array {
         global $DB;
 
@@ -54,51 +45,12 @@ class PluginPrintgestionRaccordementdetail {
         foreach ($DB->request([
             'SELECT' => ['id', 'completename'],
             'FROM'   => Location::getTable(),
-            'WHERE'  => ['entities_id' => $entities_id],
+            'WHERE'  => [getEntitiesRestrictCriteria(Location::getTable(), '', $entities_id, true)],
             'ORDER'  => ['completename'],
         ]) as $row) {
             $locations[(int) $row['id']] = (string) $row['completename'];
         }
         return $locations;
-    }
-
-    /**
-     * Lieu de l'entité pour ce chemin ; niveaux manquants créés dans l'entité, non récursifs.
-     *
-     * @param array $created chemins des lieux créés (complété)
-     */
-    private static function findOrCreateLocation(int $entities_id, array $levels, array &$created): int {
-        global $DB;
-
-        $parent = 0;
-        $path   = [];
-        foreach ($levels as $name) {
-            $path[] = $name;
-            $row    = $DB->request([
-                'SELECT' => ['id'],
-                'FROM'   => Location::getTable(),
-                'WHERE'  => ['entities_id' => $entities_id, 'locations_id' => $parent, 'name' => $name],
-                'ORDER'  => ['id'],
-                'LIMIT'  => 1,
-            ])->current();
-            if (is_array($row)) {
-                $parent = (int) $row['id'];
-                continue;
-            }
-            $location = new Location();
-            $id       = (int) $location->add([
-                'name'         => $name,
-                'locations_id' => $parent,
-                'entities_id'  => $entities_id,
-                'is_recursive' => 0,
-            ]);
-            if ($id <= 0) {
-                throw new DomainException(sprintf(__('lieu « %s » refusé par GLPI', 'printgestion'), implode(' > ', $path)));
-            }
-            $created[] = implode(' > ', $path);
-            $parent    = $id;
-        }
-        return $parent;
     }
 
     // ── Contrats ──────────────────────────────────────────────────────────────
@@ -126,6 +78,37 @@ class PluginPrintgestionRaccordementdetail {
     private static function getContractLabel(array $contract): string {
         $num = trim((string) ($contract['num'] ?? ''));
         return (string) $contract['name'] . ($num !== '' ? ' (' . $num . ')' : '');
+    }
+
+    /**
+     * Pourquoi la liste des contrats est vide, quand elle l'est ; chaîne vide s'il y a de quoi choisir.
+     *
+     * GLPI ne montre, dans une entité, que les contrats de cette entité et ceux d'une entité parente cochés
+     * « visible dans les sous-entités ». Un menu vide et muet se lit comme une panne, alors que c'est un
+     * rattachement à corriger : on dit lequel des deux cas c'est, et où aller.
+     */
+    public static function getContractHint(int $entities_id): string {
+        if (!empty(self::getEntityContracts($entities_id))) {
+            return '';
+        }
+        // Compté dans ce que l'utilisateur a le droit de voir, jamais au-delà.
+        $ailleurs = countElementsInTable(Contract::getTable(), [
+            'is_deleted'  => 0,
+            'is_template' => 0,
+            getEntitiesRestrictCriteria(Contract::getTable(), '', '', true),
+        ]);
+        if ($ailleurs === 0) {
+            return __('Aucun contrat dans vos entités : créez-le d\'abord dans Gestion → Contrats.', 'printgestion');
+        }
+        return sprintf(
+            _n(
+                '%d contrat existe dans vos entités, mais aucun n\'est visible depuis celle de ce client : ouvrez-le et placez-le dans l\'entité du client, ou cochez « visible dans les sous-entités » s\'il est au niveau au-dessus.',
+                '%d contrats existent dans vos entités, mais aucun n\'est visible depuis celle de ce client : ouvrez-en un et placez-le dans l\'entité du client, ou cochez « visible dans les sous-entités » s\'il est au niveau au-dessus.',
+                $ailleurs,
+                'printgestion'
+            ),
+            $ailleurs
+        );
     }
 
     // ── Étape 2 : saisie ──────────────────────────────────────────────────────
@@ -161,15 +144,10 @@ class PluginPrintgestionRaccordementdetail {
         }
     }
 
-    private static function validate(string $label, array $levels, string $comment, int $contracts_id, array $contracts, array &$errors): void {
-        if (count($levels) > self::MAX_LEVELS) {
-            $errors[] = sprintf(__('%1$s : lieu de %2$d niveaux au plus.', 'printgestion'), $label, self::MAX_LEVELS);
-        }
-        foreach ($levels as $level) {
-            if (mb_strlen($level) > 255) {
-                $errors[] = sprintf(__('%s : nom de lieu de 255 caractères au plus.', 'printgestion'), $label);
-                break;
-            }
+    private static function validate(string $label, int $locations_id, array $locations, string $comment, int $contracts_id, array $contracts, array &$errors): void {
+        // Ce qui arrive d'un formulaire ne vaut rien tant qu'on ne l'a pas retrouvé dans une liste établie ici.
+        if ($locations_id > 0 && !isset($locations[$locations_id])) {
+            $errors[] = sprintf(__('%s : lieu inconnu ou hors de cette entité.', 'printgestion'), $label);
         }
         if (mb_strlen($comment) > self::MAX_COMMENT) {
             $errors[] = sprintf(__('%1$s : commentaire de %2$d caractères au plus.', 'printgestion'), $label, self::MAX_COMMENT);
@@ -190,33 +168,32 @@ class PluginPrintgestionRaccordementdetail {
         global $DB;
 
         $entities_id = (int) $racc->fields['entities_id'];
+        $locations   = self::getEntityLocations($entities_id);
         $contracts   = self::getEntityContracts($entities_id);
         $details     = is_array($post['details'] ?? null) ? $post['details'] : [];
         $default     = is_array($post['default'] ?? null) ? $post['default'] : [];
         $errors      = [];
 
-        $default_levels   = self::parseLocationPath((string) ($default['location'] ?? ''));
+        $default_location = (int) ($default['locations_id'] ?? 0);
         $default_comment  = trim((string) ($default['comment'] ?? ''));
         $default_contract = (int) ($default['contracts_id'] ?? 0);
-        self::validate(__('Valeurs par défaut', 'printgestion'), $default_levels, $default_comment, $default_contract, $contracts, $errors);
+        self::validate(__('Valeurs par défaut', 'printgestion'), $default_location, $locations, $default_comment, $default_contract, $contracts, $errors);
 
         $wanted = [];
         foreach ($racc->getIps() as $row) {
             $id = (int) $row['id'];
             if (isset($details[$id]) && is_array($details[$id])) {
-                $levels   = self::parseLocationPath((string) ($details[$id]['location'] ?? ''));
+                $location = (int) ($details[$id]['locations_id'] ?? 0);
                 $comment  = trim((string) ($details[$id]['comment'] ?? ''));
                 $contract = (int) ($details[$id]['contracts_id'] ?? 0);
-                self::validate((string) $row['ip'], $levels, $comment, $contract, $contracts, $errors);
-                $entry = ['levels' => $levels, 'keep_location' => false, 'comment' => $comment, 'contracts_id' => $contract];
+                self::validate((string) $row['ip'], $location, $locations, $comment, $contract, $contracts, $errors);
+                $entry = ['locations_id' => $location, 'comment' => $comment, 'contracts_id' => $contract];
             } else {
                 // Adresse non affichée : ses valeurs restent ; seules les valeurs par défaut comblent les vides.
-                $entry = ['levels' => [], 'keep_location' => true, 'comment' => trim((string) ($row['comment'] ?? '')), 'contracts_id' => (int) $row['contracts_id']];
+                $entry = ['locations_id' => (int) $row['locations_id'], 'comment' => trim((string) ($row['comment'] ?? '')), 'contracts_id' => (int) $row['contracts_id']];
             }
-            $no_location = $entry['keep_location'] ? (int) $row['locations_id'] === 0 : empty($entry['levels']);
-            if ($no_location && !empty($default_levels)) {
-                $entry['levels']        = $default_levels;
-                $entry['keep_location'] = false;
+            if ($entry['locations_id'] === 0 && $default_location > 0) {
+                $entry['locations_id'] = $default_location;
             }
             if ($entry['comment'] === '' && $default_comment !== '') {
                 $entry['comment'] = $default_comment;
@@ -230,16 +207,13 @@ class PluginPrintgestionRaccordementdetail {
             return ['ok' => false, 'events' => [['error', sprintf(__('Rien n\'est enregistré : %s', 'printgestion'), implode(' ', array_unique($errors)))]]];
         }
 
-        $created = [];
         $changed = 0;
         $reset   = 0;
         $DB->beginTransaction();
         try {
             foreach ($wanted as $id => $entry) {
                 $row          = $entry['row'];
-                $locations_id = $entry['keep_location']
-                    ? (int) $row['locations_id']
-                    : (empty($entry['levels']) ? 0 : self::findOrCreateLocation($entities_id, $entry['levels'], $created));
+                $locations_id = (int) $entry['locations_id'];
                 if ((int) $row['locations_id'] === $locations_id
                     && trim((string) ($row['comment'] ?? '')) === $entry['comment']
                     && (int) $row['contracts_id'] === $entry['contracts_id']) {
@@ -277,9 +251,6 @@ class PluginPrintgestionRaccordementdetail {
             _n('Lieu, commentaire et contrat enregistrés pour %d adresse, en attente jusqu\'à l\'étape 5.', 'Lieux, commentaires et contrats enregistrés pour %d adresses, en attente jusqu\'à l\'étape 5.', $changed, 'printgestion'),
             $changed
         )]];
-        if (!empty($created)) {
-            $events[] = ['info', sprintf(__('Lieux créés dans l\'entité : %s.', 'printgestion'), implode(' ; ', array_unique($created)))];
-        }
         if ($reset > 0) {
             $events[] = ['warning', sprintf(_n('%d adresse déjà appliquée repasse en attente : appliquez à nouveau à l\'étape 5.', '%d adresses déjà appliquées repassent en attente : appliquez à nouveau à l\'étape 5.', $reset, 'printgestion'), $reset)];
         }
@@ -464,32 +435,53 @@ class PluginPrintgestionRaccordementdetail {
         $editable    = self::canEdit($racc, $can_edit);
         $locations   = self::getEntityLocations($entities_id);
         $contracts   = self::getEntityContracts($entities_id);
-        $list_id     = 'pg-racc-locations-' . (int) $racc->getID();
         $shown       = count($rows) <= self::MAX_ROWS
             ? $rows
             : array_filter($rows, static fn(array $row): bool => (int) $row['items_id'] > 0 || self::hasValues($row));
-        $location_of = static fn(int $id): string => $id > 0 ? ($locations[$id] ?? Dropdown::getDropdownName(Location::getTable(), $id)) : '';
 
-        $contract_select = static function (string $name, int $value) use ($esc, $contracts, $editable): string {
+        // Les sélecteurs natifs de GLPI : même liste, mêmes droits et mêmes libellés que partout ailleurs dans
+        // l'application. Le « + » du sélecteur des lieux ouvre le formulaire de création habituel — mais seulement
+        // sur la ligne des valeurs par défaut, sinon il y aurait une fenêtre de création par adresse.
+        $lieu_select = static function (string $name, int $value, bool $creer) use ($esc, $locations, $entities_id, $editable): string {
+            if (!$editable) {
+                return $esc($value > 0 ? ($locations[$value] ?? Dropdown::getDropdownName(Location::getTable(), $value)) : '—');
+            }
+            return Location::dropdown([
+                'name'    => $name,
+                'value'   => $value,
+                'entity'  => $entities_id,
+                'addicon' => $creer,
+                'width'   => '100%',
+                'display' => false,
+            ]);
+        };
+        $contrat_select = static function (string $name, int $value) use ($esc, $contracts, $entities_id, $editable): string {
             if (!$editable) {
                 return $value > 0 && isset($contracts[$value]) ? $esc(self::getContractLabel($contracts[$value])) : '—';
             }
-            $html = "<select class='form-select form-select-sm' name='" . $esc($name) . "'><option value='0'>—</option>";
-            foreach ($contracts as $id => $contract) {
-                $html .= "<option value='" . (int) $id . "'" . ((int) $id === $value ? ' selected' : '') . ">" . $esc(self::getContractLabel($contract)) . "</option>";
-            }
-            return $html . "</select>";
+            return Contract::dropdown([
+                'name'    => $name,
+                'value'   => $value,
+                'entity'  => $entities_id,
+                'width'   => '100%',
+                'display' => false,
+            ]);
         };
 
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('2 bis. Lieu, commentaire et contrat des imprimantes', 'printgestion')) . "</h3></div><div class='card-body'>";
-        echo "<p class='text-muted small'>" . $esc(__('Gardés en attente, puis appliqués à l\'étape 5 seulement aux imprimantes réellement remontées dans cette entité. Lieu : chemin complet (« Siège > Bâtiment B > Étage 4 > Bureau 3 ») ou nom simple ; les niveaux manquants sont créés dans l\'entité. Contrat : ceux de l\'entité.', 'printgestion')) . "</p>";
+        echo "<div class='card mb-3'><div class='card-header d-flex align-items-center'><h3 class='card-title mb-0'>"
+            . $esc(__('Lieu, commentaire et contrat', 'printgestion')) . "</h3>"
+            . "<div class='ms-auto'>" . PluginPrintgestionUi::infoButton(
+                __('Lieu, commentaire et contrat', 'printgestion'),
+                "<p>" . $esc(__('Ce qui est saisi ici est gardé en attente, puis appliqué à l\'étape 5 — et seulement aux imprimantes réellement remontées dans cette entité. Rien n\'est écrit sur une imprimante avant.', 'printgestion')) . "</p>"
+                . "<p class='mb-0'>" . $esc(__('Les listes ne montrent que les lieux et contrats visibles depuis l\'entité du client : les siens, et ceux d\'une entité parente cochés « visible dans les sous-entités ».', 'printgestion')) . "</p>"
+            ) . "</div></div><div class='card-body'>";
+        $hint = self::getContractHint($entities_id);
+        if ($hint !== '') {
+            echo PluginPrintgestionUi::statusLine('warning', __('Aucun contrat à choisir pour ce client', 'printgestion'));
+            echo "<p class='text-muted small'>" . $esc($hint) . "</p>";
+        }
         if ($editable) {
-            echo "<form method='post' action='" . $esc(PluginPrintgestionRaccordement::getPageURL()) . "'>" . Html::hidden('id', ['value' => (int) $racc->getID()]);
-            echo "<datalist id='" . $esc($list_id) . "'>";
-            foreach ($locations as $completename) {
-                echo "<option value='" . $esc($completename) . "'></option>";
-            }
-            echo "</datalist>";
+            echo "<form method='post' action='" . $esc(PluginPrintgestionRaccordement::getPageURL()) . "'>" . PluginPrintgestionRaccordement::stepField() . Html::hidden('id', ['value' => (int) $racc->getID()]);
         }
         echo "<div class='table-responsive'><table class='table table-sm align-middle mb-0'><thead><tr>"
             . "<th>" . $esc(__('Adresse', 'printgestion')) . "</th><th>" . $esc(__('Imprimante', 'printgestion')) . "</th>"
@@ -497,26 +489,25 @@ class PluginPrintgestionRaccordementdetail {
             . "<th>" . $esc(__('Contrat', 'printgestion')) . "</th><th>" . $esc(__('État', 'printgestion')) . "</th></tr></thead><tbody>";
         if ($editable) {
             echo "<tr class='table-light'><td colspan='2' class='small fw-bold'>" . $esc(__('Adresses sans valeur (défaut)', 'printgestion')) . "</td>"
-                . "<td><input class='form-control form-control-sm' name='default[location]' list='" . $esc($list_id) . "' maxlength='2600' placeholder='" . $esc(__('Site > Bâtiment > Étage', 'printgestion')) . "'></td>"
+                . "<td>" . $lieu_select('default[locations_id]', 0, true) . "</td>"
                 . "<td><input class='form-control form-control-sm' name='default[comment]' maxlength='" . self::MAX_COMMENT . "'></td>"
-                . "<td>" . $contract_select('default[contracts_id]', 0) . "</td>"
+                . "<td>" . $contrat_select('default[contracts_id]', 0) . "</td>"
                 . "<td class='small text-muted'>" . $esc(__('complète les vides', 'printgestion')) . "</td></tr>";
         }
         foreach ($shown as $row) {
-            $id       = (int) $row['id'];
-            $location = $location_of((int) $row['locations_id']);
-            $comment  = (string) ($row['comment'] ?? '');
-            $state    = !empty($row['date_applied'])
+            $id      = (int) $row['id'];
+            $comment = (string) ($row['comment'] ?? '');
+            $state   = !empty($row['date_applied'])
                 ? "<span class='badge bg-green text-green-fg'>" . $esc(sprintf(__('Appliqué le %s', 'printgestion'), Html::convDateTime((string) $row['date_applied']))) . "</span>"
                 : (self::hasValues($row) ? "<span class='badge bg-secondary text-secondary-fg'>" . $esc(__('En attente', 'printgestion')) . "</span>" : '—');
             echo "<tr><td class='font-monospace'>" . $esc($row['ip']) . "</td><td>" . self::getItemHtml($row) . "</td>";
+            echo "<td>" . $lieu_select("details[{$id}][locations_id]", (int) $row['locations_id'], false) . "</td>";
             if ($editable) {
-                echo "<td><input class='form-control form-control-sm' name='details[{$id}][location]' list='" . $esc($list_id) . "' maxlength='2600' value='" . $esc($location) . "'></td>"
-                    . "<td><input class='form-control form-control-sm' name='details[{$id}][comment]' maxlength='" . self::MAX_COMMENT . "' value='" . $esc($comment) . "'></td>";
+                echo "<td><input class='form-control form-control-sm' name='details[{$id}][comment]' maxlength='" . self::MAX_COMMENT . "' value='" . $esc($comment) . "'></td>";
             } else {
-                echo "<td>" . $esc($location !== '' ? $location : '—') . "</td><td>" . $esc($comment !== '' ? $comment : '—') . "</td>";
+                echo "<td>" . $esc($comment !== '' ? $comment : '—') . "</td>";
             }
-            echo "<td>" . $contract_select("details[{$id}][contracts_id]", (int) $row['contracts_id']) . "</td><td>{$state}</td></tr>";
+            echo "<td>" . $contrat_select("details[{$id}][contracts_id]", (int) $row['contracts_id']) . "</td><td>{$state}</td></tr>";
         }
         echo "</tbody></table></div>";
         if (count($shown) < count($rows)) {
@@ -536,10 +527,10 @@ class PluginPrintgestionRaccordementdetail {
         $contracts = self::getEntityContracts((int) $racc->fields['entities_id']);
         $ready     = self::countReady($racc);
 
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('5. Appliquer lieu, commentaire et contrat', 'printgestion')) . "</h3></div><div class='card-body'>";
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Application aux imprimantes', 'printgestion')) . "</h3></div><div class='card-body'>";
         echo "<p class='text-muted small'>" . $esc(__('Seulement aux imprimantes réellement remontées dans cette entité. Le lieu est verrouillé contre l\'inventaire : sans verrou, l\'inventaire réseau le remplace par le lieu SNMP de l\'imprimante. Le commentaire est verrouillé aussi.', 'printgestion')) . "</p>";
         if (empty($rows)) {
-            echo "<p class='mb-0'>" . $esc(__('Aucun lieu, commentaire ou contrat déclaré (carte 2 bis) : rien à appliquer.', 'printgestion')) . "</p></div></div>";
+            echo "<p class='mb-0'>" . $esc(__('Aucun lieu, commentaire ou contrat déclaré à l\'étape 3 : rien à appliquer.', 'printgestion')) . "</p></div></div>";
             return;
         }
         echo "<div class='table-responsive'><table class='table table-sm align-middle mb-0'><thead><tr>"
@@ -571,7 +562,7 @@ class PluginPrintgestionRaccordementdetail {
         }
         echo "</tbody></table></div>";
         if (self::canEdit($racc, $can_edit) && $ready > 0) {
-            echo "<form method='post' action='" . $esc(PluginPrintgestionRaccordement::getPageURL()) . "' class='mt-3'>" . Html::hidden('id', ['value' => (int) $racc->getID()])
+            echo "<form method='post' action='" . $esc(PluginPrintgestionRaccordement::getPageURL()) . "' class='mt-3'>" . PluginPrintgestionRaccordement::stepField() . Html::hidden('id', ['value' => (int) $racc->getID()])
                 . "<button type='submit' name='apply_details' value='1' class='btn btn-primary'><i class='ti ti-check me-1'></i>"
                 . $esc(sprintf(_n('Appliquer à %d imprimante', 'Appliquer à %d imprimantes', $ready, 'printgestion'), $ready)) . "</button>"
                 . Html::closeForm(false);
