@@ -48,6 +48,10 @@ class PluginPrintgestionAgenttoken {
      */
     const USAGE_PULL   = 'pull';
     const USAGE_REPORT = 'report';
+    /** Suivi de la découverte, le temps d'une installation : plusieurs lectures, et rien d'autre. */
+    const USAGE_PROGRESS = 'progress';
+    /** Durée de vie de la clé de suivi : le temps d'une découverte, pas celui d'une journée. */
+    const PROGRESS_TTL = 600;
 
     /** Longueur du jeton en caractères hexadécimaux (24 octets tirés au hasard). */
     const LENGTH = 48;
@@ -104,6 +108,12 @@ class PluginPrintgestionAgenttoken {
         ]);
     }
 
+    /** Adresse du suivi de la découverte, donnée au PC dans la réponse au compte rendu. */
+    public static function getProgressURL(string $token): string {
+        return rtrim(PluginPrintgestionAgentdeploy::getServerUrl()['url'], '/')
+            . '/plugins/printgestion/front/agentprogress.php?t=' . rawurlencode($token);
+    }
+
     /**
      * Clé de compte rendu : elle n'ouvre rien, elle permet seulement au fichier unique de dire à GLPI, une fois
      * l'installation finie, si la tâche de mise à jour a été posée sur ce PC.
@@ -119,15 +129,44 @@ class PluginPrintgestionAgenttoken {
         return self::add($entities_id, self::USAGE_REPORT, ['tag' => $tag, 'platform' => $platform, 'purge' => $purge]);
     }
 
+    /**
+     * Clé de suivi : elle ne sait dire qu'une chose, combien d'imprimantes la découverte a trouvées et leurs noms.
+     *
+     * Elle se lit plusieurs fois — la fenêtre d'installation interroge toutes les dix secondes — mais dix minutes
+     * seulement, et pour ce PC-là dans cette entité-là. Elle n'ouvre rien, ne modifie rien qui ne serait déjà fait
+     * par l'écran du raccordement, et disparaît avec l'installation.
+     */
+    public static function createProgress(int $entities_id, string $computer): ?string {
+        return self::add($entities_id, self::USAGE_PROGRESS, ['pc' => $computer], self::PROGRESS_TTL);
+    }
+
+    /**
+     * Vérifie une clé sans la consommer : le suivi la relit à chaque appel.
+     *
+     * @return ?array L'entrée, ou null : inconnue, expirée, ou faite pour un autre usage.
+     */
+    public static function peek(string $token, string $usage): ?array {
+        if (preg_match('/^[a-f0-9]{' . self::LENGTH . '}$/', $token) !== 1) {
+            return null;
+        }
+        $hash = hash('sha256', $token);
+        foreach (self::prune(self::read()['list']) as $entry) {
+            if (hash_equals((string) $entry['hash'], $hash) && (string) ($entry['usage'] ?? '') === $usage) {
+                return $entry;
+            }
+        }
+        return null;
+    }
+
     /** Écrit une clé, quel que soit son usage, et la renvoie en clair — la seule fois où elle existe en clair. */
-    private static function add(int $entities_id, string $usage, array $extra): ?string {
+    private static function add(int $entities_id, string $usage, array $extra, ?int $ttl = null): ?string {
         $token   = bin2hex(random_bytes((int) (self::LENGTH / 2)));
         $now     = time();
         $entry   = $extra + [
             'hash'        => hash('sha256', $token),
             'entities_id' => $entities_id,
             'usage'       => $usage,
-            'expires'     => $now + self::TTL,
+            'expires'     => $now + ($ttl ?? self::TTL),
             'created_at'  => $now,
             'users_id'    => (int) Session::getLoginUserID(),
         ];

@@ -608,33 +608,6 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
     // ── Scripts Windows posés sur le PC sonde ─────────────────────────────────
 
     /** Contrôle administrateur en tête des .bat (sans PowerShell). */
-    /**
-     * Hook item_purge sur Agent : une sonde supprimée de GLPI — à la main, par la tâche « Cleanoldagents » ou par le
-     * fichier de retrait — emporte ses réglages, ses alertes et ses raccordements (adresses et journal compris, par
-     * Raccordement::cleanDBonPurge()). Avant, ces lignes restaient en base, rattachées à une sonde disparue.
-     *
-     * Les objets GLPI Inventory créés par un raccordement (tâches, plages, identifiants SNMP) restent : ce sont des
-     * objets d'un autre plugin, que l'administrateur peut partager entre sondes.
-     */
-    public static function cleanForAgent(CommonDBTM $agent): void {
-        global $DB;
-
-        $id = (int) $agent->getID();
-        if ($id <= 0) {
-            return;
-        }
-        try {
-            $DB->delete(self::getTable(), ['agents_id' => $id]);
-            $DB->delete(PluginPrintgestionAgentalert::getTable(), ['agents_id' => $id]);
-            $racc = new PluginPrintgestionRaccordement();
-            foreach ($racc->find(['agents_id' => $id]) as $row) {
-                $racc->delete(['id' => (int) $row['id']], true);
-            }
-        } catch (Throwable $e) {
-            PluginPrintgestionLogger::error('agentsetting', sprintf('Sonde %d supprimée : ses éléments Print Gestion n\'ont pas tous été effacés.', $id), $e);
-        }
-    }
-
     public static function buildAdminCheckLines(): array {
         return [
             'fsutil dirty query %SystemDrive% >nul 2>&1',
@@ -726,18 +699,26 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             '# Visible et modifiable dans http://127.0.0.1:62354/toolbox',
             'configuration:',
             '  updating_support: yes',
+            '# Les deux versions, v2c puis v1 : beaucoup d imprimantes n exposent que SNMPv1, et l agent essaie',
+            '# les identifiants d une plage dans l ordre jusqu a ce que l un reponde.',
             'credentials:',
             '  ' . $nom . '-snmp:',
             '    type: snmp',
             '    snmpversion: v2c',
             "    community: '@COMMUNITY@'",
             "    description: 'Imprimantes (Print Gestion)'",
+            '  ' . $nom . '-snmp-v1:',
+            '    type: snmp',
+            '    snmpversion: v1',
+            "    community: '@COMMUNITY@'",
+            "    description: 'Imprimantes, SNMPv1 (Print Gestion)'",
             'ip_range:',
             '  ' . $nom . ':',
             '    ip_start: @FIRST@',
             '    ip_end: @LAST@',
             '    credentials:',
             '      - ' . $nom . '-snmp',
+            '      - ' . $nom . '-snmp-v1',
             "    description: 'Imprimantes (Print Gestion)'",
             'scheduling:',
             '  ' . $nom . ':',

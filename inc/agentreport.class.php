@@ -100,29 +100,89 @@ class PluginPrintgestionAgentreport {
     /**
      * Supprime de GLPI la sonde d'un PC que le fichier de retrait vient de nettoyer, quand il l'a demandé.
      *
-     * Par la classe native Agent : son historique, les hooks des autres plugins et le nôtre (item_purge, qui efface
-     * réglages, alertes et raccordements de la sonde — Agentsetting::cleanForAgent()) jouent comme pour une
-     * suppression faite dans GLPI. Seule la sonde de ce PC, dans cette entité. Ni la fiche de l'ordinateur ni les
-     * imprimantes ne sont touchées : ce sont les objets du client.
+     * Deux niveaux : la sonde seule, ou **tout** — la sonde, les imprimantes qu'elle a fait entrer dans GLPI, la
+     * fiche de l'ordinateur qui la portait, et les objets de collecte que son raccordement avait créés dans GLPI
+     * Inventory (tâches, jobs, plage IP, identifiants SNMP — jamais ceux qu'il avait seulement réutilisés). Tout passe par les classes natives (`Agent`, `Printer`,
+     * `Computer`) : historique, hooks des autres plugins et le nôtre (`item_purge` → `Cleanup`) jouent comme pour
+     * une suppression faite dans GLPI. Rien hors de l'entité du fichier.
      *
-     * @return string OK (supprimée), ABSENT (GLPI ne la connaît pas), REFUSE (la suppression a échoué)
+     * @return array ['issue' => OK | TOTAL | ABSENT | REFUSE, 'agents', 'printers', 'computers', 'collecte']
      */
-    public static function purgeProbe(int $entities_id, string $computer): string {
-        $id = PluginPrintgestionRaccordement::findAgentByComputer($entities_id, $computer);
+    public static function purgeProbe(int $entities_id, string $computer, bool $total = false): array {
+        $compte = ['issue' => 'ABSENT', 'agents' => 0, 'printers' => 0, 'computers' => 0, 'collecte' => 0];
+        $id     = PluginPrintgestionRaccordement::findAgentByComputer($entities_id, $computer);
         if ($id <= 0) {
-            return 'ABSENT';
+            return $compte;
         }
         $agent = new Agent();
+        if (!$agent->getFromDB($id)) {
+            return $compte;
+        }
+        // Les imprimantes sont cherchées tant que la sonde est là : c'est elle qui les désigne.
+        $printers     = $total ? self::printersOfProbe($entities_id, $id) : [];
+        $computers_id = $total && (string) $agent->fields['itemtype'] === Computer::class ? (int) $agent->fields['items_id'] : 0;
         try {
-            if ($agent->getFromDB($id) && $agent->delete(['id' => $id], true)) {
-                return 'OK';
+            // Les objets de collecte d'abord, tant que les raccordements existent : c'est eux qui en gardent la
+            // liste, et la suppression de la sonde les emporte.
+            if ($total) {
+                $racc = new PluginPrintgestionRaccordement();
+                foreach ($racc->find(['agents_id' => $id]) as $ligne) {
+                    if ($racc->getFromDB((int) $ligne['id'])) {
+                        $compte['collecte'] += PluginPrintgestionCollectsetup::purgeCreatedItems($racc);
+                    }
+                }
+            }
+            $printer = new Printer();
+            foreach ($printers as $printers_id) {
+                if ($printer->getFromDB($printers_id) && $printer->delete(['id' => $printers_id], true)) {
+                    $compte['printers']++;
+                }
+            }
+            if (!$agent->delete(['id' => $id], true)) {
+                PluginPrintgestionLogger::error('agentreport', sprintf('Sonde %1$s (agent %2$d) : suppression refusée par GLPI.', $computer, $id));
+                $compte['issue'] = 'REFUSE';
+                return $compte;
+            }
+            $compte['agents'] = 1;
+            // La fiche de l'ordinateur en dernier : la sonde y était rattachée, et seulement si elle est bien
+            // dans l'entité du fichier — une sonde déplacée depuis ne doit pas emporter le PC d'un autre client.
+            $pc = new Computer();
+            if ($computers_id > 0 && $pc->getFromDB($computers_id) && (int) $pc->fields['entities_id'] === $entities_id
+                && $pc->delete(['id' => $computers_id], true)) {
+                $compte['computers'] = 1;
             }
         } catch (Throwable $e) {
             PluginPrintgestionLogger::error('agentreport', sprintf('Sonde %1$s (agent %2$d) : suppression interrompue.', $computer, $id), $e);
-            return 'REFUSE';
+            $compte['issue'] = 'REFUSE';
+            return $compte;
         }
-        PluginPrintgestionLogger::error('agentreport', sprintf('Sonde %1$s (agent %2$d) : suppression refusée par GLPI.', $computer, $id));
-        return 'REFUSE';
+        $compte['issue'] = $total ? 'TOTAL' : 'OK';
+        return $compte;
+    }
+
+    /**
+     * Les imprimantes qu'une sonde a fait entrer dans GLPI, dans une entité.
+     *
+     * C'est GLPI qui le dit : `glpi_rulematchedlogs` garde, pour chaque import, l'agent qui l'a envoyé. On retient
+     * la **dernière** sonde connue de chaque imprimante — celle que le plugin nomme déjà « sonde responsable »
+     * dans le contrôle de la remontée. Une imprimante relevée depuis par une autre sonde n'est donc pas emportée.
+     *
+     * @return int[] identifiants d'imprimantes
+     */
+    private static function printersOfProbe(int $entities_id, int $agents_id): array {
+        global $DB;
+
+        $derniere = [];
+        foreach ($DB->request([
+            'SELECT'     => ['l.items_id', 'l.agents_id'],
+            'FROM'       => 'glpi_rulematchedlogs AS l',
+            'INNER JOIN' => [Printer::getTable() . ' AS p' => ['ON' => ['l' => 'items_id', 'p' => 'id']]],
+            'WHERE'      => ['l.itemtype' => Printer::class, 'p.entities_id' => $entities_id],
+            'ORDER'      => ['l.date ASC', 'l.id ASC'],
+        ]) as $row) {
+            $derniere[(int) $row['items_id']] = (int) $row['agents_id'];
+        }
+        return array_keys(array_filter($derniere, static fn(int $sonde): bool => $sonde === $agents_id));
     }
 
     /**

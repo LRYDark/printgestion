@@ -2,6 +2,71 @@
 
 ## Non publié
 
+- **Le retrait n'abandonne plus un dossier ouvert.** Le journal de l'agent, encore tenu par le service qui venait
+  de s'arrêter, faisait échouer la suppression de `C:\Program Files\GLPI-Agent`. Ce qui tient un fichier est
+  maintenant fermé, et la suppression retentée.
+
+- **Les raccordements avancent tout seuls.** Une tâche automatique (10 minutes) reprend ceux qui sont lancés et
+  prépare le relevé des niveaux dès la découverte terminée. Avant, il fallait qu'un humain ouvre l'écran du
+  raccordement — sinon tout restait en attente, prêt mais figé.
+
+- **En mode local, la fenêtre d'installation annonce enfin ce qui a été trouvé** : elle restait muette faute de
+  raccordement à lire, même quand la ToolBox avait bien scanné.
+
+- **Un refus côté GLPI est dit au technicien**, sur le PC : « plage IP en chevauchement », « identifiants déjà
+  pris »… au lieu d'un laconique « rien à lancer » dont la cause dormait dans le journal du serveur.
+
+- **L'installation ne s'arrête plus à « l'imprimante existe ».** Après la découverte, le relevé SNMP attendait le
+  prochain appel de la sonde — jusqu'à un jour. Le fichier réveille maintenant l'agent lui-même et attend les
+  niveaux : « 1 imprimante trouvée et ajoutée dans GLPI, niveaux relevés ». C'est le travail du plugin, il est
+  fait avant que le technicien reparte.
+
+- **La fenêtre d'installation se parcourt en trois pages** — l'agent, les imprimantes, le scan — avec
+  « Précédent » et « Suivant ». Elle tenait mal sur un petit écran ; elle fait maintenant moins de la moitié de sa
+  hauteur. Windows et macOS ; sous Linux, le formulaire garde un seul tenant mais ses libellés sont raccourcis.
+
+- **« Pas de réponse SNMP » ne cache plus une imprimante mise à la corbeille.** GLPI reconnaît un appareil à son
+  adresse MAC même quand sa fiche est supprimée : une imprimante qui répondait très bien était annoncée muette,
+  parce que sa fiche dormait dans une autre entité, à la corbeille. L'écran dit maintenant où elle est et dans quel
+  état, et un bouton « Ramener ici » la restaure et la rattache à la bonne entité.
+
+- **Le journal du raccordement remonte au-dessus du bouton d'abandon**, et se vide d'un clic (avec confirmation,
+  pour qui peut modifier le raccordement). La ligne qui reste dit qui l'a vidé et quand.
+
+- **La fenêtre d'installation annonce les imprimantes trouvées**, par leur nom : « 2 imprimantes trouvées et
+  ajoutées dans GLPI ». Elle attend le résultat quelques minutes au lieu de laisser le technicien repartir sans
+  savoir, et c'est cette attente qui fait avancer le raccordement — auparavant, il fallait qu'un administrateur
+  ouvre l'écran du raccordement dans GLPI pour que le relevé SNMP parte. Windows, Linux et macOS.
+
+- **Les imprimantes qui ne parlent que SNMPv1 sont enfin vues.** Le plugin ne posait que des identifiants v2c :
+  sur un parc Canon, la découverte ne trouvait rien et rien ne l'expliquait. Il pose désormais les deux versions
+  avec la même communauté, essayées dans l'ordre (v2c puis v1), aussi bien dans GLPI que dans la ToolBox de
+  l'agent. L'assistant de raccordement propose « v2c et v1 » par défaut.
+
+- **À l'installation, le technicien choisit qui pilote le scan des imprimantes** : GLPI (les tâches se voient et
+  se modifient à distance) ou l'agent du PC lui-même (tout reste sur le poste). Le choix n'apparaît que si GLPI
+  Inventory est installé sur le serveur ; sinon la fenêtre dit en une ligne que le scan sera local. Windows, Linux
+  et macOS, fenêtre comme console.
+
+- **Retirer une sonde est désormais un droit à part**, distinct de celui d'installer : un niveau « Retirer une
+  sonde » sur le droit « Collecte SNMP / Déploiement Agent ». Sans lui, plus de boutons de retrait et plus de
+  téléchargement possible. À la mise à jour, il est accordé une fois aux profils qui pouvaient déjà supprimer une
+  sonde dans GLPI ; ensuite, il s'accorde profil par profil.
+
+- **Le fichier de retrait peut aussi supprimer dans GLPI**, au choix : ne rien supprimer (par défaut), retirer la
+  sonde, ou tout supprimer — la sonde, les imprimantes qu'elle a fait entrer et la fiche de l'ordinateur. Trois
+  choix exclusifs dans la fenêtre, sur les trois systèmes, et le même menu en console. « Tout supprimer » défait
+  aussi ce que le raccordement avait créé dans GLPI Inventory : tâches, plage IP et identifiants SNMP — ce qui
+  avait seulement été réutilisé reste. La fenêtre affiche ce que GLPI a répondu, avec le compte exact : « 1 sonde,
+  7 imprimantes, 1 ordinateur, 5 objets de collecte ». Les imprimantes relevées par une autre sonde, les
+  expéditions et les demandes d'envoi restent.
+
+- **Supprimer une sonde ou une imprimante depuis GLPI** emporte maintenant, aussi, ce que Print Gestion avait créé
+  pour elle : réglages, alertes, raccordements, relevés, seuils et lignes de coût.
+
+- **Une seule installation ou un seul retrait à la fois sur un poste.** Un double clic lançait deux fenêtres qui
+  travaillaient en même temps. Le second lancement le dit et s'arrête sans rien toucher. Windows, Linux, macOS.
+
 - **Windows : la fenêtre d'installation et de retrait s'affiche de nouveau.** Lancée sans console, elle s'ouvrait
   invisible : la console clignotait, puis plus rien, et PowerShell restait en attente d'un clic impossible (à
   terminer dans le Gestionnaire des tâches). Rien n'avait été installé ni retiré. Retéléchargez les fichiers

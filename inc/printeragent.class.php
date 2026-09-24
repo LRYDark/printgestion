@@ -101,6 +101,7 @@ class PluginPrintgestionPrinteragent {
         }
 
         $sources = [];
+        $resumes = [];
         foreach (array_keys(PluginPrintgestionCollectsetup::METHODS) as $method) {
             foreach (PluginPrintgestionCollectsetup::getJobs($method) as $job) {
                 $via = [];
@@ -133,14 +134,18 @@ class PluginPrintgestionPrinteragent {
                         (int) $job['is_active'] === 1 ? '' : ' ' . __('(désactivée)', 'printgestion'),
                         implode(', ', $via)
                     );
+                    // La version courte, celle qu'on lit : la collecte, et sur quoi. Les noms de tâches et de
+                    // plages portent déjà l'entité et la sonde — les répéter ici ne dit rien de plus.
+                    $resumes[$agents_id][] = PluginPrintgestionCollectsetup::getMethodLabel($method)
+                        . ((int) $job['is_active'] === 1 ? '' : ' ' . __('(désactivée)', 'printgestion'));
                 }
             }
         }
-        return self::loadAgents($sources);
+        return self::loadAgents($sources, $resumes);
     }
 
     /** Lignes glpi_agents des sondes trouvées, avec leurs sources. */
-    private static function loadAgents(array $sources): array {
+    private static function loadAgents(array $sources, array $resumes = []): array {
         global $DB;
 
         if (empty($sources)) {
@@ -153,7 +158,14 @@ class PluginPrintgestionPrinteragent {
             'WHERE'  => ['id' => array_keys($sources)],
             'ORDER'  => ['last_contact DESC'],
         ]) as $agent) {
-            $probes[(int) $agent['id']] = ['agent' => $agent, 'sources' => array_values(array_unique($sources[(int) $agent['id']]))];
+            $detail = array_values(array_unique($sources[(int) $agent['id']]));
+            $court  = array_values(array_unique($resumes[(int) $agent['id']] ?? []));
+            $probes[(int) $agent['id']] = [
+                'agent'   => $agent,
+                'sources' => $detail,
+                // Sans résumé (sonde retrouvée par les journaux d'import), la phrase du détail est déjà courte.
+                'resume'  => $court !== [] ? $court : $detail,
+            ];
         }
         return $probes;
     }
@@ -211,7 +223,8 @@ class PluginPrintgestionPrinteragent {
             $version   = is_array($modules) && !empty($modules) ? (string) reset($modules) : trim((string) $agent['version']);
             $is_silent = empty($agent['last_contact']) || (string) $agent['last_contact'] < $cutoff;
             echo "<div class='mb-3 col-12 col-sm-3'><label class='form-label'>" . $esc(__('Agent', 'printgestion')) . "</label><span>{$name}</span>"
-                . "<div class='text-muted small'>" . $esc(implode(' ; ', $probe['sources'])) . "</div></div>";
+                . "<div class='text-muted small' title='" . $esc(implode("\n", $probe['sources'])) . "'>"
+                . $esc(implode(' · ', $probe['resume'])) . "</div></div>";
             echo "<div class='mb-3 col-12 col-sm-3'><label class='form-label'>" . $esc(__('Version', 'printgestion')) . "</label><span>" . $esc($version !== '' ? $version : '—') . "</span></div>";
             echo "<div class='mb-3 col-12 col-sm-3'><label class='form-label'>" . $esc(__('Dernier contact', 'printgestion')) . "</label><span>" . $esc($date($agent['last_contact']))
                 . ($is_silent ? " <span class='badge bg-red text-red-fg'>" . $esc(__('Muette', 'printgestion')) . "</span>" : '') . "</span></div>";

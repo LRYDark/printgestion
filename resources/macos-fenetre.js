@@ -6,7 +6,8 @@
 // d'afficher une fenêtre sur sa session.
 //
 // Elle ne fait rien d'autre que montrer et demander. Deux fichiers la relient au script, qui tourne en root :
-//   reponses  écrit par la fenêtre au clic : « annule », ou « ips=… », « snmp=… », « freq=… », « glpi=1|0 » ;
+//   reponses  écrit par la fenêtre au clic : « annule », ou « ips=… », « snmp=… », « freq=… »,
+//             « mode=glpi|local », « glpi=0|1|2 » ;
 //   etat      écrit par le script, lu ici en continu, une ligne par événement :
 //               dire|texte               ce qui se passe en ce moment
 //               pct|nombre               avancement, de 0 à 100
@@ -18,13 +19,17 @@
 ObjC.import('Cocoa');
 
 var W = 600;
-var H = T.formulaire ? 560 : 470;
+// Le retrait avec ses trois choix demande la même hauteur que le formulaire d'installation.
+var H = T.formulaire ? (T.modes && T.modes.length ? 620 : 580) : ((T.choix_glpi && T.choix_glpi.length) ? 560 : 470);
 var BANDE = 76;
 
 var DOSSIER = '';
 var JOURNAL = '';
-var etat = { choix: '', lues: 0 };
-var pages = { p1: [], p2: [], p3: [] };
+var etat = { choix: '', lues: 0, glpi: 0 };
+// p1 est commune aux trois pages de réglages (la carte « pour qui ») ; p1a, p1b et p1c sont les trois pages
+// elles-mêmes — l'agent, les imprimantes, le scan. Sans formulaire (retrait), tout tient dans p1a.
+var pages = { p1: [], p1a: [], p1b: [], p1c: [], p2: [], p3: [] };
+var page = 1;
 var lignes = {};
 
 function couleur(r, v, b) {
@@ -93,6 +98,13 @@ ObjC.registerSubclass({
             implementation: function (bouton) {
                 clic(bouton.tag);
             }
+        },
+        // Les boutons radio du choix de suppression : un seul coché à la fois.
+        'choix:': {
+            types: ['void', ['id']],
+            implementation: function (bouton) {
+                choisir(bouton.tag);
+            }
         }
     }
 });
@@ -130,35 +142,63 @@ ajouter(boite(24, 96, W - 48, 70, couleur(244, 246, 249)), 'p1');
 ajouter(etiquette(T.infos, 42, 106, W - 84, 54, 12, false, null), 'p1');
 var y = 180;
 if (T.message) {
-    ajouter(etiquette(T.message, 26, y, W - 52, 80, 12, false, couleur(70, 78, 90)), 'p1');
-    y += 90;
+    // Avec formulaire, ce texte est la première des trois pages ; sans lui (retrait), il reste affiché tout du long.
+    ajouter(etiquette(T.message, 26, y, W - 52, 80, 12, false, couleur(70, 78, 90)), T.formulaire ? 'p1a' : 'p1');
+    if (!T.formulaire) {
+        y += 90;
+    }
 }
-// La case « retirer aussi la sonde de GLPI », décochée : seulement quand le fichier en a reçu le droit.
-var caseGlpi = null;
-if (T.case_glpi) {
-    caseGlpi = $.NSButton.alloc.initWithFrame(cadre(24, y, W - 48, 36));
-    caseGlpi.setButtonType(3); // NSButtonTypeSwitch : une case à cocher
-    caseGlpi.title = T.case_glpi;
-    caseGlpi.cell.wraps = true;
-    caseGlpi.state = 0;
-    ajouter(caseGlpi, 'p1');
-    y += 44;
+// Ce qu'on supprime dans GLPI : rien, la sonde, ou tout. Le premier choix est pris, et l'exclusivité est tenue
+// à la main (des boutons radio ne se groupent tout seuls que s'ils partagent leur action, déjà prise ici par
+// les boutons de la fenêtre). Absents quand le fichier n'a pas ce pouvoir.
+var radiosGlpi = [];
+if (T.choix_glpi && T.choix_glpi.length) {
+    T.choix_glpi.forEach(function (libelle, rang) {
+        var r = $.NSButton.alloc.initWithFrame(cadre(24, y + rang * 46, W - 48, 42));
+        r.setButtonType(4); // NSButtonTypeRadio
+        r.title = libelle;
+        r.cell.wraps = true;
+        r.target = cible;
+        r.action = 'choix:';
+        r.tag = rang;
+        r.state = rang === 0 ? 1 : 0;
+        radiosGlpi.push(ajouter(r, 'p1'));
+    });
+    y += T.choix_glpi.length * 46 + 8;
 }
-var ips = null, snmp = null, freq = null;
+var ips = null, snmp = null, freq = null, mode = null;
 if (T.formulaire) {
-    ajouter(etiquette(T.lib_ips, 24, y, W - 48, 18, 12, true, null), 'p1');
-    ips = ajouter($.NSTextField.alloc.initWithFrame(cadre(24, y + 22, W - 48, 24)), 'p1');
+    // Trois pages posées au même endroit : chacune repart de la même ordonnée, et une seule est montrée.
+    var yPage = y;
+    y = yPage;
+    ajouter(etiquette(T.lib_ips, 24, y, W - 48, 18, 12, true, null), 'p1b');
+    ips = ajouter($.NSTextField.alloc.initWithFrame(cadre(24, y + 22, W - 48, 24)), 'p1b');
     ips.placeholderString = T.exemple_ips;
-    ajouter(etiquette(T.aide_ips, 24, y + 50, W - 48, 32, 11, false, couleur(120, 128, 140)), 'p1');
+    ajouter(etiquette(T.aide_ips, 24, y + 50, W - 48, 32, 11, false, couleur(120, 128, 140)), 'p1b');
     y += 92;
-    ajouter(etiquette(T.lib_snmp, 24, y, W - 48, 18, 12, true, null), 'p1');
-    snmp = ajouter($.NSTextField.alloc.initWithFrame(cadre(24, y + 22, 200, 24)), 'p1');
+    ajouter(etiquette(T.lib_snmp, 24, y, W - 48, 18, 12, true, null), 'p1b');
+    snmp = ajouter($.NSTextField.alloc.initWithFrame(cadre(24, y + 22, 200, 24)), 'p1b');
     snmp.stringValue = 'public';
-    y += 58;
-    ajouter(etiquette(T.lib_freq, 24, y, W - 48, 18, 12, true, null), 'p1');
-    freq = ajouter($.NSPopUpButton.alloc.initWithFramePullsDown(cadre(24, y + 22, 300, 26), false), 'p1');
+
+    y = yPage;
+    ajouter(etiquette(T.lib_freq, 24, y, W - 48, 18, 12, true, null), 'p1c');
+    freq = ajouter($.NSPopUpButton.alloc.initWithFramePullsDown(cadre(24, y + 22, 300, 26), false), 'p1c');
     freq.addItemsWithTitles($(T.frequences));
     freq.selectItemAtIndex(0);
+    y += 58;
+    // Qui pilote le scan : un menu quand GLPI Inventory est là, une simple phrase sinon — il n'y a alors qu'un
+    // seul chemin possible, et proposer un choix serait mentir.
+    if (T.modes && T.modes.length) {
+        ajouter(etiquette(T.lib_mode, 24, y, W - 48, 18, 12, true, null), 'p1c');
+        mode = ajouter($.NSPopUpButton.alloc.initWithFramePullsDown(cadre(24, y + 22, W - 48, 26), false), 'p1c');
+        mode.addItemsWithTitles($(T.modes));
+        mode.selectItemAtIndex(0);
+        if (T.aide_mode) {
+            ajouter(etiquette(T.aide_mode, 24, y + 52, W - 48, 32, 11, false, couleur(120, 128, 140)), 'p1c');
+        }
+    } else if (T.sans_mode) {
+        ajouter(etiquette(T.sans_mode, 24, y, W - 48, 34, 11, false, couleur(120, 128, 140)), 'p1c');
+    }
 }
 ajouter(boite(0, H - 64, W, 64, couleur(241, 243, 246)), null);
 var action = bouton(T.bouton, W - 24 - 120 - 12 - 170, 170, 1, 'p1');
@@ -166,6 +206,12 @@ if (T.formulaire) {
     action.keyEquivalent = '\r';
 }
 bouton(T.annuler, W - 24 - 120, 120, 2, 'p1');
+// Navigation entre les trois pages de réglages : seulement quand il y a trois pages à parcourir.
+var suivant = null, precedent = null;
+if (T.formulaire) {
+    suivant = bouton(T.suivant, W - 24 - 120 - 12 - 170, 170, 5, 'p1');
+    precedent = bouton(T.precedent, 24, 170, 6, 'p1');
+}
 
 // ── Page 2 : les étapes, cochées une à une ──
 var enCours = ajouter(etiquette('', 24, 96, W - 48, 22, 15, true, couleur(31, 58, 95)), 'p2');
@@ -189,6 +235,7 @@ bouton(T.fermer, W - 24 - 120, 120, 4, 'p3');
 
 montrer('p2', false);
 montrer('p3', false);
+montrerPage(1);
 
 // Pendant le travail, la croix ne ferme rien : un agent à moitié installé est pire qu'une minute d'attente.
 function croix(active) {
@@ -198,8 +245,34 @@ function croix(active) {
     }
 }
 
+// Exclusivité des boutons radio, tenue à la main : un seul coché, et son rang est ce qui partira au serveur.
+function choisir(rang) {
+    radiosGlpi.forEach(function (r, i) {
+        r.state = i === rang ? 1 : 0;
+    });
+    etat.glpi = rang;
+}
+
+// Une page de réglages à la fois. « Installer » n'apparaît qu'à la dernière : on n'installe pas depuis la
+// première page par un appui sur Entrée.
+function montrerPage(n) {
+    if (!T.formulaire) {
+        return;
+    }
+    page = n < 1 ? 1 : (n > 3 ? 3 : n);
+    montrer('p1a', page === 1);
+    montrer('p1b', page === 2);
+    montrer('p1c', page === 3);
+    action.hidden = page !== 3;
+    suivant.hidden = page === 3;
+    precedent.hidden = page === 1;
+}
+
 function pageEtapes() {
     montrer('p1', false);
+    montrer('p1a', false);
+    montrer('p1b', false);
+    montrer('p1c', false);
     montrer('p2', true);
     enCours.stringValue = T.preparation;
     croix(false);
@@ -212,9 +285,11 @@ function clic(tag) {
             r.push('ips=' + ips.stringValue.js.replace(/\s+/g, ' ').trim());
             r.push('snmp=' + snmp.stringValue.js.trim());
             r.push('freq=' + freq.titleOfSelectedItem.js.split(' ')[0]);
+            // Le rang suffit : le premier choix est « piloté par GLPI », le second « en local ».
+            r.push('mode=' + (mode && mode.indexOfSelectedItem === 1 ? 'local' : 'glpi'));
         }
-        if (caseGlpi) {
-            r.push('glpi=' + (caseGlpi.state === 1 ? '1' : '0'));
+        if (radiosGlpi.length) {
+            r.push('glpi=' + etat.glpi);
         }
         ecrire(DOSSIER + '/reponses', r.join('\n') + '\n');
         etat.choix = 'ok';
@@ -223,6 +298,10 @@ function clic(tag) {
         ecrire(DOSSIER + '/reponses', 'annule\n');
         etat.choix = 'annule';
         fenetre.close;
+    } else if (tag === 5) {
+        montrerPage(page + 1);
+    } else if (tag === 6) {
+        montrerPage(page - 1);
     } else if (tag === 3) {
         $.NSWorkspace.sharedWorkspace.openFile(JOURNAL);
     } else if (tag === 4) {

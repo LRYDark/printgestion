@@ -674,12 +674,117 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
   configuration posée (`Agentdeploy::buildAgentConfig()`). Le chemin est écrit dans le journal de l'installation et
   dans la fenêtre de fin : c'est le premier fichier à demander quand une sonde ne remonte rien. Le retrait l'efface sous Linux et macOS ; sous Windows il
   part avec le dossier de l'agent si la désinstallation du MSI le retire.
+- **Ce qui tient un fichier est fermé avant de l'effacer** (retrait Windows, étape « Fichiers ») : le MSI vient
+  d'arrêter le service, qui lâche son journal une à deux secondes plus tard — la suppression tombait pile dans cet
+  intervalle et laissait `C:\Program Files\GLPI-Agent`. Trois essais : au premier échec, le service est arrêté et
+  les programmes lancés **depuis le dossier visé** sont fermés (comparaison sur le chemin, jamais sur le nom : un
+  programme du client au nom voisin n'est pas touché), puis deux secondes d'attente. Si le dossier résiste encore,
+  la fenêtre le dit sans alarmer — c'est sans effet sur une réinstallation.
+- **Une tâche automatique fait avancer les raccordements lancés** (`Raccordement::cronPrintgestionRaccordements()`,
+  toutes les 10 minutes, enregistrée avec les autres dans `Reminder::install()`). C'était le chaînon manquant :
+  préparer le relevé des niveaux après la découverte n'arrivait que si **quelqu'un regardait** — l'écran du
+  raccordement, ou la fenêtre d'installation pendant ses quatre minutes. Un technicien reparti, une découverte un
+  peu longue sur un /24, et le raccordement restait figé alors que tout était prêt. La tâche reprend les
+  raccordements **lancés depuis moins de vingt-quatre heures** (pas les trente minutes de l'écran : une sonde
+  appelle GLPI au moins une fois par jour) et appelle `Collectsetup::verify()`, qui repose au passage les modules
+  réseau de la sonde et remonte ses erreurs au journal du raccordement.
+- **Le suivi répond aussi en mode local** (`front/agentprogress.php`) : sans GLPI Inventory il n'y a pas de
+  raccordement, et le suivi ne savait lire que ça — la fenêtre restait muette jusqu'au bout de son délai, même
+  quand la ToolBox avait parfaitement scanné. Il lit maintenant, dans ce cas, ce que GLPI dit de la sonde
+  (`glpi_rulematchedlogs`), avec le même compte de niveaux.
+- **Un refus du raccordement remonte jusqu'au PC** : `agentreport.php` renvoie `ERREUR <cause>` (plage en
+  chevauchement, identifiants déjà pris, tâche désactivée…) et la fenêtre l'affiche à l'étape « Compte rendu ».
+  Avant, tout cela finissait en réponse vide et « rien à lancer » : la raison n'existait que côté serveur, et le
+  technicien était déjà parti. Les erreurs de pose des modules sont désormais journalisées en **erreur**, pas en
+  information.
+- **La fenêtre attend aussi les niveaux, et réveille l'agent pour ne pas les attendre un jour.** GLPI ne pousse
+  rien vers une sonde : le relevé SNMP préparé après la découverte reste en attente jusqu'au prochain appel de
+  l'agent — vingt-quatre heures au pire, alors que le technicien est encore devant le PC. Le suivi
+  (`front/agentprogress.php`) renvoie donc `TROUVE <imprimantes> <avec niveaux>`, et le script, qui tourne **sur le
+  poste**, redemande un passage à l'agent local (`127.0.0.1:62354/now`) dès qu'il voit des imprimantes sans
+  niveaux, puis attend. La fenêtre annonce « 1 imprimante(s) trouvée(s) et ajoutée(s) dans GLPI, niveaux relevés »
+  — ou « niveaux au prochain passage de la sonde » si le délai passe, jamais un faux échec.
+- **La fenêtre d'installation tient en trois pages** (`buildWindowsDialogLines()`, `resources/macos-fenetre.js`) :
+  *l'agent*, *les imprimantes*, *le scan* — avec « Précédent » et « Suivant », « Installer » n'apparaissant qu'à la
+  dernière (la touche Entrée suit le bouton visible, on n'installe donc pas depuis la première page). Les cinq
+  questions d'un seul tenant faisaient une fenêtre de près de mille pixels, coupée sur un petit écran. C'est
+  toujours **une seule fenêtre** : les étapes et le résultat prennent ensuite la même place. Les trois pages ont la
+  hauteur de la plus chargée, mesurée à l'exécution — une traduction plus longue ou un écran à 125 % ne coupe rien.
+  Sous Linux, zenity ne sait pas paginer : le formulaire reste d'un seul tenant, avec des libellés courts.
+  Piège rencontré : la variable de page s'appelle `page_reglages`, car `page` désigne déjà la liste des étapes —
+  l'écraser cassait la suite de l'installation, ce que la simulation a montré immédiatement.
+- **Une imprimante qui répond mais dont la fiche est ailleurs est nommée comme telle** (`Collectsetup::classify()`,
+  `Raccordement::showProgress()`) : le rapprochement adresse ↔ équipement **n'écarte plus les fiches en corbeille**.
+  GLPI reconnaît un appareil à son adresse MAC, même supprimé : une imprimante parfaitement joignable dont la fiche
+  dormait dans une autre entité, à la corbeille, était annoncée « Pas de réponse SNMP » — et l'on cherchait un
+  problème de réseau qui n'existait pas. L'écran dit maintenant l'entité et l'état de la fiche, et un bouton
+  **« Ramener ici »** la restaure puis la rattache à l'entité du raccordement (`Printer::restore()` puis
+  `update()`, donc avec l'historique et les hooks), avant de refaire le point.
+- **La fenêtre attend la découverte et nomme ce qu'elle a trouvé** (`front/agentprogress.php`,
+  `Agentdeploy::watchTexts()`) : « 2 imprimante(s) trouvée(s) et ajoutée(s) dans GLPI », puis leurs noms dans le
+  message de fin. Le compte rendu renvoie au PC une **clé de suivi** — dix minutes, plusieurs lectures, une entité
+  et un PC — et la fenêtre interroge cette adresse toutes les dix secondes, quatre minutes au plus. Chaque appel
+  **fait avancer le raccordement** côté serveur (`Collectsetup::verify()` : relevé SNMP préparé dès la découverte
+  finie, sonde rappelée) : sans lui, rien ne bouge tant que personne n'ouvre l'écran du raccordement dans GLPI, et
+  le technicien repart sans savoir. La réponse ne porte que des noms — ni adresse, ni série, ni identifiant SNMP —
+  et vaut `ATTENTE`, `AUCUNE`, ou `TROUVE <n>` suivi d'un nom par ligne. Délai dépassé : « lancée ; le résultat
+  s'affichera dans GLPI », jamais un faux échec. Windows, Linux et macOS, y compris en mode local (ToolBox).
+- **Deux versions SNMP posées, v2c puis v1** (`Collectsetup::planCompanionCredential()`) : beaucoup d'imprimantes
+  n'exposent que SNMPv1 — les Canon iR-ADV entre autres — et un identifiant v2c seul reste sans réponse, sans que
+  rien ne le dise. Les deux identifiants portent la même communauté et sont liés à la plage dans cet ordre ; GLPI
+  Inventory les essaie par rang et garde celui qui répond. Même chose dans la ToolBox de l'agent (`toolbox.yaml` :
+  `…-snmp` en v2c et `…-snmp-v1`). L'assistant de raccordement propose « v2c et v1 » par défaut, chaque version
+  seule restant possible ; l'installation depuis le PC pose toujours les deux — personne n'est devant GLPI pour
+  s'apercevoir du contraire, et le technicien est déjà reparti.
+- **Qui pilote le scan, au choix du technicien** (`Agentdeploy::pilotChoices()`) : la fenêtre d'installation
+  propose *piloté par GLPI* (par défaut) ou *en local, par l'agent de ce PC*, et le compte rendu part avec
+  `mode=glpi|local`. Le serveur suit : raccordement et tâches GLPI Inventory d'un côté, réponse `SCAN` qui arme la
+  ToolBox de l'agent de l'autre. Le choix **n'apparaît pas** quand GLPI Inventory est absent du serveur au moment
+  où le fichier est fabriqué : une phrase dit alors que le scan sera local, puisque c'est le seul chemin possible.
+  Les deux font le même travail sur le réseau — même agent, même SNMP ; ce qui change est qui planifie, où vit la
+  communauté SNMP, et si l'on peut y revenir à distance. Windows (liste déroulante), Linux (liste du formulaire
+  zenity, menu numéroté en console), macOS (menu de la fenêtre Cocoa, même menu en console).
 - **Retirer une sonde** (`Agentdeploy::buildRemovalFile()`, `os=windows|linux|macos-retrait`) : un fichier par
   système, sous les boutons d'installation. Il retire la tâche de mise à jour, celle du scan, les fichiers du
   plugin, puis l'agent — Windows par la clé de désinstallation du registre (winget peut être absent, ou ne rien
   connaître d'un agent installé par le MSI), Linux par le gestionnaire de paquets de la distribution, macOS par
   l'arrêt du service et l'oubli du paquet. Il rend compte à GLPI (`off=1`) : sans cela, la fiche d'une sonde
   continuerait d'afficher une tâche posée sur une machine qui n'a plus d'agent.
+  - **Ce qu'on supprime dans GLPI** : trois choix exclusifs dans la fenêtre, le premier pris — *ne rien supprimer*,
+    *retirer la sonde* (`gl=1`), *tout supprimer* (`gl=2` : la sonde, les imprimantes qu'elle a fait entrer, la
+    fiche de l'ordinateur). Boutons radio sous Windows et macOS, liste à choix unique sous Linux (zenity n'a pas de
+    case dans une question), et le même menu en console quand il n'y a pas d'écran. Tout passe par les classes
+    natives — `Agent`, `Printer`, `Computer` — donc par leurs hooks : le nôtre (`item_purge` →
+    `Cleanup::forAgent()` et `Cleanup::forPrinter()`) emporte réglages, alertes, raccordements (adresses et journal
+    par `Raccordement::cleanDBonPurge()`), relevés, seuils et lignes de coût. « Tout supprimer » défait aussi ce que
+    le raccordement avait **créé** dans GLPI Inventory — tâches, jobs, plage IP, identifiants SNMP et leur liaison —
+    d'après la liste qu'il en garde (`created_items`, `Collectsetup::purgeCreatedItems()`). Ce qui avait seulement
+    été *réutilisé* reste : une plage ou des identifiants partagés servent peut-être à un autre client. Sans GLPI
+    Inventory, il n'y a rien de tel côté serveur : tout était sur le poste, et le retrait l'efface déjà
+    (`toolbox.yaml`, `toolbox-plugin.local`, la configuration et le journal de l'agent). Les **expéditions et les demandes
+    d'envoi** restent : elles racontent ce qui a été livré, et une comptabilité ne s'efface pas avec le matériel.
+    Restent aussi les objets GLPI Inventory créés par un raccordement, qu'un administrateur peut partager.
+  - **Les imprimantes d'une sonde** : celles que GLPI dit être entrées par elle (`glpi_rulematchedlogs`, dernière
+    sonde connue de chaque imprimante — la « sonde responsable » du contrôle de la remontée), dans l'entité du
+    fichier. Une imprimante relevée depuis par une autre sonde n'est pas emportée.
+  - **Qui décide** : « Retirer une sonde » est un **niveau du droit Déploiement** (`PURGE` sur
+    `plugin_printgestion_deploiement`), distinct de celui d'installer. Il commande l'affichage des boutons de
+    retrait et le téléchargement des fichiers `*-retrait` ; le pouvoir de supprimer voyage ensuite dans la clé du
+    fichier (24 h, un seul usage, une seule entité). Qui peut télécharger ce fichier a le droit de s'en servir :
+    la décision se prend là, une fois. Une clé d'installation, elle, ne supprime rien — `gl=1` ou `gl=2` avec elle
+    est refusé. L'issue revient au PC et s'affiche telle quelle : `PURGE OK`, `PURGE TOTAL <sondes> <imprimantes>
+    <ordinateurs>`, `PURGE ABSENT` ou `PURGE REFUSE`. L'historique de l'entité garde le nom de l'auteur du fichier
+    et le compte exact.
+  - **À la mise à jour**, ce niveau n'existait chez personne : il est accordé **une seule fois** aux profils qui
+    avaient déjà le droit natif de supprimer une sonde (`Profile::grantRemovalRightOnce()`, par
+    `ProfileRight::updateProfileRights()`), sinon plus aucun fichier de retrait ne se téléchargerait. Ensuite il
+    s'accorde profil par profil, et un administrateur qui le retire ne le voit pas revenir.
+  - **Une seule exécution à la fois** sur le poste, installation et retrait confondus : un double clic lançait deux
+    fenêtres qui travaillaient en même temps. Windows : un verrou système nommé (`Global\PrintGestion-GLPI-Agent`),
+    que Windows libère à la fin du processus, même tué — jamais de verrou fantôme. Linux et macOS : un dossier
+    verrou `/var/run/printgestion-glpi-agent.lock` qui porte le numéro du processus (`mkdir` est atomique ; `flock`
+    n'existe pas sur macOS), repris quand ce processus n'existe plus, et libéré par le `trap EXIT` de l'interface.
+    Le second lancement le dit — boîte de message, zenity ou console — et ne touche à rien.
 - **Archives complètes : le recours** (`os=windows-zip|linux-targz|macos-zip`, `Agentdeploy::ARCHIVE_OS`), atteignables
   depuis le panneau replié « Comment lancer le fichier téléchargé », pas depuis l'écran : elles emportent l'installeur
   officiel, donc **aucune clé et aucun téléchargement depuis le poste**, au prix d'un dossier à extraire. À prendre

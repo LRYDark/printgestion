@@ -593,7 +593,9 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         // saisis sur le PC (réutilisés s'ils existent déjà dans GLPI, créés sinon).
         $plan = PluginPrintgestionCollectsetup::plan($racc, [
             'credential_mode'  => 'new',
-            'snmpversion'      => '2',
+            // Les deux versions : l'imprimante d'un client n'expose parfois que SNMPv1, et personne n'est devant
+            // GLPI pour s'en apercevoir — le technicien, lui, est déjà reparti.
+            'snmpversion'      => 'both',
             'community'        => $community,
             'credential_name'  => sprintf(__('SNMP v2c « %s »', 'printgestion'), $community),
         ]);
@@ -642,6 +644,59 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             $this->addLog(4, 'success', __('Étape 4 validée : découverte lancée depuis le fichier d\'installation.', 'printgestion'));
         }
         return ['ok' => $lancement['ok'], 'id' => (int) $this->getID(), 'messages' => $messages, 'triggered' => $lancement['ok']];
+    }
+
+    /** Description de la tâche automatique, dans l'écran des actions automatiques de GLPI. */
+    public static function cronInfo($name) {
+        return ['description' => __('Print Gestion : fait avancer les raccordements lancés (découverte terminée → relevé des niveaux)', 'printgestion')];
+    }
+
+    /**
+     * Tâche automatique : reprend chaque raccordement lancé et fait le point, comme le ferait un technicien qui
+     * ouvre son écran.
+     *
+     * C'est le chaînon qui manquait. Préparer le relevé des niveaux après la découverte n'arrivait que si
+     * quelqu'un regardait : l'écran du raccordement, ou la fenêtre d'installation pendant ses quatre minutes de
+     * surveillance. Une découverte un peu longue sur un /24, un technicien déjà reparti, et le raccordement
+     * restait figé sur « en attente » avec tout de prêt.
+     *
+     * Bornes : seulement les raccordements **lancés**, et pendant **vingt-quatre heures** après le lancement —
+     * pas les trente minutes de l'écran. Une sonde appelle GLPI au moins une fois par jour : la découverte d'un
+     * /24 peut donc aboutir bien après que l'écran a cessé de vérifier. Au-delà d'une journée, c'est une affaire
+     * d'humain : le raccordement s'abandonne ou se relance à la main.
+     */
+    public static function cronPrintgestionRaccordements($task = null) {
+        global $DB;
+
+        if (!PluginPrintgestionConfig::isFeatureEnabled('deploiement') || !PluginPrintgestionCollectsetup::isAvailable()) {
+            return 0;
+        }
+        $limite = date('Y-m-d H:i:s', time() - DAY_TIMESTAMP);
+        $faits  = 0;
+        $racc   = new self();
+        foreach ($DB->request([
+            'SELECT' => ['id'],
+            'FROM'   => self::getTable(),
+            'WHERE'  => ['status' => self::STATUS_TRIGGERED, ['date_triggered' => ['>=', $limite]]],
+            'ORDER'  => ['date_triggered'],
+            'LIMIT'  => 50,
+        ]) as $ligne) {
+            if (!$racc->getFromDB((int) $ligne['id'])) {
+                continue;
+            }
+            $avant = $racc->getResultCounts();
+            foreach (PluginPrintgestionCollectsetup::verify($racc)['events'] as [$niveau, $message]) {
+                $racc->addLog(4, $niveau, $message);
+            }
+            $faits++;
+            if ($task instanceof CronTask && $racc->getResultCounts() !== $avant) {
+                $task->log(sprintf('Raccordement %d : état mis à jour.', (int) $ligne['id']));
+            }
+        }
+        if ($task instanceof CronTask) {
+            $task->addVolume($faits);
+        }
+        return $faits > 0 ? 1 : 0;
     }
 
     public static function processAction(array $post, Entity $entity, ?self $racc): string {
@@ -789,6 +844,62 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             return $back;
         }
 
+        if (isset($post['adopt_printer'])) {
+            // Une imprimante qui a répondu mais dont la fiche est ailleurs : on la ramène ici — restaurée si elle
+            // était à la corbeille, puis rattachée à l'entité du raccordement. Par les classes natives, donc avec
+            // l'historique de GLPI et les contrôles de ses hooks.
+            $printers_id = (int) ($post['printers_id'] ?? 0);
+            $entities_id = (int) $racc->fields['entities_id'];
+            $printer     = new Printer();
+            $connue      = $printers_id > 0 && countElementsInTable(self::IPS_TABLE, [
+                'plugin_printgestion_raccordements_id' => (int) $racc->getID(),
+                'itemtype'                             => Printer::class,
+                'items_id'                             => $printers_id,
+            ]) > 0;
+            if (!$connue || !$printer->getFromDB($printers_id)) {
+                // Jamais sur une imprimante que ce raccordement n'a pas trouvée : l'identifiant vient du formulaire.
+                $flash('error', __('Imprimante inconnue de ce raccordement.', 'printgestion'));
+                return $back;
+            }
+            $nom     = (string) $printer->fields['name'];
+            $depuis  = Dropdown::getDropdownName('glpi_entities', (int) $printer->fields['entities_id']);
+            $restaure = (int) $printer->fields['is_deleted'] === 1 ? $printer->restore(['id' => $printers_id]) : true;
+            $deplace  = (int) $printer->fields['entities_id'] === $entities_id
+                || $printer->update(['id' => $printers_id, 'entities_id' => $entities_id]);
+            if (!$restaure || !$deplace) {
+                PluginPrintgestionLogger::error('raccordement', sprintf('Imprimante %d non ramenée dans l\'entité %d.', $printers_id, $entities_id));
+                $flash('error', __('GLPI a refusé de ramener cette imprimante : voir le journal Print Gestion.', 'printgestion'));
+                return $back;
+            }
+            $racc->addLog(4, 'success', sprintf(
+                __('Imprimante « %1$s » ramenée ici depuis « %2$s »%3$s.', 'printgestion'),
+                $nom,
+                $depuis,
+                (int) $printer->fields['is_deleted'] === 1 ? __(' (elle était à la corbeille)', 'printgestion') : ''
+            ));
+            // Le relevé peut maintenant la prendre pour cible : on refait le point tout de suite.
+            foreach ((PluginPrintgestionCollectsetup::verify($racc)['events'] ?? []) as [$level, $message]) {
+                $racc->addLog(4, $level, $message);
+            }
+            $flash('success', sprintf(__('Imprimante « %s » ramenée dans cette entité.', 'printgestion'), $nom));
+            return $back;
+        }
+
+        if (isset($post['clear_logs'])) {
+            /** @var \DBmysql $DB */
+            global $DB;
+
+            // Le journal sert à comprendre ce qui s'est passé ; une fois compris, il encombre. On le vide, et on
+            // le dit : la première ligne du nouveau journal est ce geste-là.
+            $DB->delete(self::LOGS_TABLE, ['plugin_printgestion_raccordements_id' => (int) $racc->getID()]);
+            $racc->addLog($racc->getCurrentStep(), 'info', sprintf(
+                __('Journal vidé par %s.', 'printgestion'),
+                getUserName((int) Session::getLoginUserID())
+            ));
+            $flash('info', __('Journal du raccordement vidé.', 'printgestion'));
+            return $back;
+        }
+
         if (isset($post['verify'])) {
             if ($status !== self::STATUS_TRIGGERED) {
                 $flash('error', __('Rien à vérifier : la découverte n\'est pas lancée, ou le raccordement est clos.', 'printgestion'));
@@ -887,8 +998,8 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         self::showPrerequisites($prerequisites, true);
         if (!empty($prerequisites['blocking'])) {
             if ($racc !== null) {
+                $racc->showLogs($can_edit);
                 $racc->showAbandonForm($can_edit);
-                $racc->showLogs();
             }
             return;
         }
@@ -934,8 +1045,10 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 . $esc(self::getStepLabels()[$step + 1]) . "<i class='ti ti-arrow-right ms-1'></i></a></div>";
         }
 
+        // Le journal avant l'abandon : on lit ce qui s'est passé bien plus souvent qu'on n'abandonne, et le
+        // bouton rouge n'a rien à faire entre les deux.
+        $racc->showLogs($can_edit);
         $racc->showAbandonForm($can_edit);
-        $racc->showLogs();
     }
 
     /** Les cinq étapes, dans l'ordre : un seul endroit où elles sont nommées. */
@@ -1202,7 +1315,10 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 . "<label class='form-check-label fw-bold' for='pg-cred-new'>" . $esc(__('Nouveaux identifiants (SNMP v1 ou v2c)', 'printgestion')) . "</label></div>"
                 . "<div class='row g-2 mt-1'>"
                 . "<div class='col-sm-5'><input class='form-control' name='credential_name' maxlength='64' placeholder='" . $esc(__('Nom', 'printgestion')) . "'></div>"
-                . "<div class='col-sm-3'><select class='form-select' name='snmpversion'><option value='2'>v2c</option><option value='1'>v1</option></select></div>"
+                // Les deux versions par défaut : beaucoup d'imprimantes n'exposent que SNMPv1, et GLPI Inventory
+                // essaie les identifiants d'une plage dans l'ordre jusqu'à ce que l'un réponde.
+                . "<div class='col-sm-3'><select class='form-select' name='snmpversion'><option value='both'>" . $esc(__('v2c et v1', 'printgestion'))
+                . "</option><option value='2'>v2c</option><option value='1'>v1</option></select></div>"
                 . "<div class='col-sm-4'><input class='form-control' type='password' name='community' maxlength='255' autocomplete='new-password' placeholder='" . $esc(__('Communauté', 'printgestion')) . "'></div>"
                 . "</div><div class='form-hint'>" . $esc(__('Réutilisés tels quels s\'ils existent déjà.', 'printgestion'))
                 . (PluginPrintgestionUi::isAdmin() ? " <span data-pg-admin='1'>" . $esc(__('SNMP v3 : à créer dans GLPI (Configuration → Identifiants SNMP), puis à choisir ici.', 'printgestion')) . "</span>" : '')
@@ -1302,7 +1418,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             echo "<p>" . $esc(__('La collecte est configurée. Lancez la découverte : la sonde recevra sa consigne, et GLPI tentera de la réveiller.', 'printgestion')) . "</p>";
         }
         if (!empty($this->fields['date_triggered'])) {
-            $this->showProgress();
+            $this->showProgress($can_edit);
         }
         if ($can_edit && $running) {
             echo "<form method='post' action='" . $esc(self::getPageURL()) . "' class='d-flex flex-wrap gap-2 mb-3'>" . self::stepField() . Html::hidden('id', ['value' => $id]);
@@ -1362,7 +1478,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
     }
 
     /** Avancement des tâches de la sonde depuis le déclenchement. */
-    private function showProgress(): void {
+    private function showProgress(bool $can_edit = false): void {
         $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         if (!PluginPrintgestionCollectsetup::isAvailable()) {
             // Cause (plugin absent ou inactif) dans la carte Santé et l'onglet de l'entité : ici, l'état seul.
@@ -1437,6 +1553,15 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 }
             }
             $entity = $row['items_entities_id'] === null ? '—' : $esc(Dropdown::getDropdownName('glpi_entities', (int) $row['items_entities_id']));
+            // « Ramener ici » : le geste que le technicien ferait à la main (restaurer, puis changer l'entité).
+            if ($row['result'] === 'wrong_entity' && $can_edit && $itemtype === Printer::class && $items_id > 0) {
+                $entity .= "<form method='post' action='" . $esc(self::getPageURL()) . "' class='mt-1'>" . self::stepField()
+                    . Html::hidden('id', ['value' => (int) $this->getID()])
+                    . Html::hidden('printers_id', ['value' => $items_id])
+                    . "<button type='submit' name='adopt_printer' value='1' class='btn btn-sm btn-outline-primary'>"
+                    . "<i class='ti ti-arrow-back-up me-1'></i>" . $esc(__('Ramener ici', 'printgestion')) . "</button>"
+                    . Html::closeForm(false) . "</form>";
+            }
             echo "<tr" . ($row['result'] === 'wrong_entity' ? " class='table-danger'" : '') . ">"
                 . "<td class='font-monospace'>" . $esc($row['ip']) . "</td><td><span class='badge {$class}'>" . $esc($label) . "</span></td>"
                 . "<td>{$item}</td><td>{$entity}</td><td>" . $esc($levels) . "</td><td class='small'>" . $esc(self::getResultDetail($row)) . "</td></tr>";
@@ -1461,7 +1586,13 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             case 'waiting_discovery':
                 return __('La sonde n\'a pas encore rendu la découverte.', 'printgestion');
             case 'wrong_entity':
-                return sprintf(__('Arrivée dans « %s » : transfert manuel nécessaire.', 'printgestion'), Dropdown::getDropdownName('glpi_entities', (int) $row['items_entities_id']));
+                $ailleurs = new Printer();
+                $corbeille = (string) ($row['itemtype'] ?? '') === Printer::class
+                    && $ailleurs->getFromDB((int) $row['items_id'])
+                    && (int) $ailleurs->fields['is_deleted'] === 1;
+                return $corbeille
+                    ? sprintf(__('L\'imprimante a répondu, mais sa fiche est dans « %s » ET dans la corbeille : tant qu\'elle y est, aucun relevé n\'est possible.', 'printgestion'), Dropdown::getDropdownName('glpi_entities', (int) $row['items_entities_id']))
+                    : sprintf(__('L\'imprimante a répondu, mais sa fiche est dans « %s » : les relevés iront à cette entité-là.', 'printgestion'), Dropdown::getDropdownName('glpi_entities', (int) $row['items_entities_id']));
             case 'not_printer':
                 return __('Répond en SNMP, mais ce n\'est pas une imprimante.', 'printgestion');
             case 'no_snmp':
@@ -1473,7 +1604,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
     }
 
     /** Journal horodaté du raccordement. */
-    private function showLogs(): void {
+    private function showLogs(bool $can_edit = false): void {
         global $DB;
 
         $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
@@ -1502,6 +1633,15 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 . "<td><i class='ti {$icon} {$class} me-1'></i>" . $esc($log['message']) . "</td></tr>";
         }
         echo "</tbody></table></div>";
+        if ($can_edit) {
+            // Confirmation native de GLPI : le même geste que partout ailleurs dans l'interface.
+            echo "<form method='post' action='" . $esc(self::getPageURL()) . "' class='text-end mt-2'>" . self::stepField()
+                . Html::hidden('id', ['value' => (int) $this->getID()])
+                . "<button type='submit' name='clear_logs' value='1' class='btn btn-sm btn-outline-danger'"
+                . " onclick='return confirm(" . json_encode(__('Vider le journal de ce raccordement ?', 'printgestion'), JSON_UNESCAPED_UNICODE) . ")'>"
+                . "<i class='ti ti-eraser me-1'></i>" . $esc(__('Vider le journal', 'printgestion')) . "</button>"
+                . Html::closeForm(false) . "</form>";
+        }
         echo PluginPrintgestionUi::foldedNote(__('Journal du raccordement', 'printgestion'), (string) ob_get_clean());
     }
 

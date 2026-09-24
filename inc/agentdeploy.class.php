@@ -674,6 +674,10 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $couleur   = static fn(int $r, int $v, int $b) => sprintf('[System.Drawing.Color]::FromArgb(%d, %d, %d)', $r, $v, $b);
         // Chaque bloc de texte se dimensionne lui-même et le suivant se pose dessous ($suite) : une traduction plus
         // longue, un nom de client à rallonge ou un écran réglé à 125 % ne coupent plus rien.
+        // Trois pages seulement quand il y a de quoi les remplir : le paquet ZIP ne pose qu'une question.
+        $pageA     = $reseau ? '$pageA' : '$f';
+        $pageB     = $reseau ? '$pageB' : '$f';
+        $pageC     = $reseau ? '$pageC' : '$f';
         $bloc      = static fn(string $var, int $x, int $l) => [
             $var . '.MaximumSize = New-Object System.Drawing.Size(' . $l . ', 0)',
             $var . '.AutoSize = $true',
@@ -697,6 +701,14 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         ]),
         // Le serveur a tranché : on l'annonce, on ne le redemande pas. Deux avis pour une même décision, c'est
         // l'assurance qu'ils finiront par se contredire — et personne ne saurait lequel a gagné.
+        !$reseau ? [] : [
+            '# ── Page 1 : l agent. Trois panneaux au meme endroit, montres a tour de role. ──',
+            '$pageA = New-Object System.Windows.Forms.Panel',
+            '$pageA.Location = New-Object System.Drawing.Point(0, $suite)',
+            '$f.Controls.Add($pageA)',
+            '$suite = 0',
+            '',
+        ],
         $impose ? array_merge([
             '$maj = $null',
             '$maj_imposee = $true',
@@ -709,7 +721,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             )),
             '$note.ForeColor = ' . $couleur(90, 98, 110),
         ], $bloc('$note', 26, $large - 52), [
-            '$f.Controls.Add($note)',
+            $pageA . '.Controls.Add($note)',
             '$suite = $note.Bottom',
             '',
         ]) : array_merge([
@@ -718,7 +730,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '$maj.Text = ' . self::psQuote(__('Mettre à jour l\'agent automatiquement (1er du mois à 3 h)', 'printgestion')),
             '$maj.Checked = $false',
         ], $bloc('$maj', 24, $large - 48), [
-            '$f.Controls.Add($maj)',
+            $pageA . '.Controls.Add($maj)',
             '$suite = $maj.Bottom + 6',
             '',
         ], $aide === [] ? [] : array_merge([
@@ -726,26 +738,33 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '$aide.Text = ' . self::psQuote(implode("\r\n", $aide)),
             '$aide.ForeColor = ' . $couleur(120, 128, 140),
         ], $bloc('$aide', 44, $large - 72), [
-            '$f.Controls.Add($aide)',
+            $pageA . '.Controls.Add($aide)',
             '$suite = $aide.Bottom',
             '',
         ])),
         // Les adresses des imprimantes, demandées seulement par le fichier unique : lui seul peut les rapporter à
         // GLPI (le paquet ZIP ne parle à personne). Deux champs, et le second est prérempli.
-        !$reseau ? ['$ips = $null', '$snmp = $null', '$freq = $null', ''] : array_merge([
+        !$reseau ? ['$ips = $null', '$snmp = $null', '$freq = $null', '$mode = $null', ''] : array_merge([
+            '# ── Page 2 : les imprimantes. ──',
+            '$pageB = New-Object System.Windows.Forms.Panel',
+            '$pageB.Location = $pageA.Location',
+            '$pageB.Visible = $false',
+            '$f.Controls.Add($pageB)',
+            '$suite = 0',
+            '',
             '$titre_ips = New-Object System.Windows.Forms.Label',
             '$titre_ips.Text = ' . self::psQuote(__('Adresses IP des imprimantes de ce client', 'printgestion')),
             '$titre_ips.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)',
             '$titre_ips.MaximumSize = New-Object System.Drawing.Size(552, 0)',
             '$titre_ips.AutoSize = $true',
             '$titre_ips.Location = New-Object System.Drawing.Point(24, ($suite + 12))',
-            '$f.Controls.Add($titre_ips)',
+            $pageB . '.Controls.Add($titre_ips)',
             '$suite = $titre_ips.Bottom + 4',
             '',
             '$ips = New-Object System.Windows.Forms.TextBox',
             '$ips.Size = New-Object System.Drawing.Size(552, 24)',
             '$ips.Location = New-Object System.Drawing.Point(24, $suite)',
-            '$f.Controls.Add($ips)',
+            $pageB . '.Controls.Add($ips)',
             '$suite = $ips.Bottom + 4',
             '',
             '$aide_ips = New-Object System.Windows.Forms.Label',
@@ -754,7 +773,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '$aide_ips.MaximumSize = New-Object System.Drawing.Size(552, 0)',
             '$aide_ips.AutoSize = $true',
             '$aide_ips.Location = New-Object System.Drawing.Point(24, $suite)',
-            '$f.Controls.Add($aide_ips)',
+            $pageB . '.Controls.Add($aide_ips)',
             '$suite = $aide_ips.Bottom + 10',
             '',
             '$titre_snmp = New-Object System.Windows.Forms.Label',
@@ -762,22 +781,29 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '$titre_snmp.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)',
             '$titre_snmp.AutoSize = $true',
             '$titre_snmp.Location = New-Object System.Drawing.Point(24, $suite)',
-            '$f.Controls.Add($titre_snmp)',
+            $pageB . '.Controls.Add($titre_snmp)',
             '$suite = $titre_snmp.Bottom + 4',
             '',
             '$snmp = New-Object System.Windows.Forms.TextBox',
             '$snmp.Text = "public"',
             '$snmp.Size = New-Object System.Drawing.Size(200, 24)',
             '$snmp.Location = New-Object System.Drawing.Point(24, $suite)',
-            '$f.Controls.Add($snmp)',
+            $pageB . '.Controls.Add($snmp)',
             '$suite = $snmp.Bottom + 10',
+            '',
+            '# ── Page 3 : le scan. ──',
+            '$pageC = New-Object System.Windows.Forms.Panel',
+            '$pageC.Location = $pageA.Location',
+            '$pageC.Visible = $false',
+            '$f.Controls.Add($pageC)',
+            '$suite = 0',
             '',
             '$titre_freq = New-Object System.Windows.Forms.Label',
             '$titre_freq.Text = ' . self::psQuote(__('Fréquence des relevés', 'printgestion')),
             '$titre_freq.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)',
             '$titre_freq.AutoSize = $true',
             '$titre_freq.Location = New-Object System.Drawing.Point(24, $suite)',
-            '$f.Controls.Add($titre_freq)',
+            $pageC . '.Controls.Add($titre_freq)',
             '$suite = $titre_freq.Bottom + 4',
             '',
             '# Liste fermee : le choix part tel quel au serveur, qui le refuse s il ne le connait pas.',
@@ -795,7 +821,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 array_keys(PluginPrintgestionCollectfrequency::getInstallerChoices()),
                 true
             ),
-            '$f.Controls.Add($freq)',
+            $pageC . '.Controls.Add($freq)',
             '$suite = $freq.Bottom + 4',
             '',
             '$aide_freq = New-Object System.Windows.Forms.Label',
@@ -804,11 +830,21 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '$aide_freq.MaximumSize = New-Object System.Drawing.Size(552, 0)',
             '$aide_freq.AutoSize = $true',
             '$aide_freq.Location = New-Object System.Drawing.Point(24, $suite)',
-            '$f.Controls.Add($aide_freq)',
-            '$suite = $aide_freq.Bottom',
+            $pageC . '.Controls.Add($aide_freq)',
+            '$suite = $aide_freq.Bottom + 10',
             '',
-        ]), [
-            '# Pied de page : les deux boutons, separes du contenu par un fond plus sombre.',
+        ], self::buildWindowsPilotLines($pageC)), !$reseau ? [] : [
+            '# Les trois pages prennent la hauteur de la plus chargee : la fenetre ne bouge plus d une page a l autre,',
+            '# et une traduction plus longue ou un ecran a 125 % ne coupe rien (on mesure ce qui est pose).',
+            '$hauteur = 0',
+            'foreach ($p in @($pageA, $pageB, $pageC)) {',
+            '  foreach ($c in @($p.Controls)) { if ($c.Bottom -gt $hauteur) { $hauteur = $c.Bottom } }',
+            '}',
+            'foreach ($p in @($pageA, $pageB, $pageC)) { $p.Size = New-Object System.Drawing.Size(' . $large . ', ($hauteur + 8)) }',
+            '$suite = $pageA.Bottom',
+            '',
+        ], [
+            '# Pied de page : les boutons, separes du contenu par un fond plus sombre.',
             '$pied = New-Object System.Windows.Forms.Panel',
             '$pied.Location = New-Object System.Drawing.Point(0, ($suite + 18))',
             '$pied.Size = New-Object System.Drawing.Size(' . $large . ', 64)',
@@ -823,6 +859,40 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '$pied.Controls.Add($ok)',
             '$f.AcceptButton = $ok',
             '',
+        ], !$reseau ? [] : [
+            '$prec = New-Object System.Windows.Forms.Button',
+            '$prec.Text = ' . self::psQuote(__('Précédent', 'printgestion')),
+            '$prec.Location = New-Object System.Drawing.Point(24, 16)',
+            '$prec.Size = New-Object System.Drawing.Size(130, 32)',
+            '$prec.Visible = $false',
+            '$pied.Controls.Add($prec)',
+            '',
+            '$suiv = New-Object System.Windows.Forms.Button',
+            '$suiv.Text = ' . self::psQuote(__('Suivant', 'printgestion')),
+            '$suiv.Location = $ok.Location',
+            '$suiv.Size = $ok.Size',
+            '$pied.Controls.Add($suiv)',
+            '',
+            '# Une page a la fois : « Installer » n apparait qu à la derniere, et la touche Entree suit le bouton',
+            '# visible. Le nom est « page_reglages » : « page » appartient deja a la liste des etapes, et l ecraser',
+            '# cassait la suite de l installation — la simulation l a vu tout de suite.',
+            '# visible — sinon elle installerait depuis la premiere page.',
+            '$script:page_reglages = 1',
+            'function MontrerPage($n) {',
+            '  $script:page_reglages = $n',
+            '  $pageA.Visible = ($n -eq 1)',
+            '  $pageB.Visible = ($n -eq 2)',
+            '  $pageC.Visible = ($n -eq 3)',
+            '  $prec.Visible = ($n -gt 1)',
+            '  $suiv.Visible = ($n -lt 3)',
+            '  $ok.Visible = ($n -eq 3)',
+            '  if ($n -eq 3) { $f.AcceptButton = $ok } else { $f.AcceptButton = $suiv }',
+            '}',
+            '$suiv.Add_Click({ MontrerPage ([Math]::Min(3, $script:page_reglages + 1)) })',
+            '$prec.Add_Click({ MontrerPage ([Math]::Max(1, $script:page_reglages - 1)) })',
+            'MontrerPage 1',
+            '',
+        ], [
             '$non = New-Object System.Windows.Forms.Button',
             '$non.Text = ' . self::psQuote(__('Annuler', 'printgestion')),
             '$non.Location = New-Object System.Drawing.Point(' . ($large - 24 - 120) . ', 16)',
@@ -852,6 +922,65 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '}',
             '',
         ];
+    }
+
+    /**
+     * Qui pilote le scan : une liste fermée de deux choix, ou une simple ligne quand le serveur n'a pas GLPI
+     * Inventory — il n'y a alors qu'un chemin possible, et proposer un choix serait mentir.
+     *
+     * Le libellé de chaque choix porte son explication, à la suite : une liste déroulante ne montre qu'une ligne à
+     * la fois, et l'aide sous le champ suivrait le choix au lieu de le précéder.
+     */
+    private static function buildWindowsPilotLines(string $parent = '$f'): array {
+        $large = self::WIN_WIDTH;
+        if (!PluginPrintgestionCollectsetup::isAvailable()) {
+            return [
+                '$mode = $null',
+                '$aide_mode = New-Object System.Windows.Forms.Label',
+                '$aide_mode.Text = ' . self::psQuote(self::pilotLocalOnly()),
+                '$aide_mode.ForeColor = [System.Drawing.Color]::FromArgb(120, 128, 140)',
+                '$aide_mode.MaximumSize = New-Object System.Drawing.Size(' . ($large - 48) . ', 0)',
+                '$aide_mode.AutoSize = $true',
+                '$aide_mode.Location = New-Object System.Drawing.Point(24, $suite)',
+                $parent . '.Controls.Add($aide_mode)',
+                '$suite = $aide_mode.Bottom',
+                '',
+            ];
+        }
+        $choix = self::pilotChoices();
+        return array_merge([
+            '$titre_mode = New-Object System.Windows.Forms.Label',
+            '$titre_mode.Text = ' . self::psQuote(__('Qui pilote le scan des imprimantes', 'printgestion')),
+            '$titre_mode.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)',
+            '$titre_mode.AutoSize = $true',
+            '$titre_mode.Location = New-Object System.Drawing.Point(24, $suite)',
+            $parent . '.Controls.Add($titre_mode)',
+            '$suite = $titre_mode.Bottom + 4',
+            '',
+            '# Liste fermee : le premier est le choix par defaut.',
+            '$mode = New-Object System.Windows.Forms.ComboBox',
+            '$mode.DropDownStyle = "DropDownList"',
+            '$mode.Size = New-Object System.Drawing.Size(' . ($large - 48) . ', 24)',
+            '$mode.Location = New-Object System.Drawing.Point(24, $suite)',
+        ], array_map(
+            static fn(array $texte): string => '$mode.Items.Add(' . self::psQuote($texte[0]) . ') | Out-Null',
+            array_values($choix)
+        ), [
+            '$mode.SelectedIndex = 0',
+            $parent . '.Controls.Add($mode)',
+            '$suite = $mode.Bottom + 4',
+            '',
+            '# L explication sous le champ : une liste deroulante ne montre qu une ligne, le texte y serait coupe.',
+            '$aide_mode = New-Object System.Windows.Forms.Label',
+            '$aide_mode.Text = ' . self::psQuote($choix['glpi'][0] . ' : ' . $choix['glpi'][1]) . ' + [Environment]::NewLine + ' . self::psQuote($choix['local'][0] . ' : ' . $choix['local'][1]),
+            '$aide_mode.ForeColor = [System.Drawing.Color]::FromArgb(120, 128, 140)',
+            '$aide_mode.MaximumSize = New-Object System.Drawing.Size(' . ($large - 48) . ', 0)',
+            '$aide_mode.AutoSize = $true',
+            '$aide_mode.Location = New-Object System.Drawing.Point(24, $suite)',
+            $parent . '.Controls.Add($aide_mode)',
+            '$suite = $aide_mode.Bottom',
+            '',
+        ]);
     }
 
     /**
@@ -1539,7 +1668,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'if [ ' . $pose . ' = oui ]; then pg_fait=1; fi',
             '# Espaces et retours a la ligne en virgules : la valeur voyage dans une URL.',
             'pg_ips_url=$(printf "%s" "${pg_ips:-}" | tr "\\n " ",,")',
-            'pg_rendu=' . self::shQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . '"&maj=$pg_fait&pc=$(hostname)&ips=$pg_ips_url&snmp=${pg_snmp:-}&freq=${pg_freq:-}"',
+            'pg_rendu=' . self::shQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . '"&maj=$pg_fait&pc=$(hostname)&ips=$pg_ips_url&snmp=${pg_snmp:-}&freq=${pg_freq:-}&mode=${pg_mode:-glpi}"',
             'pg_reponse=$(pg_http "$pg_rendu" 20)',
             'pg_rc=$?',
             'pg_decouverte=0',
@@ -1550,13 +1679,48 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '  pg_etape declaration echec ' . self::shQuote(__('GLPI n\'a pas reçu le compte rendu', 'printgestion')),
             'elif [ "$pg_reponse" = NOAGENT ]; then',
             '  pg_etape declaration echec ' . self::shQuote(__('la sonde n\'est pas encore connue de GLPI', 'printgestion')),
+            'elif [ "${pg_reponse#ERREUR }" != "$pg_reponse" ]; then',
+            '  # GLPI a refuse le raccordement et dit pourquoi.',
+            '  pg_etape declaration echec "${pg_reponse#ERREUR }"',
             'else',
             '  pg_etape declaration ok ""',
             'fi',
             '',
+            '# Suivi : le serveur dit combien d imprimantes la sonde vient de faire entrer, et leurs noms. Chaque',
+            '# appel fait aussi avancer le raccordement cote serveur : sans lui, rien ne bouge tant que personne',
+            '# n ouvre son ecran dans GLPI, et le technicien repart sans savoir.',
+            'pg_noms=""',
+            'pg_niveaux=0',
+            'pg_suivre() {',
+            '  pg_i=0',
+            '  pg_reveille=0',
+            '  while [ "$pg_i" -lt ' . self::WATCH_TRIES . ' ]; do',
+            '    sleep ' . self::WATCH_WAIT,
+            '    pg_r=$(pg_http "$1" 20)',
+            '    case "$pg_r" in',
+            '      "TROUVE "*)',
+            '        pg_noms=$(printf "%s" "$pg_r" | tail -n +2 | tr "\\n" ",")',
+            '        pg_niveaux=$(printf "%s" "$pg_r" | head -n 1 | cut -d" " -f3)',
+            '        if [ -n "${pg_niveaux:-}" ] && [ "$pg_niveaux" != 0 ]; then return 0; fi',
+            '        # Les imprimantes sont la, les niveaux pas encore : GLPI ne pousse rien, c est l agent qui',
+            '        # vient chercher son travail. Ce script tourne sur le poste : on lui redemande un passage.',
+            '        if [ "$pg_reveille" = 0 ]; then',
+            '          pg_journal "        releve des niveaux : agent local rappele"',
+            '          pg_http ' . self::shQuote(self::getAgentWakeUrl()) . ' >/dev/null',
+            '          pg_reveille=1',
+            '        fi',
+            '        ;;',
+            '      AUCUNE) pg_noms=""; pg_niveaux=0; return 0 ;;',
+            '    esac',
+            '    pg_i=$((pg_i + 1))',
+            '  done',
+            '  if [ -n "${pg_noms:-}" ]; then return 0; fi',
+            '  return 1',
+            '}',
+            '',
             '# ── Decouverte ──',
             'case "$pg_reponse" in',
-            '  RUN)',
+            '  RUN|"RUN "*)',
             '    # L interface locale de l agent est toujours ouverte sur le poste, et ce script y tourne : c est le',
             '    # geste du bouton « Force an Inventory », fait par le script.',
             '    pg_etape decouverte encours ""',
@@ -1566,10 +1730,23 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '      pg_essai=$((pg_essai + 1))',
             '      sleep ' . self::WAKE_WAIT,
             '    done',
-            '    if [ "$pg_decouverte" = 1 ]; then',
+            '    pg_suivi=$(printf "%s" "$pg_reponse" | cut -d" " -f2)',
+            '    if [ "$pg_decouverte" != 1 ]; then',
+            '      pg_etape decouverte echec ' . self::shQuote(__('armée dans GLPI, elle partira au prochain appel de l\'agent', 'printgestion')),
+            '    elif [ -z "$pg_suivi" ]; then',
             '      pg_etape decouverte ok ""',
             '    else',
-            '      pg_etape decouverte echec ' . self::shQuote(__('armée dans GLPI, elle partira au prochain appel de l\'agent', 'printgestion')),
+            '      pg_dire ' . self::shQuote(self::watchTexts()['cours']),
+            '      if pg_suivre "$pg_suivi"; then',
+            '        if [ -n "$pg_noms" ]; then',
+            '          pg_journal "        imprimantes : $pg_noms"',
+            '          pg_etape decouverte ok "$(printf "%s" "$pg_noms" | tr "," "\\n" | grep -c .) imprimante(s) trouvée(s) et ajoutée(s) dans GLPI"',
+            '        else',
+            '          pg_etape decouverte ok ' . self::shQuote(self::watchTexts()['aucune']),
+            '        fi',
+            '      else',
+            '        pg_etape decouverte ok ' . self::shQuote(self::watchTexts()['attente']),
+            '      fi',
             '    fi',
             '    ;;',
         ], [
@@ -1580,6 +1757,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '    pg_first=$(printf "%s" "$pg_reponse" | cut -d" " -f2)',
             '    pg_last=$(printf "%s" "$pg_reponse" | cut -d" " -f3)',
             '    pg_delai=$(printf "%s" "$pg_reponse" | cut -d" " -f4)',
+            '    # Cinquieme mot : l adresse de suivi, pour dire ensuite ce que la ToolBox a trouve.',
+            '    pg_suivi=$(printf "%s" "$pg_reponse" | cut -d" " -f5)',
             '    # Chaine YAML entre apostrophes : une apostrophe s y double. Ecrite ensuite par printf, jamais par sed.',
             '    pg_c=$(printf "%s" "${pg_snmp:-public}" | sed "s/\'/\'\'/g")',
             '    if [ -d "$PG_CONFDIR" ]; then',
@@ -1607,7 +1786,16 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '      # Les plugins de l agent se lisent au demarrage : on relance le service.',
             '      if pg_relancer_agent; then',
             '        pg_scan_local=1',
-            '        pg_etape decouverte ok ' . self::shQuote(__('ToolBox de l\'agent : 127.0.0.1:62354/toolbox', 'printgestion')),
+            '        if [ -n "${pg_suivi:-}" ]; then',
+            '          pg_dire ' . self::shQuote(self::watchTexts()['cours']),
+            '          pg_suivre "$pg_suivi" || true',
+            '        fi',
+            '        if [ -n "$pg_noms" ]; then',
+            '          pg_journal "        imprimantes : $pg_noms"',
+            '          pg_etape decouverte ok "$(printf "%s" "$pg_noms" | tr "," "\\n" | grep -c .) imprimante(s) trouvée(s) et ajoutée(s) dans GLPI"',
+            '        else',
+            '          pg_etape decouverte ok ' . self::shQuote(__('ToolBox de l\'agent : 127.0.0.1:62354/toolbox', 'printgestion')),
+            '        fi',
             '      else',
             '        pg_etape decouverte echec ' . self::shQuote(__('ToolBox configurée, mais le service n\'a pas redémarré : redémarrer le poste', 'printgestion')),
             '      fi',
@@ -1644,6 +1832,27 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     /** Nombre de tentatives de réveil local, et l'attente entre deux : le service vient d'être installé. */
     const WAKE_TRIES = 12;
     const WAKE_WAIT  = 5;
+    /** Suivi de la découverte : un appel toutes les dix secondes, quatre minutes au plus. */
+    const WATCH_TRIES = 24;
+    const WATCH_WAIT  = 10;
+
+    /** Ce que la fenêtre dit de la découverte, selon ce que le serveur a répondu. */
+    private static function watchTexts(): array {
+        return [
+            'cours'   => __('Recherche des imprimantes sur le réseau...', 'printgestion'),
+            'trouve'  => __('imprimante(s) trouvée(s) et ajoutée(s) dans GLPI', 'printgestion'),
+            'niveaux' => __('niveaux relevés', 'printgestion'),
+            'plus_tard' => __('niveaux au prochain passage de la sonde', 'printgestion'),
+            'aucune'  => __('aucune imprimante n\'a répondu sur ces adresses', 'printgestion'),
+            'attente' => __('lancée ; le résultat s\'affichera dans GLPI', 'printgestion'),
+            'liste'   => __('Imprimantes trouvées et ajoutées :', 'printgestion'),
+            // Le détail (niveaux, modèle, contrat) est dans GLPI : la fenêtre donne le compte et les noms, et dit
+            // où regarder le reste. Une fenêtre d'installation n'est pas un écran d'inventaire.
+            'detail'  => __('Le détail complet est dans GLPI : fiche de l\'entité, onglet « Déploiement Agent ».', 'printgestion'),
+        ];
+    }
+
+
 
     /**
      * Interface locale de l'agent, sur le poste lui-même.
@@ -1707,6 +1916,15 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         ], array_map(static fn(string $ligne): string => 'Journal ' . self::psQuote($ligne), $header), [
             'Journal ("PC : " + $env:COMPUTERNAME + "   compte : " + $env:USERNAME)',
             '',
+            '# Met en mots la reponse du serveur « PURGE TOTAL <sondes> <imprimantes> <ordinateurs> ».',
+            'function Compte($reponse) {',
+            '  $n = @($reponse -split " ")',
+            '  if ($n.Count -lt 6) { return "" }',
+            '  return ' . self::psQuote(self::purgeCountWords()['tete']) . ' + " " + $n[2] + " " + ' . self::psQuote(self::purgeCountWords()['sondes'])
+                . ' + ", " + $n[3] + " " + ' . self::psQuote(self::purgeCountWords()['imprimantes'])
+                . ' + ", " + $n[4] + " " + ' . self::psQuote(self::purgeCountWords()['ordinateurs'])
+                . ' + ", " + $n[5] + " " + ' . self::psQuote(self::purgeCountWords()['collecte']),
+            '}',
             '# Une seule execution a la fois sur ce PC, installation et retrait confondus : un double clic lancait deux',
             '# fenetres qui installaient ou retiraient en meme temps. Windows libere ce verrou a la fin du processus,',
             '# meme tue : jamais de verrou fantome.',
@@ -1715,8 +1933,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'try { $pris = $script:Verrou.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $pris = $true }',
             'if (-not $pris) {',
             '  Journal "Deja en cours sur ce PC : rien n a ete fait"',
-            '  # Au premier plan : la fenetre deja ouverte est TopMost, la boite passerait dessous.',
-            '  try { [void][System.Windows.Forms.MessageBox]::Show(' . self::psQuote(self::ALREADY_RUNNING) . ', "Print Gestion", "OK", "Warning", "Button1", "DefaultDesktopOnly") } catch { }',
+            '  # Une boite ordinaire : mesuree a l ecran et au premier plan, meme devant la fenetre deja ouverte, qui',
+            '  # est pourtant TopMost. L option DefaultDesktopOnly, elle, l ouvrait sur un autre bureau : invisible.',
+            '  try { [void][System.Windows.Forms.MessageBox]::Show(' . self::psQuote(self::ALREADY_RUNNING) . ', "Print Gestion", "OK", "Warning") } catch { }',
             '  exit 0',
             '}',
             '',
@@ -1961,7 +2180,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
      *
      * Aucun bouton par défaut sur Entrée : on ne retire pas un agent parce qu'on a appuyé sur une touche.
      */
-    private static function buildWindowsConfirmLines(string $message, string $action, string $cancel, string $checkbox = ''): array {
+    private static function buildWindowsConfirmLines(string $message, string $action, string $cancel, bool $glpi = false): array {
         $large   = self::WIN_WIDTH;
         $couleur = static fn(int $r, int $v, int $b) => sprintf('[System.Drawing.Color]::FromArgb(%d, %d, %d)', $r, $v, $b);
         return array_merge([
@@ -1973,17 +2192,18 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '$f.Controls.Add($message)',
             '$suite = $message.Bottom',
             '',
-        ], $checkbox === '' ? ['$glpi = $null', ''] : [
-            '# Case decochee par defaut : rien n est supprime de GLPI sans qu on l ait choisi.',
-            '$glpi = New-Object System.Windows.Forms.CheckBox',
-            '$glpi.Text = ' . self::psQuote($checkbox),
-            '$glpi.Checked = $false',
-            '$glpi.Location = New-Object System.Drawing.Point(26, ($suite + 12))',
-            '$glpi.Size = New-Object System.Drawing.Size(' . ($large - 52) . ', 40)',
-            '$f.Controls.Add($glpi)',
-            '$suite = $glpi.Bottom',
+        ], !$glpi ? ['$script:niveau = 0', ''] : array_merge([
+            '# Trois choix exclusifs pour GLPI, le premier coche : rien n est supprime sans qu on l ait choisi.',
+            '# Des boutons radio d un meme conteneur s excluent tout seuls sous Windows Forms.',
+            '$groupe = New-Object System.Windows.Forms.Panel',
+            '$groupe.Location = New-Object System.Drawing.Point(24, ($suite + 12))',
+            '$groupe.Size = New-Object System.Drawing.Size(' . ($large - 48) . ', 116)',
+            '$script:niveau = 0',
+        ], self::buildWindowsRadioLines(self::purgeChoices()), [
+            '$f.Controls.Add($groupe)',
+            '$suite = $groupe.Bottom',
             '',
-        ], [
+        ]), [
             '$pied = New-Object System.Windows.Forms.Panel',
             '$pied.Location = New-Object System.Drawing.Point(0, ($suite + 18))',
             '$pied.Size = New-Object System.Drawing.Size(' . $large . ', 64)',
@@ -2006,6 +2226,32 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '$f.ClientSize = New-Object System.Drawing.Size(' . $large . ', $pied.Bottom)',
             '',
         ]);
+    }
+
+    /**
+     * Les boutons radio du choix de suppression : un par rang, chacun retenant son rang dans $script:niveau.
+     *
+     * @param string[] $choices libellés, du moins au plus fort
+     */
+    private static function buildWindowsRadioLines(array $choices): array {
+        $large = self::WIN_WIDTH;
+        return [
+            // Les libellés viennent de PHP, la mécanique est en PowerShell : une boucle crée un bouton par choix,
+            // comme la liste des étapes. Des boutons radio d'un même conteneur s'excluent tout seuls.
+            '$choix = @(' . implode(', ', array_map(static fn(string $label): string => self::psQuote($label), $choices)) . ')',
+            '$rang = 0',
+            'foreach ($libelle in $choix) {',
+            '  $r = New-Object System.Windows.Forms.RadioButton',
+            '  $r.Text = $libelle',
+            '  $r.Location = New-Object System.Drawing.Point(0, (38 * $rang))',
+            '  $r.Size = New-Object System.Drawing.Size(' . ($large - 56) . ', 36)',
+            '  $r.Checked = ($rang -eq 0)',
+            '  $r.Tag = $rang',
+            '  $r.Add_CheckedChanged({ param($s, $e) if ($s.Checked) { $script:niveau = [int]$s.Tag } })',
+            '  $groupe.Controls.Add($r)',
+            '  $rang++',
+            '}',
+        ];
     }
 
     /**
@@ -2223,6 +2469,10 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '# Jamais la communaute elle-meme : c est un secret, et ce journal traine dans un dossier temporaire.',
                 'if ($communaute -eq "") { Journal "Communaute SNMP : vide" } else { Journal "Communaute SNMP : renseignee (jamais ecrite dans ce journal)" }',
                 'Journal ("Frequence des releves : " + $frequence)',
+            '# Qui pilote le scan : le deuxieme choix de la liste est le mode local. Sans liste, le serveur tranche.',
+            '$script:pilotage = "glpi"',
+            'if ($null -ne $mode -and $mode.SelectedIndex -eq 1) { $script:pilotage = "local" }',
+            'Journal ("Pilotage du scan : " + $script:pilotage)',
                 'if ($avec_maj) { Journal "Mise a jour automatique : demandee" } else { Journal "Mise a jour automatique : non demandee" }',
                 'PageEtapes',
                 '',
@@ -2373,6 +2623,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '',
             ] : [
                 '# ── Compte rendu : ce qui a ete fait sur ce PC, et ce que GLPI en fait ──',
+                '$script:noms = $null',
+                '$script:niveaux = 0',
                 'Etape "declaration" "encours" ""',
                 'Avancement ' . self::psQuote(__('Compte rendu à GLPI...', 'printgestion')) . ' (-1) ""',
                 '$reponse = ""',
@@ -2380,7 +2632,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'try {',
                 '  $fait = "0"',
                 '  if ($avec_maj) { $fait = "1" }',
-                '  $rendu = ' . self::psQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . ' + "&maj=" + $fait + "&pc=" + [Uri]::EscapeDataString($env:COMPUTERNAME) + "&ips=" + [Uri]::EscapeDataString($adresses) + "&snmp=" + [Uri]::EscapeDataString($communaute) + "&freq=" + [Uri]::EscapeDataString($frequence)',
+                '  $rendu = ' . self::psQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . ' + "&maj=" + $fait + "&pc=" + [Uri]::EscapeDataString($env:COMPUTERNAME) + "&ips=" + [Uri]::EscapeDataString($adresses) + "&snmp=" + [Uri]::EscapeDataString($communaute) + "&freq=" + [Uri]::EscapeDataString($frequence) + "&mode=" + $script:pilotage',
                 '  $wc2 = New-Object System.Net.WebClient',
                 '  $wc2.Headers.Add("User-Agent", "PrintGestion")',
                 '  $reponse = $wc2.DownloadString($rendu)',
@@ -2395,16 +2647,54 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '  Etape "declaration" "echec" ' . self::psQuote(__('GLPI n\'a pas reçu le compte rendu', 'printgestion')),
                 '} elseif ($reponse -eq "NOAGENT") {',
                 '  Etape "declaration" "echec" ' . self::psQuote(__('la sonde n\'est pas encore connue de GLPI', 'printgestion')),
+                '} elseif ($reponse -like "ERREUR *") {',
+                '  # GLPI a refuse le raccordement et dit pourquoi : on le montre, au lieu de laisser croire que',
+                '  # tout va bien. Le detail complet reste dans le journal du raccordement, cote serveur.',
+                '  Etape "declaration" "echec" ($reponse.Substring(7))',
                 '} else {',
                 '  Etape "declaration" "ok" ""',
+                '}',
+                '',
+                '# Suivi : le serveur dit combien d imprimantes la sonde vient de faire entrer, et leurs noms.',
+                '# Chaque appel fait aussi avancer le raccordement cote serveur — sinon rien ne bouge tant que',
+                '# personne n ouvre son ecran dans GLPI, et le technicien repart sans savoir.',
+                'function Suivre($url) {',
+                '  $vu = $null',
+                '  $reveille = $false',
+                '  for ($i = 0; $i -lt ' . self::WATCH_TRIES . '; $i++) {',
+                '    Attendre ' . self::WATCH_WAIT,
+                '    $brut = ""',
+                '    try { $brut = (New-Object System.Net.WebClient).DownloadString($url) } catch { }',
+                '    if ($null -eq $brut) { $brut = "" }',
+                '    $lignes = @($brut -split "\r?\n" | Where-Object { $_.Trim() -ne "" })',
+                '    if ($lignes.Count -gt 0 -and $lignes[0] -eq "AUCUNE") { return @{ noms = @(); niveaux = 0 } }',
+                '    if ($lignes.Count -gt 1 -and $lignes[0] -like "TROUVE *") {',
+                '      $mots = @($lignes[0] -split " ")',
+                '      $vu = @{ noms = @($lignes[1..($lignes.Count - 1)]); niveaux = 0 }',
+                '      if ($mots.Count -gt 2) { $vu.niveaux = [int]$mots[2] }',
+                '      if ($vu.niveaux -gt 0) { return $vu }',
+                '      # Les imprimantes sont la, les niveaux pas encore : GLPI a prepare le releve, mais il ne',
+                '      # pousse rien — c est l agent qui vient le chercher. Ce script tourne sur le poste : on lui',
+                '      # redemande un passage tout de suite, au lieu d attendre son rappel (jusqu a 24 h).',
+                '      if (-not $reveille) {',
+                '        Journal "        releve des niveaux : agent local rappele"',
+                '        try { (New-Object System.Net.WebClient).DownloadString(' . self::psQuote(self::getAgentWakeUrl()) . ') | Out-Null } catch { }',
+                '        $reveille = $true',
+                '      }',
+                '    }',
+                '  }',
+                '  return $vu',
                 '}',
                 '',
                 '# ── Decouverte ──',
                 '# « RUN » : GLPI a arme la decouverte. L interface locale de l agent est toujours ouverte sur ce PC, et',
                 '# ce script y tourne : on lui demande de rappeler GLPI tout de suite. Le geste du bouton « Force an Inventory ».',
-                'if ($reponse -eq "RUN") {',
+                'if ($reponse -like "RUN*") {',
                 '  Etape "decouverte" "encours" ""',
                 '  Avancement ' . self::psQuote(__('Lancement de la découverte des imprimantes...', 'printgestion')) . ' (-1) ""',
+                '  $suivi = ""',
+                '  $mots = @($reponse -split " ")',
+                '  if ($mots.Count -gt 1) { $suivi = $mots[1] }',
                 '  for ($essai = 0; $essai -lt ' . self::WAKE_TRIES . '; $essai++) {',
                 '    try {',
                 '      (New-Object System.Net.WebClient).DownloadString(' . self::psQuote(self::getAgentWakeUrl()) . ') | Out-Null',
@@ -2414,14 +2704,34 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '      Attendre ' . self::WAKE_WAIT,
                 '    }',
                 '  }',
-                '  if ($decouverte) { Etape "decouverte" "ok" "" } else { Etape "decouverte" "echec" ' . self::psQuote(__('armée dans GLPI, elle partira au prochain appel de l\'agent', 'printgestion')) . ' }',
+                '  if (-not $decouverte) {',
+                '    Etape "decouverte" "echec" ' . self::psQuote(__('armée dans GLPI, elle partira au prochain appel de l\'agent', 'printgestion')),
+                '  } elseif ($suivi -eq "") {',
+                '    Etape "decouverte" "ok" ""',
+                '  } else {',
+                '    Avancement ' . self::psQuote(self::watchTexts()['cours']) . ' (-1) ' . self::psQuote(__('Quelques minutes au plus.', 'printgestion')),
+                '    $vu = Suivre $suivi',
+                '    $script:noms = $null',
+                '    if ($null -ne $vu) { $script:noms = $vu.noms; $script:niveaux = [int]$vu.niveaux }',
+                '    if ($null -eq $script:noms) {',
+                '      Etape "decouverte" "ok" ' . self::psQuote(self::watchTexts()['attente']),
+                '    } elseif ($script:noms.Count -eq 0) {',
+                '      Etape "decouverte" "ok" ' . self::psQuote(self::watchTexts()['aucune']),
+                '    } else {',
+                '      Journal ("        imprimantes : " + ($script:noms -join ", ") + "   niveaux releves : " + $script:niveaux)',
+                '      $suite_note = ' . self::psQuote(self::watchTexts()['plus_tard']),
+                '      if ($script:niveaux -gt 0) { $suite_note = ' . self::psQuote(self::watchTexts()['niveaux']) . ' }',
+                '      Etape "decouverte" "ok" ([string]$script:noms.Count + " " + ' . self::psQuote(self::watchTexts()['trouve']) . ' + ", " + $suite_note)',
+                '    }',
+                '  }',
                 '} elseif ($reponse -like "SCAN *") {',
                 '  # « SCAN premiere derniere cadence » : GLPI Inventory manque au serveur, personne ne dira a l agent de',
                 '  # balayer le reseau. C est sa ToolBox native qui s en charge : plage, identifiant et tache planifiee,',
                 '  # resultats envoyes a server0. Tout reste visible et modifiable dans 127.0.0.1:62354/toolbox.',
                 '  Etape "decouverte" "encours" ""',
                 '  Avancement ' . self::psQuote(__('Configuration de la ToolBox de l\'agent...', 'printgestion')) . ' (-1) ""',
-                '  $bornes = $reponse.Split(" ", 4)',
+                '  # « SCAN premiere derniere cadence adresse-de-suivi » : le dernier mot sert a suivre le resultat.',
+                '  $bornes = $reponse.Split(" ", 5)',
                 '  $etc = Join-Path $env:ProgramFiles "GLPI-Agent\etc"',
                 '  if ($communaute -eq "") { $communaute = "public" }',
                 '  # Chaine YAML entre apostrophes : une apostrophe s y double.',
@@ -2443,7 +2753,17 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '    Restart-Service -InputObject $service -Force',
                 '    Journal ("        service relance : " + $service.Name)',
                 '    $scan_local = $true',
-                '    Etape "decouverte" "ok" ' . self::psQuote(__('ToolBox de l\'agent : 127.0.0.1:62354/toolbox', 'printgestion')),
+                '    if ($bornes.Count -gt 4 -and $bornes[4] -ne "") {',
+                '      Avancement ' . self::psQuote(self::watchTexts()['cours']) . ' (-1) ' . self::psQuote(__('Quelques minutes au plus.', 'printgestion')),
+                '      $vu = Suivre $bornes[4]',
+                '      if ($null -ne $vu) { $script:noms = $vu.noms; $script:niveaux = [int]$vu.niveaux }',
+                '    }',
+                '    if ($null -ne $script:noms -and $script:noms.Count -gt 0) {',
+                '      Journal ("        imprimantes : " + ($script:noms -join ", "))',
+                '      Etape "decouverte" "ok" ([string]$script:noms.Count + " " + ' . self::psQuote(self::watchTexts()['trouve']) . ')',
+                '    } else {',
+                '      Etape "decouverte" "ok" ' . self::psQuote(__('ToolBox de l\'agent : 127.0.0.1:62354/toolbox', 'printgestion')),
+                '    }',
                 '  } catch {',
                 '    Journal ("        " + $_.Exception.Message)',
                 '    Etape "decouverte" "echec" ' . self::psQuote(__('ToolBox non configurée, voir le journal', 'printgestion')),
@@ -2470,6 +2790,14 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '  $final = $final + ' . self::psQuote(__('GLPI ne connaît pas encore cette sonde : les imprimantes n\'ont pas pu lui être confiées. Vérifier que ce PC joint le serveur GLPI, puis raccorder les imprimantes depuis la fiche de l\'entité, onglet « Déploiement Agent ».', 'printgestion')),
                 '} else {',
                 '  $final = $final + ' . self::psQuote(__('Dernière étape, dans GLPI : fiche de l\'entité, onglet « Déploiement Agent » — vérifier que la sonde apparaît avec un contact récent, puis raccorder les imprimantes (bloc 3).', 'printgestion')),
+                '}',
+                '# Les imprimantes trouvees, par leur nom : c est ce que le technicien vient verifier.',
+                'if ($null -ne $script:noms -and $script:noms.Count -gt 0) {',
+                '  $fin_niveaux = ' . self::psQuote(self::watchTexts()['plus_tard']),
+                '  if ($script:niveaux -gt 0) { $fin_niveaux = ' . self::psQuote(self::watchTexts()['niveaux']) . ' }',
+                '  $final = $final + [Environment]::NewLine + [Environment]::NewLine + [string]$script:noms.Count + " " + ' . self::psQuote(self::watchTexts()['trouve']) . ' + ", " + $fin_niveaux',
+                '  $final = $final + [Environment]::NewLine + ' . self::psQuote(self::watchTexts()['liste']) . ' + " " + ($script:noms -join ", ")',
+                '  $final = $final + [Environment]::NewLine + ' . self::psQuote(self::watchTexts()['detail']),
                 '}',
                 '# Le journal de l agent lui-meme : tenu par defaut par le MSI, c est la qu on lit ce qu il a fait ensuite.',
                 '$journal_agent = Join-Path $env:ProgramFiles "GLPI-Agent\logs\glpi-agent.log"',
@@ -2503,8 +2831,10 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $tag    = trim((string) $entity->fields['tag']);
         $safe   = trim((string) preg_replace('/[^A-Za-z0-9._-]+/', '-', $tag), '-');
         $safe   = $safe !== '' ? $safe : 'sonde';
-        // La case « retirer aussi de GLPI » n'existe que pour qui a le droit de supprimer une sonde.
-        $purge  = Session::haveRight(Agent::$rightname, PURGE);
+        // Le pouvoir de supprimer dans GLPI vient du droit qui a permis de télécharger ce fichier : « Retirer une
+        // sonde ». La route l'exige déjà ; on le relit ici pour qu'aucun autre appelant ne fabrique un fichier
+        // plus puissant que son auteur.
+        $purge  = Session::haveRight('plugin_printgestion_deploiement', PURGE);
         $report = (string) PluginPrintgestionAgenttoken::createReport((int) $entity->getID(), $tag, $os, $purge);
         $purge  = $purge && $report !== '';
         $quand  = date('Y-m-d H:i');
@@ -2521,9 +2851,79 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         return ['ok' => true, 'errors' => [], 'content' => $contenu, 'filename' => $nom, 'version' => '', 'tag' => $tag];
     }
 
-    /** Libellé de la case, sur les trois systèmes. */
-    private static function purgeLabel(): string {
-        return __('Retirer aussi la sonde de GLPI, avec ses réglages, alertes et raccordements Print Gestion (les imprimantes et la fiche de l\'ordinateur restent)', 'printgestion');
+    /**
+     * Les trois choix offerts pour GLPI, dans l'ordre et du moins au plus fort. Exclusifs : on ne clique pas
+     * « tout supprimer » en croyant cocher « la sonde ».
+     *
+     * @return string[] rang (0, 1, 2) => libellé
+     */
+    private static function purgeChoices(): array {
+        return [
+            __('Ne rien supprimer dans GLPI', 'printgestion'),
+            __('Retirer la sonde de GLPI, avec ses réglages, alertes et raccordements Print Gestion', 'printgestion'),
+            __('Tout supprimer de GLPI : la sonde, les imprimantes qu\'elle a fait entrer, la fiche de cet ordinateur, et les tâches et plages créées pour lui', 'printgestion'),
+        ];
+    }
+
+    /**
+     * Qui pilote le scan des imprimantes, et ce que ça change pour le client.
+     *
+     * Les deux chemins existent déjà et font le même travail sur le réseau : c'est le même agent, sur le même PC,
+     * qui interroge les imprimantes en SNMP. Ce qui change est ailleurs — qui planifie, où vit la communauté SNMP,
+     * et si l'on peut y revenir à distance.
+     *
+     * @return array [code => [libellé, explication]] ; le premier est celui par défaut
+     */
+    private static function pilotChoices(): array {
+        return [
+            'glpi'  => [
+                __('Piloté par GLPI (recommandé)', 'printgestion'),
+                __('Les tâches de scan se voient et se modifient dans GLPI, sans revenir sur ce PC.', 'printgestion'),
+            ],
+            'local' => [
+                __('En local, par l\'agent de ce PC', 'printgestion'),
+                __('Tout reste sur ce PC : la communauté SNMP et la planification y sont écrites, et se modifient sur place.', 'printgestion'),
+            ],
+        ];
+    }
+
+    /**
+     * Le choix du pilotage en console (Linux et macOS), quand aucune fenêtre ne peut s'ouvrir.
+     *
+     * Sans GLPI Inventory sur le serveur, pas de question : une phrase, et le mode local.
+     */
+    private static function buildShellPilotConsoleLines(): array {
+        if (!PluginPrintgestionCollectsetup::isAvailable()) {
+            return [
+                '  pg_mode=local',
+                '  printf "%s\\n" ' . self::shQuote(self::pilotLocalOnly()),
+            ];
+        }
+        $choix = array_values(self::pilotChoices());
+        return [
+            '  printf "\\n%s\\n" ' . self::shQuote(__('Qui pilote le scan des imprimantes ?', 'printgestion')),
+            '  printf "  1) %s\\n" ' . self::shQuote($choix[0][0] . ' — ' . $choix[0][1]),
+            '  printf "  2) %s\\n" ' . self::shQuote($choix[1][0] . ' — ' . $choix[1][1]),
+            '  printf "%s " ' . self::shQuote(__('Numéro [1] :', 'printgestion')),
+            '  read -r pg_num_mode',
+            '  case "${pg_num_mode:-1}" in 2) pg_mode=local ;; *) pg_mode=glpi ;; esac',
+        ];
+    }
+
+    /** Ligne affichée quand le serveur n'a pas GLPI Inventory : il n'y a alors qu'un seul chemin possible. */
+    private static function pilotLocalOnly(): string {
+        return __('GLPI Inventory n\'est pas installé sur ce serveur : le scan des imprimantes sera fait par l\'agent de ce PC, qui le planifiera lui-même.', 'printgestion');
+    }
+
+    /** Mots du compte rendu de suppression, assemblés avec les nombres renvoyés par le serveur. */
+    private static function purgeCountWords(): array {
+        return [
+            'tete'        => __('Supprimés de GLPI :', 'printgestion'),
+            'sondes'      => __('sonde(s)', 'printgestion'),
+            'imprimantes' => __('imprimante(s)', 'printgestion'),
+            'ordinateurs' => __('ordinateur(s)', 'printgestion'),
+            'collecte'    => __('objet(s) de collecte', 'printgestion'),
+        ];
     }
 
     /** Ce que la fenêtre dit de GLPI à la fin, selon la réponse du serveur. */
@@ -2533,6 +2933,11 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'ABSENT' => __('Dans GLPI, aucune sonde de ce nom n\'a été trouvée : rien n\'y a été supprimé.', 'printgestion'),
             'REFUSE' => __('GLPI n\'a pas supprimé la sonde : elle reste listée, et se supprime depuis la liste des sondes — case cochée, puis Actions → Supprimer.', 'printgestion'),
         ];
+    }
+
+    /** Fin de « tout supprimer » : les mots autour des nombres, le reste étant assemblé par le script. */
+    private static function purgeTotalEndText(): string {
+        return __('Les imprimantes relevées par une autre sonde, elles, restent.', 'printgestion');
     }
 
     /** Notes de l'étape « Compte rendu », selon la réponse du serveur. */
@@ -2550,16 +2955,26 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
      */
     private static function buildShellRemovalReportLines(string $report): array {
         $notes = self::purgeStepNotes();
+        $mots  = self::purgeCountWords();
         return [
+            '  # Met en mots la reponse « PURGE TOTAL <sondes> <imprimantes> <ordinateurs> ».',
+            '  pg_compte() {',
+            '    set -- $1',
+            '    if [ $# -lt 6 ]; then printf ""; return 0; fi',
+            '    printf "%s %s %s, %s %s, %s %s, %s %s" ' . self::shQuote($mots['tete']) . ' "$3" ' . self::shQuote($mots['sondes'])
+                . ' "$4" ' . self::shQuote($mots['imprimantes']) . ' "$5" ' . self::shQuote($mots['ordinateurs'])
+                . ' "$6" ' . self::shQuote($mots['collecte']),
+            '  }',
             '  # Compte rendu : ce poste n est plus une sonde. Un echec ici ne change rien au retrait.',
             '  pg_etape declaration encours ""',
             '  pg_gl=""',
-            '  if [ "$PG_GLPI" = 1 ]; then pg_gl="&gl=1"; pg_journal "        suppression de la sonde dans GLPI demandee"; fi',
+            '  if [ "$PG_GLPI" != 0 ]; then pg_gl="&gl=$PG_GLPI"; pg_journal "        suppression demandee dans GLPI, niveau $PG_GLPI"; fi',
             '  PG_PURGE=""',
             '  if pg_rep=$(pg_http ' . self::shQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . '"&maj=0&off=1${pg_gl}&pc=$(hostname)" 20); then',
             '    PG_PURGE=$(printf "%s" "$pg_rep" | tr -d "\\r\\n")',
             '    if [ -n "$PG_PURGE" ]; then pg_journal "        reponse de GLPI : $PG_PURGE"; fi',
             '    case "$PG_PURGE" in',
+            '      "PURGE TOTAL "*) pg_etape declaration ok "$(pg_compte "$PG_PURGE")" ;;',
             '      "PURGE OK") pg_etape declaration ok ' . self::shQuote($notes['OK']) . ' ;;',
             '      "PURGE ABSENT") pg_etape declaration ok ' . self::shQuote($notes['ABSENT']) . ' ;;',
             '      "PURGE REFUSE") pg_etape declaration echec ' . self::shQuote($notes['REFUSE']) . ' ;;',
@@ -2576,7 +2991,12 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     private static function buildShellRemovalEndLines(string $done): array {
         $fins = self::purgeEndTexts();
         return [
+            // La fin de « tout supprimer » porte des nombres : elle s'assemble à l'exécution. Les phrases fixes
+            // passent par des variables du script, pour que les apostrophes du français ne cassent rien.
+            '  PG_FAIT=' . self::shQuote($done),
+            '  PG_RESTE=' . self::shQuote(self::purgeTotalEndText()),
             '  case "$PG_PURGE" in',
+            '    "PURGE TOTAL "*) pg_fin OK "$PG_FAIT¶¶$(pg_compte "$PG_PURGE"). $PG_RESTE" ;;',
             '    "PURGE OK") pg_fin OK ' . self::shQuote($done . '¶¶' . $fins['OK']) . ' ;;',
             '    "PURGE ABSENT") pg_fin OK ' . self::shQuote($done . '¶¶' . $fins['ABSENT']) . ' ;;',
             '    "PURGE REFUSE") pg_fin OK ' . self::shQuote($done . '¶¶' . $fins['REFUSE']) . ' ;;',
@@ -2756,25 +3176,39 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         if (!$purge) {
             return ['PG_GLPI=0', ''];
         }
-        $question = self::purgeLabel() . ' ?';
+        $choix  = self::purgeChoices();
+        $titre  = __('Que faire dans GLPI ?', 'printgestion');
         return [
-            '# ── Retirer aussi la sonde de GLPI ? Non par defaut ──',
+            '# ── Ce qu on supprime dans GLPI : rien, la sonde, ou tout. Rien est le choix par defaut. ──',
             'PG_GLPI=0',
             'if [ "$pg_gui" = zenity ]; then',
-            '  pg_zen --question --width=560 --title="$PG_TITRE" --text=' . self::shQuote(htmlspecialchars($question, ENT_NOQUOTES, 'UTF-8')) . ' --ok-label=' . self::shQuote(__('Oui, aussi de GLPI', 'printgestion')) . ' --cancel-label=' . self::shQuote(__('Non, seulement ce poste', 'printgestion')) . ' --default-cancel >/dev/null 2>&1',
+            '  # Une liste a choix unique : zenity n a pas de case dans une question, et trois questions de suite',
+            '  # feraient trois fois « Entree » sur un geste definitif.',
+            '  # Toutes les options avant les lignes : zenity prend ce qui reste pour les données de la liste.',
+            '  pg_choix=$(pg_zen --list --radiolist --width=640 --height=320 --title="$PG_TITRE"'
+                . ' --text=' . self::shQuote(htmlspecialchars($titre, ENT_NOQUOTES, 'UTF-8'))
+                . ' --hide-header --hide-column=2 --print-column=2'
+                . ' --column="" --column=rang --column=' . self::shQuote(__('Choix', 'printgestion'))
+                . ' TRUE 0 ' . self::shQuote($choix[0])
+                . ' FALSE 1 ' . self::shQuote($choix[1])
+                . ' FALSE 2 ' . self::shQuote($choix[2]) . ' 2>/dev/null)',
             '  pg_rc=$?',
             '  case "$pg_rc" in',
-            '    0) PG_GLPI=1 ;;',
-            '    1) ;;',
+            '    0) case "$pg_choix" in 1) PG_GLPI=1 ;; 2) PG_GLPI=2 ;; *) PG_GLPI=0 ;; esac ;;',
+            '    1) PG_GLPI=0 ;;',
             '    *) pg_gui="" ;;',
             '  esac',
             'fi',
             'if [ -z "$pg_gui" ]; then',
-            '  printf "%s [o/N] " ' . self::shQuote($question),
+            '  printf "\\n%s\\n" ' . self::shQuote($titre),
+            '  printf "  0) %s\\n" ' . self::shQuote($choix[0]),
+            '  printf "  1) %s\\n" ' . self::shQuote($choix[1]),
+            '  printf "  2) %s\\n" ' . self::shQuote($choix[2]),
+            '  printf "%s " ' . self::shQuote(__('Votre choix [0] :', 'printgestion')),
             '  read -r pg_rep',
-            '  case "$pg_rep" in [oOyY]*) PG_GLPI=1 ;; esac',
+            '  case "$pg_rep" in 1) PG_GLPI=1 ;; 2) PG_GLPI=2 ;; *) PG_GLPI=0 ;; esac',
             'fi',
-            'if [ "$PG_GLPI" = 1 ]; then pg_journal "Suppression de la sonde dans GLPI : demandee"; else pg_journal "Suppression de la sonde dans GLPI : non demandee"; fi',
+            'pg_journal "Suppression dans GLPI : niveau $PG_GLPI"',
             '',
         ];
     }
@@ -2805,8 +3239,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'infos'       => implode("\n", $infos),
             'message'     => $message,
             'formulaire'  => false,
-            // La case « retirer aussi de GLPI » : absente sans le droit de supprimer une sonde.
-            'case_glpi'   => $purge ? self::purgeLabel() : '',
+            // Les trois choix pour GLPI : absents quand le fichier n'a pas ce pouvoir.
+            'choix_glpi'  => $purge ? self::purgeChoices() : [],
             'bouton'      => __('Retirer GLPI Agent', 'printgestion'),
             'annuler'     => __('Annuler', 'printgestion'),
             'ouvrir'      => __('Ouvrir le journal', 'printgestion'),
@@ -2844,7 +3278,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '    pg_journal ' . self::shQuote(__('Retrait annulé par le technicien : rien n\'a été retiré.', 'printgestion')),
                 '    exit 0',
                 '  fi',
-                '  if grep -q "^glpi=1$" "$PG_DIR/reponses"; then PG_GLPI=1; fi',
+                '  pg_rep_glpi=$(grep "^glpi=" "$PG_DIR/reponses" | head -n 1)',
+                '  case "${pg_rep_glpi#glpi=}" in 1) PG_GLPI=1 ;; 2) PG_GLPI=2 ;; *) PG_GLPI=0 ;; esac',
                 'else',
                 '  pg_journal "Fenetre indisponible : confirmation en console"',
                 '  printf "%s\\n\\n%s\\n\\n" "$PG_TITRE" "$PG_INFOS"',
@@ -2860,13 +3295,17 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '  esac',
             ],
             $purge ? [
-                '  printf "%s [o/N] " ' . self::shQuote(self::purgeLabel() . ' ?'),
+                '  printf "\\n%s\\n" ' . self::shQuote(__('Que faire dans GLPI ?', 'printgestion')),
+                '  printf "  0) %s\\n" ' . self::shQuote(self::purgeChoices()[0]),
+                '  printf "  1) %s\\n" ' . self::shQuote(self::purgeChoices()[1]),
+                '  printf "  2) %s\\n" ' . self::shQuote(self::purgeChoices()[2]),
+                '  printf "%s " ' . self::shQuote(__('Votre choix [0] :', 'printgestion')),
                 '  read -r pg_rep',
-                '  case "$pg_rep" in [oOyY]*) PG_GLPI=1 ;; esac',
+                '  case "$pg_rep" in 1) PG_GLPI=1 ;; 2) PG_GLPI=2 ;; *) PG_GLPI=0 ;; esac',
             ] : [],
             [
                 'fi',
-                'if [ "$PG_GLPI" = 1 ]; then pg_journal "Suppression de la sonde dans GLPI : demandee"; else pg_journal "Suppression de la sonde dans GLPI : non demandee"; fi',
+                'pg_journal "Suppression dans GLPI : niveau $PG_GLPI"',
                 '',
                 'pg_travail() {',
                 '  pg_pct 5',
@@ -2978,7 +3417,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                     : __('Ce fichier retire de ce PC : les tâches planifiées posées par Print Gestion, GLPI Agent lui-même, et leurs fichiers. Rien d\'autre n\'est touché. Dans GLPI, la sonde reste listée : elle se supprime ensuite depuis la liste des sondes.', 'printgestion'),
                 __('Retirer GLPI Agent', 'printgestion'),
                 __('Annuler', 'printgestion'),
-                $purge ? self::purgeLabel() : ''
+                $purge
             ),
             self::buildWindowsWizardLines($steps),
             self::buildWindowsChoiceLines(__('Retrait annulé par le technicien : rien n\'a été retiré.', 'printgestion')),
@@ -3027,18 +3466,47 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'Etape "fichiers" "encours" ""',
                 'Avancement ' . self::psQuote(__('Retrait des fichiers...', 'printgestion')) . ' (-1) ""',
                 '$restes = 0',
-                'foreach ($d in @((Join-Path $env:ProgramData "PrintGestion"), (Join-Path $env:ProgramData "GLPI-Agent"), (Join-Path $env:ProgramFiles "GLPI-Agent"))) {',
-                '  if (Test-Path -LiteralPath $d) {',
-                '    try {',
-                '      Remove-Item -LiteralPath $d -Recurse -Force',
-                '      Journal ("        retire : " + $d)',
-                '    } catch {',
-                '      $restes++',
-                '      Journal ("        non retire : " + $d + " - " + $_.Exception.Message)',
+                '# Ce qui tient encore un fichier : le service (le MSI vient de l arreter, il lache son journal une',
+                '# a deux secondes plus tard) et les programmes lances DEPUIS le dossier vise. Un programme du client',
+                '# au nom voisin n est jamais touche : on compare le chemin, pas le nom.',
+                'function Fermer($dossier) {',
+                '  foreach ($s in @(Get-Service -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "glpi-agent*" -or $_.DisplayName -like "GLPI Agent*" })) {',
+                '    if ($s.Status -ne "Stopped") {',
+                '      try { Stop-Service -InputObject $s -Force -ErrorAction Stop; Journal ("        service arrete : " + $s.Name) } catch { Journal ("        service non arrete : " + $s.Name) }',
+                '    }',
+                '  }',
+                '  foreach ($p in @(Get-Process -ErrorAction SilentlyContinue)) {',
+                '    $chemin = ""',
+                '    try { $chemin = [string]$p.Path } catch { }',
+                '    if ($chemin -ne "" -and $chemin.StartsWith($dossier, [System.StringComparison]::OrdinalIgnoreCase)) {',
+                '      try { Stop-Process -Id $p.Id -Force -ErrorAction Stop; Journal ("        ferme : " + $p.ProcessName + " (" + $p.Id + ")") } catch { }',
                 '    }',
                 '  }',
                 '}',
-                'if ($restes -eq 0) { Etape "fichiers" "ok" "" } else { Etape "fichiers" "echec" ' . self::psQuote(__('un dossier est resté, voir le journal', 'printgestion')) . ' }',
+                'foreach ($d in @((Join-Path $env:ProgramData "PrintGestion"), (Join-Path $env:ProgramData "GLPI-Agent"), (Join-Path $env:ProgramFiles "GLPI-Agent"))) {',
+                '  if (Test-Path -LiteralPath $d) {',
+                '    $efface = $false',
+                '    $dernier = ""',
+                '    for ($essai = 0; $essai -lt 3 -and -not $efface; $essai++) {',
+                '      try {',
+                '        Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction Stop',
+                '        $efface = $true',
+                '      } catch {',
+                '        $dernier = $_.Exception.Message',
+                '        # Premier echec : on ferme ce qui tient les fichiers, puis on laisse deux secondes.',
+                '        Fermer $d',
+                '        Attendre 2',
+                '      }',
+                '    }',
+                '    if ($efface) {',
+                '      Journal ("        retire : " + $d)',
+                '    } else {',
+                '      $restes++',
+                '      Journal ("        non retire : " + $d + " - " + $dernier)',
+                '    }',
+                '  }',
+                '}',
+                'if ($restes -eq 0) { Etape "fichiers" "ok" "" } else { Etape "fichiers" "echec" ' . self::psQuote(__('un dossier est resté (voir le journal) — sans effet sur une réinstallation', 'printgestion')) . ' }',
                 '',
             ],
             ['$script:purge = ""'],
@@ -3048,12 +3516,13 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'Etape "declaration" "encours" ""',
                 'Avancement ' . self::psQuote(__('Compte rendu à GLPI...', 'printgestion')) . ' (-1) ""',
                 '$gl = ""',
-                'if ($null -ne $glpi -and $glpi.Checked) { $gl = "&gl=1"; Journal "        suppression de la sonde dans GLPI demandee" }',
+                'if ($script:niveau -gt 0) { $gl = "&gl=" + $script:niveau; Journal ("        suppression demandee dans GLPI, niveau " + $script:niveau) }',
                 'try {',
                 '  $rep = [string](New-Object System.Net.WebClient).DownloadString(' . self::psQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . ' + "&maj=0&off=1" + $gl + "&pc=" + [Uri]::EscapeDataString($env:COMPUTERNAME))',
                 '  $script:purge = $rep.Trim()',
                 '  if ($script:purge -ne "") { Journal ("        reponse de GLPI : " + $script:purge) }',
-                '  if ($script:purge -eq "PURGE OK") { Etape "declaration" "ok" ' . self::psQuote(self::purgeStepNotes()['OK']) . ' }',
+                '  if ($script:purge -like "PURGE TOTAL *") { Etape "declaration" "ok" (Compte $script:purge) }',
+                '  elseif ($script:purge -eq "PURGE OK") { Etape "declaration" "ok" ' . self::psQuote(self::purgeStepNotes()['OK']) . ' }',
                 '  elseif ($script:purge -eq "PURGE ABSENT") { Etape "declaration" "ok" ' . self::psQuote(self::purgeStepNotes()['ABSENT']) . ' }',
                 '  elseif ($script:purge -eq "PURGE REFUSE") { Etape "declaration" "echec" ' . self::psQuote(self::purgeStepNotes()['REFUSE']) . ' }',
                 '  else { Etape "declaration" "ok" "" }',
@@ -3067,7 +3536,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '# Ce que la fenetre dit de GLPI depend de sa reponse. Deux phrases jointes a l execution : un retour a la',
                 '# ligne dans une chaine couperait la ligne du script.',
                 '$glpi_fin = ' . self::psQuote(__('Dans GLPI, la sonde reste listée : elle se supprime depuis la liste des sondes — case cochée, puis Actions → Supprimer.', 'printgestion')),
-                'if ($script:purge -eq "PURGE OK") { $glpi_fin = ' . self::psQuote(self::purgeEndTexts()['OK']) . ' }',
+                'if ($script:purge -like "PURGE TOTAL *") { $glpi_fin = (Compte $script:purge) + ". " + ' . self::psQuote(self::purgeTotalEndText()) . ' }',
+                'elseif ($script:purge -eq "PURGE OK") { $glpi_fin = ' . self::psQuote(self::purgeEndTexts()['OK']) . ' }',
                 'elseif ($script:purge -eq "PURGE ABSENT") { $glpi_fin = ' . self::psQuote(self::purgeEndTexts()['ABSENT']) . ' }',
                 'elseif ($script:purge -eq "PURGE REFUSE") { $glpi_fin = ' . self::psQuote(self::purgeEndTexts()['REFUSE']) . ' }',
                 'Fin $true (' . self::psQuote(__('GLPI Agent est retiré de ce PC.', 'printgestion')) . ' + [Environment]::NewLine + [Environment]::NewLine + $glpi_fin)',
@@ -3193,18 +3663,24 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'pg_ips=""',
                 'pg_snmp=""',
                 'pg_freq=""',
+                # Sans GLPI Inventory sur le serveur, il n'y a qu'un chemin : l'agent scanne lui-même.
+                'pg_mode=' . (PluginPrintgestionCollectsetup::isAvailable() ? 'glpi' : 'local'),
                 'pg_maj=' . ($update ? 'oui' : 'non'),
                 'if [ "$pg_gui" = zenity ]; then',
                 '  pg_form=$(pg_zen --forms --width=560 --title="$PG_TITRE" --text="$PG_INFOS_Z" \\',
                 '    --ok-label=' . self::shQuote(__('Installer', 'printgestion')) . ' --cancel-label=' . self::shQuote(__('Annuler', 'printgestion')) . ' --separator="|" \\',
-                '    --add-entry=' . self::shQuote(__('Adresses IP des imprimantes (vide : aucune)', 'printgestion')) . ' \\',
+                '    --add-entry=' . self::shQuote(__('Adresses IP (vide : aucune)', 'printgestion')) . ' \\',
                 '    --add-entry=' . self::shQuote(__('Communauté SNMP (vide : public)', 'printgestion')) . ' \\',
                 // Chaque option finit par une continuation, la dernière comprise : sans elle, la redirection de la ligne
                 // suivante deviendrait une commande à part, et $? vaudrait toujours 0 — « Annuler » lancerait l'installation.
-                '    --add-combo=' . self::shQuote(__('Fréquence des relevés', 'printgestion')) . ' --combo-values=' . self::shQuote(implode('|', $libelles)) . ' \\',
+                '    --add-combo=' . self::shQuote(__('Relevés', 'printgestion')) . ' --combo-values=' . self::shQuote(implode('|', $libelles)) . ' \\',
             ],
             $update ? [] : [
-                '    --add-combo=' . self::shQuote(__('Mise à jour automatique (1er du mois à 3 h)', 'printgestion')) . ' --combo-values=' . self::shQuote(__('Non', 'printgestion') . '|' . __('Oui', 'printgestion')) . ' \\',
+                '    --add-combo=' . self::shQuote(__('Mise à jour auto. (1er du mois, 3 h)', 'printgestion')) . ' --combo-values=' . self::shQuote(__('Non', 'printgestion') . '|' . __('Oui', 'printgestion')) . ' \\',
+            ],
+            !PluginPrintgestionCollectsetup::isAvailable() ? [] : [
+                '    --add-combo=' . self::shQuote(__('Pilotage du scan', 'printgestion'))
+                    . ' --combo-values=' . self::shQuote(implode('|', array_column(self::pilotChoices(), 0))) . ' \\',
             ],
             [
                 '    2>/dev/null)',
@@ -3217,6 +3693,11 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             ],
             $update ? [] : [
                 '      case "$(printf "%s" "$pg_form" | cut -d"|" -f4)" in ' . __('Oui', 'printgestion') . ') pg_maj=oui ;; esac',
+            ],
+            !PluginPrintgestionCollectsetup::isAvailable() ? [] : [
+                // Le rang de la colonne suit la présence de la liste « mise à jour » juste avant.
+                '      case "$(printf "%s" "$pg_form" | cut -d"|" -f' . ($update ? 4 : 5) . ')" in '
+                    . self::shQuote(array_values(self::pilotChoices())[1][0]) . ') pg_mode=local ;; esac',
             ],
             [
                 '      ;;',
@@ -3264,6 +3745,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '  read -r pg_rep',
                 '  case "$pg_rep" in [oOyY]*) pg_maj=oui ;; esac',
             ],
+            self::buildShellPilotConsoleLines(),
             [
                 'fi',
                 'if [ -z "$pg_snmp" ]; then pg_snmp=public; fi',
@@ -3273,6 +3755,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'pg_journal "Communaute SNMP : renseignee (jamais ecrite dans ce journal)"',
                 'pg_journal "Frequence des releves : $pg_freq"',
                 'pg_journal "Mise a jour automatique : $pg_maj"',
+                'pg_journal "Pilotage du scan : $pg_mode"',
                 '',
                 '# ── Le travail, etape par etape. Dans un sous-shell quand la fenetre le suit (elle lit un tube). ──',
                 'pg_travail() {',
@@ -3348,6 +3831,12 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '  pg_final="$pg_final¶¶"',
                 '  if [ "$pg_decouverte" = 1 ]; then',
                 '    pg_final="$pg_final"' . self::shQuote(__('Les imprimantes sont déclarées dans GLPI et la découverte vient de partir : rien d\'autre à faire sur ce poste.', 'printgestion')),
+                '  if [ -n "${pg_noms:-}" ]; then',
+                '    pg_final="$pg_final¶¶$(printf "%s" "$pg_noms" | tr "," "\\n" | grep -c .) '
+                    . __('imprimante(s) trouvée(s) et ajoutée(s) dans GLPI', 'printgestion') . '"',
+                '    pg_final="$pg_final¶' . __('Imprimantes trouvées et ajoutées :', 'printgestion') . ' $(printf "%s" "$pg_noms" | sed "s/,$//")"',
+                '    pg_final="$pg_final¶"' . self::shQuote(self::watchTexts()['detail']),
+                '  fi',
                 '  elif [ "$pg_scan_local" = 1 ]; then',
                 '    pg_final="$pg_final"' . self::shQuote(__('Le scan des imprimantes est confié à la ToolBox de l\'agent, à la cadence choisie : elle envoie elle-même ses résultats à GLPI. Plage, identifiant et tâche se voient et se corrigent sur ce poste, à l\'adresse http://127.0.0.1:62354/toolbox.', 'printgestion')),
                 '  elif [ "$pg_reponse" = NOAGENT ]; then',
@@ -3452,9 +3941,21 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'aide_ips'    => __('Exemples : 192.168.1.0/24 (tout le réseau), 192.168.1.30-35 (une plage), ou des adresses séparées par des virgules. Laissé vide : rien n\'est créé dans GLPI, le raccordement restera à faire.', 'printgestion'),
             'lib_snmp'    => __('Communauté SNMP des imprimantes', 'printgestion'),
             'lib_freq'    => __('Fréquence des relevés', 'printgestion'),
+            // Qui pilote le scan : deux choix, ou rien du tout quand le serveur n'a pas GLPI Inventory.
+            'lib_mode'    => __('Qui pilote le scan des imprimantes', 'printgestion'),
+            'modes'       => PluginPrintgestionCollectsetup::isAvailable()
+                ? array_map(static fn(array $texte): string => $texte[0], array_values(self::pilotChoices()))
+                : [],
+            'aide_mode'   => PluginPrintgestionCollectsetup::isAvailable()
+                ? implode(chr(10), array_map(static fn(array $texte): string => $texte[0] . ' : ' . $texte[1], array_values(self::pilotChoices())))
+                : '',
+            'sans_mode'   => PluginPrintgestionCollectsetup::isAvailable() ? '' : self::pilotLocalOnly(),
             'frequences'  => array_values($libelles),
             'bouton'      => __('Installer', 'printgestion'),
             'annuler'     => __('Annuler', 'printgestion'),
+            // Trois pages de réglages, comme sous Windows : l'agent, les imprimantes, le scan.
+            'suivant'     => __('Suivant', 'printgestion'),
+            'precedent'   => __('Précédent', 'printgestion'),
             'ouvrir'      => __('Ouvrir le journal', 'printgestion'),
             'fermer'      => __('Fermer', 'printgestion'),
             'etapes'      => array_map(null, array_keys($steps), array_values($steps)),
@@ -3510,6 +4011,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'pg_ips=""',
                 'pg_snmp=""',
                 'pg_freq=""',
+                'pg_mode=' . (PluginPrintgestionCollectsetup::isAvailable() ? 'glpi' : 'local'),
                 'if pg_fenetre; then',
                 '  if [ "$(head -n 1 "$PG_DIR/reponses")" = annule ]; then',
                 '    pg_journal ' . self::shQuote(__('Installation annulée par le technicien : rien n\'a été installé.', 'printgestion')),
@@ -3518,6 +4020,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '  pg_ips=$(sed -n "s/^ips=//p" "$PG_DIR/reponses")',
                 '  pg_snmp=$(sed -n "s/^snmp=//p" "$PG_DIR/reponses")',
                 '  pg_freq=$(sed -n "s/^freq=//p" "$PG_DIR/reponses")',
+                '  pg_rep_mode=$(sed -n "s/^mode=//p" "$PG_DIR/reponses")',
+                '  if [ -n "$pg_rep_mode" ]; then pg_mode="$pg_rep_mode"; fi',
                 '  # La communaute SNMP ne reste pas sur le disque plus longtemps que necessaire.',
                 '  rm -f "$PG_DIR/reponses"',
                 'else',
@@ -3604,6 +4108,12 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '  pg_final="$pg_final¶¶"',
                 '  if [ "$pg_decouverte" = 1 ]; then',
                 '    pg_final="$pg_final"' . self::shQuote(__('Les imprimantes sont déclarées dans GLPI et la découverte vient de partir : rien d\'autre à faire sur ce Mac.', 'printgestion')),
+                '  if [ -n "${pg_noms:-}" ]; then',
+                '    pg_final="$pg_final¶¶$(printf "%s" "$pg_noms" | tr "," "\\n" | grep -c .) '
+                    . __('imprimante(s) trouvée(s) et ajoutée(s) dans GLPI', 'printgestion') . '"',
+                '    pg_final="$pg_final¶' . __('Imprimantes trouvées et ajoutées :', 'printgestion') . ' $(printf "%s" "$pg_noms" | sed "s/,$//")"',
+                '    pg_final="$pg_final¶"' . self::shQuote(self::watchTexts()['detail']),
+                '  fi',
                 '  elif [ "$pg_scan_local" = 1 ]; then',
                 '    pg_final="$pg_final"' . self::shQuote(__('Le scan des imprimantes est confié à la ToolBox de l\'agent, à la cadence choisie : elle envoie elle-même ses résultats à GLPI. Plage, identifiant et tâche se voient et se corrigent sur ce Mac, à l\'adresse http://127.0.0.1:62354/toolbox.', 'printgestion')),
                 '  elif [ "$pg_reponse" = NOAGENT ]; then',
@@ -4274,14 +4784,17 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         }
         echo "</div>";
 
-        // Retirer une sonde : au même endroit que ce qui l'installe, mais en retrait — c'est le geste rare.
-        echo "<div class='d-flex flex-wrap align-items-center gap-2 mb-2'><span class='text-muted small'>"
-            . $esc(__('Retirer l\'agent d\'un PC :', 'printgestion')) . "</span>";
-        foreach ($platforms as $platform => $label) {
-            echo "<a class='btn btn-sm btn-outline-danger' href='" . $esc(self::getDownloadURL($id, self::REMOVE_OS[$platform])) . "'>"
-                . "<i class='ti {$icons[$platform]} me-1'></i>" . $esc($label) . "</a>";
+        // Retirer une sonde : au même endroit que ce qui l'installe, mais en retrait — c'est le geste rare, et un
+        // droit à part (« Retirer une sonde »). Sans lui, pas de boutons — et l'URL est refusée de la même façon.
+        if (Session::haveRight('plugin_printgestion_deploiement', PURGE)) {
+            echo "<div class='d-flex flex-wrap align-items-center gap-2 mb-2'><span class='text-muted small'>"
+                . $esc(__('Retirer l\'agent d\'un PC :', 'printgestion')) . "</span>";
+            foreach ($platforms as $platform => $label) {
+                echo "<a class='btn btn-sm btn-outline-danger' href='" . $esc(self::getDownloadURL($id, self::REMOVE_OS[$platform])) . "'>"
+                    . "<i class='ti {$icons[$platform]} me-1'></i>" . $esc($label) . "</a>";
+            }
+            echo "</div>";
         }
-        echo "</div>";
 
         // Ce qui empêche toute remontée sans bloquer le déploiement (réparable après coup, à distance) : le
         // technicien voit l'état, l'administrateur ce qui manque et où le corriger. Jamais vert quand rien ne remontera.

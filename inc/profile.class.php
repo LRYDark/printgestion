@@ -20,6 +20,9 @@ class PluginPrintgestionProfile extends Profile {
      * On conserve les champs historiques PrintCost (_dashboard/_billing/_expedition)
      * que le code utilise partout, et on ajoute le droit Contrats.
      */
+    /** Réglage qui retient que le niveau « Retirer une sonde » a été accordé une fois, à la mise à jour. */
+    const CONFIG_REMOVAL_GRANTED = 'retrait_right_granted';
+
     static function getAllRights($all = false) {
         return [
             [
@@ -54,7 +57,14 @@ class PluginPrintgestionProfile extends Profile {
                 'itemtype' => 'PluginPrintgestionMenu',
                 'label'    => __('Collecte SNMP / Déploiement Agent', 'printgestion'),
                 'field'    => 'plugin_printgestion_deploiement',
-                'rights'   => [READ => __('Voir, télécharger l\'installeur', 'printgestion'), UPDATE => __('Raccorder des imprimantes', 'printgestion')],
+                // Retirer est un droit distinct d'installer : le fichier de retrait sert à supprimer une sonde du
+                // poste ET, depuis ce poste, dans GLPI. Qui peut le télécharger peut le faire — c'est le seul
+                // contrôle, la clé du fichier ne vaut que 24 heures et une seule fois.
+                'rights'   => [
+                    READ   => __('Voir, télécharger l\'installeur', 'printgestion'),
+                    UPDATE => __('Raccorder des imprimantes', 'printgestion'),
+                    PURGE  => __('Retirer une sonde : fichier de retrait, et suppression dans GLPI depuis le poste', 'printgestion'),
+                ],
             ],
             [
                 // Distinct de la configuration du plugin : personne qui gère le référentiel.
@@ -197,6 +207,39 @@ class PluginPrintgestionProfile extends Profile {
         }
     }
 
+    /**
+     * Mise à jour : le niveau « Retirer une sonde » n'existait pas, personne ne l'a — et plus aucun fichier de
+     * retrait ne se téléchargerait. On le donne **une seule fois** aux profils qui ont déjà le droit natif de
+     * supprimer une sonde dans GLPI (`Agent`, purge) : ceux-là le faisaient déjà, à la main, dans la liste des
+     * sondes. Ensuite il s'accorde profil par profil, et un administrateur qui le retire ne le voit pas revenir.
+     */
+    public static function grantRemovalRightOnce(): void {
+        global $DB;
+
+        $fait = Config::getConfigurationValues(PluginPrintgestionSchema::CONFIG_CONTEXT, [self::CONFIG_REMOVAL_GRANTED]);
+        if (!empty($fait[self::CONFIG_REMOVAL_GRANTED])) {
+            return;
+        }
+        // Lecture et écriture par les classes de GLPI (ProfileRight), pas en SQL : c'est elle qui connaît le
+        // stockage des droits, et qui recharge la session de ceux qui sont connectés.
+        $accordes = 0;
+        foreach ($DB->request(['SELECT' => ['id'], 'FROM' => Profile::getTable()]) as $row) {
+            $profiles_id = (int) $row['id'];
+            $droits      = ProfileRight::getProfileRights($profiles_id, [Agent::$rightname, 'plugin_printgestion_deploiement']);
+            $deploiement = (int) ($droits['plugin_printgestion_deploiement'] ?? 0);
+            if (((int) ($droits[Agent::$rightname] ?? 0) & PURGE) !== PURGE || ($deploiement & PURGE) === PURGE) {
+                continue;
+            }
+            ProfileRight::updateProfileRights($profiles_id, ['plugin_printgestion_deploiement' => $deploiement | PURGE]);
+            $accordes++;
+        }
+        Config::setConfigurationValues(PluginPrintgestionSchema::CONFIG_CONTEXT, [self::CONFIG_REMOVAL_GRANTED => 1]);
+        PluginPrintgestionLogger::info('profile', sprintf(
+            'Niveau « Retirer une sonde » accordé à %d profil(s) : ceux qui pouvaient déjà supprimer une sonde dans GLPI.',
+            $accordes
+        ));
+    }
+
     static function createFirstAccess($profiles_id) {
         self::addDefaultProfileInfos($profiles_id, [
             'plugin_printgestion_contrats'   => ALLSTANDARDRIGHT,
@@ -205,7 +248,8 @@ class PluginPrintgestionProfile extends Profile {
             'plugin_printgestion_billing'    => ALLSTANDARDRIGHT,
             'plugin_printgestion_expedition' => ALLSTANDARDRIGHT,
             'plugin_printgestion_validation' => ALLSTANDARDRIGHT,
-            'plugin_printgestion_deploiement' => ALLSTANDARDRIGHT,
+            // ALLSTANDARDRIGHT ne porte pas PURGE : le niveau « Retirer une sonde » est ajouté explicitement.
+            'plugin_printgestion_deploiement' => ALLSTANDARDRIGHT | PURGE,
             'plugin_printgestion_sage'       => ALLSTANDARDRIGHT,
         ], true);
     }

@@ -158,10 +158,69 @@ class PluginPrintgestionCollectsetup {
         return $out;
     }
 
+    /**
+     * Objets de collecte créés par un raccordement, dans l'ordre inverse de leur création.
+     *
+     * Le raccordement garde la liste de ce qu'il a **créé** (`created_items`) : c'est elle qui sert ici, et elle
+     * seule. Une plage IP ou des identifiants SNMP que l'assistant avait *réutilisés* parce qu'ils existaient déjà
+     * ne sont pas touchés — ils servent peut-être à un autre client. L'ordre compte : les jobs avant leurs tâches,
+     * la liaison avant la plage et les identifiants qu'elle relie.
+     *
+     * Tout passe par les classes du plugin voisin, donc par ses propres nettoyages (états et journaux des jobs).
+     * Plugin absent ou désinstallé entre-temps : il n'y a plus rien à supprimer, et l'on ne casse rien.
+     *
+     * @return int nombre d'objets supprimés, pour le compte rendu
+     */
+    public static function purgeCreatedItems(PluginPrintgestionRaccordement $racc): int {
+        if (!self::isAvailable()) {
+            return 0;
+        }
+        $created = importArrayFromDB((string) ($racc->fields['created_items'] ?? ''));
+        if (!is_array($created) || $created === []) {
+            return 0;
+        }
+        $supprimes = 0;
+        foreach ([
+            'PluginGlpiinventoryTaskjob',
+            'PluginGlpiinventoryTask',
+            'PluginGlpiinventoryIPRange_SNMPCredential',
+            self::RANGE_TYPE,
+            SNMPCredential::class,
+        ] as $itemtype) {
+            foreach (array_map('intval', (array) ($created[$itemtype] ?? [])) as $id) {
+                if ($id <= 0 || !class_exists($itemtype)) {
+                    continue;
+                }
+                $item = getItemForItemtype($itemtype);
+                if (!$item instanceof CommonDBTM || !$item->getFromDB($id)) {
+                    continue;
+                }
+                if ($item->delete(['id' => $id], true)) {
+                    $supprimes++;
+                } else {
+                    PluginPrintgestionLogger::warning('collectsetup', sprintf(
+                        'Raccordement %1$d : %2$s n° %3$d non supprimé.',
+                        (int) $racc->getID(),
+                        $itemtype,
+                        $id
+                    ));
+                }
+            }
+        }
+        PluginPrintgestionLogger::info('collectsetup', sprintf(
+            'Raccordement %1$d : %2$d objet(s) de collecte supprimé(s) — ce que l\'assistant avait créé.',
+            (int) $racc->getID(),
+            $supprimes
+        ));
+        return $supprimes;
+    }
+
     public static function getMethodLabel(string $method): string {
         return $method === 'networkdiscovery'
             ? __('Découverte réseau', 'printgestion')
-            : __('Inventaire réseau (niveaux)', 'printgestion');
+            // « SNMP » plutôt que « niveaux » : c'est le nom que porte cette collecte partout ailleurs, dans GLPI
+            // Inventory comme chez le constructeur de l'imprimante.
+            : __('Inventaire réseau (SNMP)', 'printgestion');
     }
 
     /** Liste d'identifiants gardée en JSON par le raccordement. */
@@ -206,7 +265,10 @@ class PluginPrintgestionCollectsetup {
             return ['action' => 'reuse', 'id' => $id, 'name' => (string) $credential->fields['name']];
         }
 
+        // « both » : les deux versions, v2c d'abord. C'est le choix par défaut, et celui de l'installation depuis
+        // le PC — une imprimante qui n'expose que SNMPv1 reste sinon muette, sans que rien ne le dise.
         $version   = (string) ($input['snmpversion'] ?? '');
+        $version   = $version === 'both' ? '2' : $version;
         $community = (string) ($input['community'] ?? '');
         $name      = trim((string) ($input['credential_name'] ?? ''));
         if (!in_array($version, ['1', '2'], true)) {
@@ -238,6 +300,44 @@ class PluginPrintgestionCollectsetup {
             return null;
         }
         return ['action' => 'create', 'id' => 0, 'name' => $name, 'snmpversion' => $version, 'community' => $community];
+    }
+
+    /**
+     * L'identifiant jumeau : la même communauté dans l'autre version SNMP.
+     *
+     * GLPI Inventory essaie les identifiants d'une plage dans l'ordre de leur rang et garde celui qui répond : en
+     * poser deux ne coûte qu'un objet de plus, et évite qu'une imprimante n'exposant que SNMPv1 reste muette.
+     * Réutilisé s'il existe déjà. Rendu seulement pour un identifiant tout neuf, jamais quand l'administrateur a
+     * choisi lui-même des identifiants existants — là, c'est sa décision.
+     */
+    private static function planCompanionCredential(array $input, array $main, array &$notes): ?array {
+        global $DB;
+
+        if ((string) ($input['snmpversion'] ?? '') !== 'both' || ($input['credential_mode'] ?? 'existing') !== 'new') {
+            return null;
+        }
+        $community = (string) ($input['community'] ?? '');
+        if ($community === '' || ($main['action'] ?? '') === '') {
+            return null;
+        }
+        foreach ($DB->request([
+            'SELECT' => ['id', 'name', 'community'],
+            'FROM'   => SNMPCredential::getTable(),
+            'WHERE'  => ['is_deleted' => 0, 'snmpversion' => '1'],
+            'ORDER'  => ['id'],
+        ]) as $row) {
+            if ((string) $row['community'] === $community) {
+                $notes[] = sprintf(__('Identifiants SNMP v1 « %s » réutilisés : une imprimante qui n\'expose que v1 répondra aussi.', 'printgestion'), $row['name']);
+                return ['action' => 'reuse', 'id' => (int) $row['id'], 'name' => (string) $row['name']];
+            }
+        }
+        $name = sprintf(__('SNMP v1 « %s »', 'printgestion'), $community);
+        if (mb_strlen($name) > 64 || countElementsInTable(SNMPCredential::getTable(), ['name' => $name, 'is_deleted' => 0]) > 0) {
+            // Nom déjà pris par d'autres identifiants : on s'en tient au principal plutôt que d'échouer.
+            $notes[] = __('Identifiants SNMP v1 non créés : ce nom est déjà pris. Une imprimante qui n\'expose que SNMPv1 ne répondra pas.', 'printgestion');
+            return null;
+        }
+        return ['action' => 'create', 'id' => 0, 'name' => $name, 'snmpversion' => '1', 'community' => $community];
     }
 
     // ── Existant dans GLPI Inventory ──────────────────────────────────────────
@@ -433,7 +533,7 @@ class PluginPrintgestionCollectsetup {
      *                'tasks' => [méthode => ['reuse' => [id => nom], 'create' => ?array]]]
      */
     public static function plan(PluginPrintgestionRaccordement $racc, array $input): array {
-        $plan = ['errors' => [], 'notes' => [], 'credential' => null, 'ranges' => [], 'modules' => [], 'tasks' => []];
+        $plan = ['errors' => [], 'notes' => [], 'credential' => null, 'credential_alt' => null, 'ranges' => [], 'modules' => [], 'tasks' => []];
         if (!self::isAvailable()) {
             $plan['errors'][] = __('La collecte réseau n\'est pas disponible sur ce serveur (module d\'inventaire réseau absent ou inactif) : prévenez l\'administrateur.', 'printgestion');
             return $plan;
@@ -454,6 +554,10 @@ class PluginPrintgestionCollectsetup {
         $entity_name = Dropdown::getDropdownName('glpi_entities', $entities_id);
 
         $plan['credential'] = self::planCredential($input, $plan['errors'], $plan['notes']);
+        // Le jumeau dans l'autre version : posé en second, il ne sert que si le premier ne répond pas.
+        $plan['credential_alt'] = $plan['credential'] === null
+            ? null
+            : self::planCompanionCredential($input, $plan['credential'], $plan['notes']);
 
         // Plages de l'entité : celles de cette sonde, ou d'aucune tâche, sont candidates ; celles d'une
         // autre sonde (autre site au même plan d'adresses) sont laissées de côté.
@@ -646,6 +750,22 @@ class PluginPrintgestionCollectsetup {
                 $events[] = ['info', sprintf(__('Identifiants SNMP « %s » réutilisés.', 'printgestion'), $plan['credential']['name'])];
             }
 
+            // Le jumeau dans l'autre version SNMP : une imprimante qui n'expose que SNMPv1 répond ainsi elle aussi.
+            $alt_id = (int) ($plan['credential_alt']['id'] ?? 0);
+            if (($plan['credential_alt']['action'] ?? '') === 'create') {
+                $alt    = new SNMPCredential();
+                $alt_id = (int) $alt->add([
+                    'name'        => $plan['credential_alt']['name'],
+                    'snmpversion' => $plan['credential_alt']['snmpversion'],
+                    'community'   => $plan['credential_alt']['community'],
+                ]);
+                self::assertCreated($alt_id, __('identifiants SNMP (deuxième version)', 'printgestion'));
+                $created[SNMPCredential::class][] = $alt_id;
+                $events[] = ['success', sprintf(__('Identifiants SNMP « %1$s » créés (n° %2$d) : essayés après les premiers.', 'printgestion'), $plan['credential_alt']['name'], $alt_id)];
+            } elseif ($alt_id > 0) {
+                $events[] = ['info', sprintf(__('Identifiants SNMP « %s » réutilisés comme deuxième version.', 'printgestion'), $plan['credential_alt']['name'])];
+            }
+
             $new_range_id = 0;
             foreach ($plan['ranges'] as $range) {
                 $range_id = (int) $range['id'];
@@ -666,14 +786,19 @@ class PluginPrintgestionCollectsetup {
                 }
                 $range_ids[] = $range_id;
 
-                $link_criteria = ['plugin_glpiinventory_ipranges_id' => $range_id, 'snmpcredentials_id' => $credential_id];
-                if (countElementsInTable(PluginGlpiinventoryIPRange_SNMPCredential::getTable(), $link_criteria) === 0) {
+                // Les identifiants de la plage, dans l'ordre : le principal, puis son jumeau dans l'autre version.
+                // GLPI Inventory les essaie par rang et garde celui qui répond.
+                foreach (array_filter([$credential_id, $alt_id]) as $lie_id) {
+                    $link_criteria = ['plugin_glpiinventory_ipranges_id' => $range_id, 'snmpcredentials_id' => $lie_id];
+                    if (countElementsInTable(PluginGlpiinventoryIPRange_SNMPCredential::getTable(), $link_criteria) > 0) {
+                        continue;
+                    }
                     $rank    = self::getNextRank($range_id);
                     $link    = new PluginGlpiinventoryIPRange_SNMPCredential();
                     $link_id = (int) $link->add($link_criteria + ['rank' => $rank]);
                     self::assertCreated($link_id, __('liaison entre la plage et les identifiants SNMP', 'printgestion'));
                     $created[PluginGlpiinventoryIPRange_SNMPCredential::class][] = $link_id;
-                    $events[] = ['success', sprintf(__('Identifiants SNMP liés à la plage n° %1$d (rang %2$d).', 'printgestion'), $range_id, $rank)];
+                    $events[] = ['success', sprintf(__('Identifiants SNMP n° %1$d liés à la plage n° %2$d (rang %3$d).', 'printgestion'), $lie_id, $range_id, $rank)];
                 }
             }
 
@@ -1088,6 +1213,19 @@ class PluginPrintgestionCollectsetup {
         $events      = [];
         $entities_id = (int) $racc->fields['entities_id'];
         $agents_id   = (int) $racc->fields['agents_id'];
+
+        // Les deux modules réseau de la sonde, revérifiés à chaque point : sans eux, GLPI Inventory n'envoie
+        // aucune tâche réseau et la découverte attend indéfiniment, sans rien dire. Ils sont posés à
+        // l'installation, mais une sonde réinstallée, un module désactivé globalement ou une intervention dans
+        // GLPI les remettent à zéro — et personne ne fait le lien. Déjà bons : aucune écriture, aucun message.
+        foreach (self::applyPrinterProbeProfile($agents_id)['events'] as [$niveau, $message]) {
+            // « Déjà réglés » n'apprend rien et reviendrait à chaque point, toutes les dix secondes pendant une
+            // installation : seuls un changement ou un refus méritent une ligne.
+            if ($niveau !== 'info') {
+                $events[] = [$niveau, $message];
+            }
+        }
+
         $progress    = self::getProgress($racc);
 
         if ($progress['discovery_finished'] && !$progress['discovery_failed'] && empty($racc->fields['date_inventory_prepared'])) {
@@ -1149,11 +1287,15 @@ class PluginPrintgestionCollectsetup {
                 'ip.is_deleted'   => 0,
                 'ip.version'      => 4,
             ];
-            if ($DB->fieldExists($table, 'is_deleted')) {
-                $where['item.is_deleted'] = 0;
-            }
+            // La corbeille n'est PAS exclue : une fiche mise à la corbeille reste reconnue par GLPI à chaque
+            // découverte (même adresse MAC), et l'ignorer ici faisait dire « pas de réponse SNMP » à une
+            // imprimante qui répondait parfaitement.
+            $supprimable = $DB->fieldExists($table, 'is_deleted');
             foreach ($DB->request([
-                'SELECT'     => ['ip.name AS ip', 'item.id', 'item.name', 'item.entities_id'],
+                'SELECT'     => array_merge(
+                    ['ip.name AS ip', 'item.id', 'item.name', 'item.entities_id'],
+                    $supprimable ? ['item.is_deleted'] : []
+                ),
                 'DISTINCT'   => true,
                 'FROM'       => 'glpi_ipaddresses AS ip',
                 'INNER JOIN' => [$table . ' AS item' => ['ON' => ['ip' => 'mainitems_id', 'item' => 'id']]],
@@ -1164,6 +1306,7 @@ class PluginPrintgestionCollectsetup {
                     'id'          => (int) $row['id'],
                     'name'        => (string) $row['name'],
                     'entities_id' => (int) $row['entities_id'],
+                    'is_deleted'  => (int) ($row['is_deleted'] ?? 0) === 1,
                 ];
             }
         }
@@ -1197,7 +1340,9 @@ class PluginPrintgestionCollectsetup {
         ];
 
         if ($printer !== null) {
-            if ($printer['entities_id'] !== $entities_id) {
+            // Répond, mais la fiche est ailleurs : autre entité, ou corbeille. Les deux empêchent le relevé, et
+            // les deux se corrigent d'un clic — ce n'est pas un problème de réseau.
+            if ($printer['entities_id'] !== $entities_id || !empty($printer['is_deleted'])) {
                 $result['result'] = 'wrong_entity';
             } elseif (isset($inventory_done[Printer::class . '::' . $printer['id']])) {
                 $result['result'] = countElementsInTable('glpi_printers_cartridgeinfos', ['printers_id' => $printer['id']]) > 0 ? 'found' : 'no_levels';

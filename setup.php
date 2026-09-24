@@ -51,9 +51,11 @@ function plugin_init_printgestion() {
             'Printer'  => [PluginPrintgestionEntityscope::class, 'onPrinterUpdate'],
             'Contract' => [PluginPrintgestionEntityscope::class, 'onContractUpdate'],
         ];
-        // Une sonde supprimée emporte ce que le plugin a créé pour elle, qu'on le fasse dans GLPI ou depuis le PC.
+        // Un objet supprimé emporte ce que le plugin avait créé pour lui, qu'on le supprime dans GLPI ou depuis
+        // le PC avec le fichier de retrait. Les expéditions et les demandes d'envoi, elles, restent.
         $PLUGIN_HOOKS['item_purge']['printgestion'] = [
-            'Agent' => [PluginPrintgestionAgentsetting::class, 'cleanForAgent'],
+            'Agent'   => [PluginPrintgestionCleanup::class, 'forAgent'],
+            'Printer' => [PluginPrintgestionCleanup::class, 'forPrinter'],
         ];
 
         // Schéma versionné (inc/schema.class.php) : les migrations sont jouées par
@@ -188,6 +190,8 @@ function plugin_printgestion_boot() {
         // Aller chercher l'installeur officiel, et dire ce qui a été fait du PC. Rien d'autre.
         \Glpi\Http\SessionManager::registerPluginStatelessPath('printgestion', '#^/front/agentpull\.php$#');
         \Glpi\Http\SessionManager::registerPluginStatelessPath('printgestion', '#^/front/agentreport\.php$#');
+        // Suivi de la découverte pendant l'installation : combien d'imprimantes, et leurs noms. Dix minutes.
+        \Glpi\Http\SessionManager::registerPluginStatelessPath('printgestion', '#^/front/agentprogress\.php$#');
     }
 }
 

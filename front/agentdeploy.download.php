@@ -4,6 +4,10 @@
  * macOS (ZIP), et le fichier unique Windows. Droit Déploiement en lecture et accès à l'entité. Chaque téléchargement
  * est tracé dans l'historique de l'entité.
  *
+ * Les fichiers de RETRAIT demandent en plus le niveau « Retirer une sonde » (PURGE) : ils désinstallent l'agent du
+ * poste et peuvent, depuis ce poste, supprimer la sonde, ses imprimantes et la fiche de l'ordinateur dans GLPI.
+ * Qui peut télécharger ce fichier a le droit de le faire : c'est là que la décision se prend, une fois.
+ *
  * Les paquets ne contiennent que l'URL du serveur GLPI et le TAG de l'entité. Le fichier unique, lui, porte en plus
  * une clé de téléchargement à usage unique : l'historique le dit, avec sa date de péremption.
  */
@@ -46,6 +50,10 @@ foreach (PluginPrintgestionAgentdeploy::REMOVE_OS as $platform => $os) {
 $os = (string) ($_GET['os'] ?? '');
 if (!isset($builders[$os])) {
     throw new \Glpi\Exception\Http\NotFoundHttpException();
+}
+// Retirer est un droit distinct d'installer.
+if (in_array($os, PluginPrintgestionAgentdeploy::REMOVE_OS, true)) {
+    Session::checkRight('plugin_printgestion_deploiement', PURGE);
 }
 
 $package = call_user_func($builders[$os], $entity);

@@ -34,8 +34,10 @@ $computer  = (string) ($_GET['pc'] ?? '');
 $scheduled = (string) ($_GET['maj'] ?? '') === '1';
 // « off=1 » : le fichier de retrait, qui vient de désinstaller l'agent de ce poste.
 $removed   = (string) ($_GET['off'] ?? '') === '1';
-// « gl=1 » : la case « retirer aussi la sonde de GLPI » était cochée dans la fenêtre de retrait.
-$purge_asked = $removed && (string) ($_GET['gl'] ?? '') === '1';
+// Ce que la fenêtre de retrait a demandé pour GLPI : rien, la sonde (« gl=1 »), ou tout — la sonde, ses
+// imprimantes et la fiche de l'ordinateur (« gl=2 »).
+$niveau      = (string) ($_GET['gl'] ?? '');
+$purge_asked = $removed && in_array($niveau, ['1', '2'], true);
 
 // Adresses des imprimantes et communauté SNMP saisies dans la fenêtre d'installation, sur le PC. Bornées ici : ce
 // qui vient d'un poste client n'entre pas sans mesure, même avec une clé valable.
@@ -43,6 +45,9 @@ $ips       = substr(trim((string) ($_GET['ips'] ?? '')), 0, 500);
 // Fréquence des relevés choisie sur le PC : un code d'une liste fermée, refusé s'il n'en fait pas partie.
 $rythme    = PluginPrintgestionCollectfrequency::parseInstallerChoice((string) ($_GET['freq'] ?? ''));
 $community = substr(trim((string) ($_GET['snmp'] ?? '')), 0, 255);
+// « mode=local » : le technicien a choisi, dans la fenêtre, que le scan soit planifié par l'agent de ce poste
+// plutôt que par GLPI. Toute autre valeur (ou aucune, pour un ancien fichier) vaut « piloté par GLPI ».
+$mode_local = (string) ($_GET['mode'] ?? '') === 'local';
 if ($community !== '' && preg_match('/^[\\x21-\\x7E]{1,255}$/', $community) !== 1) {
     $community = '';
 }
@@ -76,6 +81,18 @@ if (!$removed && PluginPrintgestionCollectsetup::isAvailable()) {
     $sonde = PluginPrintgestionRaccordement::findAgentByComputer((int) $entry['entities_id'], $computer);
     if ($sonde > 0) {
         $profil = PluginPrintgestionCollectsetup::applyPrinterProbeProfile($sonde);
+        // Un module qu'on n'a pas pu poser condamne toutes les tâches réseau de cette sonde : ça se journalise en
+        // erreur, pas en information noyée au milieu du compte rendu.
+        foreach ($profil['events'] as [$niveau_module, $message_module]) {
+            if ($niveau_module === 'error') {
+                PluginPrintgestionLogger::error('agentreport', sprintf(
+                    'Sonde %1$s (agent %2$d) : %3$s — aucune tâche réseau ne lui sera envoyée.',
+                    $computer,
+                    $sonde,
+                    $message_module
+                ));
+            }
+        }
         PluginPrintgestionLogger::info('agentreport', sprintf(
             'Sonde %1$s (agent %2$d) : modules pour les imprimantes — %3$s',
             $computer,
@@ -95,10 +112,19 @@ $scan = false;
 // « Le serveur a armé la découverte » : le PC peut alors réveiller son agent lui-même, sans rien attendre.
 $relancer = false;
 if (!$removed && $ips !== '') {
-    if (PluginPrintgestionCollectsetup::isAvailable()) {
+    if (!$mode_local && PluginPrintgestionCollectsetup::isAvailable()) {
         $creation = PluginPrintgestionRaccordement::createFromInstaller((int) $entry['entities_id'], $computer, $ips, $community);
         $racc     = (int) $creation['id'];
         $relancer = !empty($creation['triggered']);
+        // La cause exacte, renvoyée au PC. Sans elle, un chevauchement de plages ou une tâche désactivée se
+        // terminait par une réponse vide et un « rien à lancer » dans la fenêtre : le technicien repartait sans
+        // savoir, et la raison dormait dans le journal du raccordement, côté serveur.
+        if (!$relancer) {
+            $cause = trim((string) end($creation['messages']));
+            if ($cause !== '') {
+                $refus = 'ERREUR ' . preg_replace('/\s+/', ' ', mb_substr($cause, 0, 240));
+            }
+        }
         PluginPrintgestionLogger::info('agentreport', sprintf(
             'Sonde %1$s : adresses déclarées depuis le PC (%2$s) — %3$s',
             $computer,
@@ -106,7 +132,15 @@ if (!$removed && $ips !== '') {
             implode(' ', $creation['messages'])
         ));
     } else {
+        // Choisi en local, ou GLPI Inventory absent : c'est l'agent du poste qui planifiera et scannera, et la
+        // réponse « SCAN » lui donne la plage et la cadence.
         $scan = true;
+        if ($mode_local) {
+            PluginPrintgestionLogger::info('agentreport', sprintf(
+                'Sonde %s : scan local demandé depuis le PC — la ToolBox de l\'agent s\'en charge, aucune tâche créée dans GLPI.',
+                $computer
+            ));
+        }
     }
 }
 
@@ -151,29 +185,47 @@ try {
     PluginPrintgestionLogger::warning('agentreport', 'Historique de l\'entité non écrit pour un compte rendu d\'installation.', $e);
 }
 
+// Un refus du raccordement se dit au PC : il n'a pas d'autre fenêtre sur ce qui s'est passé ici.
+$refus = $refus ?? '';
+
 // La sonde supprimée de GLPI, si le fichier de retrait l'a demandé et que la clé le permet. Le PC reçoit l'issue et
 // l'affiche : « supprimée », « introuvable » ou « refusée ».
 $reponse = '';
 if ($purge_asked) {
-    $issue = empty($entry['purge']) ? 'REFUSE' : PluginPrintgestionAgentreport::purgeProbe((int) $entry['entities_id'], $computer);
-    $reponse = 'PURGE ' . $issue;
+    // Le pouvoir vient de la clé : elle n'existe que parce que quelqu'un ayant le droit « Retirer une sonde » a
+    // téléchargé ce fichier de retrait. Une clé d'installation, elle, ne supprime rien.
+    $compte = empty($entry['purge'])
+        ? ['issue' => 'REFUSE', 'agents' => 0, 'printers' => 0, 'computers' => 0]
+        : PluginPrintgestionAgentreport::purgeProbe((int) $entry['entities_id'], $computer, $niveau === '2');
+    $reponse = $compte['issue'] === 'TOTAL'
+        ? sprintf('PURGE TOTAL %1$d %2$d %3$d %4$d', $compte['agents'], $compte['printers'], $compte['computers'], $compte['collecte'])
+        : 'PURGE ' . $compte['issue'];
     $auteur  = getUserName((int) ($entry['users_id'] ?? 0));
+    $detail  = sprintf(
+        __('%1$d sonde(s), %2$d imprimante(s), %3$d ordinateur(s), %4$d objet(s) de collecte', 'printgestion'),
+        $compte['agents'],
+        $compte['printers'],
+        $compte['computers'],
+        $compte['collecte']
+    );
     PluginPrintgestionLogger::info('agentreport', sprintf(
-        'Sonde %1$s (entité %2$d) : suppression dans GLPI demandée par le fichier de retrait de %3$s — %4$s.',
+        'Sonde %1$s (entité %2$d) : suppression dans GLPI demandée par le fichier de retrait de %3$s — %4$s (%5$s).',
         $computer,
         (int) $entry['entities_id'],
         $auteur,
-        empty($entry['purge']) ? 'refusée, ce fichier n\'en avait pas le droit' : $issue
+        empty($entry['purge']) ? 'refusée, ce fichier n\'en avait pas le droit' : $compte['issue'],
+        $detail
     ));
-    if ($issue === 'OK') {
+    if (in_array($compte['issue'], ['OK', 'TOTAL'], true)) {
         try {
             Log::history((int) $entry['entities_id'], Entity::class, [0, '', sprintf(
-                __('Sonde %1$s supprimée de GLPI par le fichier de retrait généré par %2$s.', 'printgestion'),
+                __('Suppression depuis le fichier de retrait de %1$s, poste %2$s : %3$s.', 'printgestion'),
+                $auteur,
                 $computer,
-                $auteur
+                $detail
             )], '', Log::HISTORY_LOG_SIMPLE_MESSAGE);
         } catch (Throwable $e) {
-            PluginPrintgestionLogger::warning('agentreport', 'Historique de l\'entité non écrit pour une sonde supprimée.', $e);
+            PluginPrintgestionLogger::warning('agentreport', 'Historique de l\'entité non écrit pour une suppression demandée depuis un poste.', $e);
         }
     }
 }
@@ -198,10 +250,23 @@ if ($scan) {
             substr($reponse, 5)
         ));
     }
+    // Le PC suivra lui-même ce que la ToolBox trouve : même clé de suivi que le chemin piloté.
+    if ($reponse !== '') {
+        $suivi = (string) PluginPrintgestionAgenttoken::createProgress((int) $entry['entities_id'], $computer);
+        if ($suivi !== '') {
+            $reponse .= ' ' . PluginPrintgestionAgenttoken::getProgressURL($suivi);
+        }
+    }
 } elseif ($relancer) {
     // La découverte est armée côté serveur : le PC n'a plus qu'à faire rappeler GLPI par son agent, depuis sa
     // propre interface locale. C'est ce qui remplace l'attente d'un intervalle d'inventaire.
+    // « RUN » suivi de l'adresse de suivi : le PC réveille son agent, puis regarde ce que la découverte trouve.
+    // Sans suivi, le raccordement n'avancerait que le jour où quelqu'un ouvre son écran dans GLPI.
     $reponse = 'RUN';
+    $suivi   = (string) PluginPrintgestionAgenttoken::createProgress((int) $entry['entities_id'], $computer);
+    if ($suivi !== '') {
+        $reponse .= ' ' . PluginPrintgestionAgenttoken::getProgressURL($suivi);
+    }
     PluginPrintgestionLogger::info('agentreport', sprintf(
         'Sonde %1$s : découverte armée, réveil local demandé au PC (raccordement %2$d).',
         $computer,
@@ -213,6 +278,9 @@ if ($scan) {
 // dire au lieu d'annoncer une fin normale. Un ancien fichier, qui ne connaît pas cette réponse, l'ignore.
 if ($reponse === '' && !$removed && PluginPrintgestionCollectsetup::isAvailable() && $sonde === 0) {
     $reponse = 'NOAGENT';
+}
+if ($reponse === '' && $refus !== '') {
+    $reponse = $refus;
 }
 
 // Le PC n'attend rien d'autre : une page d'erreur ne doit pas passer pour un succès.

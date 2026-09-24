@@ -268,6 +268,14 @@ class PluginPrintgestionReminder extends CommonGLPI {
             15 * MINUTE_TIMESTAMP,
             ['state' => CronTask::STATE_WAITING]
         );
+        // Déploiement Agent : raccordements lancés — découverte terminée, relevé des niveaux à préparer.
+        // Sans elle, cette suite n'arrivait que si quelqu'un ouvrait l'écran du raccordement.
+        CronTask::Register(
+            'PluginPrintgestionRaccordement',
+            'PrintgestionRaccordements',
+            10 * MINUTE_TIMESTAMP,
+            ['state' => CronTask::STATE_WAITING]
+        );
         return true;
     }
 
