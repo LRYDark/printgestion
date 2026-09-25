@@ -10,12 +10,19 @@
  *   - **faire avancer le raccordement** comme le fait l'écran de GLPI quand un technicien l'ouvre : dès que la
  *     découverte est finie, le relevé SNMP est préparé et la sonde rappelée. Sans cela, rien ne bouge tant que
  *     personne ne regarde, et le technicien repart sans savoir si le client a des imprimantes dans GLPI ;
- *   - **rendre le compte et les noms** des imprimantes que cette sonde vient de faire entrer. Rien d'autre : ni
+ *   - **rendre le compte et les noms** des imprimantes de ce chantier : celles du raccordement en mode piloté,
+ *     celles qui portent une des adresses saisies dans la fenêtre en mode local. Rien d'autre : ni
  *     adresse, ni numéro de série, ni identifiant SNMP — la fenêtre n'a besoin que de noms pour être crédible.
  *
  * Réponses possibles, une ligne chacune : `ATTENTE`, `AUCUNE`, ou `TROUVE <n>` suivi d'un nom par ligne.
  */
 include('../../../inc/includes.php');
+
+// GLPI 11 charge les fichiers front DANS une fonction (LegacyFileLoadController) : rien n'est global ici de
+// lui-même. Sans cette ligne, $DB est simplement absent, et le premier appel meurt en « Call to a member function
+// request() on null » — une erreur 500 que la fenêtre du poste attrape sans un mot, puis réessaie pendant six
+// minutes. Les autres pages front du plugin le déclarent toutes ; celle-ci, écrite en dernier, l'avait oublié.
+global $DB;
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')
@@ -34,7 +41,14 @@ if ($entry === null) {
 
 $entities_id = (int) $entry['entities_id'];
 $computer    = (string) ($entry['pc'] ?? '');
-$depuis      = (string) date('Y-m-d H:i:s', (int) ($entry['created_at'] ?? time()) - 60);
+
+// Depuis quand cette clé est ouverte, dans l'horloge de PHP — la même que celle qui date les lignes.
+//
+// Ce serveur a deux horloges qui ne s'accordent pas : MySQL est deux heures devant PHP (vu dans le journal, une
+// ligne horodatée 18:39 par PHP pendant que NOW() rendait 20:34). C'est PHP qui écrit les dates de GLPI : une
+// imprimante relevée à 18 h 22 s'enregistre « 16:22 ». La borne doit donc venir de PHP, comme les valeurs
+// auxquelles on la compare. (Le désaccord des deux horloges, lui, se règle sur le serveur, pas ici.)
+$depuis = (string) date('Y-m-d H:i:s', (int) ($entry['created_at'] ?? time()) - 60);
 
 $reponse = 'ATTENTE';
 $agents_id = PluginPrintgestionRaccordement::findAgentByComputer($entities_id, $computer);
@@ -56,11 +70,17 @@ if ($agents_id > 0) {
 
     // Le raccordement avance : découverte finie, relevé SNMP préparé, sonde rappelée. C'est le geste de l'écran
     // du raccordement, fait ici pour le PC qui attend — le résultat est le même, journal du raccordement compris.
-    $racc = new PluginPrintgestionRaccordement();
-    foreach ($racc->find(['agents_id' => $agents_id], ['id DESC'], 1) as $ligne) {
-        if ($racc->getFromDB((int) $ligne['id']) && PluginPrintgestionCollectsetup::isAvailable()) {
-            foreach ((PluginPrintgestionCollectsetup::verify($racc)['events'] ?? []) as [$level, $message]) {
-                $racc->addLog(4, $level, $message);
+    // Le mode vient de la clé, jamais de ce qui traîne en base : un poste déjà utilisé en mode piloté garde son
+    // raccordement, et le suivi lisait alors SA table d'adresses — que personne ne remplit quand c'est la ToolBox
+    // de l'agent qui scanne. Six minutes d'attente pendant que l'imprimante entrait dans GLPI.
+    $mode_local = !empty($entry['local']);
+    $racc       = new PluginPrintgestionRaccordement();
+    if (!$mode_local) {
+        foreach ($racc->find(['agents_id' => $agents_id], ['id DESC'], 1) as $ligne) {
+            if ($racc->getFromDB((int) $ligne['id']) && PluginPrintgestionCollectsetup::isAvailable()) {
+                foreach ((PluginPrintgestionCollectsetup::verify($racc)['events'] ?? []) as [$level, $message]) {
+                    $racc->addLog(4, $level, $message);
+                }
             }
         }
     }
@@ -92,27 +112,101 @@ if ($agents_id > 0) {
             }
         }
     }
-    // Mode local (ToolBox) : aucun raccordement, mais la sonde envoie ses inventaires. C'est GLPI qui dit ce
-    // qu'elle a fait entrer (glpi_rulematchedlogs), et la fenêtre du PC mérite la même réponse qu'en mode piloté.
+    // Mode local (ToolBox) : rien à attendre d'un raccordement — il n'y en a pas, ou il date d'une installation
+    // pilotée précédente. Les imprimantes se reconnaissent aux ADRESSES que le
+    // technicien a tapées — la clé de suivi les porte —, et non à l'agent du journal d'import : en inventaire
+    // natif, cette ligne porte l'agent rattaché à l'imprimante elle-même, pas la sonde. La fenêtre attendait donc
+    // six minutes sans rien voir pendant que l'imprimante entrait dans GLPI avec ses cartouches.
     if ($racc->getID() <= 0) {
-        foreach ($DB->request([
-            'SELECT'     => ['p.id', 'p.name'],
-            'DISTINCT'   => true,
-            'FROM'       => 'glpi_rulematchedlogs AS l',
-            'INNER JOIN' => [Printer::getTable() . ' AS p' => ['ON' => ['l' => 'items_id', 'p' => 'id']]],
-            'WHERE'      => [
-                'l.itemtype'    => Printer::class,
-                'l.agents_id'   => $agents_id,
-                'p.entities_id' => $entities_id,
-                'p.is_deleted'  => 0,
-                ['l.date' => ['>=', $depuis]],
-            ],
-            'ORDER'      => ['p.name'],
-            'LIMIT'      => 50,
-        ]) as $row) {
-            $nom = trim((string) $row['name']);
-            $noms[] = $nom !== '' ? $nom : sprintf(__('Imprimante n° %d', 'printgestion'), (int) $row['id']);
-            if (countElementsInTable('glpi_printers_cartridgeinfos', ['printers_id' => (int) $row['id']]) > 0) {
+        $adresses = [];
+        foreach (array_keys(PluginPrintgestionRaccordement::parseIps((string) ($entry['ips'] ?? ''))['ips']) as $long) {
+            $adresses[] = long2ip((int) $long);
+        }
+        $trouvees = [];
+        $inventaires = [];
+        if (!empty($adresses)) {
+            foreach ($DB->request([
+                'SELECT'     => ['p.id', 'p.name', 'p.last_inventory_update'],
+                'DISTINCT'   => true,
+                'FROM'       => 'glpi_ipaddresses AS ip',
+                'INNER JOIN' => [Printer::getTable() . ' AS p' => ['ON' => ['ip' => 'mainitems_id', 'p' => 'id']]],
+                'WHERE'      => [
+                    'ip.mainitemtype' => Printer::class,
+                    'ip.version'      => 4,
+                    'ip.is_deleted'   => 0,
+                    'ip.name'         => $adresses,
+                    'p.entities_id'   => $entities_id,
+                    'p.is_deleted'    => 0,
+                ],
+                'ORDER'      => ['p.name'],
+                'LIMIT'      => 50,
+            ]) as $row) {
+                $trouvees[(int) $row['id']]    = (string) $row['name'];
+                $inventaires[(int) $row['id']] = (string) ($row['last_inventory_update'] ?? '');
+            }
+            // Une imprimante déjà connue ne compte que si la sonde vient de la relever : sur un parc déjà
+            // inventorié, la fenêtre annoncerait sinon « trouvée » avant même que le scan ait eu lieu.
+            //
+            // Deux témoins, et le plus récent l'emporte. GLPI date lui-même chaque inventaire reçu sur la fiche
+            // (last_inventory_update) : c'est le seul qui bouge quand une imprimante déjà connue est simplement
+            // relevée à nouveau — le journal d'import, lui, n'ajoute pas forcément de ligne dans ce cas, et la
+            // fenêtre refusait alors une imprimante pourtant relevée à l'instant.
+            $dates   = PluginPrintgestionCollect::getImportDates(array_keys($trouvees));
+            $refusee = [];
+            foreach (array_keys($trouvees) as $printers_id) {
+                $vue = max(
+                    (string) ($inventaires[$printers_id] ?? ''),
+                    (string) ($dates[$printers_id]['snmp'] ?? ''),
+                    (string) ($dates[$printers_id]['discovery'] ?? '')
+                );
+                if ($vue === '' || $vue < $depuis) {
+                    $refusee[$printers_id] = $vue === '' ? 'jamais inventoriée' : $vue;
+                    unset($trouvees[$printers_id]);
+                }
+            }
+            // Le seul cas qui mérite une trace : des imprimantes existent bien aux adresses du technicien, mais
+            // aucune n'a été relevée depuis l'ouverture de la clé. La fenêtre attend alors sans que personne puisse
+            // le deviner. Quand tout va bien, rien ne s'écrit — un journal qui répète « rien pour l'instant » finit
+            // par n'être plus lu. Les adresses y figurent (elles viennent du technicien), jamais la communauté SNMP.
+            if ($trouvees === [] && $refusee !== []) {
+                PluginPrintgestionLogger::info('agentprogress', sprintf(
+                    'Sonde %1$s (agent %2$d) : scan local, adresses %3$s — %4$d imprimante(s) connue(s) à ces adresses, aucune relevée depuis %5$s (%6$s).',
+                    $computer,
+                    $agents_id,
+                    implode(', ', $adresses),
+                    count($refusee),
+                    $depuis,
+                    implode(', ', array_map(
+                        static fn($id, $vue) => sprintf('%1$d vue %2$s', (int) $id, (string) $vue),
+                        array_keys($refusee),
+                        $refusee
+                    ))
+                ));
+            }
+        } else {
+            // Clé d'un fichier plus ancien, sans adresses : l'ancien chemin, par les journaux d'import de la sonde.
+            foreach ($DB->request([
+                'SELECT'     => ['p.id', 'p.name'],
+                'DISTINCT'   => true,
+                'FROM'       => 'glpi_rulematchedlogs AS l',
+                'INNER JOIN' => [Printer::getTable() . ' AS p' => ['ON' => ['l' => 'items_id', 'p' => 'id']]],
+                'WHERE'      => [
+                    'l.itemtype'    => Printer::class,
+                    'l.agents_id'   => $agents_id,
+                    'p.entities_id' => $entities_id,
+                    'p.is_deleted'  => 0,
+                    ['l.date' => ['>=', $depuis]],
+                ],
+                'ORDER'      => ['p.name'],
+                'LIMIT'      => 50,
+            ]) as $row) {
+                $trouvees[(int) $row['id']] = (string) $row['name'];
+            }
+        }
+        foreach ($trouvees as $printers_id => $nom) {
+            $nom    = trim($nom);
+            $noms[] = $nom !== '' ? $nom : sprintf(__('Imprimante n° %d', 'printgestion'), $printers_id);
+            if (countElementsInTable('glpi_printers_cartridgeinfos', ['printers_id' => $printers_id]) > 0) {
                 $niveaux++;
             }
         }

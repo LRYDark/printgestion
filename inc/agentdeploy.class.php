@@ -1258,6 +1258,13 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '  printf ""',
             '}',
             '',
+            '# Envoi d un formulaire ($2), sans rien afficher. Rend 0 si le serveur a repondu.',
+            'pg_poster() {',
+            '  if command -v curl >/dev/null 2>&1; then curl -fsS --max-time 10 -X POST -d "$2" "$1" >/dev/null 2>&1; return $?; fi',
+            '  if command -v wget >/dev/null 2>&1; then wget -q -T 10 -O - --post-data "$2" "$1" >/dev/null 2>&1; return $?; fi',
+            '  return 127',
+            '}',
+            '',
             '# Corps d une page web, vide en cas d echec. $2 : delai maximal en secondes (5 par defaut).',
             'pg_http() {',
             '  if command -v curl >/dev/null 2>&1; then curl -fsS --max-time "${2:-5}" "$1" 2>/dev/null; return $?; fi',
@@ -1740,7 +1747,16 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '      if pg_suivre "$pg_suivi"; then',
             '        if [ -n "$pg_noms" ]; then',
             '          pg_journal "        imprimantes : $pg_noms"',
-            '          pg_etape decouverte ok "$(printf "%s" "$pg_noms" | tr "," "\\n" | grep -c .) imprimante(s) trouvée(s) et ajoutée(s) dans GLPI"',
+            '          pg_compte_noms=$(printf "%s" "$pg_noms" | tr "," "\\n" | grep -c .)',
+            '          # Toutes les imprimantes, pas la premiere : sinon « niveaux releves » mentirait sur un parc.',
+            '          if [ "${pg_niveaux:-0}" -ge "$pg_compte_noms" ]; then',
+            '            pg_suite=' . self::shQuote(self::watchTexts()['niveaux']),
+            '          elif [ "${pg_niveaux:-0}" -gt 0 ]; then',
+            '            pg_suite="${pg_niveaux} ' . self::watchTexts()['sur'] . ' ${pg_compte_noms} — ' . self::watchTexts()['reste'] . '"',
+            '          else',
+            '            pg_suite=' . self::shQuote(self::watchTexts()['plus_tard']),
+            '          fi',
+            '          pg_etape decouverte ok "$pg_compte_noms ' . __('imprimante(s) trouvée(s) et ajoutée(s) dans GLPI', 'printgestion') . ', $pg_suite"',
             '        else',
             '          pg_etape decouverte ok ' . self::shQuote(self::watchTexts()['aucune']),
             '        fi',
@@ -1786,13 +1802,36 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '      # Les plugins de l agent se lisent au demarrage : on relance le service.',
             '      if pg_relancer_agent; then',
             '        pg_scan_local=1',
+            '        # Le scan tout de suite : le geste du bouton « Run task » de la ToolBox, en local, sans rien',
+            '        # afficher. Le service vient de redemarrer : on lui laisse le temps, et on reessaie.',
+            '        pg_lance=0',
+            '        pg_i=0',
+            '        while [ "$pg_i" -lt 6 ] && [ "$pg_lance" = 0 ]; do',
+            '          sleep 5',
+            '          if pg_poster ' . self::shQuote(self::getToolboxJobsUrl()) . ' ' . self::shQuote(self::getToolboxRunNowBody()) . '; then pg_lance=1; fi',
+            '          pg_i=$((pg_i + 1))',
+            '        done',
+            '        if [ "$pg_lance" = 1 ]; then',
+            '          pg_journal "        scan demande a la ToolBox tout de suite (bouton Run task)"',
+            '        else',
+            '          pg_journal "        ToolBox injoignable : le scan partira a sa cadence"',
+            '        fi',
             '        if [ -n "${pg_suivi:-}" ]; then',
             '          pg_dire ' . self::shQuote(self::watchTexts()['cours']),
             '          pg_suivre "$pg_suivi" || true',
             '        fi',
             '        if [ -n "$pg_noms" ]; then',
             '          pg_journal "        imprimantes : $pg_noms"',
-            '          pg_etape decouverte ok "$(printf "%s" "$pg_noms" | tr "," "\\n" | grep -c .) imprimante(s) trouvée(s) et ajoutée(s) dans GLPI"',
+            '          pg_compte_noms=$(printf "%s" "$pg_noms" | tr "," "\\n" | grep -c .)',
+            '          # Toutes les imprimantes, pas la premiere : sinon « niveaux releves » mentirait sur un parc.',
+            '          if [ "${pg_niveaux:-0}" -ge "$pg_compte_noms" ]; then',
+            '            pg_suite=' . self::shQuote(self::watchTexts()['niveaux']),
+            '          elif [ "${pg_niveaux:-0}" -gt 0 ]; then',
+            '            pg_suite="${pg_niveaux} ' . self::watchTexts()['sur'] . ' ${pg_compte_noms} — ' . self::watchTexts()['reste'] . '"',
+            '          else',
+            '            pg_suite=' . self::shQuote(self::watchTexts()['plus_tard']),
+            '          fi',
+            '          pg_etape decouverte ok "$pg_compte_noms ' . __('imprimante(s) trouvée(s) et ajoutée(s) dans GLPI', 'printgestion') . ', $pg_suite"',
             '        else',
             '          pg_etape decouverte ok ' . self::shQuote(__('ToolBox de l\'agent : 127.0.0.1:62354/toolbox', 'printgestion')),
             '        fi',
@@ -1832,8 +1871,14 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     /** Nombre de tentatives de réveil local, et l'attente entre deux : le service vient d'être installé. */
     const WAKE_TRIES = 12;
     const WAKE_WAIT  = 5;
-    /** Suivi de la découverte : un appel toutes les dix secondes, quatre minutes au plus. */
-    const WATCH_TRIES = 24;
+    /**
+     * Suivi de la découverte : un appel toutes les dix secondes, dix minutes au plus — et l'attente s'arrête
+     * d'elle-même dès que tout est remonté, ce n'est donc pas dix minutes de perdues.
+     *
+     * Mesuré chez un client : la ToolBox de l'agent a mis 5 min 30 à lancer son premier scan après la relance du
+     * service. À six minutes, on repartait avec « rien trouvé » vingt secondes avant que tout arrive.
+     */
+    const WATCH_TRIES = 60;
     const WATCH_WAIT  = 10;
 
     /** Ce que la fenêtre dit de la découverte, selon ce que le serveur a répondu. */
@@ -1843,6 +1888,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'trouve'  => __('imprimante(s) trouvée(s) et ajoutée(s) dans GLPI', 'printgestion'),
             'niveaux' => __('niveaux relevés', 'printgestion'),
             'plus_tard' => __('niveaux au prochain passage de la sonde', 'printgestion'),
+            // Compte partiel : « 7 niveaux relevés sur 10 — les autres au prochain passage de la sonde ».
+            'sur'     => __('niveaux relevés sur', 'printgestion'),
+            'reste'   => __('les autres au prochain passage de la sonde', 'printgestion'),
             'aucune'  => __('aucune imprimante n\'a répondu sur ces adresses', 'printgestion'),
             'attente' => __('lancée ; le résultat s\'affichera dans GLPI', 'printgestion'),
             'liste'   => __('Imprimantes trouvées et ajoutées :', 'printgestion'),
@@ -1883,6 +1931,27 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         return 'http://127.0.0.1:' . Agent::DEFAULT_PORT . '/status';
     }
 
+    /** Page des tâches de la ToolBox de l'agent, sur le poste lui-même. */
+    public static function getToolboxJobsUrl(): string {
+        return 'http://127.0.0.1:' . Agent::DEFAULT_PORT . '/toolbox/inventory';
+    }
+
+    /**
+     * Le formulaire du bouton « Run task » de la ToolBox : lancer notre tâche de scan tout de suite.
+     *
+     * Sans lui, on dépend de la minuterie de la ToolBox. Le code de l'agent annonce un premier passage « dans la
+     * minute » pour une tâche jamais lancée ; mesuré chez un client, il est parti au bout de 5 min 30, puis de
+     * 14 minutes — le technicien était reparti depuis longtemps. Ce formulaire, lui, appelle netscan()
+     * immédiatement, puis reprogramme la cadence normale : c'est exactement le bouton de l'interface.
+     *
+     * Les noms de champs portent une barre oblique (« submit/run-now ») : elle est encodée comme le ferait un
+     * navigateur, sans quoi certaines versions ne reconnaissent pas le champ.
+     */
+    public static function getToolboxRunNowBody(): string {
+        return 'submit%2Frun-now=1&checkbox%2F'
+            . rawurlencode(PluginPrintgestionAgentsetting::TOOLBOX_NAME . '-imprimantes') . '=on';
+    }
+
     /**
      * Journal d'une exécution sous Windows, et les deux outils dont toutes les étapes se servent.
      *
@@ -1916,14 +1985,21 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         ], array_map(static fn(string $ligne): string => 'Journal ' . self::psQuote($ligne), $header), [
             'Journal ("PC : " + $env:COMPUTERNAME + "   compte : " + $env:USERNAME)',
             '',
-            '# Met en mots la reponse du serveur « PURGE TOTAL <sondes> <imprimantes> <ordinateurs> ».',
-            'function Compte($reponse) {',
+            '# Met en mots les quatre nombres du serveur, apres ses deux premiers mots : « COMPTE OK 1 10 1 6 »',
+            '# avant de supprimer, « PURGE TOTAL 1 10 1 6 » apres. Meme phrase, pour que le technicien reconnaisse',
+            '# ce qu on lui avait annonce.',
+            'function Liste($reponse) {',
             '  $n = @($reponse -split " ")',
             '  if ($n.Count -lt 6) { return "" }',
-            '  return ' . self::psQuote(self::purgeCountWords()['tete']) . ' + " " + $n[2] + " " + ' . self::psQuote(self::purgeCountWords()['sondes'])
+            '  return $n[2] + " " + ' . self::psQuote(self::purgeCountWords()['sondes'])
                 . ' + ", " + $n[3] + " " + ' . self::psQuote(self::purgeCountWords()['imprimantes'])
                 . ' + ", " + $n[4] + " " + ' . self::psQuote(self::purgeCountWords()['ordinateurs'])
                 . ' + ", " + $n[5] + " " + ' . self::psQuote(self::purgeCountWords()['collecte']),
+            '}',
+            'function Compte($reponse) {',
+            '  $l = Liste $reponse',
+            '  if ($l -eq "") { return "" }',
+            '  return ' . self::psQuote(self::purgeCountWords()['tete']) . ' + " " + $l',
             '}',
             '# Une seule execution a la fois sur ce PC, installation et retrait confondus : un double clic lancait deux',
             '# fenetres qui installaient ou retiraient en meme temps. Windows libere ce verrou a la fin du processus,',
@@ -2469,8 +2545,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '# Jamais la communaute elle-meme : c est un secret, et ce journal traine dans un dossier temporaire.',
                 'if ($communaute -eq "") { Journal "Communaute SNMP : vide" } else { Journal "Communaute SNMP : renseignee (jamais ecrite dans ce journal)" }',
                 'Journal ("Frequence des releves : " + $frequence)',
-            '# Qui pilote le scan : le deuxieme choix de la liste est le mode local. Sans liste, le serveur tranche.',
-            '$script:pilotage = "glpi"',
+            '# Qui pilote le scan : le deuxieme choix de la liste est le mode local. Sans liste — GLPI Inventory',
+            '# manque au serveur —, il n y a rien a choisir : c est local, et le journal doit le dire.',
+            '$script:pilotage = ' . self::psQuote(PluginPrintgestionCollectsetup::isAvailable() ? 'glpi' : 'local'),
             'if ($null -ne $mode -and $mode.SelectedIndex -eq 1) { $script:pilotage = "local" }',
             'Journal ("Pilotage du scan : " + $script:pilotage)',
                 'if ($avec_maj) { Journal "Mise a jour automatique : demandee" } else { Journal "Mise a jour automatique : non demandee" }',
@@ -2672,7 +2749,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '      $mots = @($lignes[0] -split " ")',
                 '      $vu = @{ noms = @($lignes[1..($lignes.Count - 1)]); niveaux = 0 }',
                 '      if ($mots.Count -gt 2) { $vu.niveaux = [int]$mots[2] }',
-                '      if ($vu.niveaux -gt 0) { return $vu }',
+                '      # Toutes, pas la premiere : sur un parc de dix, annoncer « niveaux releves » des la premiere',
+                '      # serait faux neuf fois sur dix.',
+                '      if ($vu.niveaux -ge $vu.noms.Count) { return $vu }',
                 '      # Les imprimantes sont la, les niveaux pas encore : GLPI a prepare le releve, mais il ne',
                 '      # pousse rien — c est l agent qui vient le chercher. Ce script tourne sur le poste : on lui',
                 '      # redemande un passage tout de suite, au lieu d attendre son rappel (jusqu a 24 h).',
@@ -2720,7 +2799,12 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '    } else {',
                 '      Journal ("        imprimantes : " + ($script:noms -join ", ") + "   niveaux releves : " + $script:niveaux)',
                 '      $suite_note = ' . self::psQuote(self::watchTexts()['plus_tard']),
-                '      if ($script:niveaux -gt 0) { $suite_note = ' . self::psQuote(self::watchTexts()['niveaux']) . ' }',
+                '      if ($script:niveaux -ge $script:noms.Count) {',
+                '        $suite_note = ' . self::psQuote(self::watchTexts()['niveaux']),
+                '      } elseif ($script:niveaux -gt 0) {',
+                '        $suite_note = [string]$script:niveaux + " " + ' . self::psQuote(self::watchTexts()['sur'])
+                    . ' + " " + [string]$script:noms.Count + " — " + ' . self::psQuote(self::watchTexts()['reste']),
+                '      }',
                 '      Etape "decouverte" "ok" ([string]$script:noms.Count + " " + ' . self::psQuote(self::watchTexts()['trouve']) . ' + ", " + $suite_note)',
                 '    }',
                 '  }',
@@ -2753,6 +2837,24 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '    Restart-Service -InputObject $service -Force',
                 '    Journal ("        service relance : " + $service.Name)',
                 '    $scan_local = $true',
+                '    # Le scan tout de suite, sans attendre la minuterie de la ToolBox : c est le geste de son',
+                '    # bouton « Run task ». Un appel HTTP sur 127.0.0.1, rien ne s affiche. Le service vient de',
+                '    # redemarrer : on lui laisse le temps d ouvrir son port, et on reessaie.',
+                '    $lance = $false',
+                '    for ($essai = 0; $essai -lt 6 -and -not $lance; $essai++) {',
+                '      Attendre 5',
+                '      try {',
+                '        $poste = New-Object System.Net.WebClient',
+                '        $poste.Headers.Add("Content-Type", "application/x-www-form-urlencoded")',
+                '        [void]$poste.UploadString(' . self::psQuote(self::getToolboxJobsUrl()) . ', "POST", ' . self::psQuote(self::getToolboxRunNowBody()) . ')',
+                '        $lance = $true',
+                '      } catch { }',
+                '    }',
+                '    if ($lance) {',
+                '      Journal "        scan demande a la ToolBox tout de suite (bouton Run task)"',
+                '    } else {',
+                '      Journal "        ToolBox injoignable : le scan partira a sa cadence"',
+                '    }',
                 '    if ($bornes.Count -gt 4 -and $bornes[4] -ne "") {',
                 '      Avancement ' . self::psQuote(self::watchTexts()['cours']) . ' (-1) ' . self::psQuote(__('Quelques minutes au plus.', 'printgestion')),
                 '      $vu = Suivre $bornes[4]',
@@ -2794,7 +2896,12 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '# Les imprimantes trouvees, par leur nom : c est ce que le technicien vient verifier.',
                 'if ($null -ne $script:noms -and $script:noms.Count -gt 0) {',
                 '  $fin_niveaux = ' . self::psQuote(self::watchTexts()['plus_tard']),
-                '  if ($script:niveaux -gt 0) { $fin_niveaux = ' . self::psQuote(self::watchTexts()['niveaux']) . ' }',
+                '  if ($script:niveaux -ge $script:noms.Count) {',
+                '    $fin_niveaux = ' . self::psQuote(self::watchTexts()['niveaux']),
+                '  } elseif ($script:niveaux -gt 0) {',
+                '    $fin_niveaux = [string]$script:niveaux + " " + ' . self::psQuote(self::watchTexts()['sur'])
+                    . ' + " " + [string]$script:noms.Count + " — " + ' . self::psQuote(self::watchTexts()['reste']),
+                '  }',
                 '  $final = $final + [Environment]::NewLine + [Environment]::NewLine + [string]$script:noms.Count + " " + ' . self::psQuote(self::watchTexts()['trouve']) . ' + ", " + $fin_niveaux',
                 '  $final = $final + [Environment]::NewLine + ' . self::psQuote(self::watchTexts()['liste']) . ' + " " + ($script:noms -join ", ")',
                 '  $final = $final + [Environment]::NewLine + ' . self::psQuote(self::watchTexts()['detail']),
@@ -2940,6 +3047,163 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         return __('Les imprimantes relevées par une autre sonde, elles, restent.', 'printgestion');
     }
 
+    /**
+     * Les mots de la confirmation de « tout supprimer », posée avant de commencer.
+     *
+     * Annoncer « 10 imprimantes supprimées » après coup ne sert à rien : leurs compteurs de pages, historiques de
+     * cartouches et lignes de coût sont déjà partis. Le poste demande donc à GLPI ce que ce choix emporterait, le
+     * montre, et attend un oui.
+     */
+    private static function purgeConfirmTexts(): array {
+        return [
+            'titre'    => __('Tout supprimer de GLPI ?', 'printgestion'),
+            'tete'     => __('Ce choix va supprimer définitivement de GLPI :', 'printgestion'),
+            'rien'     => __('GLPI ne connaît aucune sonde sur ce poste : ce choix n\'y supprimerait rien.', 'printgestion'),
+            'inconnu'  => __('GLPI n\'a pas répondu : impossible de dire ici combien d\'imprimantes ce choix supprimerait.', 'printgestion'),
+            'fin'      => __('Les compteurs de pages, l\'historique des cartouches et les lignes de coût de ces imprimantes partent avec elles. Les expéditions et les demandes d\'envoi sont conservées.', 'printgestion'),
+            'question' => __('Continuer ? « Non » arrête tout : rien ne sera retiré de ce poste, rien ne sera supprimé de GLPI.', 'printgestion'),
+            'invite'   => __('Tout supprimer de GLPI ? [o/N]', 'printgestion'),
+            'bouton'   => __('Tout supprimer', 'printgestion'),
+            'annuler'  => __('Annuler', 'printgestion'),
+            'annule'   => __('Tout supprimer non confirmé : rien n\'a été retiré de ce poste ni supprimé de GLPI.', 'printgestion'),
+        ];
+    }
+
+    /**
+     * Windows : la confirmation de « tout supprimer », avec les nombres que GLPI vient de donner.
+     *
+     * Le bouton « Non » est celui par défaut : un appui sur Entrée ne supprime pas dix imprimantes. Et une boîte
+     * qui ne peut pas s'afficher ne vaut ni oui ni non — le choix coché dans la fenêtre que le technicien a vue est
+     * alors conservé, comme partout ailleurs dans ce plugin : une fenêtre qui manque n'est jamais une annulation.
+     */
+    private static function buildWindowsPurgeConfirmLines(string $report): array {
+        $t = self::purgeConfirmTexts();
+        return [
+            '# ── « Tout supprimer » : dire combien AVANT, pas apres. GLPI est interroge, il ne supprime rien. ──',
+            '# Toutes les variables en $pg_ : le script est d un seul tenant, et $detail, par exemple, est deja',
+            '# l etiquette qui porte la note sous la barre d avancement. Lui donner une chaine tuait la fenetre a',
+            '# l etape suivante (« la propriete Text est introuvable dans cet objet »).',
+            'if ($script:niveau -eq 2) {',
+            '  $pg_compte = ""',
+            '  try {',
+            '    $pg_compte = ([string](New-Object System.Net.WebClient).DownloadString(' . self::psQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . ' + "&q=1&pc=" + [Uri]::EscapeDataString($env:COMPUTERNAME))).Trim()',
+            '  } catch { Journal ("        compte refuse ou injoignable : " + $_.Exception.Message) }',
+            '  Journal ("        tout supprimer emporterait : " + $pg_compte)',
+            '  $pg_detail = ' . self::psQuote($t['inconnu']),
+            '  if ($pg_compte -like "COMPTE OK *") { $pg_detail = ' . self::psQuote($t['tete']) . ' + " " + (Liste $pg_compte) + "." }',
+            '  elseif ($pg_compte -eq "COMPTE ABSENT") { $pg_detail = ' . self::psQuote($t['rien']) . ' }',
+            '  $pg_saut = [Environment]::NewLine + [Environment]::NewLine',
+            '  $pg_texte = $pg_detail + $pg_saut + ' . self::psQuote($t['fin']) . ' + $pg_saut + ' . self::psQuote($t['question']),
+            '  $pg_rep = [System.Windows.Forms.DialogResult]::Yes',
+            '  $pg_vue = $false',
+            '  try { $pg_rep = [System.Windows.Forms.MessageBox]::Show($pg_texte, ' . self::psQuote($t['titre']) . ', "YesNo", "Warning", "Button2"); $pg_vue = $true }',
+            '  catch { Journal "        confirmation non affichable : le choix du technicien est conserve" }',
+            '  if ($pg_vue -and $pg_rep -ne [System.Windows.Forms.DialogResult]::Yes) {',
+            '    Journal ' . self::psQuote($t['annule']),
+            '    $script:occupe = $false',
+            '    if (-not $script:ferme) { $f.Close() }',
+            '    exit 0',
+            '  }',
+            '}',
+            '',
+        ];
+    }
+
+    /**
+     * Linux et macOS : les mêmes mots, la même question, avec la fenêtre de chaque système — zenity ici, une boîte
+     * Cocoa là — et la console quand aucune ne s'ouvre.
+     *
+     * Une fenêtre qui ne s'ouvre pas ne vaut jamais un « non » : la question se repose alors dans le terminal, et si
+     * même lui ne peut pas répondre (pas d'entrée standard), le choix du technicien est conservé.
+     */
+    private static function buildShellPurgeConfirmLines(string $report, bool $macos): array {
+        $t = self::purgeConfirmTexts();
+        $fenetre = $macos ? [
+            '  if [ -n "${pg_user:-}" ] && [ "$pg_user" != root ] && command -v osascript >/dev/null 2>&1; then',
+            '    # Texte et libelles passent en arguments : rien a echapper dans le script AppleScript.',
+            '    pg_rep=$(launchctl asuser "$(id -u "$pg_user")" sudo -u "$pg_user" osascript -e "on run argv"'
+                . ' -e "display dialog (item 2 of argv) with title (item 1 of argv) buttons {(item 3 of argv), (item 4 of argv)} default button 1 with icon caution"'
+                . ' -e "end run" "$PG_TITRE" "$pg_texte" "$PG_C_ANNULER" "$PG_C_TOUT" 2>/dev/null)',
+            '    pg_rc=$?',
+            '    case "$pg_rep" in *"$PG_C_TOUT"*) return 0 ;; esac',
+            '    # Une reponse claire : le technicien a choisi d annuler. Sinon, la fenetre n a pas pu s ouvrir.',
+            '    if [ "$pg_rc" = 0 ]; then return 1; fi',
+            '    pg_journal "Fenetre indisponible : confirmation en console"',
+            '  fi',
+        ] : [
+            '  if [ "$pg_gui" = zenity ]; then',
+            '    pg_zen --question --width=560 --title="$PG_TITRE" --text="$pg_texte" --ok-label="$PG_C_TOUT" --cancel-label="$PG_C_ANNULER" --default-cancel >/dev/null 2>&1',
+            '    pg_rc=$?',
+            '    case "$pg_rc" in',
+            '      0) return 0 ;;',
+            '      1) return 1 ;;',
+            '      *) pg_journal "Fenetre indisponible (code $pg_rc) : confirmation en console" ; pg_gui="" ;;',
+            '    esac',
+            '  fi',
+        ];
+        return array_merge([
+            '# ── « Tout supprimer » : dire combien AVANT, pas apres. GLPI est interroge, il ne supprime rien. ──',
+            'PG_C_TETE=' . self::shQuote($t['tete']),
+            'PG_C_RIEN=' . self::shQuote($t['rien']),
+            'PG_C_INCONNU=' . self::shQuote($t['inconnu']),
+            'PG_C_FIN=' . self::shQuote($t['fin']),
+            'PG_C_QUESTION=' . self::shQuote($t['question']),
+            'PG_C_TOUT=' . self::shQuote($t['bouton']),
+            'PG_C_ANNULER=' . self::shQuote($t['annuler']),
+            'pg_confirmer_total() {',
+            '  pg_n=$(pg_http ' . self::shQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . '"&q=1&pc=$(hostname)" 20 | tr -d "\r\n")',
+            '  pg_journal "Tout supprimer : ce que GLPI annonce — ${pg_n:-aucune reponse}"',
+            '  case "$pg_n" in',
+            '    "COMPTE OK "*) pg_detail="$PG_C_TETE $(pg_liste "$pg_n")." ;;',
+            '    "COMPTE ABSENT") pg_detail="$PG_C_RIEN" ;;',
+            '    *) pg_detail="$PG_C_INCONNU" ;;',
+            '  esac',
+            '  pg_texte=$(printf "%s\n\n%s\n\n%s" "$pg_detail" "$PG_C_FIN" "$PG_C_QUESTION")',
+        ], $fenetre, [
+            '  # Pas de fenetre, ou pas de reponse claire : la question se repose ici.',
+            '  printf "\n%s\n\n" "$pg_texte"',
+            '  printf "%s " ' . self::shQuote($t['invite']),
+            '  if ! read -r pg_rep; then',
+            '    pg_journal "Question impossible a poser : le choix du technicien est conserve"',
+            '    return 0',
+            '  fi',
+            '  case "$pg_rep" in [oOyY]*) return 0 ;; esac',
+            '  return 1',
+            '}',
+            'if [ "$PG_GLPI" = 2 ] && ! pg_confirmer_total; then',
+            '  pg_journal ' . self::shQuote($t['annule']),
+            '  printf "%s\n" ' . self::shQuote($t['annule']),
+            '  exit 0',
+            'fi',
+            '',
+        ]);
+    }
+
+    /**
+     * Les quatre nombres d'une suppression mis en mots, sous Linux et macOS : avant (ce qu'elle emporterait) comme
+     * après (ce qu'elle a emporté). Définies au premier niveau, car la confirmation s'en sert bien avant le travail.
+     */
+    private static function buildShellCountLines(): array {
+        $mots = self::purgeCountWords();
+        return [
+            '# Met en mots les quatre nombres du serveur, apres ses deux premiers mots : « COMPTE OK 1 10 1 6 »',
+            '# avant de supprimer, « PURGE TOTAL 1 10 1 6 » apres.',
+            'pg_liste() {',
+            '  set -- $1',
+            '  if [ $# -lt 6 ]; then printf ""; return 0; fi',
+            '  printf "%s %s, %s %s, %s %s, %s %s" "$3" ' . self::shQuote($mots['sondes'])
+                . ' "$4" ' . self::shQuote($mots['imprimantes']) . ' "$5" ' . self::shQuote($mots['ordinateurs'])
+                . ' "$6" ' . self::shQuote($mots['collecte']),
+            '}',
+            'pg_compte() {',
+            '  pg_l=$(pg_liste "$1")',
+            '  if [ -z "$pg_l" ]; then printf ""; return 0; fi',
+            '  printf "%s %s" ' . self::shQuote($mots['tete']) . ' "$pg_l"',
+            '}',
+            '',
+        ];
+    }
+
     /** Notes de l'étape « Compte rendu », selon la réponse du serveur. */
     private static function purgeStepNotes(): array {
         return [
@@ -2955,16 +3219,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
      */
     private static function buildShellRemovalReportLines(string $report): array {
         $notes = self::purgeStepNotes();
-        $mots  = self::purgeCountWords();
         return [
-            '  # Met en mots la reponse « PURGE TOTAL <sondes> <imprimantes> <ordinateurs> ».',
-            '  pg_compte() {',
-            '    set -- $1',
-            '    if [ $# -lt 6 ]; then printf ""; return 0; fi',
-            '    printf "%s %s %s, %s %s, %s %s, %s %s" ' . self::shQuote($mots['tete']) . ' "$3" ' . self::shQuote($mots['sondes'])
-                . ' "$4" ' . self::shQuote($mots['imprimantes']) . ' "$5" ' . self::shQuote($mots['ordinateurs'])
-                . ' "$6" ' . self::shQuote($mots['collecte']),
-            '  }',
             '  # Compte rendu : ce poste n est plus une sonde. Un echec ici ne change rien au retrait.',
             '  pg_etape declaration encours ""',
             '  pg_gl=""',
@@ -3064,6 +3319,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 sprintf('Client : %s   TAG : %s   serveur : %s', $client, $tag, $server),
             ]),
             self::buildShellToolLines(),
+            self::buildShellCountLines(),
             self::buildLinuxUiLines($title, $infos, $steps),
             [
                 '# ── Confirmation : on ne retire pas un agent parce qu on a appuye sur Entree ──',
@@ -3098,6 +3354,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '',
             ],
             self::buildLinuxPurgeQuestionLines($purge),
+            $purge && $report !== '' ? self::buildShellPurgeConfirmLines($report, false) : [],
             [
                 'pg_travail() {',
                 '  pg_pct 5',
@@ -3269,6 +3526,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 sprintf('Client : %s   TAG : %s   serveur : %s', $client, $tag, $server),
             ]),
             self::buildShellToolLines(),
+            self::buildShellCountLines(),
             self::buildMacosUiLines($title, array_merge($infos, [''], [$message]), $steps, $fenetre),
             [
                 '# ── Confirmation : on ne retire pas un agent parce qu on a appuye sur Entree ──',
@@ -3307,6 +3565,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'fi',
                 'pg_journal "Suppression dans GLPI : niveau $PG_GLPI"',
                 '',
+            ],
+            $purge && $report !== '' ? self::buildShellPurgeConfirmLines($report, true) : [],
+            [
                 'pg_travail() {',
                 '  pg_pct 5',
                 '  pg_etape service encours ""',
@@ -3421,6 +3682,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             ),
             self::buildWindowsWizardLines($steps),
             self::buildWindowsChoiceLines(__('Retrait annulé par le technicien : rien n\'a été retiré.', 'printgestion')),
+            // « Tout supprimer » se confirme, avec les nombres que GLPI annonce, avant que rien ne soit touché.
+            $purge && $report !== '' ? self::buildWindowsPurgeConfirmLines($report) : [],
             [
                 'PageEtapes',
                 '',
@@ -3466,6 +3729,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'Etape "fichiers" "encours" ""',
                 'Avancement ' . self::psQuote(__('Retrait des fichiers...', 'printgestion')) . ' (-1) ""',
                 '$restes = 0',
+                '$reportes = 0',
                 '# Ce qui tient encore un fichier : le service (le MSI vient de l arreter, il lache son journal une',
                 '# a deux secondes plus tard) et les programmes lances DEPUIS le dossier vise. Un programme du client',
                 '# au nom voisin n est jamais touche : on compare le chemin, pas le nom.',
@@ -3476,12 +3740,41 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '    }',
                 '  }',
                 '  foreach ($p in @(Get-Process -ErrorAction SilentlyContinue)) {',
-                '    $chemin = ""',
-                '    try { $chemin = [string]$p.Path } catch { }',
-                '    if ($chemin -ne "" -and $chemin.StartsWith($dossier, [System.StringComparison]::OrdinalIgnoreCase)) {',
+                '    $vise = $false',
+                '    try { $vise = ([string]$p.Path).StartsWith($dossier, [System.StringComparison]::OrdinalIgnoreCase) } catch { }',
+                '    if (-not $vise) {',
+                '      # Lance d ailleurs, mais tenant le dossier par une bibliotheque chargee depuis lui.',
+                '      try {',
+                '        foreach ($m in @($p.Modules)) {',
+                '          if (([string]$m.FileName).StartsWith($dossier, [System.StringComparison]::OrdinalIgnoreCase)) { $vise = $true; break }',
+                '        }',
+                '      } catch { }',
+                '    }',
+                '    if ($vise) {',
                 '      try { Stop-Process -Id $p.Id -Force -ErrorAction Stop; Journal ("        ferme : " + $p.ProcessName + " (" + $p.Id + ")") } catch { }',
                 '    }',
                 '  }',
+                '}',
+                '# Dernier recours, quand un programme qui n est pas le notre tient encore un fichier : Windows efface',
+                '# le dossier au prochain demarrage. C est ce que font les installeurs, et personne ne se fait tuer',
+                '# son editeur de texte. Les fichiers d abord, puis les dossiers du plus profond au moins profond :',
+                '# une suppression programmee n emporte un dossier que s il est vide a ce moment-la.',
+                'function EffacerAuRedemarrage($dossier) {',
+                '  try {',
+                '    Add-Type -Namespace PgWin -Name Fichier -MemberDefinition \'[DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] public static extern bool MoveFileEx(string lpExistingFileName, string lpNewFileName, int dwFlags);\' -ErrorAction SilentlyContinue',
+                '  } catch { }',
+                '  $cibles = @()',
+                '  try { $cibles += @(Get-ChildItem -LiteralPath $dossier -Recurse -Force -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }) } catch { }',
+                '  try { $cibles += @(Get-ChildItem -LiteralPath $dossier -Recurse -Force -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName } | Sort-Object -Property Length -Descending) } catch { }',
+                '  $cibles += $dossier',
+                '  $ok = $true',
+                '  foreach ($cible in $cibles) {',
+                '    # 4 = MOVEFILE_DELAY_UNTIL_REBOOT, sans destination : la suppression. [NullString]::Value et',
+                '    # non $null : PowerShell passe une chaine VIDE pour un parametre texte, et Windows repond alors',
+                '    # « chemin introuvable » (code 3) au lieu de programmer quoi que ce soit. Verifie a l essai.',
+                '    try { if (-not [PgWin.Fichier]::MoveFileEx($cible, [NullString]::Value, 4)) { $ok = $false } } catch { $ok = $false }',
+                '  }',
+                '  return $ok',
                 '}',
                 'foreach ($d in @((Join-Path $env:ProgramData "PrintGestion"), (Join-Path $env:ProgramData "GLPI-Agent"), (Join-Path $env:ProgramFiles "GLPI-Agent"))) {',
                 '  if (Test-Path -LiteralPath $d) {',
@@ -3500,13 +3793,22 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '    }',
                 '    if ($efface) {',
                 '      Journal ("        retire : " + $d)',
+                '    } elseif (EffacerAuRedemarrage $d) {',
+                '      $reportes++',
+                '      Journal ("        tenu par un programme, efface au prochain redemarrage : " + $d + " - " + $dernier)',
                 '    } else {',
                 '      $restes++',
                 '      Journal ("        non retire : " + $d + " - " + $dernier)',
                 '    }',
                 '  }',
                 '}',
-                'if ($restes -eq 0) { Etape "fichiers" "ok" "" } else { Etape "fichiers" "echec" ' . self::psQuote(__('un dossier est resté (voir le journal) — sans effet sur une réinstallation', 'printgestion')) . ' }',
+                'if ($restes -gt 0) {',
+                '  Etape "fichiers" "echec" ' . self::psQuote(__('un dossier est resté (voir le journal) — sans effet sur une réinstallation', 'printgestion')),
+                '} elseif ($reportes -gt 0) {',
+                '  Etape "fichiers" "ok" ' . self::psQuote(__('un dossier était encore utilisé : Windows l\'effacera au prochain redémarrage', 'printgestion')),
+                '} else {',
+                '  Etape "fichiers" "ok" ""',
+                '}',
                 '',
             ],
             ['$script:purge = ""'],
@@ -4784,6 +5086,13 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         }
         echo "</div>";
 
+        // Linux et macOS ne se lancent pas comme Windows : dit ici, sous les boutons, et pas seulement dans le
+        // panneau replié — c'est au moment où l'on tient le fichier qu'on se le demande. Un double-clic sur un .sh
+        // n'ouvre qu'un éditeur de texte : rien ne se passe, et rien ne l'explique.
+        echo "<p class='text-muted small mb-2'><i class='ti ti-info-circle me-1'></i>"
+            . $esc(__('Windows : clic droit sur le fichier, « Exécuter en tant qu\'administrateur ». Linux et macOS : un double-clic ne lance rien — ouvrir un terminal, taper « sudo sh » (avec l\'espace), glisser le fichier dans la fenêtre du terminal, et valider ; le mot de passe administrateur est demandé. Installation comme retrait.', 'printgestion'))
+            . "</p>";
+
         // Retirer une sonde : au même endroit que ce qui l'installe, mais en retrait — c'est le geste rare, et un
         // droit à part (« Retirer une sonde »). Sans lui, pas de boutons — et l'URL est refusée de la même façon.
         if (Session::haveRight('plugin_printgestion_deploiement', PURGE)) {
@@ -4808,6 +5117,17 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                     . " <i class='ti ti-tool mx-1'></i>" . $fix . "</li>";
             }
             echo PluginPrintgestionUi::statusLine('error', __('Rien ne remontera pour l\'instant — contactez l\'administrateur', 'printgestion'), "<ul class='mb-0'>" . $items . "</ul>");
+        }
+
+        // Sans GLPI Inventory, ce n'est pas une panne : le fichier bascule sur le scan local, et les imprimantes
+        // remontent. Le technicien doit seulement savoir ce qui change pour lui — et ne pas chercher un
+        // raccordement qui n'existera pas.
+        if (!PluginPrintgestionCollectsetup::isAvailable()) {
+            echo PluginPrintgestionUi::statusLine(
+                'info',
+                __('Mode local : chaque PC sonde scannera lui-même', 'printgestion'),
+                "<p class='mb-0'>" . $esc(__('Le fichier d\'installation écrit la plage IP, la communauté SNMP et la cadence dans la ToolBox de l\'agent, sur le PC : les imprimantes remontent dans GLPI, avec leurs cartouches et leurs compteurs. En revanche, rien ne se pilote depuis GLPI — ni plage, ni tâche, ni raccordement — et la cadence se change sur le PC, ou en réinstallant la sonde.', 'printgestion')) . "</p>"
+            );
         }
         PluginPrintgestionCollectfrequency::showForEntity($entity);
         echo "</div></div>";

@@ -80,15 +80,19 @@ class PluginPrintgestionCollectsetup {
         if (self::$prerequisites !== null) {
             return self::$prerequisites;
         }
-        $out    = ['blocking' => [], 'warnings' => [], 'version' => ''];
+        // « installed » : le plugin est-il au moins posé sur ce GLPI ? Absent, c'est un choix — les sondes
+        // scanneront en local. Posé mais inutilisable, c'est une panne. Les deux empêchent le pilotage, mais ne se
+        // disent pas de la même façon à l'écran.
+        $out    = ['blocking' => [], 'warnings' => [], 'version' => '', 'installed' => false];
         $plugin = new Plugin();
         if (!$plugin->getFromDBbyDir('glpiinventory') || (int) $plugin->fields['state'] === Plugin::NOTINSTALLED) {
             $out['blocking'][] = sprintf(
-                __('GLPI Inventory envoie aux sondes les plages IP à scanner : sans lui, aucune imprimante ne remonte. L\'installer puis l\'activer dans Configuration → Plugins (version %s ou plus récente).', 'printgestion'),
+                __('GLPI Inventory envoie aux sondes les plages IP à scanner : sans lui, chaque sonde scanne en local et rien ne se pilote depuis GLPI. L\'installer puis l\'activer dans Configuration → Plugins (version %s ou plus récente).', 'printgestion'),
                 self::GLPIINVENTORY_MIN_VERSION
             );
             return self::$prerequisites = $out;
         }
+        $out['installed'] = true;
         $out['version'] = (string) $plugin->fields['version'];
         $state          = (int) $plugin->fields['state'];
         if ($state !== Plugin::ACTIVATED) {
@@ -172,14 +176,63 @@ class PluginPrintgestionCollectsetup {
      * @return int nombre d'objets supprimés, pour le compte rendu
      */
     public static function purgeCreatedItems(PluginPrintgestionRaccordement $racc): int {
-        if (!self::isAvailable()) {
-            return 0;
-        }
-        $created = importArrayFromDB((string) ($racc->fields['created_items'] ?? ''));
-        if (!is_array($created) || $created === []) {
+        $liste = self::createdItemsList($racc);
+        if ($liste === []) {
             return 0;
         }
         $supprimes = 0;
+        foreach ($liste as [$itemtype, $id]) {
+            $item = getItemForItemtype($itemtype);
+            if (!$item instanceof CommonDBTM || !$item->getFromDB($id)) {
+                continue;
+            }
+            if ($item->delete(['id' => $id], true)) {
+                $supprimes++;
+            } else {
+                PluginPrintgestionLogger::warning('collectsetup', sprintf(
+                    'Raccordement %1$d : %2$s n° %3$d non supprimé.',
+                    (int) $racc->getID(),
+                    $itemtype,
+                    $id
+                ));
+            }
+        }
+        PluginPrintgestionLogger::info('collectsetup', sprintf(
+            'Raccordement %1$d : %2$d objet(s) de collecte supprimé(s) — ce que l\'assistant avait créé.',
+            (int) $racc->getID(),
+            $supprimes
+        ));
+        return $supprimes;
+    }
+
+    /**
+     * Combien d'objets de collecte un « tout supprimer » emporterait, sans rien supprimer.
+     *
+     * Le poste le demande avant de lancer le retrait : annoncer un nombre, puis en supprimer un autre, ce serait
+     * pire que de ne rien annoncer. La liste est donc la même des deux côtés.
+     */
+    public static function countCreatedItems(PluginPrintgestionRaccordement $racc): int {
+        return count(self::createdItemsList($racc));
+    }
+
+    /**
+     * Ce que le raccordement a créé et qui existe encore, dans l'ordre où il faut le supprimer : les jobs avant
+     * leurs tâches, la liaison avant la plage et les identifiants qu'elle relie.
+     *
+     * Une seule liste pour deux usages — compter et supprimer. Deux codes auraient fini par diverger, et c'est
+     * justement le nombre annoncé au technicien qui aurait menti.
+     *
+     * @return array [[itemtype, id], ...]
+     */
+    private static function createdItemsList(PluginPrintgestionRaccordement $racc): array {
+        if (!self::isAvailable()) {
+            return [];
+        }
+        $created = importArrayFromDB((string) ($racc->fields['created_items'] ?? ''));
+        if (!is_array($created) || $created === []) {
+            return [];
+        }
+        $liste = [];
         foreach ([
             'PluginGlpiinventoryTaskjob',
             'PluginGlpiinventoryTask',
@@ -195,24 +248,10 @@ class PluginPrintgestionCollectsetup {
                 if (!$item instanceof CommonDBTM || !$item->getFromDB($id)) {
                     continue;
                 }
-                if ($item->delete(['id' => $id], true)) {
-                    $supprimes++;
-                } else {
-                    PluginPrintgestionLogger::warning('collectsetup', sprintf(
-                        'Raccordement %1$d : %2$s n° %3$d non supprimé.',
-                        (int) $racc->getID(),
-                        $itemtype,
-                        $id
-                    ));
-                }
+                $liste[] = [$itemtype, $id];
             }
         }
-        PluginPrintgestionLogger::info('collectsetup', sprintf(
-            'Raccordement %1$d : %2$d objet(s) de collecte supprimé(s) — ce que l\'assistant avait créé.',
-            (int) $racc->getID(),
-            $supprimes
-        ));
-        return $supprimes;
+        return $liste;
     }
 
     public static function getMethodLabel(string $method): string {

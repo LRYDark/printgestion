@@ -20,6 +20,8 @@ class PluginPrintgestionConfighealth {
     const STATE_MANUAL  = 'manual';
     /** Vérifiable en partie seulement : rien de faux, mais le réel ne l'a pas encore confirmé. */
     const STATE_PENDING = 'pending';
+    /** Ni bon ni mauvais : une situation qui se choisit, et dont on dit seulement ce qu'elle change. */
+    const STATE_INFO    = 'info';
 
     /** Nom de la tâche témoin (CLI seulement, chaque minute) : sa dernière exécution prouve le cron système. */
     const WITNESS_TASK = 'PrintgestionTemoinCron';
@@ -85,18 +87,31 @@ class PluginPrintgestionConfighealth {
             'detail' => '',
         ];
 
+        // Ce contrôle a longtemps dit « aucune imprimante ne remonte ». C'était vrai avant le mode local, et faux
+        // depuis : sans GLPI Inventory, le fichier d'installation écrit la plage, la communauté SNMP et la cadence
+        // dans la ToolBox de l'agent, qui scanne et envoie ses inventaires à l'inventaire natif de GLPI. Ce qui
+        // manque alors, c'est le pilotage — pas la remontée. D'où deux lignes très différentes :
+        //   - plugin absent : un choix, dit pour information, sans bandeau rouge sur l'écran des sondes ;
+        //   - plugin posé mais inutilisable : une panne, rouge, car un pilotage est promis et ne marche pas.
         $prerequisites = PluginPrintgestionCollectsetup::getPrerequisites();
         $inventory_ok  = empty($prerequisites['blocking']);
+        $pilot_absent  = !$inventory_ok && empty($prerequisites['installed']);
         $checks[] = [
             'key'    => 'glpiinventory',
-            'group'  => 'required',
-            'label'  => __('Plugin GLPI Inventory installé et actif', 'printgestion'),
-            'state'  => $inventory_ok ? self::STATE_OK : self::STATE_ERROR,
+            'group'  => $pilot_absent ? 'recommended' : 'required',
+            'label'  => __('Pilotage des scans depuis GLPI (plugin GLPI Inventory)', 'printgestion'),
+            'state'  => $inventory_ok ? self::STATE_OK : ($pilot_absent ? self::STATE_INFO : self::STATE_ERROR),
             'status' => $inventory_ok
                 ? sprintf(__('Actif, version %s.', 'printgestion'), $prerequisites['version'])
-                : __('Absent, inactif ou inutilisable.', 'printgestion'),
-            'breaks' => __('Aucune imprimante ne remonte : rien ne dit aux sondes quelles plages IP scanner.', 'printgestion'),
-            'fix'    => __('Configuration → Plugins → Marketplace, rechercher « GLPI Inventory »', 'printgestion'),
+                : ($pilot_absent
+                    ? __('Absent : les sondes scannent en local, par la ToolBox de leur agent.', 'printgestion')
+                    : __('Installé, mais inactif ou inutilisable.', 'printgestion')),
+            'breaks' => $pilot_absent
+                ? __('Les imprimantes remontent quand même. En revanche, plage IP, communauté SNMP et cadence sont écrites sur chaque PC sonde à l\'installation : elles ne se voient pas dans GLPI, ne s\'y modifient pas, et changer la cadence ici ne touche pas les sondes déjà posées.', 'printgestion')
+                : __('Le pilotage annoncé ne fonctionne pas : aucune tâche de découverte ni de relevé n\'est envoyée aux sondes, et les raccordements restent en attente. Les sondes installées maintenant basculeront sur un scan local.', 'printgestion'),
+            'fix'    => $pilot_absent
+                ? __('Rien à faire si le scan local convient ; pour piloter depuis GLPI : Configuration → Plugins → Marketplace, rechercher « GLPI Inventory »', 'printgestion')
+                : __('Configuration → Plugins → Marketplace, rechercher « GLPI Inventory »', 'printgestion'),
             'url'    => Plugin::getSearchURL(),
             'detail' => implode('<br>', array_map($esc, array_merge($prerequisites['blocking'], $prerequisites['warnings']))),
         ];
@@ -862,6 +877,7 @@ class PluginPrintgestionConfighealth {
             self::STATE_ERROR  => ['ti-alert-octagon', 'text-danger', __('À corriger', 'printgestion')],
             self::STATE_MANUAL  => ['ti-help-circle', 'text-secondary', __('Non vérifiable automatiquement', 'printgestion')],
             self::STATE_PENDING => ['ti-clock', 'text-warning', __('Jamais confirmée par le réel', 'printgestion')],
+            self::STATE_INFO    => ['ti-info-circle', 'text-info', __('Pour information', 'printgestion')],
         ];
         $body = '';
         foreach ($groups as $group => $title) {

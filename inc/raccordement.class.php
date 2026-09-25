@@ -1459,13 +1459,29 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         $timed_out = $status === self::STATUS_TRIGGERED && $waiting && !empty($this->fields['date_triggered'])
             && strtotime((string) $this->fields['date_triggered']) < strtotime(Session::getCurrentTime()) - self::VERIFY_LIMIT;
         if ($timed_out) {
-            $still = (int) ($counts['waiting_discovery'] ?? 0) + (int) ($counts['waiting_inventory'] ?? 0) + (int) ($counts['pending'] ?? 0);
-            echo PluginPrintgestionUi::statusLine('error', sprintf(
-                _n('Vérification arrêtée après %1$d min : %2$d adresse toujours sans réponse', 'Vérification arrêtée après %1$d min : %2$d adresses toujours sans réponse', $still, 'printgestion'),
-                (int) (self::VERIFY_LIMIT / MINUTE_TIMESTAMP),
-                $still
-            ));
-            echo "<p class='mb-1'>" . $esc(__('Vérifier que le PC sonde est allumé et branché sur le réseau des imprimantes, que les adresses et la communauté SNMP sont les bonnes, puis « Relancer la découverte ». Si la sonde vient seulement de répondre : « Vérifier maintenant ».', 'printgestion')) . "</p>";
+            // Deux situations très différentes sous le même mot « en attente » : une adresse dont personne ne
+            // répond, et une imprimante trouvée dont le relevé de niveaux n'est pas encore passé. Les confondre
+            // envoyait chercher une panne de réseau inexistante, en contredisant la ligne du tableau juste en
+            // dessous.
+            $minutes = (int) (self::VERIFY_LIMIT / MINUTE_TIMESTAMP);
+            $muettes = (int) ($counts['waiting_discovery'] ?? 0) + (int) ($counts['pending'] ?? 0);
+            $niveaux = (int) ($counts['waiting_inventory'] ?? 0);
+            if ($muettes > 0) {
+                echo PluginPrintgestionUi::statusLine('error', sprintf(
+                    _n('Vérification arrêtée après %1$d min : %2$d adresse toujours sans réponse', 'Vérification arrêtée après %1$d min : %2$d adresses toujours sans réponse', $muettes, 'printgestion'),
+                    $minutes,
+                    $muettes
+                ));
+                echo "<p class='mb-1'>" . $esc(__('Vérifier que le PC sonde est allumé et branché sur le réseau des imprimantes, que les adresses et la communauté SNMP sont les bonnes, puis « Relancer la découverte ». Si la sonde vient seulement de répondre : « Vérifier maintenant ».', 'printgestion')) . "</p>";
+            }
+            if ($niveaux > 0) {
+                echo PluginPrintgestionUi::statusLine('info', sprintf(
+                    _n('Vérification arrêtée après %1$d min : %2$d imprimante trouvée, son relevé de niveaux n\'est pas encore passé', 'Vérification arrêtée après %1$d min : %2$d imprimantes trouvées, leur relevé de niveaux n\'est pas encore passé', $niveaux, 'printgestion'),
+                    $minutes,
+                    $niveaux
+                ));
+                echo "<p class='mb-1'>" . $esc(__('Il n\'y a rien de cassé : le relevé est préparé et partira au prochain appel de la sonde. Pour ne pas attendre, ouvrir http://127.0.0.1:62354/now depuis le PC sonde, puis « Vérifier maintenant ».', 'printgestion')) . "</p>";
+            }
         }
         if ($can_edit && $status === self::STATUS_TRIGGERED && $waiting && !$timed_out) {
             echo "<p class='text-muted small mt-2 mb-0'>" . $esc(sprintf(__('Vérification automatique toutes les 60 secondes tant que des résultats sont en attente, pendant %d minutes au plus.', 'printgestion'), (int) (self::VERIFY_LIMIT / MINUTE_TIMESTAMP))) . "</p>";

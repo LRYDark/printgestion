@@ -281,9 +281,19 @@ def main():
         for ident, autorise in xlsx:
             sql(f"UPDATE glpi_documenttypes SET is_uploadable = {autorise} WHERE id = {ident};")
 
+        # Posé mais désactivé : un pilotage est promis et ne marche pas — c'est une panne, elle reste rouge.
         sql("UPDATE glpi_plugins SET state = 4 WHERE directory = 'glpiinventory';")
         page, etats = carte()
         constat("GLPI Inventory désactivé : rouge, chemin Marketplace", ok_ko(etats.get("glpiinventory") == "error" and "Marketplace" in page and bandeau(page)))
+        # Absent (jamais installé) : un choix, pas une panne. Les sondes scannent en local et les imprimantes
+        # remontent ; la ligne le dit pour information, et ne déclenche aucun bandeau rouge.
+        sql("UPDATE glpi_plugins SET state = 2 WHERE directory = 'glpiinventory';")
+        page, etats = carte()
+        constat("GLPI Inventory absent : ligne pour information, « scannent en local », aucun bandeau rouge",
+                ok_ko(etats.get("glpiinventory") == "info" and "scannent en local" in lib.texte(page) and not bandeau(page)),
+                str(etats.get("glpiinventory")))
+        constat("GLPI Inventory absent : la ligne ne promet plus qu'aucune imprimante ne remonte",
+                ok_ko("Aucune imprimante ne remonte" not in lib.texte(page)))
         sql(f"UPDATE glpi_plugins SET state = {etat_glpiinventory} WHERE directory = 'glpiinventory';")
 
         section("4. Règle d'affectation par TAG : bouton de la carte")

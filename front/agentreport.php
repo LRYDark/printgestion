@@ -11,6 +11,11 @@
  * Ce qu'on accepte d'elle : un nom de PC et des oui/non. Une seule décision peut en sortir : supprimer la sonde de
  * ce PC, après son retrait (« gl=1 »). Elle n'est prise que si celui qui a généré le fichier en avait le droit — noté
  * dans la clé pendant sa session (Agenttoken::createReport()) — et ne touche que la sonde de ce PC dans cette entité.
+ *
+ * Une question, aussi, qui ne décide de rien : « q=1 » demande ce qu'un « tout supprimer » emporterait, pour que la
+ * fenêtre du poste l'annonce AVANT de commencer. Elle relit la clé sans la consommer (elle doit encore servir au
+ * compte rendu), ne répond qu'à une clé qui pouvait déjà supprimer, et compte avec la même sélection que la
+ * suppression elle-même (Agentreport::probeScope()) : le nombre promis est celui qui partira.
  */
 include('../../../inc/includes.php');
 
@@ -24,6 +29,41 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
 $from = (string) ($_SERVER['REMOTE_ADDR'] ?? '?');
 
 $token = (string) ($_GET['t'] ?? '');
+
+// « q=1 » : la fenêtre du poste demande, AVANT de lancer un « tout supprimer », ce que ce choix emporterait.
+// Avant la consommation de la clé, et sans la consommer (peek) : elle doit encore servir au compte rendu, quelques
+// minutes plus tard. Lecture seule — rien n'en sort qu'un nombre, et seulement si cette clé pouvait déjà supprimer.
+// Elle n'apprend donc rien à qui la détient, et ce nombre est celui-là même que la suppression emportera
+// (Agentreport::probeScope(), partagée avec purgeProbe()).
+if ((string) ($_GET['q'] ?? '') === '1') {
+    $lecture = $token === '' ? null : PluginPrintgestionAgenttoken::peek($token, PluginPrintgestionAgenttoken::USAGE_REPORT);
+    if ($lecture === null) {
+        PluginPrintgestionLogger::warning('agentreport', sprintf('Compte refusé (clé inconnue ou expirée) depuis %s.', $from));
+        throw new \Glpi\Exception\Http\NotFoundHttpException();
+    }
+    $demande = (string) ($_GET['pc'] ?? '');
+    $entete  = ['Content-Type' => 'text/plain; charset=UTF-8'];
+    if (empty($lecture['purge'])) {
+        return new \Symfony\Component\HttpFoundation\Response('COMPTE REFUSE', 200, $entete);
+    }
+    $vu = PluginPrintgestionAgentreport::countProbe((int) $lecture['entities_id'], $demande);
+    PluginPrintgestionLogger::info('agentreport', sprintf(
+        'Sonde %1$s (entité %2$d) : le poste demande ce qu\'un « tout supprimer » emporterait — %3$s.',
+        $demande,
+        (int) $lecture['entities_id'],
+        $vu['issue'] === 'ABSENT' ? 'aucune sonde de ce nom' : sprintf(
+            '%1$d sonde(s), %2$d imprimante(s), %3$d ordinateur(s), %4$d objet(s) de collecte',
+            $vu['agents'],
+            $vu['printers'],
+            $vu['computers'],
+            $vu['collecte']
+        )
+    ));
+    return new \Symfony\Component\HttpFoundation\Response($vu['issue'] === 'ABSENT'
+        ? 'COMPTE ABSENT'
+        : sprintf('COMPTE OK %1$d %2$d %3$d %4$d', $vu['agents'], $vu['printers'], $vu['computers'], $vu['collecte']), 200, $entete);
+}
+
 $entry = $token === '' ? null : PluginPrintgestionAgenttoken::consume($token, PluginPrintgestionAgenttoken::USAGE_REPORT);
 if ($entry === null) {
     PluginPrintgestionLogger::warning('agentreport', sprintf('Compte rendu refusé (clé inconnue, expirée ou déjà utilisée) depuis %s.', $from));
@@ -252,7 +292,7 @@ if ($scan) {
     }
     // Le PC suivra lui-même ce que la ToolBox trouve : même clé de suivi que le chemin piloté.
     if ($reponse !== '') {
-        $suivi = (string) PluginPrintgestionAgenttoken::createProgress((int) $entry['entities_id'], $computer);
+        $suivi = (string) PluginPrintgestionAgenttoken::createProgress((int) $entry['entities_id'], $computer, $ips, true);
         if ($suivi !== '') {
             $reponse .= ' ' . PluginPrintgestionAgenttoken::getProgressURL($suivi);
         }
@@ -263,7 +303,7 @@ if ($scan) {
     // « RUN » suivi de l'adresse de suivi : le PC réveille son agent, puis regarde ce que la découverte trouve.
     // Sans suivi, le raccordement n'avancerait que le jour où quelqu'un ouvre son écran dans GLPI.
     $reponse = 'RUN';
-    $suivi   = (string) PluginPrintgestionAgenttoken::createProgress((int) $entry['entities_id'], $computer);
+    $suivi   = (string) PluginPrintgestionAgenttoken::createProgress((int) $entry['entities_id'], $computer, $ips, false);
     if ($suivi !== '') {
         $reponse .= ' ' . PluginPrintgestionAgenttoken::getProgressURL($suivi);
     }

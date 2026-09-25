@@ -352,6 +352,10 @@ def main():
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
         statut, octets = telecharger(d.CLIENT_A)
         constat("URL rétablie : lien présent, paquet servi", ok_ko(bloque not in page and lien in page and servi(octets)), f"HTTP {statut}")
+        # La façon de lancer les fichiers Linux et macOS est dite SOUS les boutons, pas seulement dans le panneau
+        # replié : un double-clic sur un .sh n'ouvre qu'un éditeur, et rien ne l'explique au moment utile.
+        constat("écran des sondes : comment lancer le fichier est visible sans déplier",
+                ok_ko("un double-clic ne lance rien" in lib.texte(page) and "sudo sh" in lib.texte(page)))
 
         section("10. L'onglet Entité intègre l'environnement : rouge sans bloquer quand rien ne remontera")
         rien = "Rien ne remontera pour l&#039;instant — contactez l&#039;administrateur"
@@ -365,6 +369,14 @@ def main():
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
         constat("administrateur : même ligne, détail replié avec la cause et le lien vers l'écran GLPI",
                 ok_ko(rien in page and "data-pg-admin" in page and "Marketplace" in page and "config.form.php" not in page[page.find(rien):page.find(rien) + 200]))
+        # Plugin absent (jamais installé), et non désactivé : le fichier bascule sur le scan local. L'écran ne
+        # doit plus annoncer que rien ne remontera — c'était vrai avant le mode local, et faux depuis.
+        sql("UPDATE glpi_plugins SET state = 2 WHERE directory = 'glpiinventory';")
+        _, page_local, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
+        constat("GLPI Inventory absent : ligne « Mode local », aucun « Rien ne remontera », téléchargement toujours possible",
+                ok_ko(rien not in page_local and "Mode local" in lib.texte(page_local) and lien in page_local))
+        sql("UPDATE glpi_plugins SET state = 4 WHERE directory = 'glpiinventory';")
+        _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
         sql("UPDATE glpi_crontasks SET mode = 1 WHERE name = 'PrintgestionCheckAlerts';")
         _, page, _ = WEB.get(ONGLET_ENTITE.format(d.CLIENT_A), ajax=True)
         constat("tâche du plugin en mode Interne : cause listée aussi (Actions automatiques)", ok_ko(rien in page and "crontask" in page))
@@ -705,6 +717,20 @@ def main():
         constat("statut des PC sondes : réglé sur la page « Installeur GLPI Agent », avec les autres réglages",
                 ok_ko("name='agent_probe_states_id'" in avec and "name='save_probe_state'" in avec))
 
+        # GLPI 11 charge les pages front DANS une fonction : $DB n'y est pas global de lui-même. Une page qui
+        # l'oublie meurt en « Call to a member function request() on null » — erreur 500 que la fenêtre du poste
+        # attrape sans un mot. C'est arrivé à agentprogress.php : 828 appels perdus avant qu'on le voie.
+        sans_global = []
+        for fichier in sorted(os.listdir(os.path.join(config.PLUGIN_DIR, "front"))):
+            # « ._xxx » : restes de copies depuis un Mac (AppleDouble), pas du PHP.
+            if not fichier.endswith(".php") or fichier.startswith("._"):
+                continue
+            code = io.open(os.path.join(config.PLUGIN_DIR, "front", fichier), encoding="utf-8", errors="replace").read()
+            if "$DB->" in code and not re.search(r"^global [^;]*\$DB", code, re.M):
+                sans_global.append(fichier)
+        constat("pages front : celles qui utilisent $DB le déclarent global (sinon erreur 500 silencieuse)",
+                ok_ko(not sans_global), ", ".join(sans_global))
+
         section("12 bis 3. Retrait d'une sonde, saisie des adresses, raccordement créé tout seul")
         # Retrait : un fichier par système, qui défait ce que l'installation a posé.
         retraits = {}
@@ -752,6 +778,24 @@ def main():
         constat("retraits : la fenêtre dit ce que GLPI a répondu (supprimée, tout supprimé, introuvable, refusée)",
                 ok_ko(all("PURGE OK" in t and "PURGE ABSENT" in t and "PURGE REFUSE" in t and "PURGE TOTAL" in t
                           for t in retraits.values())))
+        # « Tout supprimer » s'annonce AVANT : le fichier demande le compte à GLPI (q=1), puis pose la question.
+        sans_compte = [s for s, t in retraits.items() if "&q=1&pc=" not in t and '"&q=1&pc=$(hostname)"' not in t]
+        constat("retraits : le compte est demandé à GLPI avant de tout supprimer",
+                ok_ko(not sans_compte), ", ".join(sans_compte))
+        constat("retrait Windows : la confirmation s'ouvre sur « Non » par défaut, et un refus arrête tout",
+                ok_ko("if ($script:niveau -eq 2) {" in retraits["windows"]
+                      and '"YesNo", "Warning", "Button2"' in retraits["windows"]
+                      and "COMPTE ABSENT" in retraits["windows"]))
+        sans_question = [s for s in ("linux", "macos")
+                         if 'if [ "$PG_GLPI" = 2 ] && ! pg_confirmer_total; then' not in retraits[s]]
+        constat("retraits Linux et macOS : la question est posée quand le choix est « tout supprimer »",
+                ok_ko(not sans_question), ", ".join(sans_question))
+        constat("retraits : les mêmes mots pour les nombres avant et après (Liste, pg_liste)",
+                ok_ko("function Liste($reponse)" in retraits["windows"]
+                      and all("pg_liste() {" in retraits[s] for s in ("linux", "macos"))))
+        constat("retrait macOS : la question passe par une boîte Cocoa, texte et libellés en arguments",
+                ok_ko("display dialog (item 2 of argv)" in retraits["macos"]
+                      and "$PG_C_ANNULER" in retraits["macos"]))
         # Un double clic ne doit pas lancer deux fois le même travail : verrou commun à l'installation et au retrait.
         installs = {}
         for systeme in ("windows", "linux", "macos"):
@@ -784,6 +828,12 @@ def main():
                       and "toolbox-plugin.local" in unique and "forbid_not_trusted = yes" in unique
                       and "target: server0" in unique and "glpi-netdiscovery" not in unique
                       and "glpi-injector" not in unique))
+        # Le scan ne doit pas attendre la minuterie de la ToolBox : mesuré chez un client, elle a lancé le premier
+        # passage au bout de 5 min 30, puis de 14 minutes. Le fichier appuie donc lui-même sur « Run task ».
+        constat("fichier Windows : le scan est demandé tout de suite à la ToolBox (bouton Run task)",
+                ok_ko("submit%2Frun-now=1&checkbox%2Fprintgestion-imprimantes=on" in unique
+                      and "/toolbox/inventory" in unique and "UploadString" in unique))
+
         # Beaucoup d'imprimantes n'exposent que SNMPv1 : les deux versions sont posées, v2c d'abord.
         constat("fichier Windows : la ToolBox essaie v2c puis v1, avec la même communauté",
                 ok_ko("snmpversion: v2c" in unique and "snmpversion: v1" in unique
@@ -852,9 +902,63 @@ def main():
         adresse = re.search(r"(/plugins/printgestion/front/agentprogress\.php\?t=[a-f0-9]{48})", corps_local.decode("utf-8", "replace"))
         statut_suivi, corps_suivi = lib.Session().telecharger(adresse.group(1)) if adresse else (0, b"")
         # En mode local il n'y a pas de raccordement : le suivi doit quand même nommer ce que la sonde a fait
-        # entrer, sinon la fenêtre d'installation reste muette jusqu'au bout de son délai.
-        constat("suivi : il sait répondre sans raccordement (mode local)",
-                ok_ko("glpi_rulematchedlogs" in io.open(os.path.join(config.PLUGIN_DIR, "front", "agentprogress.php"), encoding="utf-8").read()))
+        # entrer, sinon la fenêtre d'installation reste muette jusqu'au bout de son délai. Éprouvé sur une sonde
+        # SANS raccordement — le cas réel d'un site sans GLPI Inventory —, avec une imprimante qui porte une des
+        # adresses tapées et un journal d'import SANS agent : c'est ce que fait l'inventaire natif, et c'est ce qui
+        # rendait la fenêtre aveugle (constaté chez un client le 25/09/2026, imprimante entrée avec ses cartouches
+        # pendant que la fenêtre attendait six minutes).
+        sql(f"INSERT INTO glpi_computers (name, entities_id, is_deleted) VALUES ('PG-SONDE-LOCALE', {d.CLIENT_A}, 0);")
+        pc_loc = int(valeur("SELECT id FROM glpi_computers WHERE name = 'PG-SONDE-LOCALE'"))
+        sql("INSERT INTO glpi_agents (deviceid, entities_id, name, agenttypes_id, last_contact, version, useragent, tag, locked, "
+            f"itemtype, items_id, use_module_network_inventory, use_module_network_discovery) VALUES ('agent-test-locale', "
+            f"{d.CLIENT_A}, 'PG-SONDE-LOCALE', 1, NOW(), '1.19', 'GLPI-Agent_v1.19', {lib.q(tag_a)}, 0, 'Computer', {pc_loc}, 1, 1);")
+        sonde_loc = int(valeur("SELECT id FROM glpi_agents WHERE deviceid = 'agent-test-locale'"))
+        sql(f"INSERT INTO glpi_printers (name, entities_id, is_deleted) VALUES ('PG-IMP-LOCALE', {d.CLIENT_A}, 0);")
+        imp_loc = int(valeur("SELECT id FROM glpi_printers WHERE name = 'PG-IMP-LOCALE'"))
+        sql("INSERT INTO glpi_ipaddresses (entities_id, itemtype, items_id, mainitemtype, mainitems_id, version, name, is_deleted) "
+            f"VALUES ({d.CLIENT_A}, 'NetworkName', 0, 'Printer', {imp_loc}, 4, '192.168.55.21', 0);")
+        sql(f"INSERT INTO glpi_rulematchedlogs (date, items_id, itemtype, agents_id, method) VALUES (NOW(), {imp_loc}, 'Printer', 0, 'netinventory');")
+        sql("INSERT INTO glpi_printers_cartridgeinfos (printers_id, property, value, date_mod, date_creation) "
+            f"VALUES ({imp_loc}, 'tonerblack', '60', NOW(), NOW());")
+        _, octets_loc = WEB.telecharger(config.FRONT + f"/agentdeploy.download.php?entities_id={d.CLIENT_A}&os=windows")
+        cle_loc = re.search(r"agentreport\.php\?t=([a-f0-9]{48})", octets_loc.decode("utf-8", "replace"))
+        _, corps_loc = lib.Session().telecharger(
+            config.FRONT + f"/agentreport.php?t={cle_loc.group(1) if cle_loc else 'x'}&maj=1&pc=PG-SONDE-LOCALE"
+            + "&ips=192.168.55.20-22&snmp=public&mode=local")
+        suivi_loc = re.search(r"(/plugins/printgestion/front/agentprogress\.php\?t=[a-f0-9]{48})", corps_loc.decode("utf-8", "replace"))
+        _, vu_loc = lib.Session().telecharger(suivi_loc.group(1)) if suivi_loc else (0, b"")
+        constat("suivi local : l'imprimante est reconnue à son adresse, sans dépendre de l'agent du journal d'import",
+                ok_ko(vu_loc.startswith(b"TROUVE 1 1") and b"PG-IMP-LOCALE" in vu_loc), f"réponse {vu_loc[:48]!r}")
+        # Déjà connue, mais pas relevée depuis : elle ne compte pas — sinon la fenêtre annoncerait « trouvée » sur un
+        # parc déjà inventorié, avant même que le scan de la sonde ait eu lieu.
+        sql(f"UPDATE glpi_rulematchedlogs SET date = DATE_SUB(NOW(), INTERVAL 2 DAY) WHERE items_id = {imp_loc} AND itemtype = 'Printer';")
+        _, vu_vieux = lib.Session().telecharger(suivi_loc.group(1)) if suivi_loc else (0, b"")
+        constat("suivi local : une imprimante déjà connue mais pas relevée depuis n'est pas annoncée",
+                ok_ko(vu_vieux.startswith(b"ATTENTE")), f"réponse {vu_vieux[:24]!r}")
+        # Relevée à l'instant, mais sans nouvelle ligne dans le journal d'import : c'est le cas d'une imprimante
+        # déjà connue du poste. GLPI date pourtant l'inventaire sur la fiche, et c'est ce témoin-là qui compte.
+        sql(f"UPDATE glpi_printers SET last_inventory_update = NOW() WHERE id = {imp_loc};")
+        _, vu_frais = lib.Session().telecharger(suivi_loc.group(1)) if suivi_loc else (0, b"")
+        constat("suivi local : la date d'inventaire de GLPI suffit, même sans nouveau journal d'import",
+                ok_ko(vu_frais.startswith(b"TROUVE 1 1") and b"PG-IMP-LOCALE" in vu_frais), f"réponse {vu_frais[:48]!r}")
+        # Le cas du terrain : un poste DÉJÀ utilisé en mode piloté garde son raccordement dans GLPI. Le suivi
+        # lisait alors la table d'adresses de ce raccordement — vide en local — et répondait ATTENTE jusqu'au bout.
+        # Le mode vient de la clé, pas de ce qui traîne en base : la sonde PG-SONDE-AUTO a un raccordement.
+        _, octets_mix = WEB.telecharger(config.FRONT + f"/agentdeploy.download.php?entities_id={d.CLIENT_A}&os=windows")
+        cle_mix = re.search(r"agentreport\.php\?t=([a-f0-9]{48})", octets_mix.decode("utf-8", "replace"))
+        _, corps_mix = lib.Session().telecharger(
+            config.FRONT + f"/agentreport.php?t={cle_mix.group(1) if cle_mix else 'x'}&maj=1&pc=PG-SONDE-AUTO"
+            + "&ips=192.168.55.20-22&snmp=public&mode=local")
+        suivi_mix = re.search(r"(/plugins/printgestion/front/agentprogress\.php\?t=[a-f0-9]{48})", corps_mix.decode("utf-8", "replace"))
+        _, vu_mix = lib.Session().telecharger(suivi_mix.group(1)) if suivi_mix else (0, b"")
+        constat("suivi local : un raccordement laissé par une installation pilotée ne détourne plus le suivi",
+                ok_ko(vu_mix.startswith(b"TROUVE 1 1") and b"PG-IMP-LOCALE" in vu_mix), f"réponse {vu_mix[:48]!r}")
+        sql(f"DELETE FROM glpi_printers_cartridgeinfos WHERE printers_id = {imp_loc}; "
+            f"DELETE FROM glpi_rulematchedlogs WHERE items_id = {imp_loc} AND itemtype = 'Printer'; "
+            f"DELETE FROM glpi_ipaddresses WHERE mainitemtype = 'Printer' AND mainitems_id = {imp_loc}; "
+            f"DELETE FROM glpi_printers WHERE id = {imp_loc}; "
+            f"DELETE FROM glpi_agents WHERE id = {sonde_loc}; "
+            f"DELETE FROM glpi_computers WHERE id = {pc_loc};")
         constat("compte rendu : une adresse de suivi est donnée au PC, et elle répond",
                 ok_ko(adresse is not None and statut_suivi == 200
                       and (corps_suivi.startswith(b"ATTENTE") or corps_suivi.startswith(b"TROUVE") or corps_suivi.startswith(b"AUCUNE"))),
@@ -943,8 +1047,29 @@ def main():
                 f"(NOW(), {imprimantes[nom]}, 'Printer', {sonde_source}, 'netinventory');")
             sql("INSERT INTO glpi_plugin_printgestion_toner_readings (printers_id, property_name, level_percent, reading_date, entities_id) "
                 f"VALUES ({imprimantes[nom]}, 'tonerblack', 50, NOW(), {d.CLIENT_A});")
+        # Avant de supprimer : le poste demande ce que ce choix emporterait. Même clé que le compte rendu, relue
+        # et non consommée — sinon la suppression qui suit n'aurait plus de clé.
+        cle_total = cle_de_retrait()
+        compte_url = config.FRONT + f"/agentreport.php?q=1&t={cle_total}&pc=PG-SONDE-TOTAL"
+        _, corps_compte = lib.Session().telecharger(compte_url)
+        _, corps_compte2 = lib.Session().telecharger(compte_url)
+        _, corps_compte_inconnu = lib.Session().telecharger(
+            config.FRONT + f"/agentreport.php?q=1&t={cle_total}&pc=PG-AUCUNE-SONDE-ICI")
+        statut_compte_faux, _ = lib.Session().telecharger(
+            config.FRONT + "/agentreport.php?q=1&t=" + "0" * 48 + "&pc=PG-SONDE-TOTAL")
+        constat("le compte annoncé avant : les mêmes nombres que la suppression, et rien n'est encore supprimé",
+                ok_ko(b"COMPTE OK 1 1 1 0" in corps_compte
+                      and valeur(f"SELECT COUNT(*) FROM glpi_agents WHERE id = {sonde_total}") == "1"
+                      and valeur(f"SELECT COUNT(*) FROM glpi_printers WHERE id = {imprimantes['PG-IMP-SONDE']}") == "1"),
+                f"réponse {corps_compte[:24]!r}")
+        constat("la clé du compte n'est pas consommée : elle répond encore, et servira au compte rendu",
+                ok_ko(b"COMPTE OK 1 1 1 0" in corps_compte2), f"réponse {corps_compte2[:24]!r}")
+        constat("compte demandé pour un PC que GLPI ne connaît pas : « aucune sonde », et rien d'autre",
+                ok_ko(b"COMPTE ABSENT" in corps_compte_inconnu), f"réponse {corps_compte_inconnu[:24]!r}")
+        constat("compte demandé avec une clé inventée : page introuvable",
+                ok_ko(statut_compte_faux == 404), f"HTTP {statut_compte_faux}")
         _, corps_total = lib.Session().telecharger(
-            config.FRONT + f"/agentreport.php?t={cle_de_retrait()}&maj=0&off=1&gl=2&pc=PG-SONDE-TOTAL")
+            config.FRONT + f"/agentreport.php?t={cle_total}&maj=0&off=1&gl=2&pc=PG-SONDE-TOTAL")
         apres = {
             "sonde": valeur(f"SELECT COUNT(*) FROM glpi_agents WHERE id = {sonde_total}"),
             "ordinateur": valeur(f"SELECT COUNT(*) FROM glpi_computers WHERE id = {pc_total}"),
@@ -970,6 +1095,11 @@ def main():
         pc_refus, sonde_refus = sonde_jetable("REFUS")
         _, octets_inst = WEB.telecharger(config.FRONT + f"/agentdeploy.download.php?entities_id={d.CLIENT_A}&os=windows")
         cle_inst = re.search(r"agentreport\.php\?t=([a-f0-9]{48})", octets_inst.decode("utf-8", "replace"))
+        # La même clé d'installation ne compte rien non plus : ce qu'elle ne peut pas supprimer, elle ne le dit pas.
+        _, corps_compte_refus = lib.Session().telecharger(
+            config.FRONT + f"/agentreport.php?q=1&t={cle_inst.group(1) if cle_inst else 'x'}&pc=PG-SONDE-REFUS")
+        constat("clé sans ce droit : le compte lui est refusé aussi",
+                ok_ko(b"COMPTE REFUSE" in corps_compte_refus), f"réponse {corps_compte_refus[:24]!r}")
         _, corps_refus = lib.Session().telecharger(
             config.FRONT + f"/agentreport.php?t={cle_inst.group(1) if cle_inst else 'x'}&maj=0&off=1&gl=1&pc=PG-SONDE-REFUS")
         constat("clé sans ce droit : la sonde reste, et le PC reçoit « refusé »",

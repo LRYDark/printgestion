@@ -495,13 +495,19 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
         }
         echo "</div>";
 
+        // En local (pas de GLPI Inventory), cette cadence n'est pas appliquée par GLPI : elle part sur le PC au
+        // moment de l'installation. Le dire, plutôt que de laisser croire à un réglage à distance.
+        $pilote  = PluginPrintgestionCollectsetup::isAvailable();
         $details = '';
-        if ($current['hours'] < $contact) {
+        if ($pilote && $current['hours'] < $contact) {
             $details .= "<div class='alert alert-warning'>" . $esc(sprintf(__('GLPI ne contacte les agents que toutes les %d h (Administration > Inventaire, fréquence d\'inventaire) : les relevés ne seront pas plus fréquents. Réglez-la à 1 heure pour permettre des relevés plus rapprochés.', 'printgestion'), $contact)) . "</div>";
         }
-        $details .= "<p class='small mb-1'>" . $esc(sprintf(
+        $details .= "<p class='small mb-1'>" . $esc($pilote ? sprintf(
             __('Appliquée par GLPI aux tâches de découverte et d\'inventaire réseau des raccordements de cette entité : rien à régler sur la sonde, rien à réinstaller pour la changer. Au plus souvent, la fréquence d\'inventaire de GLPI (%d h), à laquelle les agents le contactent. Une imprimante n\'est dite muette qu\'après %d jours sans relevé.', 'printgestion'),
             $contact,
+            self::getSilentDaysForEntity($entities_id)
+        ) : sprintf(
+            __('Sans GLPI Inventory, les sondes scannent en local : cette cadence est écrite sur le PC au moment de l\'installation, et se change ensuite sur place (ToolBox de l\'agent) ou en réinstallant la sonde. La modifier ici ne touche pas les sondes déjà posées ; elle servira aux prochaines. Une imprimante n\'est dite muette qu\'après %d jours sans relevé.', 'printgestion'),
             self::getSilentDaysForEntity($entities_id)
         )) . "</p>";
         try {

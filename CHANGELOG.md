@@ -2,9 +2,66 @@
 
 ## Non publié
 
+- **Le retrait ne laisse plus un dossier derrière lui.** Quand un programme tient encore un fichier de
+  `C:\Program Files\GLPI-Agent` — un éditeur ouvert sur le journal de l'agent, par exemple —, la suppression
+  échouait et le dossier restait indéfiniment. Deux ajouts : les programmes qui ont chargé une bibliothèque depuis
+  ce dossier sont fermés eux aussi, et ce qui résiste encore est confié à Windows, qui l'effacera au prochain
+  redémarrage (`MoveFileEx`, ce que font les installeurs) — sans tuer le programme de personne. La fenêtre le dit :
+  « un dossier était encore utilisé : Windows l'effacera au prochain redémarrage ».
+
+- **En mode local, le scan part tout de suite.** Le fichier appuie lui-même sur le « Run task » de la ToolBox de
+  l'agent au lieu d'attendre sa minuterie — un appel HTTP local, rien ne s'affiche. Mesuré chez un client, journal
+  de l'agent à l'appui : le premier passage est parti au bout de 5 min 30, puis de 14 minutes, alors que le code de
+  l'agent annonce « dans la minute ». Le technicien repartait avant.
+
+- **La fenêtre surveille dix minutes au lieu de six**, dans les deux modes. La ToolBox de l'agent met jusqu'à
+  5 min 30 avant son premier scan : on repartait avec « rien trouvé » vingt secondes avant que tout arrive.
+  L'attente s'arrête dès que tout est remonté, elle ne coûte donc rien.
+
+- **Comment lancer le fichier est dit sous les boutons**, et plus seulement dans le panneau replié : sous Linux et
+  macOS, un double-clic n'ouvre qu'un éditeur de texte, rien ne se passe, et rien ne l'expliquait au moment où l'on
+  tient le fichier téléchargé.
+
+- **En mode local, la fenêtre voit enfin ce qui remonte.** La cause tenait en un mot manquant : `global $DB`.
+  GLPI 11 charge les pages `front/` **dans une fonction**, où rien n'est global de soi-même ; la page du suivi,
+  écrite en dernier, l'avait oublié. Chaque interrogation mourait donc en « Call to a member function request() on
+  null » — une erreur 500 que la fenêtre du poste attrape sans un mot avant de réessayer. 828 appels perdus en
+  deux jours, pour une fenêtre qui semblait simplement chercher. Rien n'était visible côté poste : c'est le journal
+  d'erreurs du serveur qui l'a dit. Un contrôle du harnais vérifie désormais que **toute page `front/` qui se sert
+  de `$DB` le déclare**, et le suivi écrit dans le journal du plugin ce qu'il cherche et ce qu'il trouve, pour que
+  la prochaine panne de ce genre se voie au lieu de se deviner.
+
+  Trois autres défauts du même chemin, trouvés en cherchant celui-là : le suivi lisait la table d'adresses d'un
+  raccordement laissé par une installation pilotée précédente (le mode voyage maintenant avec la clé, il ne se
+  devine plus) ; il identifiait les imprimantes par l'agent du journal d'import, que l'inventaire natif ne rattache
+  pas à la sonde (elles se reconnaissent maintenant aux adresses saisies par le technicien) ; et une imprimante
+  déjà connue ne compte que si GLPI l'a inventoriée depuis l'ouverture de la clé, sans quoi la fenêtre annoncerait
+  « trouvée » avant même le scan. Le journal Windows annonce aussi le bon pilotage quand le serveur n'a pas GLPI
+  Inventory (« local », et non « glpi »).
+
+- **« Rien ne remontera » ne s'affiche plus quand GLPI Inventory est simplement absent.** C'était vrai avant le
+  mode local, et faux depuis : sans ce plugin, la sonde scanne par la ToolBox de son agent et les imprimantes
+  remontent, cartouches et compteurs compris. La ligne de santé parle donc désormais de **pilotage** : absente, elle
+  est bleue et explique ce qui change (plage, communauté SNMP et cadence écrites sur chaque PC, invisibles depuis
+  GLPI) ; posée mais inutilisable, elle reste rouge — un pilotage promis qui ne marche pas. L'écran des sondes
+  annonce « Mode local : chaque PC sonde scannera lui-même », et la carte « Fréquence des relevés » ne prétend plus
+  régler à distance ce qui est écrit sur le poste.
+
+- **« Tout supprimer » annonce ce qu'il emporte, avant de le faire.** Le fichier de retrait demande à GLPI ce que
+  ce choix supprimerait et le montre : « Ce choix va supprimer définitivement de GLPI : 1 sonde(s), 10
+  imprimante(s), 1 ordinateur(s), 6 objet(s) de collecte », puis attend un oui. « Non » arrête tout, avant que rien
+  n'ait été touché. Sur un parc de dix imprimantes, lire les nombres après coup ne servait à rien : leurs compteurs
+  de pages étaient déjà perdus. Les nombres viennent de la même sélection que la suppression, et la question ne
+  supprime rien — sur les trois systèmes, avec la console quand aucune fenêtre ne s'ouvre.
+
 - **Le retrait n'abandonne plus un dossier ouvert.** Le journal de l'agent, encore tenu par le service qui venait
   de s'arrêter, faisait échouer la suppression de `C:\Program Files\GLPI-Agent`. Ce qui tient un fichier est
   maintenant fermé, et la suppression retentée.
+
+- **Fin de vérification : « sans réponse » ne veut plus dire « en attente du relevé ».** Une imprimante trouvée,
+  dont seul le relevé de niveaux n'était pas encore passé, était annoncée « toujours sans réponse » — en
+  contredisant la ligne du tableau juste en dessous, et en envoyant chercher une panne de réseau inexistante.
+  Chaque cas a maintenant son message et son niveau, avec le geste qui fait gagner l'attente.
 
 - **Les raccordements avancent tout seuls.** Une tâche automatique (10 minutes) reprend ceux qui sont lancés et
   prépare le relevé des niveaux dès la découverte terminée. Avant, il fallait qu'un humain ouvre l'écran du
@@ -15,6 +72,9 @@
 
 - **Un refus côté GLPI est dit au technicien**, sur le PC : « plage IP en chevauchement », « identifiants déjà
   pris »… au lieu d'un laconique « rien à lancer » dont la cause dormait dans le journal du serveur.
+
+- **Sur un parc, la fenêtre attend toutes les imprimantes**, pas seulement la première : « 10 imprimantes
+  trouvées, 7 niveaux relevés — les autres au prochain passage de la sonde ». Surveillance portée à six minutes.
 
 - **L'installation ne s'arrête plus à « l'imprimante existe ».** Après la découverte, le relevé SNMP attendait le
   prochain appel de la sonde — jusqu'à un jour. Le fichier réveille maintenant l'agent lui-même et attend les

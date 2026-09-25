@@ -110,26 +110,21 @@ class PluginPrintgestionAgentreport {
      */
     public static function purgeProbe(int $entities_id, string $computer, bool $total = false): array {
         $compte = ['issue' => 'ABSENT', 'agents' => 0, 'printers' => 0, 'computers' => 0, 'collecte' => 0];
-        $id     = PluginPrintgestionRaccordement::findAgentByComputer($entities_id, $computer);
-        if ($id <= 0) {
+        $porte  = self::probeScope($entities_id, $computer, $total);
+        if ($porte === null) {
             return $compte;
         }
-        $agent = new Agent();
-        if (!$agent->getFromDB($id)) {
-            return $compte;
-        }
-        // Les imprimantes sont cherchées tant que la sonde est là : c'est elle qui les désigne.
-        $printers     = $total ? self::printersOfProbe($entities_id, $id) : [];
-        $computers_id = $total && (string) $agent->fields['itemtype'] === Computer::class ? (int) $agent->fields['items_id'] : 0;
+        $agent        = $porte['agent'];
+        $id           = (int) $agent->getID();
+        $printers     = $porte['printers'];
+        $computers_id = $porte['computers_id'];
         try {
             // Les objets de collecte d'abord, tant que les raccordements existent : c'est eux qui en gardent la
             // liste, et la suppression de la sonde les emporte.
-            if ($total) {
-                $racc = new PluginPrintgestionRaccordement();
-                foreach ($racc->find(['agents_id' => $id]) as $ligne) {
-                    if ($racc->getFromDB((int) $ligne['id'])) {
-                        $compte['collecte'] += PluginPrintgestionCollectsetup::purgeCreatedItems($racc);
-                    }
+            $racc = new PluginPrintgestionRaccordement();
+            foreach ($porte['raccordements'] as $raccordements_id) {
+                if ($racc->getFromDB($raccordements_id)) {
+                    $compte['collecte'] += PluginPrintgestionCollectsetup::purgeCreatedItems($racc);
                 }
             }
             $printer = new Printer();
@@ -144,11 +139,10 @@ class PluginPrintgestionAgentreport {
                 return $compte;
             }
             $compte['agents'] = 1;
-            // La fiche de l'ordinateur en dernier : la sonde y était rattachée, et seulement si elle est bien
-            // dans l'entité du fichier — une sonde déplacée depuis ne doit pas emporter le PC d'un autre client.
+            // La fiche de l'ordinateur en dernier : la sonde y était rattachée. L'entité a déjà été vérifiée avec
+            // la portée — une sonde déplacée depuis ne doit pas emporter le PC d'un autre client.
             $pc = new Computer();
-            if ($computers_id > 0 && $pc->getFromDB($computers_id) && (int) $pc->fields['entities_id'] === $entities_id
-                && $pc->delete(['id' => $computers_id], true)) {
+            if ($computers_id > 0 && $pc->getFromDB($computers_id) && $pc->delete(['id' => $computers_id], true)) {
                 $compte['computers'] = 1;
             }
         } catch (Throwable $e) {
@@ -158,6 +152,81 @@ class PluginPrintgestionAgentreport {
         }
         $compte['issue'] = $total ? 'TOTAL' : 'OK';
         return $compte;
+    }
+
+    /**
+     * Ce qu'une suppression emporterait, annoncé au poste **avant** qu'il ne la lance, et sans rien supprimer.
+     *
+     * Même clé, même portée, même code de sélection que purgeProbe() : le nombre annoncé est celui qui partira.
+     * C'est tout l'intérêt — « ce choix supprimera 10 imprimantes » dit avant vaut mieux que « 10 imprimantes
+     * supprimées » dit après.
+     *
+     * @return array ['issue' => OK | ABSENT, 'agents', 'printers', 'computers', 'collecte']
+     */
+    public static function countProbe(int $entities_id, string $computer): array {
+        $porte = self::probeScope($entities_id, $computer, true);
+        if ($porte === null) {
+            return ['issue' => 'ABSENT', 'agents' => 0, 'printers' => 0, 'computers' => 0, 'collecte' => 0];
+        }
+        $collecte = 0;
+        $racc     = new PluginPrintgestionRaccordement();
+        foreach ($porte['raccordements'] as $raccordements_id) {
+            if ($racc->getFromDB($raccordements_id)) {
+                $collecte += PluginPrintgestionCollectsetup::countCreatedItems($racc);
+            }
+        }
+        return [
+            'issue'     => 'OK',
+            'agents'    => 1,
+            'printers'  => count($porte['printers']),
+            'computers' => $porte['computers_id'] > 0 ? 1 : 0,
+            'collecte'  => $collecte,
+        ];
+    }
+
+    /**
+     * Portée d'une suppression : la sonde d'un PC dans une entité, et, pour un « tout supprimer », ce qu'elle
+     * emporte — ses imprimantes, la fiche de l'ordinateur qui la portait, ses raccordements.
+     *
+     * Écrite une fois, lue deux fois : par le compte annoncé au poste et par la suppression elle-même. C'est la
+     * seule façon d'être sûr que le nombre promis soit le nombre supprimé.
+     *
+     * @return ?array ['agent' => Agent, 'printers' => int[], 'computers_id' => int, 'raccordements' => int[]]
+     */
+    private static function probeScope(int $entities_id, string $computer, bool $total): ?array {
+        $id = PluginPrintgestionRaccordement::findAgentByComputer($entities_id, $computer);
+        if ($id <= 0) {
+            return null;
+        }
+        $agent = new Agent();
+        if (!$agent->getFromDB($id)) {
+            return null;
+        }
+        // Les imprimantes sont cherchées tant que la sonde est là : c'est elle qui les désigne.
+        $printers     = $total ? self::printersOfProbe($entities_id, $id) : [];
+        $computers_id = 0;
+        if ($total && (string) $agent->fields['itemtype'] === Computer::class) {
+            $candidat = (int) $agent->fields['items_id'];
+            $pc       = new Computer();
+            // L'entité vérifiée ici, et non au moment de supprimer : le poste doit s'entendre annoncer ce qui
+            // partira vraiment.
+            if ($candidat > 0 && $pc->getFromDB($candidat) && (int) $pc->fields['entities_id'] === $entities_id) {
+                $computers_id = $candidat;
+            }
+        }
+        $raccordements = [];
+        if ($total) {
+            $racc = new PluginPrintgestionRaccordement();
+            foreach ($racc->find(['agents_id' => $id]) as $ligne) {
+                $raccordements[] = (int) $ligne['id'];
+            }
+        }
+        return [
+            'agent'         => $agent,
+            'printers'      => $printers,
+            'computers_id'  => $computers_id,
+            'raccordements' => $raccordements,
+        ];
     }
 
     /**

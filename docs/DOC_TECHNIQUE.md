@@ -522,10 +522,14 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
      l'utilisateur ne peut pas lever lui-même tout le blocage ; les actions qui le lèvent (formulaire du TAG, bouton
      créer ou activer la règle) sont affichées juste en dessous. Même contrôle côté serveur : `getPackageBlockers()`
      inclut ces motifs, `agentdeploy.download.php` refuse le paquet (URL directe comprise). Ce qui empêche toute
-     remontée mais se répare après coup (GLPI Inventory absent, inventaire désactivé, actions automatiques en mode
-     GLPI ou cron arrêté : contrôles obligatoires de `Confighealth::getChecks()` hors TAG/règle/URL) : ligne rouge
-     « Rien ne remontera pour l'instant — contactez l'administrateur », sans blocage, causes et liens repliés pour
-     l'administrateur ; l'onglet n'est jamais vert quand rien ne remontera. Boutons Windows, Linux et
+     remontée mais se répare après coup (inventaire GLPI désactivé, GLPI Inventory posé mais inutilisable, actions
+     automatiques en mode GLPI ou cron arrêté : contrôles obligatoires de `Confighealth::getChecks()` hors
+     TAG/règle/URL) : ligne rouge « Rien ne remontera pour l'instant — contactez l'administrateur », sans blocage,
+     causes et liens repliés pour l'administrateur ; l'onglet n'est jamais vert quand rien ne remontera. **GLPI
+     Inventory simplement absent n'en fait pas partie** : le fichier bascule alors sur le scan local et les
+     imprimantes remontent. L'écran l'annonce pour ce que c'est — ligne bleue « Mode local : chaque PC sonde
+     scannera lui-même », avec ce qui change (ni plage, ni tâche, ni raccordement dans GLPI ; cadence réglée sur le
+     PC). Dire « rien ne remontera » était vrai avant le mode local, et faux depuis. Boutons Windows, Linux et
      macOS (actifs dès que leurs fichiers officiels sont vérifiés et le rattachement complet), commande
      Windows et propriétés MSI expliquées, commande Linux, procédure macOS et son `local.cfg` (phase 6).
 - **Fichiers uniques : ce que servent les trois boutons** (`front/agentdeploy.download.php`, `os=windows|linux|macos`,
@@ -688,10 +692,44 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
   raccordements **lancés depuis moins de vingt-quatre heures** (pas les trente minutes de l'écran : une sonde
   appelle GLPI au moins une fois par jour) et appelle `Collectsetup::verify()`, qui repose au passage les modules
   réseau de la sonde et remonte ses erreurs au journal du raccordement.
+- **Un dossier encore tenu au retrait ne reste pas pour toujours** : `Fermer()` arrête les services de l'agent,
+  ferme les programmes lancés depuis le dossier **et** ceux qui y ont chargé une bibliothèque ; si la suppression
+  échoue quand même (un éditeur ouvert sur `logs\glpi-agent.log` suffit), le dossier est confié à Windows par
+  `MoveFileEx(..., MOVEFILE_DELAY_UNTIL_REBOOT)` — les fichiers d'abord, puis les dossiers du plus profond au
+  moins profond, une entrée programmée n'emportant un dossier que s'il est vide à ce moment-là. Piège vérifié à
+  l'essai : la destination doit être `[NullString]::Value` et non `$null`, que PowerShell convertit en chaîne
+  vide — Windows répond alors « chemin introuvable » (code 3) et ne programme rien. L'appel exige les droits
+  administrateur (code 5 sinon) ; le fichier de retrait tourne toujours élevé.
+- **Le scan local ne dépend pas de la minuterie de la ToolBox** : le fichier appuie lui-même sur « Run task »
+  (`POST 127.0.0.1:62354/toolbox/inventory`, champs `submit/run-now` et `checkbox/<tâche>`, encodés comme le ferait
+  un navigateur), juste après avoir relancé le service — six essais espacés de cinq secondes, le temps que le port
+  se rouvre. `Inventory::_submit_runnow()` appelle `netscan()` immédiatement, puis reprogramme la cadence normale :
+  c'est exactement le bouton de l'interface, en un appel HTTP local qui n'affiche rien. Pourquoi : le code de
+  l'agent annonce un premier passage « dans la minute » pour une tâche jamais lancée (`_get_next_run_date()`
+  ramène la date à maintenant, avec `rand(60)`), mais mesuré chez un client, journal de l'agent à l'appui, il est
+  parti au bout de 5 min 30, puis de 14 min 04 — la seconde fois à la seconde où quelqu'un a ouvert la page de la
+  ToolBox. Un échec de cet appel ne casse rien : le scan partira à sa cadence, comme avant.
 - **Le suivi répond aussi en mode local** (`front/agentprogress.php`) : sans GLPI Inventory il n'y a pas de
   raccordement, et le suivi ne savait lire que ça — la fenêtre restait muette jusqu'au bout de son délai, même
-  quand la ToolBox avait parfaitement scanné. Il lit maintenant, dans ce cas, ce que GLPI dit de la sonde
-  (`glpi_rulematchedlogs`), avec le même compte de niveaux.
+  quand la ToolBox avait parfaitement scanné. **Le mode vient de la clé de suivi**, jamais de ce qui traîne en
+  base : un poste déjà utilisé en mode piloté garde son raccordement dans GLPI, et le suivi lisait alors SA table
+  d'adresses — que personne ne remplit quand c'est la ToolBox qui scanne. En local, il reconnaît les imprimantes
+  aux **adresses saisies par le technicien** : la clé de suivi les emporte (`Agenttoken::createProgress($entities_id, $computer, $ips)`), et
+  l'écran cherche les imprimantes de l'entité qui portent une de ces adresses (`glpi_ipaddresses`, colonnes
+  `mainitemtype`/`mainitems_id`, comme partout ailleurs dans le plugin), avec le même compte de niveaux. Une
+  imprimante déjà connue ne compte que si elle vient d'être relevée : sur un parc déjà inventorié, la fenêtre
+  annoncerait sinon « trouvée » avant même le scan de la sonde. Deux témoins, le plus récent l'emporte — la date
+  d'inventaire que GLPI pose sur la fiche (`glpi_printers.last_inventory_update`, le seul qui bouge quand une
+  imprimante déjà connue est simplement relevée à nouveau) et le journal d'import (`Collect::getImportDates()`,
+  qui couvre aussi les passages de GLPI Inventory). **La borne est calculée par la base**, pas par PHP : les deux
+  horloges du serveur ne sont pas toujours réglées sur le même fuseau (MySQL en UTC, PHP à l'heure de Paris :
+  constaté chez un client, deux heures d'écart), et une imprimante relevée à l'instant passait alors pour plus
+  vieille que la clé. On mesure l'âge de la clé en secondes — une différence entre deux instants PHP, insensible
+  au fuseau — et `DATE_SUB(NOW(), INTERVAL <âge> SECOND)` en fait une date dans l'horloge qui a écrit les lignes.
+  Pourquoi pas par l'agent du journal d'import (`glpi_rulematchedlogs.agents_id`, le premier chemin retenu) : en
+  inventaire natif, cette ligne porte l'agent rattaché à l'imprimante elle-même, jamais la sonde — la fenêtre
+  attendait six minutes sans rien voir pendant que l'imprimante entrait dans GLPI avec ses cartouches (constaté
+  chez un client le 25/09/2026). Ce chemin reste en repli pour les clés d'anciens fichiers, sans adresses.
 - **Un refus du raccordement remonte jusqu'au PC** : `agentreport.php` renvoie `ERREUR <cause>` (plage en
   chevauchement, identifiants déjà pris, tâche désactivée…) et la fenêtre l'affiche à l'étape « Compte rendu ».
   Avant, tout cela finissait en réponse vide et « rien à lancer » : la raison n'existait que côté serveur, et le
@@ -703,7 +741,15 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
   (`front/agentprogress.php`) renvoie donc `TROUVE <imprimantes> <avec niveaux>`, et le script, qui tourne **sur le
   poste**, redemande un passage à l'agent local (`127.0.0.1:62354/now`) dès qu'il voit des imprimantes sans
   niveaux, puis attend. La fenêtre annonce « 1 imprimante(s) trouvée(s) et ajoutée(s) dans GLPI, niveaux relevés »
-  — ou « niveaux au prochain passage de la sonde » si le délai passe, jamais un faux échec.
+  — ou « niveaux au prochain passage de la sonde » si le délai passe, jamais un faux échec. Sur un parc, elle
+  attend que **toutes** les imprimantes trouvées aient leurs niveaux (annoncer « relevés » dès la première serait
+  faux neuf fois sur dix), et dit le compte exact quand le délai passe : « 10 imprimantes trouvées, 7 niveaux
+  relevés — les autres au prochain passage de la sonde ». Surveillance : dix minutes (`WATCH_TRIES` × `WATCH_WAIT`),
+  dans les deux modes, et elle s'arrête dès que tout est remonté — attendre ne coûte donc rien. Mesuré chez un
+  client : la ToolBox de l'agent met jusqu'à 5 min 30 avant son premier scan, et un /24 avec plusieurs imprimantes
+  prend plus longtemps qu'une seule adresse. La clé de suivi vit un quart d'heure (`PROGRESS_TTL`), plus que la
+  surveillance : une clé qui expire avant la fin ferait échouer les derniers appels, ceux qui rapportent enfin
+  quelque chose.
 - **La fenêtre d'installation tient en trois pages** (`buildWindowsDialogLines()`, `resources/macos-fenetre.js`) :
   *l'agent*, *les imprimantes*, *le scan* — avec « Précédent » et « Suivant », « Installer » n'apparaissant qu'à la
   dernière (la touche Entrée suit le bouton visible, on n'installe donc pas depuis la première page). Les cinq
@@ -764,6 +810,19 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
     (`toolbox.yaml`, `toolbox-plugin.local`, la configuration et le journal de l'agent). Les **expéditions et les demandes
     d'envoi** restent : elles racontent ce qui a été livré, et une comptabilité ne s'efface pas avec le matériel.
     Restent aussi les objets GLPI Inventory créés par un raccordement, qu'un administrateur peut partager.
+  - **Annoncé avant, pas après** : « tout supprimer » coché, le fichier demande d'abord à GLPI ce que ce choix
+    emporterait (`agentreport.php?q=1&pc=…`) et le montre — « Ce choix va supprimer définitivement de GLPI : 1
+    sonde(s), 10 imprimante(s), 1 ordinateur(s), 6 objet(s) de collecte » — puis attend un oui. « Non » arrête
+    tout, avant que rien n'ait été touché sur le poste. Sur un parc de dix, lire les nombres après coup ne servait
+    à rien : les compteurs de pages étaient déjà perdus. La question est posée par la fenêtre du système (boîte
+    Windows avec « Non » par défaut, question zenity, boîte Cocoa) et, quand aucune ne s'ouvre, en console ; une
+    fenêtre qui manque ne vaut jamais un « non » — le choix du technicien est alors conservé, comme partout
+    ailleurs. Côté serveur, `q=1` **ne supprime rien** : la clé est **relue** et non consommée (`Agenttoken::peek()`,
+    car elle doit encore servir au compte rendu), la réponse est `COMPTE OK <sondes> <imprimantes> <ordinateurs>
+    <collecte>`, `COMPTE ABSENT` ou `COMPTE REFUSE` (clé sans ce droit), et les nombres viennent de la **même**
+    sélection que la suppression (`Agentreport::probeScope()`, partagée par `countProbe()` et `purgeProbe()`) : ce
+    qui est promis est ce qui part. Les mêmes mots habillent les nombres avant et après (`Liste` en PowerShell,
+    `pg_liste` en sh).
   - **Les imprimantes d'une sonde** : celles que GLPI dit être entrées par elle (`glpi_rulematchedlogs`, dernière
     sonde connue de chaque imprimante — la « sonde responsable » du contrôle de la remontée), dans l'entité du
     fichier. Une imprimante relevée depuis par une autre sonde n'est pas emportée.

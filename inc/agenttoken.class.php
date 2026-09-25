@@ -50,8 +50,12 @@ class PluginPrintgestionAgenttoken {
     const USAGE_REPORT = 'report';
     /** Suivi de la découverte, le temps d'une installation : plusieurs lectures, et rien d'autre. */
     const USAGE_PROGRESS = 'progress';
-    /** Durée de vie de la clé de suivi : le temps d'une découverte, pas celui d'une journée. */
-    const PROGRESS_TTL = 600;
+    /**
+     * Durée de vie de la clé de suivi : le temps d'une découverte, pas celui d'une journée. Un quart d'heure, soit
+     * plus que la surveillance elle-même (dix minutes) : une clé qui expire avant la fin de la surveillance fait
+     * échouer les derniers appels, ceux-là mêmes qui rapportent enfin quelque chose.
+     */
+    const PROGRESS_TTL = 900;
 
     /** Longueur du jeton en caractères hexadécimaux (24 octets tirés au hasard). */
     const LENGTH = 48;
@@ -132,12 +136,25 @@ class PluginPrintgestionAgenttoken {
     /**
      * Clé de suivi : elle ne sait dire qu'une chose, combien d'imprimantes la découverte a trouvées et leurs noms.
      *
-     * Elle se lit plusieurs fois — la fenêtre d'installation interroge toutes les dix secondes — mais dix minutes
-     * seulement, et pour ce PC-là dans cette entité-là. Elle n'ouvre rien, ne modifie rien qui ne serait déjà fait
+     * Elle se lit plusieurs fois — la fenêtre d'installation interroge toutes les dix secondes — mais un quart
+     * d'heure seulement, et pour ce PC-là dans cette entité-là. Elle n'ouvre rien, ne modifie rien qui ne serait déjà fait
      * par l'écran du raccordement, et disparaît avec l'installation.
+     *
+     * $ips : les adresses tapées dans la fenêtre. Elles ne servent qu'à reconnaître les imprimantes de ce chantier
+     * en scan local — et jamais à écrire quoi que ce soit. $local : le scan est fait par la ToolBox de l'agent,
+     * donc rien à attendre d'un raccordement, même s'il en traîne un d'une installation précédente.
      */
-    public static function createProgress(int $entities_id, string $computer): ?string {
-        return self::add($entities_id, self::USAGE_PROGRESS, ['pc' => $computer], self::PROGRESS_TTL);
+    public static function createProgress(int $entities_id, string $computer, string $ips = '', bool $local = false): ?string {
+        // Les adresses saisies par le technicien voyagent avec la clé : sans GLPI Inventory, il n'y a pas de
+        // raccordement à relire, et c'est à elles qu'on reconnaît les imprimantes de ce chantier.
+        // Le mode aussi : il est décidé à l'installation, et ne se devine pas côté serveur. Un poste déjà utilisé
+        // en mode piloté garde son raccordement dans GLPI ; le suivi le retrouvait et lisait sa table d'adresses,
+        // que personne ne remplit en local — six minutes d'attente pour rien.
+        return self::add($entities_id, self::USAGE_PROGRESS, [
+            'pc'    => $computer,
+            'ips'   => $ips,
+            'local' => $local,
+        ], self::PROGRESS_TTL);
     }
 
     /**
