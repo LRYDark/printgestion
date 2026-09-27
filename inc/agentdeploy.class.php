@@ -24,8 +24,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
 
     /** Dépôt officiel de GLPI Agent. */
     const REPOSITORY = 'glpi-project/glpi-agent';
-    /** Dernière version publiée vérifiée (release GitHub du 4 août 2026) ; épinglable dans les réglages. */
-    const DEFAULT_VERSION = '1.19';
+    /** Dernière version publiée vérifiée (release GitHub du 24 septembre 2026) ; épinglable dans les réglages. */
+    const DEFAULT_VERSION = '1.20';
     /** Inventaire du poste + découverte et inventaire réseau : seul l'inventaire est installé par défaut depuis l'agent 1.8. */
     const ADDLOCAL = 'feat_AGENT,feat_NETINV';
     /** Réessais SNMP (0 par défaut : un paquet perdu fait disparaître les consommables d'un relevé). */
@@ -235,7 +235,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
 
         $errors = [];
         if ($version !== '' && !preg_match('/^\d+\.\d+(\.\d+)?$/', $version)) {
-            $errors[] = __('Version invalide (exemple : 1.19).', 'printgestion');
+            $errors[] = __('Version invalide (exemple : 1.20).', 'printgestion');
         }
         if ($trust !== '' && !self::isValidTrustList($trust)) {
             $errors[] = __('Adresses autorisées invalides : adresses IPv4 ou plages CIDR séparées par des virgules.', 'printgestion');
@@ -5342,10 +5342,11 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             // Alignement par le haut : ce sont les étiquettes qui doivent se répondre d'une colonne à l'autre, pas
             // les champs — une aide plus longue que les autres décalait tout le reste vers le bas.
             echo "<form method='post' action='" . $esc($page) . "' class='row g-3 align-items-start'>";
-            // « Version épinglée (vide : dernière vérifiée) » était faux : vide, c'est la version de référence du
-            // plugin, pas la dernière publiée. Et c'est ce champ qui décide du fichier que le serveur distribue.
+            // Ce champ décide du fichier que le serveur distribue. Le choix vide n'épingle rien : le plugin
+            // prend alors la version qu'il connaît, et le libellé le dit en ces termes — « référence du plugin »
+            // ne voulait rien dire pour qui lit l'écran, et laissait croire à une recommandation.
             echo "<div class='col-md-4'><label class='form-label'>" . $esc(__('Version des agents', 'printgestion')) . "</label>"
-                . PluginPrintgestionAgentsetting::versionField('agent_version', trim((string) ($config->fields['agent_version'] ?? '')), sprintf(__('%s (référence du plugin)', 'printgestion'), self::DEFAULT_VERSION))
+                . PluginPrintgestionAgentsetting::versionField('agent_version', trim((string) ($config->fields['agent_version'] ?? '')), sprintf(__('Ne rien épingler — version connue du plugin : %s', 'printgestion'), self::DEFAULT_VERSION))
                 . "<div class='form-hint'>" . $esc(__('Distribuée aux nouvelles sondes, et visée par les mises à jour des autres. À récupérer ci-dessous après changement.', 'printgestion')) . "</div></div>";
             PluginPrintgestionAgentsetting::showLatestVersionColumn(true, 'col-md-4');
             PluginPrintgestionAgentsetting::showUpdateRuleColumn(true, 'col-md-4');

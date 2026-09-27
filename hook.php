@@ -7,7 +7,7 @@
 function plugin_printgestion_install() {
     // Chargement explicite des classes utiles à l'installation : l'ordre
     // d'exécution ne dépend plus de l'ordre alphabétique des fichiers de inc/.
-    foreach (['schema', 'config', 'snmpmapping', 'reminder', 'profile', 'notificationtargetdemande', 'agentsetting', 'agentalert', 'notificationtargetagentalert', 'purchaseorder', 'notificationtargetpurchaseorder', 'logger', 'entityscope', 'alertview'] as $name) {
+    foreach (['schema', 'config', 'snmpmapping', 'reminder', 'profile', 'notificationtargetdemande', 'agentsetting', 'agentalert', 'notificationtargetagentalert', 'purchaseorder', 'notificationtargetpurchaseorder', 'logger', 'entityscope', 'alertview', 'dependencies'] as $name) {
         if (!class_exists('PluginPrintgestion' . ucfirst($name), false)) {
             include_once(dirname(__FILE__) . '/inc/' . $name . '.class.php');
         }
@@ -48,6 +48,12 @@ function plugin_printgestion_install() {
 
     // Notification native des commandes non transmises aux Achats (créée active, idempotent).
     PluginPrintgestionNotificationTargetPurchaseorder::install();
+
+    // Ce que le plugin emprunte à GLPI : tables, colonnes, classes. Une mise à jour de GLPI peut en déplacer une,
+    // et le plugin ne tombe alors pas en panne bruyamment — il devient aveugle. L'administrateur l'apprend ici,
+    // au moment où il met à jour, et non le jour où un technicien reste devant une fenêtre qui cherche.
+    // Jamais bloquant : un élément manquant éteint une partie du plugin, il ne le rend pas inutilisable.
+    PluginPrintgestionDependencies::reportAtInstall();
 
     return true;
 }

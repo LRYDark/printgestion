@@ -267,7 +267,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         $manual = trim((string) ($input['agent_latest_version'] ?? ''));
         $errors = [];
         if ($manual !== '' && !self::isValidVersion($manual)) {
-            $errors[] = __('Dernière version invalide (exemple : 1.19).', 'printgestion');
+            $errors[] = __('Dernière version invalide (exemple : 1.20).', 'printgestion');
         }
         if (!empty($errors)) {
             return $errors;

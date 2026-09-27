@@ -203,6 +203,43 @@ if ($agents_id > 0) {
                 $trouvees[(int) $row['id']] = (string) $row['name'];
             }
         }
+        // Deuxième regard, qui ne doit rien au rangement des adresses : les imprimantes de cette entité que GLPI
+        // vient d'inventorier depuis l'ouverture de la clé. La date est posée par GLPI lui-même sur la fiche, à
+        // chaque inventaire reçu — c'est le fait brut « quelque chose est arrivé pendant cette installation ».
+        //
+        // Pourquoi deux chemins : avec l'agent 1.19, l'adresse suffisait ; avec la 1.20, la fenêtre est devenue
+        // aveugle du jour au lendemain devant une imprimante pourtant affichée dans GLPI. Un seul chemin de
+        // reconnaissance, c'est une panne muette à chaque changement chez le voisin.
+        if ($DB->fieldExists(Printer::getTable(), 'last_inventory_update')) {
+            foreach ($DB->request([
+                'SELECT' => ['id', 'name'],
+                'FROM'   => Printer::getTable(),
+                'WHERE'  => [
+                    'entities_id' => $entities_id,
+                    'is_deleted'  => 0,
+                    ['last_inventory_update' => ['>=', $depuis]],
+                ],
+                'ORDER'  => ['name'],
+                'LIMIT'  => 50,
+            ]) as $row) {
+                $trouvees[(int) $row['id']] = (string) $row['name'];
+            }
+        }
+
+        // Rien aux adresses du technicien alors que la clé a déjà trois minutes : l'attente n'est plus normale,
+        // et c'est le seul moment où le silence coûte cher. Avant, on se taisait — et l'on cherchait ensuite à
+        // l'aveugle. Une installation qui se passe bien n'écrit toujours rien : elle trouve en moins de trois
+        // minutes, et la fenêtre se referme.
+        if ($trouvees === [] && $refusee === [] && (time() - (int) ($entry['created_at'] ?? time())) > 180) {
+            PluginPrintgestionLogger::info('agentprogress', sprintf(
+                'Sonde %1$s (agent %2$d) : aucune imprimante à ces adresses (%3$s) ni inventoriée dans l\'entité %4$d depuis le début — la fenêtre attend depuis plus de trois minutes.',
+                $computer,
+                $agents_id,
+                implode(', ', $adresses),
+                $entities_id
+            ));
+        }
+
         foreach ($trouvees as $printers_id => $nom) {
             $nom    = trim($nom);
             $noms[] = $nom !== '' ? $nom : sprintf(__('Imprimante n° %d', 'printgestion'), $printers_id);
@@ -210,6 +247,20 @@ if ($agents_id > 0) {
                 $niveaux++;
             }
         }
+    }
+
+    // La fenêtre n'a fini que lorsque CHAQUE imprimante trouvée a ses niveaux. Quand il en manque, elle attend
+    // sans pouvoir le dire : une ligne ici, et une seule dans ce cas, montre l'écart — deux imprimantes à la même
+    // adresse dont une seule relevée, par exemple. Silence quand le compte est bon.
+    if (!empty($noms) && $niveaux < count($noms)) {
+        PluginPrintgestionLogger::info('agentprogress', sprintf(
+            'Sonde %1$s (agent %2$d) : %3$d imprimante(s) — %4$s —, %5$d avec des niveaux : la fenêtre attend les autres.',
+            $computer,
+            $agents_id,
+            count($noms),
+            implode(', ', $noms),
+            $niveaux
+        ));
     }
 
     if (!empty($noms)) {

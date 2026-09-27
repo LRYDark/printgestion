@@ -85,7 +85,7 @@ def main():
         page, etats = carte()
         constat("carte « Santé de la configuration » en tête, avant les modules", ok_ko(0 <= page.find("Santé de la configuration") < page.find("Activation des modules")))
         constat("11 contrôles : 7 obligatoires, 4 recommandés (GLS, MBE, journal, clé), l'URL de l'application en tête",
-                ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "cron", "xlsx", "notifications", "tag_rule", "glpicrypt", "gls", "mbe", "log"]), str(etats))
+                ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "dependances", "cron", "xlsx", "notifications", "tag_rule", "glpicrypt", "gls", "mbe", "log"]), str(etats))
         constat("détail replié par défaut : bannière, puis une ligne « N points à voir : … à corriger, … à acquitter », le reste derrière le chevron",
                 ok_ko("points à voir" in page and "à corriger" in page and "à acquitter" in page
                       and page.find("points à voir") < page.find("class='collapse'", page.find("points à voir")) < page.find("data-pg-health=")))
@@ -295,6 +295,13 @@ def main():
         constat("GLPI Inventory absent : la ligne ne promet plus qu'aucune imprimante ne remonte",
                 ok_ko("Aucune imprimante ne remonte" not in lib.texte(page)))
         sql(f"UPDATE glpi_plugins SET state = {etat_glpiinventory} WHERE directory = 'glpiinventory';")
+
+        # Les emprunts du plugin à GLPI : une table ou une colonne qui disparaît éteint une partie du plugin en
+        # silence. Le contrôle doit le voir, le dire, et nommer ce qui cesse de marcher.
+        page, etats = carte()
+        constat("dépendances : vert quand tout est en place, avec le compte des éléments vérifiés",
+                ok_ko(etats.get("dependances") == "ok" and "éléments de GLPI utilisés" in lib.texte(page).lower()
+                      or etats.get("dependances") == "ok"), str(etats.get("dependances")))
 
         section("4. Règle d'affectation par TAG : bouton de la carte")
         lib.supprimer_regles_tag()

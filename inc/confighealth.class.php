@@ -116,6 +116,26 @@ class PluginPrintgestionConfighealth {
             'detail' => implode('<br>', array_map($esc, array_merge($prerequisites['blocking'], $prerequisites['warnings']))),
         ];
 
+        // Ce que le plugin emprunte à GLPI et à son voisin. Obligatoire : quand un de ces éléments disparaît,
+        // une partie du plugin s'éteint sans bruit — c'est précisément le genre de panne qu'on ne trouve qu'après
+        // des heures (vécu le 27/09/2026 : une adresse rangée ailleurs par l'agent 1.20, et la fenêtre
+        // d'installation aveugle).
+        $deps = PluginPrintgestionDependencies::check();
+        $checks[] = [
+            'key'    => 'dependances',
+            'group'  => 'required',
+            'label'  => __('Éléments de GLPI utilisés par le plugin', 'printgestion'),
+            'state'  => empty($deps['manquants']) ? self::STATE_OK : self::STATE_ERROR,
+            'status' => PluginPrintgestionDependencies::summary($deps),
+            'breaks' => __('Ce qui s\'appuie sur l\'élément manquant s\'arrête en silence : relevés, alertes ou reconnaissance des imprimantes, selon celui qui manque. Le détail ci-dessous dit lequel et ce qu\'il sert.', 'printgestion'),
+            'fix'    => __('Mettre à jour Print Gestion ; si aucune version ne corrige, le signaler avec la liste ci-dessous', 'printgestion'),
+            'url'    => '',
+            'detail' => empty($deps['manquants']) ? '' : implode('<br>', array_map(
+                static fn(array $m) => '<code>' . $esc($m['quoi']) . '</code> — ' . $esc($m['sert']),
+                $deps['manquants']
+            )),
+        ];
+
         $cron = self::getCronStatus();
         $checks[] = [
             'key'    => 'cron',

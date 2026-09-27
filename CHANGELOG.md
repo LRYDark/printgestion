@@ -2,6 +2,23 @@
 
 ## Non publié
 
+- **Un contrôle de ce que le plugin emprunte à GLPI, avec alerte à la mise à jour.** Tables, colonnes, classes et
+  constantes dont Print Gestion dépend sont déclarées, chacune avec ce qu'elle sert. Le contrôle est joué à
+  l'installation et à chaque mise à jour du plugin (message à l'administrateur : « 2 éléments sur 47 ont changé ou
+  disparu », avec la liste et ce qui cesse de marcher), et veille en permanence dans la carte « Santé de la
+  configuration ». Raison : quand un élément bouge chez le voisin, le plugin ne tombe pas en panne bruyamment — il
+  devient aveugle, et l'on cherche des heures.
+
+- **La fenêtre d'installation ne dépend plus d'un seul chemin pour reconnaître les imprimantes.** En plus des
+  adresses saisies, elle retient celles que GLPI vient d'inventorier dans l'entité depuis le début de
+  l'installation. L'agent 1.20 rangeait l'adresse ailleurs que la 1.19 : la fenêtre tournait dix minutes dans le
+  vide devant une imprimante pourtant affichée dans GLPI, cartouches comprises.
+
+- **La version des agents ne se présente plus comme « la référence du plugin ».** Le choix vide de la liste dit
+  maintenant ce qu'il fait — « Ne rien épingler — version connue du plugin : 1.20 » — et la version connue passe à
+  la 1.20, publiée le 24 septembre 2026. Rien n'est imposé : la liste propose toujours les versions publiées, et
+  une version épinglée reste épinglée.
+
 - **Le retrait ne laisse plus un dossier derrière lui.** Quand un programme tient encore un fichier de
   `C:\Program Files\GLPI-Agent` — un éditeur ouvert sur le journal de l'agent, par exemple —, la suppression
   échouait et le dossier restait indéfiniment. Deux ajouts : les programmes qui ont chargé une bibliothèque depuis

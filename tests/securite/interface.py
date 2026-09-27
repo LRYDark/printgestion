@@ -683,6 +683,12 @@ def main():
         constat("le menu propose les versions publiées, la valeur réglée est sélectionnée",
                 ok_ko(len(options) == 1 and "1.20" in options[0] and "1.18" in options[0]
                       and "value='1.19' selected" in options[0]))
+        # Le choix vide dit ce qu'il fait — « référence du plugin » ne voulait rien dire, et se lisait comme une
+        # recommandation à suivre. Il annonce la version que le plugin connaît, sans la présenter comme la bonne.
+        constat("le choix vide dit qu'il n'épingle rien, et nomme la version connue du plugin",
+                ok_ko(len(options) == 1 and "Ne rien épingler" in lib.texte(options[0])
+                      and "référence du plugin" not in lib.texte(page)))
+
         # Une version épinglée qui a disparu de GitHub ne doit pas être perdue en silence : tout un parc basculerait.
         sql("UPDATE glpi_plugin_printgestion_configs SET agent_version = '1.11' WHERE id = 1;")
         _, page, _ = WEB.get(config.FRONT + "/agentdeploy.php")
