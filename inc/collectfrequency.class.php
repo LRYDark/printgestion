@@ -466,9 +466,11 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
         if (!PluginPrintgestionUi::isAdmin()) {
             return;
         }
-        ob_start();
+        // Quatrième étape de l'onglet, après le raccordement : une carte à part, réservée à l'administrateur.
+        echo "<div class='card mb-3' data-pg-admin='1'><div class='card-header'><h3 class='card-title mb-0'>"
+            . htmlspecialchars(__('4. Fréquence des relevés', 'printgestion'), ENT_QUOTES, 'UTF-8') . "</h3></div><div class='card-body'>";
         self::showAdminBlock($entity);
-        echo PluginPrintgestionUi::adminDetails(__('Fréquence des relevés', 'printgestion'), (string) ob_get_clean());
+        echo "</div></div>";
     }
 
     private static function showAdminBlock(Entity $entity): void {

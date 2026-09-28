@@ -26,10 +26,12 @@ class PluginPrintgestionContextmenu {
     /** Types pris en charge, avec le module qui les porte. */
     private static function getFeatures(): array {
         return [
-            'PluginPrintgestionAlertview'   => 'toner',
-            'PluginPrintgestionDemande'     => 'toner',
-            'PluginPrintgestionExpedition'  => 'toner',
-            'PluginPrintgestionBillingview' => 'cout',
+            'PluginPrintgestionAlertview'    => 'toner',
+            'PluginPrintgestionDemande'      => 'toner',
+            'PluginPrintgestionExpedition'   => 'toner',
+            'PluginPrintgestionBillingview'  => 'cout',
+            'PluginPrintgestionRaccordement' => 'deploiement',
+            'Agent'                          => 'deploiement',
         ];
     }
 
@@ -52,6 +54,10 @@ class PluginPrintgestionContextmenu {
                 return Session::haveRight('plugin_printgestion_expedition', READ);
             case 'PluginPrintgestionBillingview':
                 return Session::haveRight('plugin_printgestion_billing', READ);
+            case 'PluginPrintgestionRaccordement':
+            case 'Agent':
+                // Les sondes (Agents) ne sont montrées par le plugin qu'avec le droit Déploiement.
+                return Session::haveRight('plugin_printgestion_deploiement', READ);
         }
         return false;
     }
@@ -153,6 +159,22 @@ class PluginPrintgestionContextmenu {
                                 'kind' => 'link', 'field' => 'printer_url', 'require' => 'has_printer'];
                 }
                 break;
+
+            case 'PluginPrintgestionRaccordement':
+                $items[] = ['key' => 'open-raccordement', 'icon' => 'ti ti-plug-connected', 'label' => __('Ouvrir le raccordement', 'printgestion'),
+                            'kind' => 'link', 'field' => 'raccordement_url', 'require' => ''];
+                $items[] = ['key' => 'open-agent', 'icon' => 'ti ti-robot', 'label' => __('Ouvrir la sonde', 'printgestion'),
+                            'kind' => 'link', 'field' => 'agent_url', 'require' => 'has_agent'];
+                break;
+
+            case 'Agent':
+                $items[] = ['key' => 'open-agent', 'icon' => 'ti ti-robot', 'label' => __('Ouvrir la sonde', 'printgestion'),
+                            'kind' => 'link', 'field' => 'agent_url', 'require' => ''];
+                $items[] = ['key' => 'open-raccordement', 'icon' => 'ti ti-plug-connected', 'label' => __('Reprendre le raccordement en cours', 'printgestion'),
+                            'kind' => 'link', 'field' => 'raccordement_url', 'require' => 'has_open_raccordement'];
+                $items[] = ['key' => 'history', 'icon' => 'ti ti-history', 'label' => __('Historique des raccordements de cette sonde', 'printgestion'),
+                            'kind' => 'link', 'field' => 'history_url', 'require' => 'has_raccordements'];
+                break;
         }
         return $items;
     }
@@ -219,7 +241,8 @@ class PluginPrintgestionContextmenu {
   var current  = null;
   var pending  = false;
 
-  // Identité d'une ligne : la case native d'abord, le marqueur de la colonne de statut sinon (lecture seule).
+  // Identité d'une ligne : la case native, le marqueur de la colonne de statut (lecture seule), ou les attributs
+  // data-itemtype / data-id des tableaux du plugin (onglet de l'entité).
   function rowId(tr) {
     var boxes = tr.querySelectorAll('input.massive_action_checkbox');
     for (var i = 0; i < boxes.length; i++) {
@@ -230,13 +253,14 @@ class PluginPrintgestionContextmenu {
     for (var j = 0; j < marks.length; j++) {
       if (marks[j].getAttribute('data-itemtype') === cfg.itemtype) { return parseInt(marks[j].getAttribute('data-id'), 10) || 0; }
     }
+    if (tr.getAttribute('data-itemtype') === cfg.itemtype) { return parseInt(tr.getAttribute('data-id'), 10) || 0; }
     return 0;
   }
 
   // Lignes affichées : marquées, puis leur contexte lu en une requête (seules les inconnues sont demandées).
   function load() {
     var ids = [];
-    var rows = document.querySelectorAll('[data-glpi-search-container] tbody tr');
+    var rows = document.querySelectorAll('[data-glpi-search-container] tbody tr, .pg-datatable tbody tr');
     for (var i = 0; i < rows.length; i++) {
       var id = rowId(rows[i]);
       if (id > 0) {
@@ -263,7 +287,7 @@ class PluginPrintgestionContextmenu {
 
   function hide() { menu.style.display = 'none'; }
 
-  document.addEventListener('contextmenu', function (e) {
+  function onContext(e) {
     var tr = e.target.closest('tr.pg-ctx-row');
     if (!tr) { return; }
     var id = parseInt(tr.getAttribute('data-pg-ctx-id'), 10);
@@ -285,9 +309,19 @@ class PluginPrintgestionContextmenu {
     menu.style.left = e.pageX + 'px';
     menu.style.top  = e.pageY + 'px';
     menu.style.display = 'block';
-  });
-  document.addEventListener('click', function (e) { if (!e.target.closest('#pc-ctx-menu')) { hide(); } });
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { hide(); } });
+  }
+
+  // Un seul jeu d'écouteurs sur le document, même quand un onglet AJAX recharge ce script : ils appellent la
+  // dernière instance (menu et configuration du contenu affiché).
+  var shared = window.PG_CTX = window.PG_CTX || {};
+  shared.onContext = onContext;
+  shared.hide      = hide;
+  if (!shared.bound) {
+    shared.bound = true;
+    document.addEventListener('contextmenu', function (e) { shared.onContext(e); });
+    document.addEventListener('click', function (e) { if (!e.target.closest('#pc-ctx-menu')) { shared.hide(); } });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { shared.hide(); } });
+  }
 
   // Action native : cette ligne seule cochée, fenêtre « Actions » de GLPI ouverte, action déjà choisie.
   function nativeAction(tr, actionKey) {
@@ -379,8 +413,84 @@ JS;
                 return self::expeditionContext($ids);
             case 'PluginPrintgestionBillingview':
                 return self::billingContext($ids);
+            case 'PluginPrintgestionRaccordement':
+                return self::raccordementContext($ids);
+            case 'Agent':
+                return self::agentContext($ids);
         }
         return [];
+    }
+
+    private static function raccordementContext(array $ids): array {
+        global $DB;
+
+        $table = PluginPrintgestionRaccordement::getTable();
+        $out   = [];
+        foreach ($DB->request([
+            'SELECT' => ['id', 'agents_id'],
+            'FROM'   => $table,
+            'WHERE'  => array_merge(['id' => $ids], getEntitiesRestrictCriteria($table, '', '', false)),
+        ]) as $row) {
+            $agents_id             = (int) $row['agents_id'];
+            $out[(int) $row['id']] = [
+                'raccordement_url' => PluginPrintgestionRaccordement::getPageURL((int) $row['id']),
+                'agent_url'        => $agents_id > 0 ? PluginPrintgestionAgentsetting::getPageURL($agents_id) : '',
+                'has_agent'        => $agents_id > 0,
+            ];
+        }
+        return $out;
+    }
+
+    /** Sondes de l'onglet Déploiement Agent d'une entité : la sonde, son dernier raccordement, son historique. */
+    private static function agentContext(array $ids): array {
+        global $DB;
+
+        $table = Agent::getTable();
+        $rows  = iterator_to_array($DB->request([
+            'SELECT' => ['id', 'entities_id'],
+            'FROM'   => $table,
+            'WHERE'  => array_merge(['id' => $ids], getEntitiesRestrictCriteria($table, '', '', true)),
+        ]), false);
+        // Dernier raccordement de chaque sonde, dans le périmètre de l'utilisateur.
+        $last  = [];
+        $count = [];
+        if (!empty($rows)) {
+            $racc_table = PluginPrintgestionRaccordement::getTable();
+            foreach ($DB->request([
+                'SELECT' => ['id', 'agents_id', 'status'],
+                'FROM'   => $racc_table,
+                'WHERE'  => array_merge(
+                    ['agents_id' => array_map(static fn(array $r): int => (int) $r['id'], $rows)],
+                    getEntitiesRestrictCriteria($racc_table, '', '', false)
+                ),
+                'ORDER'  => ['id DESC'],
+            ]) as $racc) {
+                $agents_id         = (int) $racc['agents_id'];
+                $count[$agents_id] = ($count[$agents_id] ?? 0) + 1;
+                if (!isset($last[$agents_id])) {
+                    $last[$agents_id] = $racc;
+                }
+            }
+        }
+        $open_statuses = [
+            PluginPrintgestionRaccordement::STATUS_OPEN,
+            PluginPrintgestionRaccordement::STATUS_CONFIGURED,
+            PluginPrintgestionRaccordement::STATUS_TRIGGERED,
+        ];
+        $out = [];
+        foreach ($rows as $row) {
+            $agents_id = (int) $row['id'];
+            $racc      = $last[$agents_id] ?? null;
+            $open      = $racc !== null && in_array((string) $racc['status'], $open_statuses, true);
+            $out[$agents_id] = [
+                'agent_url'             => PluginPrintgestionAgentsetting::getPageURL($agents_id),
+                'raccordement_url'      => $open ? PluginPrintgestionRaccordement::getPageURL((int) $racc['id']) : '',
+                'has_open_raccordement' => $open,
+                'history_url'           => PluginPrintgestionRaccordement::getListURL(null, $agents_id),
+                'has_raccordements'     => ($count[$agents_id] ?? 0) > 0,
+            ];
+        }
+        return $out;
     }
 
     /** Expéditions en cours (verrou actif) des imprimantes données : « imprimante|toner » => ligne. */

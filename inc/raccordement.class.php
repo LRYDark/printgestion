@@ -68,6 +68,28 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         return $entities_id !== null ? $url . '?entities_id=' . $entities_id : $url;
     }
 
+    /** Liste native : la page du module (pagination, tri et recherche natifs y reviennent). */
+    static function getSearchURL($full = true) {
+        return ($full ? PLUGIN_PRINTGESTION_WEBDIR : PLUGIN_PRINTGESTION_NOTFULL_WEBDIR) . '/front/raccordement.php';
+    }
+
+    /** Fiche d'un raccordement : l'assistant (raccordement.php?id=N). */
+    static function getFormURL($full = true) {
+        return self::getSearchURL($full);
+    }
+
+    /** Liste native filtrée sur une entité, une sonde, ou les deux. */
+    public static function getListURL(?int $entities_id = null, ?int $agents_id = null): string {
+        $criteria = [];
+        if ($entities_id !== null) {
+            $criteria[] = ['field' => 80, 'searchtype' => 'equals', 'value' => $entities_id];
+        }
+        if ($agents_id !== null) {
+            $criteria[] = ['field' => 3, 'searchtype' => 'equals', 'value' => $agents_id];
+        }
+        return self::getSearchURL() . '?' . http_build_query(['criteria' => $criteria, 'reset' => 'reset']);
+    }
+
     /** Champ caché qui fait revenir l'enregistrement sur l'étape affichée. */
     public static function stepField(): string {
         return self::$view >= 1 ? Html::hidden('step', ['value' => self::$view]) : '';
@@ -1662,14 +1684,19 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
     }
 
     /** Onglet Déploiement Agent de l'entité, bloc 3 : raccordements de l'entité et accès à l'assistant. */
+    /**
+     * Bloc « 3. Raccorder les imprimantes » de l'onglet Déploiement Agent de l'entité : les prérequis, puis UN
+     * tableau, une ligne par sonde du client avec son dernier raccordement — plus « Raccordements en cours »
+     * d'un côté et « Sondes rattachées » de l'autre pour les mêmes machines. L'historique complet est la liste
+     * native, filtrée sur l'entité.
+     */
     public static function showForEntity(Entity $entity): void {
-        global $DB;
-
-        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        $id  = (int) $entity->getID();
+        $esc           = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $id            = (int) $entity->getID();
         $prerequisites = PluginPrintgestionCollectsetup::getPrerequisites();
+        $can_edit      = Session::haveRight(self::$rightname, UPDATE);
         echo "<div class='card mb-3'><div class='card-header d-flex align-items-center'><h3 class='card-title mb-0'>" . $esc(__('3. Raccorder les imprimantes', 'printgestion')) . "</h3>";
-        if (Session::haveRight(self::$rightname, UPDATE)) {
+        if ($can_edit) {
             if (empty($prerequisites['blocking'])) {
                 echo "<a class='btn btn-primary ms-auto' href='" . $esc(self::getPageURL(null, $id)) . "'><i class='ti ti-plug-connected me-1'></i>" . $esc(__('Nouveau raccordement', 'printgestion')) . "</a>";
             } else {
@@ -1678,116 +1705,158 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         }
         echo "</div><div class='card-body'>";
         self::showPrerequisites($prerequisites, false);
-
-        $rows = iterator_to_array($DB->request([
-            'FROM'  => self::getTable(),
-            'WHERE' => ['entities_id' => $id],
-            'ORDER' => ['id DESC'],
-            'LIMIT' => 10,
-        ]), false);
-        $open   = array_values(array_filter($rows, static fn(array $row) => in_array($row['status'], [self::STATUS_OPEN, self::STATUS_CONFIGURED, self::STATUS_TRIGGERED], true)));
-        $closed = array_values(array_filter($rows, static fn(array $row) => !in_array($row['status'], [self::STATUS_OPEN, self::STATUS_CONFIGURED, self::STATUS_TRIGGERED], true)));
-        if (!empty($open)) {
-            echo "<h4 class='mb-2'>" . $esc(__('Raccordements en cours', 'printgestion')) . "</h4>";
-            self::showTable($open, false);
-        }
-        PluginPrintgestionAgentdeploy::showEntityAgents($id);
-        if (!empty($closed) && PluginPrintgestionUi::isAdmin()) {
-            ob_start();
-            self::showTable($closed, false);
-            echo PluginPrintgestionUi::adminDetails(sprintf(__('Raccordements terminés ou abandonnés (%d)', 'printgestion'), count($closed)), (string) ob_get_clean());
+        self::showEntityProbes($entity, $can_edit && empty($prerequisites['blocking']));
+        $total = countElementsInTable(self::getTable(), ['entities_id' => $id]);
+        if ($total > 0) {
+            echo "<p class='mb-0 mt-3'><a href='" . $esc(self::getListURL($id)) . "'><i class='ti ti-history me-1'></i>"
+                . $esc(sprintf(__('Historique des raccordements de ce client (%d)', 'printgestion'), $total)) . "</a></p>";
         }
         echo "</div></div>";
     }
 
-    /** Page « Raccordements » du module : raccordements des entités de l'utilisateur. */
-    public static function showList(): void {
+    /** Dernier raccordement de chaque sonde d'une entité : agents_id => ligne. */
+    private static function getLastByAgent(int $entities_id): array {
         global $DB;
 
-        $esc  = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        $rows = iterator_to_array($DB->request([
-            'FROM'  => self::getTable(),
-            'WHERE' => getEntitiesRestrictCriteria(self::getTable(), 'entities_id'),
-            'ORDER' => ['id DESC'],
-            'LIMIT' => 300,
-        ]), false);
-        echo "<div class='card'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(self::getTypeName(Session::getPluralNumber())) . "</h3></div><div class='card-body'>";
-        echo "<p class='text-muted'>" . $esc(__('Un raccordement se lance depuis la fiche de l\'entité du client, onglet « Déploiement Agent », bloc 3.', 'printgestion')) . "</p>";
-        if (empty($rows)) {
-            echo "<p class='mb-0'>" . $esc(__('Aucun raccordement.', 'printgestion')) . "</p>";
-        } else {
-            self::showTable($rows, true);
+        $last = [];
+        foreach ($DB->request(['FROM' => self::getTable(), 'WHERE' => ['entities_id' => $entities_id], 'ORDER' => ['id DESC']]) as $row) {
+            $agents_id = (int) $row['agents_id'];
+            if (!isset($last[$agents_id])) {
+                $last[$agents_id] = $row;
+            }
         }
-        echo "</div></div>";
+        return $last;
     }
 
-    /** Raccordements : numéro, entité, sonde, statut, adresses, résultats, création. */
-    private static function showTable(array $rows, bool $with_entity): void {
+    /** Adresses par résultat de plusieurs raccordements : id => [résultat => nombre]. */
+    private static function getResultCountsFor(array $ids): array {
         global $DB;
 
-        $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        $ids    = array_map(static fn(array $row): int => (int) $row['id'], $rows);
         $counts = [];
+        if (empty($ids)) {
+            return $counts;
+        }
         foreach ($DB->request([
             'SELECT'  => ['plugin_printgestion_raccordements_id', 'result', 'COUNT' => 'id AS n'],
             'FROM'    => self::IPS_TABLE,
             'WHERE'   => ['plugin_printgestion_raccordements_id' => $ids],
             'GROUPBY' => ['plugin_printgestion_raccordements_id', 'result'],
         ]) as $row) {
-            $counts[(int) $row['plugin_printgestion_raccordements_id']][$row['result']] = (int) $row['n'];
+            $counts[(int) $row['plugin_printgestion_raccordements_id']][(string) $row['result']] = (int) $row['n'];
         }
-        $agents = [];
-        foreach ($DB->request([
-            'SELECT' => ['id', 'name'],
-            'FROM'   => Agent::getTable(),
-            'WHERE'  => ['id' => array_values(array_unique(array_map(static fn(array $row): int => (int) $row['agents_id'], $rows)))],
-        ]) as $agent) {
-            $agents[(int) $agent['id']] = (string) $agent['name'];
-        }
-        $statuses = self::getStatusLabels();
-        $labels   = self::getResultLabels();
-        $columns  = ['num' => __('N°', 'printgestion')];
-        if ($with_entity) {
-            $columns['entity'] = __('Entité', 'printgestion');
-        }
-        $columns += [
-            'probe'   => __('Sonde', 'printgestion'),
-            'status'  => __('Statut', 'printgestion'),
-            'ips'     => __('Adresses', 'printgestion'),
-            'results' => __('Résultats', 'printgestion'),
-            'created' => __('Créé le', 'printgestion'),
-            'user'    => __('Par', 'printgestion'),
-        ];
-        $entries = [];
-        foreach ($rows as $row) {
-            $id                            = (int) $row['id'];
-            [$status_label, $status_class] = $statuses[$row['status']] ?? [$row['status'], 'bg-secondary text-secondary-fg'];
-            $badges                        = '';
-            foreach ($labels as $result => [$label, $class]) {
-                if ($result !== 'pending' && !empty($counts[$id][$result])) {
-                    $badges .= "<span class='badge {$class} me-1'>" . $esc($label . ' ' . $counts[$id][$result]) . "</span>";
-                }
+        return $counts;
+    }
+
+    /** Pastilles des résultats (hors adresses non vérifiées), ou « — ». */
+    public static function getResultBadges(array $counts): string {
+        $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $badges = '';
+        foreach (self::getResultLabels() as $result => [$label, $class]) {
+            if ($result !== 'pending' && !empty($counts[$result])) {
+                $badges .= "<span class='badge {$class} me-1'>" . $esc($label . ' ' . (int) $counts[$result]) . "</span>";
             }
-            // Ligne entière cliquable (pg-datatable) : elle ouvre le lien du « N° », trop petit pour qu'on pense à le viser.
-            $entries[] = [
-                'itemtype' => self::class,
-                'id'       => $id,
-                'num'      => "<a href='" . $esc(self::getPageURL($id)) . "'>" . $id . "</a>",
-                'entity'   => Dropdown::getDropdownName('glpi_entities', (int) $row['entities_id']),
-                'probe'    => $agents[(int) $row['agents_id']] ?? sprintf(__('n° %d', 'printgestion'), (int) $row['agents_id']),
-                'status'   => "<span class='badge {$status_class}'>" . $esc($status_label) . "</span>",
-                'ips'      => (int) array_sum($counts[$id] ?? []),
-                'results'  => $badges !== '' ? $badges : '—',
-                'created'  => (string) $row['date_creation'],
-                'user'     => getUserName((int) $row['users_id']),
+        }
+        return $badges !== '' ? $badges : '—';
+    }
+
+    /**
+     * Les sondes du client, une ligne chacune : contact, état, version et TAG (administrateur), dernier
+     * raccordement (statut, résultats, reprise), imprimantes collectées. Une sonde est un Agent de GLPI : les
+     * actions massives de l'Agent s'appliquent telles quelles, avec les droits de l'utilisateur sur cet objet.
+     * Les colonnes de l'administrateur sont absentes de la page d'un technicien, pas cachées.
+     */
+    private static function showEntityProbes(Entity $entity, bool $can_start): void {
+        $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $id     = (int) $entity->getID();
+        $admin  = PluginPrintgestionUi::isAdmin();
+        $agents = PluginPrintgestionAgentdeploy::getEntityAgents($id);
+        echo "<h4 class='mt-3 mb-2'>" . $esc(__('Sondes de ce client', 'printgestion')) . "</h4>";
+        if (empty($agents)) {
+            echo "<p class='text-muted mb-0'>" . $esc(__('Aucune pour l\'instant : lancer le fichier du bloc 2 sur un PC du client, puis attendre son premier contact.', 'printgestion')) . "</p>";
+            return;
+        }
+        $tag      = trim((string) ($entity->fields['tag'] ?? ''));
+        $silent   = PluginPrintgestionCollect::getSilentDays();
+        $last     = self::getLastByAgent($id);
+        $counts   = self::getResultCountsFor(array_map(static fn(array $row): int => (int) $row['id'], $last));
+        $coverage = PluginPrintgestionAgentsetting::getCoverage();
+        $statuses = self::getStatusLabels();
+        $versions = [
+            'old'     => ['bg-red text-red-fg', __('Trop ancienne', 'printgestion')],
+            'update'  => ['bg-orange text-orange-fg', __('À mettre à jour', 'printgestion')],
+            'ok'      => ['bg-green text-green-fg', __('À jour', 'printgestion')],
+            'unknown' => ['bg-secondary text-secondary-fg', __('Inconnue', 'printgestion')],
+        ];
+        $columns = ['probe' => __('Sonde', 'printgestion'), 'contact' => __('Dernier contact', 'printgestion'), 'state' => __('État', 'printgestion')];
+        if ($admin) {
+            $columns += ['version' => __('Version', 'printgestion'), 'tag' => __('TAG', 'printgestion')];
+        }
+        $columns += ['raccordement' => __('Raccordement', 'printgestion'), 'printers' => __('Imprimantes collectées', 'printgestion')];
+        $entries = [];
+        foreach ($agents as $agent) {
+            $agents_id = (int) $agent['id'];
+            $is_silent = $agent['last_contact'] === null || strtotime((string) $agent['last_contact']) < time() - $silent * DAY_TIMESTAMP;
+            $network   = (int) $agent['use_module_network_discovery'] === 1 && (int) $agent['use_module_network_inventory'] === 1;
+            $state     = $is_silent
+                ? "<span class='badge bg-red text-red-fg'>" . $esc(__('Muette', 'printgestion')) . "</span>"
+                : ($network
+                    ? "<span class='badge bg-green text-green-fg'>" . $esc(__('Active', 'printgestion')) . "</span>"
+                    : "<span class='badge bg-red text-red-fg'>" . $esc(__('À réinstaller avec l\'installeur de l\'entité', 'printgestion')) . "</span>");
+            $racc = $last[$agents_id] ?? null;
+            if ($racc !== null) {
+                [$status_label, $status_class] = $statuses[$racc['status']] ?? [$racc['status'], 'bg-secondary text-secondary-fg'];
+                $open = in_array($racc['status'], [self::STATUS_OPEN, self::STATUS_CONFIGURED, self::STATUS_TRIGGERED], true);
+                $cell = "<a href='" . $esc(self::getPageURL((int) $racc['id'])) . "' class='me-1'>" . $esc(sprintf(__('n° %d', 'printgestion'), (int) $racc['id'])) . "</a>"
+                    . "<span class='badge {$status_class} me-1'>" . $esc($status_label) . "</span>" . self::getResultBadges($counts[(int) $racc['id']] ?? [])
+                    . ($open ? " <a href='" . $esc(self::getPageURL((int) $racc['id'])) . "'>" . $esc(__('Reprendre', 'printgestion')) . "</a>" : '');
+            } else {
+                $cell = "<span class='text-muted'>" . $esc(__('Aucun', 'printgestion')) . "</span>"
+                    . ($can_start ? " <a href='" . $esc(self::getPageURL(null, $id)) . "'>" . $esc(__('Raccorder', 'printgestion')) . "</a>" : '');
+            }
+            $entry = [
+                'itemtype'     => Agent::class,
+                'id'           => $agents_id,
+                'probe'        => "<a href='" . $esc(PluginPrintgestionAgentsetting::getPageURL($agents_id)) . "'>" . $esc($agent['name']) . "</a>",
+                'contact'      => $agent['last_contact'] === null || $agent['last_contact'] === '' ? '—' : Html::convDateTime((string) $agent['last_contact']),
+                'state'        => $state,
+                'raccordement' => $cell,
+                'printers'     => count($coverage[$agents_id] ?? []),
             ];
+            if ($admin) {
+                [$badge_class, $badge_label] = $versions[PluginPrintgestionCollect::getAgentVersionStatus((string) $agent['version_value'], PluginPrintgestionAgentsetting::getSettings($agents_id))];
+                $agent_tag        = trim((string) $agent['tag']);
+                $entry['version'] = $esc($agent['version_value'] !== '' ? $agent['version_value'] : '—') . " <span class='badge {$badge_class}'>" . $esc($badge_label) . "</span>";
+                $entry['tag']     = ($agent_tag !== '' ? "<code>" . $esc($agent_tag) . "</code>" : '—')
+                    . ($agent_tag !== $tag ? " <span class='badge bg-orange text-orange-fg'>" . $esc(__('≠ TAG de l\'entité', 'printgestion')) . "</span>" : '');
+            }
+            $entries[] = $entry;
         }
         echo PluginPrintgestionUi::datatable($columns, $entries, [
-            'num'     => 'raw_html',
-            'status'  => 'raw_html',
-            'results' => 'raw_html',
-            'created' => 'datetime',
-        ], self::class, Session::haveRight(self::$rightname, UPDATE));
+            'probe'        => 'raw_html',
+            'state'        => 'raw_html',
+            'version'      => 'raw_html',
+            'tag'          => 'raw_html',
+            'raccordement' => 'raw_html',
+            'printers'     => 'integer',
+        ], Agent::class, Session::haveRight(Agent::$rightname, UPDATE));
+        // Clic droit sur ces lignes : la sonde, son raccordement en cours, son historique.
+        PluginPrintgestionContextmenu::render(Agent::class);
+    }
+
+    /** Page « Raccordements » du module : la liste native de GLPI (recherche, tri, filtres, export, actions massives). */
+    public static function showList(): void {
+        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        echo "<p class='text-muted'>" . $esc(__('Un raccordement se lance depuis la fiche de l\'entité du client, onglet « Déploiement Agent », bloc 3. Ici, tous les raccordements de vos entités : filtrer par client, par sonde ou par statut ; clic droit sur une ligne pour l\'ouvrir.', 'printgestion')) . "</p>";
+        $params           = Search::manageParams(self::class, $_GET);
+        $params['target'] = self::getSearchURL();
+        if (!isset($_GET['sort'])) {
+            $params['sort']  = 2;
+            $params['order'] = 'DESC';
+        }
+        echo "<div class='search_page row'><div class='col search-container' data-glpi-search-container>";
+        Search::showList(self::class, $params, [2, 80, 3, 4, 9, 10, 6, 5]);
+        echo "</div></div>";
+        PluginPrintgestionContextmenu::render(self::class);
     }
 
     /**
@@ -1801,8 +1870,9 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         $tab   = [];
 
         $tab[] = ['id' => 'common', 'name' => self::getTypeName(Session::getPluralNumber())];
+        // Le numéro ouvre l'assistant (affichage « specific », voir getSpecificValueToDisplay).
         $tab[] = ['id' => '2', 'table' => $table, 'field' => 'id',
-                  'name' => __('N°', 'printgestion'), 'datatype' => 'number', 'massiveaction' => false];
+                  'name' => __('N°', 'printgestion'), 'datatype' => 'specific', 'massiveaction' => false];
         $tab[] = ['id' => '80', 'table' => 'glpi_entities', 'field' => 'completename',
                   'name' => Entity::getTypeName(1), 'datatype' => 'dropdown', 'massiveaction' => false];
         $tab[] = ['id' => '3', 'table' => Agent::getTable(), 'field' => 'name',
@@ -1819,6 +1889,19 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                   'name' => __('Découverte lancée le', 'printgestion'), 'datatype' => 'datetime', 'massiveaction' => false];
         $tab[] = ['id' => '8', 'table' => $table, 'field' => 'date_verified',
                   'name' => __('Vérifié le', 'printgestion'), 'datatype' => 'datetime', 'massiveaction' => false];
+        // Adresses et résultats viennent de la table des adresses : deux sous-requêtes corrélées (« TABLE » est
+        // remplacé par la table principale par le moteur), triables, sans recherche.
+        $ips  = '`' . self::IPS_TABLE . '` WHERE `plugin_printgestion_raccordements_id` = TABLE.`id`';
+        $sums = [];
+        foreach (array_keys(self::getResultLabels()) as $result) {
+            $sums[] = "CONCAT('" . $result . ":', SUM(`result` = '" . $result . "'))";
+        }
+        $tab[] = ['id' => '9', 'table' => $table, 'field' => 'id', 'name' => __('Adresses', 'printgestion'),
+                  'datatype' => 'number', 'nosearch' => true, 'massiveaction' => false,
+                  'computation' => '(SELECT COUNT(*) FROM ' . $ips . ')'];
+        $tab[] = ['id' => '10', 'table' => $table, 'field' => 'id', 'name' => __('Résultats', 'printgestion'),
+                  'datatype' => 'specific', 'nosearch' => true, 'nosort' => true, 'massiveaction' => false,
+                  'computation' => "(SELECT CONCAT_WS(',', " . implode(', ', $sums) . ') FROM ' . $ips . ')'];
 
         return $tab;
     }
@@ -1830,6 +1913,20 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         if ($field === 'status') {
             [$label, $class] = self::getStatusLabels()[(string) ($values[$field] ?? '')] ?? [(string) ($values[$field] ?? ''), 'bg-secondary text-secondary-fg'];
             return "<span class='badge {$class}'>" . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . "</span>";
+        }
+        if ($field === 'id') {
+            // Deux colonnes portent ce champ : le numéro (lien vers l'assistant) et les résultats calculés
+            // (« found:2,no_snmp:1,… », option 10).
+            if ((int) ($options['searchopt']['id'] ?? 0) === 10) {
+                $counts = [];
+                foreach (explode(',', (string) ($values[$field] ?? '')) as $part) {
+                    [$result, $n] = array_pad(explode(':', $part, 2), 2, '0');
+                    $counts[$result] = (int) $n;
+                }
+                return self::getResultBadges($counts);
+            }
+            $id = (int) ($values[$field] ?? 0);
+            return $id > 0 ? "<a href='" . htmlspecialchars(self::getPageURL($id), ENT_QUOTES, 'UTF-8') . "'>" . $id . "</a>" : '';
         }
         return parent::getSpecificValueToDisplay($field, $values, $options);
     }

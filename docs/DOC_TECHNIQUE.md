@@ -1541,6 +1541,28 @@ facturation), sans rien changer à GLPI : `PluginPrintgestionContextmenu::render
   Sans contexte (requête en échec), seules les entrées sans condition restent.
 - Si GLPI changeait le balisage de la fenêtre « Actions », le repli est naturel : la ligne reste cochée et le
   bouton « Actions » apparaît.
+- Tableaux du plugin (`Ui::datatable`) : la ligne porte `data-itemtype` / `data-id` (gabarit natif), le même
+  script les lit. Types servis en plus des tableaux natifs : `Agent` (sondes de l'onglet Déploiement Agent :
+  sonde, raccordement en cours, historique) et `PluginPrintgestionRaccordement` (liste native : raccordement,
+  sonde). Dans un onglet AJAX rechargé, un seul jeu d'écouteurs sur le document (`window.PG_CTX`), qui appelle
+  la dernière instance.
+
+### Raccordements : liste native et onglet de l'entité (`inc/raccordement.class.php`)
+
+- **Page « Raccordements »** (`showList()`) : `Search::showList(PluginPrintgestionRaccordement)` avec
+  `getSearchURL()` → `raccordement.php` (pagination, tri et recherche y reviennent) et `getFormURL()` → l'assistant
+  (`raccordement.php?id=N`). Options ajoutées : `9` « Adresses » et `10` « Résultats », deux sous-requêtes
+  corrélées (`computation`, `TABLE` remplacé par la table principale) sur la table des adresses ; `10` renvoie
+  « found:2,no_snmp:1,… », rendu en pastilles par `getSpecificValueToDisplay('id')`, qui distingue les deux
+  colonnes portant le champ `id` (numéro en lien, résultats) par `$options['searchopt']['id']`.
+  `getListURL($entities_id, $agents_id)` fabrique l'adresse de la liste filtrée (critères natifs 80 et 3).
+- **Onglet de l'entité** (`showForEntity()` → `showEntityProbes()`) : une ligne par sonde
+  (`Agentdeploy::getEntityAgents()`), avec le dernier raccordement de la sonde (`getLastByAgent()`,
+  `getResultCountsFor()`), les imprimantes collectées (`Agentsetting::getCoverage()`), les colonnes Version et TAG
+  pour l'administrateur seulement (absentes, pas cachées), les actions massives natives de l'Agent, le menu clic
+  droit (`Contextmenu::render(Agent::class)`) et un lien vers l'historique (liste native filtrée sur l'entité).
+  `Agentdeploy::showEntityAgents()` a disparu (fusionnée ici) ; la fréquence des relevés est le bloc « 4. »
+  (`Collectfrequency::showForEntity()`, carte à part, administrateur).
 
 ### Points d'entrée (ajax/)
 

@@ -5446,58 +5446,13 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 "<p class='mb-0'>" . $esc(__('Le fichier d\'installation écrit la plage IP, la communauté SNMP et la cadence dans la ToolBox de l\'agent, sur le PC : les imprimantes remontent dans GLPI, avec leurs cartouches et leurs compteurs. En revanche, rien ne se pilote depuis GLPI — ni plage, ni tâche, ni raccordement — et la cadence se change sur le PC, ou en réinstallant la sonde.', 'printgestion')) . "</p>"
             );
         }
-        PluginPrintgestionCollectfrequency::showForEntity($entity);
         echo "</div></div>";
 
         // ── 3. Raccordement ──
         PluginPrintgestionRaccordement::showForEntity($entity);
-    }
 
-    /** Agents rattachés à une entité, pour le bloc « Raccordement » : colonnes techniques pour l'administrateur seulement. */
-    public static function showEntityAgents(int $entities_id): void {
-        $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        $date   = static fn($value) => $value === null || $value === '' ? '—' : Html::convDateTime((string) $value);
-        $admin  = PluginPrintgestionUi::isAdmin();
-        $agents = self::getEntityAgents($entities_id);
-        $entity = new Entity();
-        $tag    = $entity->getFromDB($entities_id) ? trim((string) ($entity->fields['tag'] ?? '')) : '';
-        $silent = PluginPrintgestionCollect::getSilentDays();
-
-        echo "<h4 class='mt-3 mb-2'>" . $esc(__('Sondes rattachées', 'printgestion')) . "</h4>";
-        if (empty($agents)) {
-            echo "<p class='text-muted mb-0'>" . $esc(__('Aucune pour l\'instant.', 'printgestion')) . "</p>";
-            return;
-        }
-        $badges = [
-            'old'     => ['bg-red text-red-fg', __('Trop ancienne', 'printgestion')],
-            'update'  => ['bg-orange text-orange-fg', __('À mettre à jour', 'printgestion')],
-            'ok'      => ['bg-green text-green-fg', __('À jour', 'printgestion')],
-            'unknown' => ['bg-secondary text-secondary-fg', __('Inconnue', 'printgestion')],
-        ];
-        echo "<div class='table-responsive'><table class='table table-sm mb-0'><thead><tr>"
-            . "<th>" . $esc(__('Sonde', 'printgestion')) . "</th><th>" . $esc(__('Dernier contact', 'printgestion')) . "</th><th>" . $esc(__('État', 'printgestion')) . "</th>"
-            . ($admin ? "<th data-pg-admin='1'>" . $esc(__('Version', 'printgestion')) . "</th><th data-pg-admin='1'>" . $esc(__('TAG', 'printgestion')) . "</th>" : '')
-            . "</tr></thead><tbody>";
-        foreach ($agents as $agent) {
-            $is_silent = $agent['last_contact'] === null || strtotime((string) $agent['last_contact']) < time() - $silent * DAY_TIMESTAMP;
-            $network   = (int) $agent['use_module_network_discovery'] === 1 && (int) $agent['use_module_network_inventory'] === 1;
-            $state     = $is_silent
-                ? "<span class='badge bg-red text-red-fg'>" . $esc(__('Muette', 'printgestion')) . "</span>"
-                : ($network
-                    ? "<span class='badge bg-green text-green-fg'>" . $esc(__('Active', 'printgestion')) . "</span>"
-                    : "<span class='badge bg-red text-red-fg'>" . $esc(__('À réinstaller avec l\'installeur de l\'entité', 'printgestion')) . "</span>");
-            echo "<tr><td><a href='" . $esc(PluginPrintgestionAgentsetting::getPageURL((int) $agent['id'])) . "'>" . $esc($agent['name']) . "</a></td>"
-                . "<td>" . $esc($date($agent['last_contact'])) . "</td><td>{$state}</td>";
-            if ($admin) {
-                [$badge_class, $badge_label] = $badges[PluginPrintgestionCollect::getAgentVersionStatus($agent['version_value'], PluginPrintgestionAgentsetting::getSettings((int) $agent['id']))];
-                $agent_tag = trim((string) $agent['tag']);
-                echo "<td data-pg-admin='1'>" . $esc($agent['version_value'] !== '' ? $agent['version_value'] : '—') . " <span class='badge {$badge_class}'>" . $esc($badge_label) . "</span></td>"
-                    . "<td data-pg-admin='1'>" . ($agent_tag !== '' ? "<code>" . $esc($agent_tag) . "</code>" : '—')
-                    . ($agent_tag !== $tag ? " <span class='badge bg-orange text-orange-fg'>" . $esc(__('≠ TAG de l\'entité', 'printgestion')) . "</span>" : '') . "</td>";
-            }
-            echo "</tr>";
-        }
-        echo "</tbody></table></div>";
+        // ── 4. Fréquence des relevés (administrateur) ──
+        PluginPrintgestionCollectfrequency::showForEntity($entity);
     }
 
     /** Contenu technique des paquets (fenêtre « i » de l'administrateur) : commandes, propriétés, procédures. */

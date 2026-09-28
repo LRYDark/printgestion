@@ -2,6 +2,20 @@
 
 ## Non publié
 
+- **Onglet « Déploiement Agent » de l'entité : un seul tableau de sondes.** Le bloc 3 montrait « Raccordements
+  en cours » puis « Sondes rattachées » — deux tableaux pour les mêmes machines. Il montre maintenant une ligne
+  par sonde du client : dernier contact, état, version et TAG (administrateur), son dernier raccordement (numéro,
+  statut, résultats, « Reprendre » s'il est en cours), imprimantes collectées ; clic droit sur une ligne pour
+  ouvrir la sonde, reprendre son raccordement ou voir son historique. Les raccordements terminés ne sont plus
+  repliés dans l'onglet : un lien « Historique des raccordements de ce client » ouvre la liste, filtrée. La
+  fréquence des relevés, jusque-là repliée au fond du bloc 2, devient le bloc « 4. » — l'ordre d'un vrai
+  déploiement.
+
+- **Page « Raccordements » : la liste native de GLPI.** À la place d'une table faite à la main (300 lignes, ni
+  filtre ni tri) : recherche, tri, filtres par client, par sonde et par statut, choix des colonnes, export,
+  actions massives. Deux colonnes calculées, « Adresses » et « Résultats » (les mêmes pastilles qu'avant), le
+  numéro ouvre l'assistant, et le clic droit ouvre le raccordement ou sa sonde.
+
 - **Le clic droit revient sur les tableaux natifs — alertes toner, demandes d'envoi, expéditions, facturation.**
   Il avait disparu des alertes avec le passage au moteur de recherche de GLPI. Un seul menu, léger, posé
   par-dessus le tableau sans toucher à GLPI (`inc/contextmenu.class.php`) : les entrées « natives » cochent la
