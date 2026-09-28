@@ -571,8 +571,12 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
   - **macOS** : un `.sh` (`sudo sh <fichier>`) qui fait les quatre gestes que le technicien faisait à la main — il lit
     la puce (`uname -m`), ne télécharge **que** le paquet de cette puce, vérifie l'empreinte, `installer -pkg`, pose
     `local.cfg` puis relance le service (`launchctl bootout`/`bootstrap`, avec repli `unload`/`load` pour macOS 12 et
-    avant). Aucune question de mise à jour : sur macOS elle est manuelle, et une case qui ne ferait rien serait un
-    mensonge. La clé ouvre les deux paquets (GLPI ne sait pas sur quel Mac le fichier tournera) mais ne sert qu'une
+    avant), et pose la mise à jour automatique si elle est demandée : un service `launchd` mensuel
+    (`Agentsetting::buildMacosScheduleLines()`) qui appelle un script déposé dans `/usr/local/sbin`, sur le modèle
+    du cron de Linux — rien pendant une tâche de l'agent, release officielle, paquet de la puce du Mac seulement,
+    empreinte SHA-256 vérifiée, installation seulement si la version diffère. Le retrait enlève service et script.
+    La fenêtre pose donc la même question que sous Windows : case à cocher, ou simple phrase quand
+    l'administrateur a tranché. La clé ouvre les deux paquets (GLPI ne sait pas sur quel Mac le fichier tournera) mais ne sert qu'une
     fois, puisque le Mac n'en télécharge qu'un.
 
   Pourquoi la clé plutôt que l'installeur dans le fichier : plusieurs mégaoctets encodés dans un script sont le motif
@@ -612,12 +616,66 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
     (700, à la personne connectée) : `reponses` écrit par la fenêtre, `etat` écrit par le script (`dire|…`, `pct|…`,
     `etape|clé|état|note`, `fin|OK|message`). En partant, le script attend la fermeture de la fenêtre : elle doit
     avoir lu la fin avant que son dossier disparaisse. La fenêtre est un fichier à part entière pour être relue par
-    `node --check` ; le fichier de l'entité la recopie, précédée de « var T = {...}; » qui porte les textes.
+    `node --check` (ou `osacompile -l JavaScript`) ; le fichier de l'entité la recopie, précédée de « var T = {...}; »
+    qui porte les textes. Le protocole a aussi `note|…` : le texte sous la barre (« 12 Mo sur 22 Mo », « Environ une
+    minute »), posé par `pg_detail` — défini vide dans les outils communs, réel sous macOS ; l'étape qui commence
+    l'efface. Deux pièges du pont JavaScript, constatés sur macOS 26 et 27 et qui rendaient la fenêtre inerte :
+    `$.NSEventMaskAny` arrive arrondi à 2^63 et, repassé à Cocoa, ne garde qu'un bit (aucun événement ne sort plus
+    de la boucle) — le masque est un nombre posé dans le fichier (`MASQUE_EVENEMENTS`) ; et `bouton.tag` arrive en
+    chaîne dans les rappels d'action (« 1 » === 1 est faux) — relu par `parseInt`. La mise en page se mesure
+    (`cellSizeForBounds`) : chaque bloc de texte prend sa hauteur et la fenêtre la sienne, comme les libellés
+    AutoSize de Windows ; les vues du haut gardent leur distance au haut (`NSViewMinYMargin`) quand la fenêtre
+    grandit pour le résultat, le pied de page suit le bas. Entrée et Échap suivent les boutons visibles comme sous
+    Windows, et les boutons cachés perdent leur touche. Le harnais (`interface.py`, 11 quater et 12 bis) refuse un
+    fichier qui reprendrait l'un des deux pièges, et vérifie que chaque `T.xxx` lu est fourni par les fichiers.
+    Une fenêtre jamais infermable : trois filets. `pg_sortie` (piège EXIT, que `trap 'exit 1' INT TERM HUP` fait
+    jouer aussi sur Ctrl-C) écrit `fin|ECHEC|…` si le script sort sans fin donnée alors que la fenêtre vit ; une
+    sentinelle (sous-shell de fond lancé avec la fenêtre, `trap "" INT HUP`) bat dans `vivant` toutes les deux
+    secondes et écrit la même fin si le script a disparu sans passer par `pg_sortie` (kill -9) ; la fenêtre conclut
+    seule (`surveiller()`, texte `T.mort`) après quinze secondes sans battement — le cas où la sentinelle aussi a été
+    tuée. Ce qui a été rejoué sur un Mac avec le fichier généré (banc hors dépôt : substituts pour `id`, `installer`,
+    `launchctl`, `sudo`, `chown`, `pkgutil`, chemins système redirigés, faux serveur GLPI local qui sert un paquet,
+    répond `SCAN` puis `ATTENTE`, `ATTENTE`, `TROUVE 2 2`) : parcours nominal complet, puis script tué net, script et
+    sentinelle tués net, SIGTERM.
+    Le retrait macOS (`buildMacosRemovalScript()`) fait ce que fait `uninstaller.sh` livré dans le paquet, et plus :
+    service de mise à jour et script, service de l'agent (processus attendu trente secondes, puis `pkill`), dossier
+    `/Applications/GLPI-Agent` (ToolBox et `conf.d` compris), `/var/log/glpi-agent.log`, `/usr/local/bin/dmidecode`
+    seulement si la liste des fichiers du paquet le contient (lue avant `pkgutil --forget`, qui efface le reçu), le
+    reçu, et le paquet téléchargé dans `/tmp`. Le paquet lui-même n'installe rien hors de son dossier (5 350 fichiers,
+    tous sous `Applications/GLPI-Agent`) ; le service `launchd` est posé par son script de post-installation.
+  - **Linux, même travail que les deux autres** : `pg_telecharger_suivi` (outils communs) alimente la barre et le
+    détail pendant le téléchargement ; `pg_detail` zenity accole le détail au texte de l'étape (une seule ligne) ;
+    le formulaire (`PG_FORM_Z`) porte les explications de Windows et macOS ; le message final a la même structure
+    (imprimantes nommées, niveaux) ; `pg_suivi_zen` enveloppe le travail dans son propre sous-shell et, s'il meurt
+    sans fin donnée, écrit « Interrompu » et 100 % (bouton OK) à la fenêtre — en console, `pg_sortie` le dit ; le
+    retrait enlève aussi `/etc/glpi-agent`, `/var/lib/glpi-agent` et l'installeur téléchargé. Rejoué hors dépôt sur
+    un shell aux commandes substituées (id, perl, systemctl, dpkg, apt-get, scutil absent) avec un faux serveur GLPI
+    et un faux agent local : chemins RUN et SCAN, retrait total.
+    Debian et dérivés : `apt-get remove` garde les fichiers de configuration du paquet (état « rc ») ; le paquet
+    `glpi-agent` les gère par `ucf` (pas de `conffiles` dans le .deb, `ucf --purge` dans son `postrm` seulement à la
+    purge) ; effacés à la main, une réinstallation ne les remet pas (`agent.cfg` manquant, `conf.d` jamais lu, agent
+    sans serveur). Le retrait fait donc `apt-get purge` de tous les paquets `glpi-agent*`
+    (`dpkg-query -W 'glpi-agent*'`), et l'installation purge d'abord toute trace « config-files » puis vérifie
+    `/etc/glpi-agent/agent.cfg` (fichier minimal `include "conf.d/"` sinon, service relancé). Le compte rendu
+    (`pg_http … 120`) et le compte rendu de retrait attendent deux minutes : GLPI y crée ou supprime raccordement,
+    tâches et objets de collecte. Le cron mensuel utilise `curl` ou `wget` (`pg_get`, `pg_page`).
+  - **`--console`** (Linux et macOS, installation et retrait) : force les questions dans le terminal même quand un
+    écran est là ; sans lui, le script cherche l'écran du poste (socket X11 ou Wayland, session macOS) et y ouvre la
+    fenêtre, même lancé en SSH ou depuis une console texte.
   - **Une fenêtre qui ne s'ouvre pas ne vaut jamais une annulation** : session SSH, personne à l'écran, zenity absent
     — on reprend en console, avec les mêmes étapes (`[ OK ]`, `[ECHEC]`, `[ -- ]`) et le même journal.
   - **L'interface d'étapes est commune à Linux et macOS** (`pg_etape`, `pg_dire`, `pg_pct`, `pg_fin`, `pg_echec`),
     et deux étapes sont partagées mot pour mot : le premier contact (`buildShellContactLines()`) et le compte rendu
-    avec ce qu'il déclenche (`buildShellReportLines()`).
+    avec ce qu'il déclenche (`buildShellReportLines()`). Le nom du poste envoyé à GLPI (`pc=`) est `pg_poste` : ce
+    que l'agent déclare comme nom d'ordinateur, puisque c'est par ce nom exact que le serveur retrouve la sonde
+    (`Raccordement::findAgentByComputer()`). Sous macOS, l'agent déclare le « nom de l'ordinateur » de
+    `system_profiler` (module `Task/Inventory/MacOS/Hostname.pm`, qui l'emporte sur le module générique), rendu par
+    `scutil --get ComputerName` ; ailleurs, `getHostname(short => 1)`, le nom coupé au premier point. `hostname`
+    rendait « Mac.local » : sonde introuvable, suivi muet pendant dix minutes, retrait « absente ». Les valeurs
+    passent par `pg_url` (chaque octet encodé, `od` + `sed`, portable), comme `EscapeDataString` sous Windows.
+    Règle d'écriture des scripts sh : une variable suivie d'un caractère non ASCII s'écrit `${var}` (« ${pg_final}¶ »),
+    jamais `$var¶` — `/bin/sh` de macOS est bash 3.2 et, sous une locale UTF-8, il prend le « ¶ » pour la suite du nom
+    de variable ; avec `set -u` le script meurt sans un mot. Le harnais (12 bis) le vérifie sur chaque fichier servi.
   - **Le journal** (`buildWindowsJournalLines()`, `buildShellJournalLines()`) : un fichier par exécution —
     `%TEMP%\PrintGestion\installation-AAAAMMJJ-HHMMSS.log` sous Windows, `/var/tmp/printgestion-…log` ailleurs (et non
     `/tmp`, vidé au redémarrage). Chaque étape horodatée (DEBUT, OK, ECHEC, SAUTE), avec ce qui sert à comprendre :

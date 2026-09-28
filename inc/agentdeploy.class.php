@@ -1237,6 +1237,42 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
      */
     private static function buildShellToolLines(): array {
         return [
+            '# Detail sous la barre d avancement, quand une fenetre sait le montrer (macOS) ; rien ailleurs.',
+            'pg_detail() { :; }',
+            '',
+            '# Le nom du poste tel que l agent le declare a GLPI, celui par lequel le serveur retrouve la sonde :',
+            '# sous macOS, le « nom de l ordinateur » (module MacOS/Hostname de l agent, system_profiler), que scutil',
+            '# rend ; ailleurs, le nom coupe au premier point (getHostname(short => 1)). Windows envoie COMPUTERNAME.',
+            '# Avec « hostname » (« Mac.local »), GLPI ne retrouvait pas la sonde : dix minutes d attente pour rien.',
+            'pg_poste() {',
+            '  pg_nom_poste=""',
+            '  if command -v scutil >/dev/null 2>&1; then pg_nom_poste=$(scutil --get ComputerName 2>/dev/null); fi',
+            '  if [ -z "$pg_nom_poste" ]; then pg_nom_poste=$(hostname 2>/dev/null | cut -d. -f1); fi',
+            '  printf "%s" "$pg_nom_poste"',
+            '}',
+            '# Telechargement suivi dans la fenetre, comme sous Windows : « 12 Mo sur 22 Mo » sous la barre, qui avance',
+            '# de 2 a 40 %. curl travaille en arriere-plan ; on mesure ce qu il a deja ecrit. Rend le code de curl.',
+            'pg_telecharger_suivi() {',
+            '  pg_telecharger "$1" "$2" >/dev/null 2>&1 &',
+            '  pg_tel=$!',
+            '  pg_total=$(( ${3:-0} / 1048576 ))',
+            '  while kill -0 "$pg_tel" 2>/dev/null; do',
+            '    sleep 1',
+            '    if [ -f "$2" ] && [ "${3:-0}" -gt 0 ]; then',
+            '      pg_recu=$(wc -c < "$2" | tr -d " ")',
+            '      pg_p=$(( pg_recu * 100 / $3 ))',
+            '      if [ "$pg_p" -gt 100 ]; then pg_p=100; fi',
+            '      pg_pct $(( 2 + pg_p * 38 / 100 ))',
+            '      pg_detail "' . str_replace(['@RECU@', '@TOTAL@'], ['$(( pg_recu / 1048576 ))', '$pg_total'], __('@RECU@ Mo sur @TOTAL@ Mo', 'printgestion')) . '"',
+            '    fi',
+            '  done',
+            '  wait "$pg_tel"',
+            '}',
+            '',
+            '# Une valeur dans une URL, chaque octet encode : espaces et accents d un nom d ordinateur, virgules des',
+            '# adresses, tout ce qu une communaute SNMP peut contenir. Windows fait de meme (EscapeDataString).',
+            'pg_url() { printf "%s" "$1" | od -An -v -tx1 | tr -d " \\n" | sed "s/../%&/g"; }',
+            '',
             '# Telechargement, avec la barre de curl quand on est en console.',
             'pg_telecharger() {',
             '  if command -v curl >/dev/null 2>&1; then',
@@ -1302,6 +1338,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         return [
             '# ── Premier contact : GLPI doit connaitre la sonde avant qu on lui confie les imprimantes ──',
             'pg_etape contact encours ""',
+            'pg_detail ' . self::shQuote(__('L\'agent envoie son premier inventaire : GLPI doit le connaître avant qu\'on lui confie les imprimantes.', 'printgestion')),
             'pg_statut=""',
             'pg_i=0',
             '# Le service vient d etre installe : son interface met un moment a repondre (2 min au plus).',
@@ -1345,10 +1382,13 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
      * @param string[] $infos lignes de présentation : client, TAG, serveur…
      * @param array    $steps clé => libellé
      */
-    private static function buildLinuxUiLines(string $title, array $infos, array $steps): array {
+    private static function buildLinuxUiLines(string $title, array $infos, array $steps, string $mort = ''): array {
         return array_merge([
             'PG_TITRE=' . self::shQuote($title),
             'PG_INFOS=' . self::shQuote(implode("\n", $infos)),
+            'PG_MORT=' . self::shQuote($mort),
+            'PG_MORT_Z=' . self::shQuote(htmlspecialchars($mort, ENT_NOQUOTES, 'UTF-8')),
+            'PG_TRAVAIL=0',
             '# zenity lit ses textes en balisage Pango : un « & » ou un « < » dans un nom de client le ferait taire.',
             'PG_INFOS_Z=' . self::shQuote(htmlspecialchars(implode("\n", $infos), ENT_NOQUOTES, 'UTF-8')),
             '',
@@ -1362,7 +1402,12 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'if [ -z "$pg_display" ] && [ -S /tmp/.X11-unix/X0 ]; then pg_display=":0"; fi',
             'pg_wayland="${WAYLAND_DISPLAY:-}"',
             'if [ -z "$pg_wayland" ] && [ -n "$pg_run" ] && [ -S "$pg_run/wayland-0" ]; then pg_wayland="wayland-0"; fi',
-            'if command -v zenity >/dev/null 2>&1 && { [ -n "$pg_display" ] || [ -n "$pg_wayland" ]; }; then pg_gui=zenity; fi',
+            '# « --console » : les questions dans le terminal meme si le poste a un ecran — pour verifier ce chemin,',
+            '# ou en SSH, sans qu une fenetre s ouvre sur l ecran du poste.',
+            'PG_CONSOLE=0',
+            'for pg_arg in "$@"; do case "$pg_arg" in --console) PG_CONSOLE=1 ;; esac; done',
+            'if [ "$PG_CONSOLE" = 0 ] && command -v zenity >/dev/null 2>&1 && { [ -n "$pg_display" ] || [ -n "$pg_wayland" ]; }; then pg_gui=zenity; fi',
+            'if [ "$PG_CONSOLE" = 1 ]; then pg_journal "Option --console : questions dans le terminal"; fi',
             'pg_zen() {',
             '  if [ -n "$pg_uid" ]; then',
             '    sudo -u "$SUDO_USER" env DISPLAY="$pg_display" WAYLAND_DISPLAY="$pg_wayland" XDG_RUNTIME_DIR="$pg_run" zenity "$@"',
@@ -1377,8 +1422,15 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'pg_aplat() { printf "%s" "$1" | awk \'{ gsub("¶", " "); printf "%s", $0 }\'; }',
             '',
             '# Dans la fenetre, une ligne « # texte » change le texte et un nombre la barre ; en console, du texte.',
+            'PG_DIRE=""',
             'pg_dire() {',
+            '  PG_DIRE="$1"',
             '  if [ "$pg_gui" = zenity ]; then printf "# %s\\n" "$1"; else printf "   %s\\n" "$1"; fi',
+            '}',
+            '# Le detail sous la barre (« 12 Mo sur 22 Mo », « Environ une minute ») : zenity n a qu une ligne, il',
+            '# s ajoute a la suite du texte de l etape.',
+            'pg_detail() {',
+            '  if [ "$pg_gui" = zenity ] && [ -n "$1" ]; then printf "# %s   %s\\n" "$PG_DIRE" "$1"; fi',
             '}',
             'pg_pct() {',
             '  if [ "$pg_gui" = zenity ]; then printf "%s\\n" "$1"; fi',
@@ -1412,7 +1464,28 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '# Le resultat : dernier texte de la fenetre, qui passe a 100 % et propose OK. Garde aussi dans $PG_ETAT,',
             '# parce que le travail tourne dans un sous-shell (celui qui alimente la fenetre).',
             'PG_ETAT=$(mktemp 2>/dev/null || printf "%s" "/tmp/printgestion-etat-$$")',
-            'trap \'rm -f "$PG_ETAT"; pg_liberer\' EXIT',
+            '# Sortie sans fin donnee alors que le travail avait commence (erreur du script) : le dire, comme le piege',
+            '# d erreur de Windows, plutot qu une console qui se tait. La fenetre zenity, elle, est prevenue par pg_suivi_zen.',
+            'pg_sortie() {',
+            '  if [ "$PG_TRAVAIL" = 1 ] && [ ! -s "$PG_ETAT" ] && [ "$pg_gui" != zenity ]; then',
+            '    pg_journal "IMPREVU script arrete avant la fin"',
+            '    printf "\\n%s\\n" "$PG_MORT"',
+            '  fi',
+            '  rm -f "$PG_ETAT"',
+            '  pg_liberer',
+            '}',
+            "trap 'exit 1' INT TERM HUP",
+            'trap pg_sortie EXIT',
+            '# Le travail dans la fenetre : dans son propre sous-shell, pour qu une mort du script laisse la main a ce',
+            '# qui suit — la fin « Interrompu », et 100 % qui rend le bouton OK. Sans quoi la fenetre restait ouverte',
+            '# sur une etape, sans rien dire.',
+            'pg_suivi_zen() {',
+            '  ( pg_travail )',
+            '  if [ ! -s "$PG_ETAT" ]; then',
+            '    pg_journal "IMPREVU script arrete avant la fin"',
+            '    printf "# %s\\n100\\n" "$PG_MORT_Z"',
+            '  fi',
+            '}',
             'pg_fin() {',
             '  pg_journal "FIN     $1"',
             '  printf "%s\\n" "$1" > "$PG_ETAT"',
@@ -1515,6 +1588,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'pg_gui=""',
             'PG_DIR=""',
             'PG_FENETRE=""',
+            'PG_SENTINELLE=""',
+            'PG_PID=$$',
+            'PG_MORT=' . self::shQuote((string) ($texts['mort'] ?? '')),
             '# La personne connectee : celle qui a tape sudo, ou a defaut celle qui a la session a l ecran.',
             'pg_user="${SUDO_USER:-}"',
             'if [ -z "$pg_user" ] || [ "$pg_user" = root ]; then pg_user=$(stat -f %Su /dev/console 2>/dev/null); fi',
@@ -1531,6 +1607,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '  if [ "$pg_gui" != cocoa ]; then printf "   %s\\n" "$1"; fi',
             '}',
             'pg_pct() { pg_ecrire "pct|$1"; }',
+            'pg_detail() { pg_ecrire "note|$1"; }',
             'pg_etape() {',
             '  pg_nom=$(pg_libelle "$1")',
             '  pg_note=""',
@@ -1539,6 +1616,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '  case "$2" in',
             '    encours)',
             '      PG_EN_COURS="$1"',
+            '      pg_ecrire "note|"',
             '      pg_journal "DEBUT   $pg_nom"',
             '      pg_dire "' . __('Étape', 'printgestion') . ' $(pg_rang "$1")/$PG_TOTAL — $pg_nom"',
             '      ;;',
@@ -1561,11 +1639,20 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'PG_ETAT=$(mktemp 2>/dev/null || printf "%s" "/tmp/printgestion-etat-$$")',
             '# En partant : la fenetre doit avoir lu la fin avant que son dossier disparaisse. On attend qu on la ferme.',
             'pg_sortie() {',
+            '  # Sortie sans fin donnee (erreur du script, Ctrl-C) alors que la fenetre vit encore : elle l apprend,',
+            '  # comme le piege d erreur de Windows — sinon elle attendrait sans aucun bouton pour la fermer.',
+            '  if [ "$pg_gui" = cocoa ] && [ ! -s "$PG_ETAT" ] && [ -n "$PG_FENETRE" ] && kill -0 "$PG_FENETRE" 2>/dev/null; then',
+            '    pg_journal "IMPREVU script arrete avant la fin"',
+            '    pg_ecrire "fin|ECHEC|$PG_MORT"',
+            '  fi',
+            '  if [ -n "$PG_SENTINELLE" ]; then kill "$PG_SENTINELLE" 2>/dev/null; fi',
             '  if [ -n "$PG_FENETRE" ]; then wait "$PG_FENETRE" 2>/dev/null; fi',
             '  rm -f "$PG_ETAT"',
             '  if [ -n "$PG_DIR" ]; then rm -rf "$PG_DIR"; fi',
             '  pg_liberer',
             '}',
+            '# Ctrl-C, fermeture du terminal, arret demande : on passe par la sortie ordinaire, qui previent la fenetre.',
+            "trap 'exit 1' INT TERM HUP",
             'trap pg_sortie EXIT',
             'pg_fin() {',
             '  pg_journal "FIN     $1"',
@@ -1586,7 +1673,11 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '',
             '# Ouvre la fenetre et attend sa reponse : 0 si elle a repondu, 1 si elle n a pas pu s ouvrir.',
             '# Une fenetre qui ne s ouvre pas (session SSH, personne a l ecran) ne vaut jamais une annulation.',
+            '# « --console » : les questions dans le terminal meme si le Mac a un ecran — pour verifier ce chemin, ou en SSH.',
+            'PG_CONSOLE=0',
+            'for pg_arg in "$@"; do case "$pg_arg" in --console) PG_CONSOLE=1 ;; esac; done',
             'pg_fenetre() {',
+            '  if [ "$PG_CONSOLE" = 1 ]; then pg_journal "Option --console : questions dans le terminal"; return 1; fi',
             '  if [ -z "$pg_user" ] || [ "$pg_user" = root ] || ! command -v osascript >/dev/null 2>&1; then return 1; fi',
             '  pg_uid=$(id -u "$pg_user" 2>/dev/null) || return 1',
             '  PG_DIR=$(mktemp -d /tmp/printgestion.XXXXXX) || return 1',
@@ -1609,6 +1700,21 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '    sleep 1',
             '  done',
             '  pg_gui=cocoa',
+            '  # Sentinelle : si ce script disparait sans avoir donne la fin (arret force, fermeture du terminal), elle',
+            '  # l ecrit a la fenetre, qui montre alors « Interrompu » avec son bouton Fermer. Tache de fond : elle',
+            '  # ignore Ctrl-C et le raccrochage, et bat toutes les deux secondes pour que la fenetre sache qu elle vit.',
+            '  (',
+            '    trap "" INT HUP',
+            '    while kill -0 "$PG_PID" 2>/dev/null; do',
+            '      date +%s > "$PG_DIR/vivant" 2>/dev/null',
+            '      sleep 2',
+            '    done',
+            '    if [ ! -s "$PG_ETAT" ] && kill -0 "$PG_FENETRE" 2>/dev/null; then',
+            '      pg_journal "IMPREVU script disparu avant la fin (sentinelle)"',
+            '      printf "%s\\n" "fin|ECHEC|$PG_MORT" >> "$PG_DIR/etat" 2>/dev/null',
+            '    fi',
+            '  ) &',
+            '  PG_SENTINELLE=$!',
             '  return 0',
             '}',
             '',
@@ -1675,8 +1781,11 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'if [ ' . $pose . ' = oui ]; then pg_fait=1; fi',
             '# Espaces et retours a la ligne en virgules : la valeur voyage dans une URL.',
             'pg_ips_url=$(printf "%s" "${pg_ips:-}" | tr "\\n " ",,")',
-            'pg_rendu=' . self::shQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . '"&maj=$pg_fait&pc=$(hostname)&ips=$pg_ips_url&snmp=${pg_snmp:-}&freq=${pg_freq:-}&mode=${pg_mode:-glpi}"',
-            'pg_reponse=$(pg_http "$pg_rendu" 20)',
+            'pg_journal "        poste declare a GLPI : $(pg_poste)"',
+            'pg_rendu=' . self::shQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . '"&maj=$pg_fait&pc=$(pg_url "$(pg_poste)")&ips=$(pg_url "$pg_ips_url")&snmp=$(pg_url "${pg_snmp:-}")&freq=${pg_freq:-}&mode=${pg_mode:-glpi}"',
+            '# Deux minutes : GLPI cree ici le raccordement (plage, identifiants, taches), ce qui prend parfois plus de',
+            '# vingt secondes. Un delai trop court disait « GLPI n a pas recu le compte rendu » alors qu il l avait recu.',
+            'pg_reponse=$(pg_http "$pg_rendu" 120)',
             'pg_rc=$?',
             'pg_decouverte=0',
             'pg_scan_local=0',
@@ -1708,7 +1817,11 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '      "TROUVE "*)',
             '        pg_noms=$(printf "%s" "$pg_r" | tail -n +2 | tr "\\n" ",")',
             '        pg_niveaux=$(printf "%s" "$pg_r" | head -n 1 | cut -d" " -f3)',
-            '        if [ -n "${pg_niveaux:-}" ] && [ "$pg_niveaux" != 0 ]; then return 0; fi',
+            '        case "$pg_niveaux" in ""|*[!0-9]*) pg_niveaux=0 ;; esac',
+            '        # Toutes, pas la premiere : sur un parc de dix, annoncer « niveaux releves » des la premiere',
+            '        # serait faux neuf fois sur dix. Comme sous Windows, on attend le releve de chaque imprimante.',
+            '        pg_nb_suivi=$(printf "%s" "$pg_noms" | tr "," "\\n" | grep -c .)',
+            '        if [ "$pg_nb_suivi" -gt 0 ] && [ "$pg_niveaux" -ge "$pg_nb_suivi" ]; then return 0; fi',
             '        # Les imprimantes sont la, les niveaux pas encore : GLPI ne pousse rien, c est l agent qui',
             '        # vient chercher son travail. Ce script tourne sur le poste : on lui redemande un passage.',
             '        if [ "$pg_reveille" = 0 ]; then',
@@ -1731,6 +1844,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '    # L interface locale de l agent est toujours ouverte sur le poste, et ce script y tourne : c est le',
             '    # geste du bouton « Force an Inventory », fait par le script.',
             '    pg_etape decouverte encours ""',
+            '    pg_dire ' . self::shQuote(__('Lancement de la découverte des imprimantes...', 'printgestion')),
             '    pg_essai=0',
             '    while [ "$pg_essai" -lt ' . self::WAKE_TRIES . ' ]; do',
             '      if pg_http ' . self::shQuote(self::getAgentWakeUrl()) . ' >/dev/null; then pg_decouverte=1; break; fi',
@@ -1744,6 +1858,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '      pg_etape decouverte ok ""',
             '    else',
             '      pg_dire ' . self::shQuote(self::watchTexts()['cours']),
+            '      pg_detail ' . self::shQuote(__('Quelques minutes au plus.', 'printgestion')),
             '      if pg_suivre "$pg_suivi"; then',
             '        if [ -n "$pg_noms" ]; then',
             '          pg_journal "        imprimantes : $pg_noms"',
@@ -1770,6 +1885,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '    # GLPI Inventory manque au serveur : c est la ToolBox native de l agent qui scanne — plage, identifiant,',
             '    # tache planifiee, resultats envoyes a server0. Tout reste visible et modifiable dans 127.0.0.1:62354/toolbox.',
             '    pg_etape decouverte encours ""',
+            '    pg_dire ' . self::shQuote(__('Configuration de la ToolBox de l\'agent...', 'printgestion')),
             '    pg_first=$(printf "%s" "$pg_reponse" | cut -d" " -f2)',
             '    pg_last=$(printf "%s" "$pg_reponse" | cut -d" " -f3)',
             '    pg_delai=$(printf "%s" "$pg_reponse" | cut -d" " -f4)',
@@ -1818,6 +1934,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '        fi',
             '        if [ -n "${pg_suivi:-}" ]; then',
             '          pg_dire ' . self::shQuote(self::watchTexts()['cours']),
+            '          pg_detail ' . self::shQuote(__('Quelques minutes au plus.', 'printgestion')),
             '          pg_suivre "$pg_suivi" || true',
             '        fi',
             '        if [ -n "$pg_noms" ]; then',
@@ -1925,6 +2042,31 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
      * avait posé et où — donc un fichier par système, au même endroit que ceux qui installent.
      */
     const REMOVE_OS = ['windows' => 'windows-retrait', 'linux' => 'linux-retrait', 'macos' => 'macos-retrait'];
+
+    /**
+     * Système du poste qui consulte l'écran, pour mettre son bouton en avant parmi les trois.
+     *
+     * Lu dans l'en-tête du navigateur : c'est une commodité d'affichage, jamais une décision. Les trois fichiers
+     * restent téléchargeables, et un système mal reconnu ne coûte qu'un bouton moins voyant.
+     *
+     * Les mobiles retombent sur Windows : on n'installe pas une sonde depuis un téléphone, et l'en-tête d'un
+     * iPhone contient « like Mac OS X » — sans ce garde-fou, il mettrait macOS en avant.
+     *
+     * @return string windows | linux | macos
+     */
+    public static function getVisitorPlatform(): string {
+        $navigateur = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
+        if (preg_match('/(Android|iPhone|iPad|iPod|Windows Phone)/i', $navigateur) === 1) {
+            return 'windows';
+        }
+        if (preg_match('/(Macintosh|Mac OS X)/i', $navigateur) === 1) {
+            return 'macos';
+        }
+        if (preg_match('/(Linux|X11|CrOS|BSD)/i', $navigateur) === 1) {
+            return 'linux';
+        }
+        return 'windows';
+    }
 
     /** Interface locale de l'agent : son état (« waiting » quand il ne fait rien). */
     public static function getAgentStatusUrl(): string {
@@ -3151,7 +3293,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'PG_C_TOUT=' . self::shQuote($t['bouton']),
             'PG_C_ANNULER=' . self::shQuote($t['annuler']),
             'pg_confirmer_total() {',
-            '  pg_n=$(pg_http ' . self::shQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . '"&q=1&pc=$(hostname)" 20 | tr -d "\r\n")',
+            '  pg_n=$(pg_http ' . self::shQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . '"&q=1&pc=$(pg_url "$(pg_poste)")" 60 | tr -d "\r\n")',
             '  pg_journal "Tout supprimer : ce que GLPI annonce — ${pg_n:-aucune reponse}"',
             '  case "$pg_n" in',
             '    "COMPTE OK "*) pg_detail="$PG_C_TETE $(pg_liste "$pg_n")." ;;',
@@ -3225,7 +3367,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '  pg_gl=""',
             '  if [ "$PG_GLPI" != 0 ]; then pg_gl="&gl=$PG_GLPI"; pg_journal "        suppression demandee dans GLPI, niveau $PG_GLPI"; fi',
             '  PG_PURGE=""',
-            '  if pg_rep=$(pg_http ' . self::shQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . '"&maj=0&off=1${pg_gl}&pc=$(hostname)" 20); then',
+            '  if pg_rep=$(pg_http ' . self::shQuote(PluginPrintgestionAgenttoken::getReportURL($report)) . '"&maj=0&off=1${pg_gl}&pc=$(pg_url "$(pg_poste)")" 120); then',
             '    PG_PURGE=$(printf "%s" "$pg_rep" | tr -d "\\r\\n")',
             '    if [ -n "$PG_PURGE" ]; then pg_journal "        reponse de GLPI : $PG_PURGE"; fi',
             '    case "$PG_PURGE" in',
@@ -3251,7 +3393,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             '  PG_FAIT=' . self::shQuote($done),
             '  PG_RESTE=' . self::shQuote(self::purgeTotalEndText()),
             '  case "$PG_PURGE" in',
-            '    "PURGE TOTAL "*) pg_fin OK "$PG_FAIT¶¶$(pg_compte "$PG_PURGE"). $PG_RESTE" ;;',
+            '    "PURGE TOTAL "*) pg_fin OK "${PG_FAIT}¶¶$(pg_compte "$PG_PURGE"). $PG_RESTE" ;;',
             '    "PURGE OK") pg_fin OK ' . self::shQuote($done . '¶¶' . $fins['OK']) . ' ;;',
             '    "PURGE ABSENT") pg_fin OK ' . self::shQuote($done . '¶¶' . $fins['ABSENT']) . ' ;;',
             '    "PURGE REFUSE") pg_fin OK ' . self::shQuote($done . '¶¶' . $fins['REFUSE']) . ' ;;',
@@ -3320,7 +3462,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             ]),
             self::buildShellToolLines(),
             self::buildShellCountLines(),
-            self::buildLinuxUiLines($title, $infos, $steps),
+            self::buildLinuxUiLines($title, $infos, $steps, __('Le script de retrait s\'est arrêté sans donner de résultat (erreur, fermeture du terminal ou arrêt forcé) : GLPI Agent est peut-être encore en partie sur ce poste. Voir le journal.', 'printgestion')),
             [
                 '# ── Confirmation : on ne retire pas un agent parce qu on a appuye sur Entree ──',
                 'if [ "$pg_gui" = zenity ]; then',
@@ -3379,7 +3521,10 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '  else',
                 '    # Le gestionnaire de paquets : c est lui qui a installe (l installeur officiel depose un .deb ou un .rpm).',
                 '    if command -v apt-get >/dev/null 2>&1; then',
-                '      apt-get -y remove glpi-agent >> "$PG_JOURNAL" 2>&1',
+                '      # « purge », pas « remove » : dpkg garderait la trace des fichiers de configuration, et une',
+                '      # reinstallation ne remettrait plus agent.cfg — l agent ne demarrait plus (vu sur un poste).',
+                '      pg_paquets=$(dpkg-query -W -f="\\${Package}\\n" "glpi-agent*" 2>/dev/null | tr "\\n" " ")',
+                '      apt-get -y purge ${pg_paquets:-glpi-agent} >> "$PG_JOURNAL" 2>&1',
                 '    elif command -v dnf >/dev/null 2>&1; then',
                 '      dnf -y remove glpi-agent >> "$PG_JOURNAL" 2>&1',
                 '    elif command -v yum >/dev/null 2>&1; then',
@@ -3403,6 +3548,18 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '      pg_journal "        retire : $pg_f"',
                 '    fi',
                 '  done',
+                '  # Ce que le paquet laisse derriere lui (« remove » garde la configuration) et ce que l agent a ecrit :',
+                '  # sa configuration, son etat (deviceid, dernier inventaire), et l installeur telecharge dans /tmp.',
+                '  # Comme Windows (dossiers ProgramData et Program Files) et macOS (dossier de l agent).',
+                '  for pg_d in /etc/glpi-agent /var/lib/glpi-agent; do',
+                '    if [ -d "$pg_d" ]; then',
+                '      rm -rf "$pg_d"',
+                '      pg_journal "        retire : $pg_d"',
+                '    fi',
+                '  done',
+                '  for pg_f in /tmp/glpi-agent-*-linux-installer.pl "${TMPDIR:-/tmp}"/glpi-agent-*-linux-installer.pl; do',
+                '    if [ -f "$pg_f" ]; then rm -f "$pg_f"; pg_journal "        retire : $pg_f"; fi',
+                '  done',
                 '  pg_etape fichiers ok ""',
                 '  pg_pct 85',
                 '',
@@ -3412,8 +3569,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             [
                 '}',
                 '',
+                'PG_TRAVAIL=1',
                 'if [ "$pg_gui" = zenity ]; then',
-                '  pg_travail | pg_zen --progress --width=560 --title="$PG_TITRE" --text=" " --percentage=0 --no-cancel >/dev/null 2>&1',
+                '  pg_suivi_zen | pg_zen --progress --width=560 --title="$PG_TITRE" --text=" " --percentage=0 --no-cancel >/dev/null 2>&1',
                 'else',
                 '  pg_travail',
                 'fi',
@@ -3484,6 +3642,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             ? __('Ce fichier retire de ce Mac : le service GLPI Agent, l\'agent lui-même et sa configuration. Rien d\'autre n\'est touché.', 'printgestion')
             : __('Ce fichier retire de ce Mac : le service GLPI Agent, l\'agent lui-même et sa configuration. Rien d\'autre n\'est touché. Dans GLPI, la sonde reste listée : elle se supprime ensuite depuis la liste des sondes.', 'printgestion');
         $steps   = [
+            'taches'          => __('Retrait de la mise à jour automatique', 'printgestion'),
             'service'         => __('Arrêt du service', 'printgestion'),
             'desinstallation' => __('Retrait de GLPI Agent', 'printgestion'),
             'declaration'     => __('Compte rendu à GLPI', 'printgestion'),
@@ -3507,6 +3666,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'termine'     => __('Terminé', 'printgestion'),
             'interrompu'  => __('Interrompu', 'printgestion'),
             'journal'     => __('Journal :', 'printgestion'),
+            'mort'        => __('Le script de retrait s\'est arrêté sans donner de résultat (erreur, fermeture du terminal ou arrêt forcé) : GLPI Agent est peut-être encore en partie sur ce Mac. Voir le journal.', 'printgestion'),
         ];
 
         return implode("\n", array_merge(
@@ -3570,11 +3730,37 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             [
                 'pg_travail() {',
                 '  pg_pct 5',
+                '  # La mise a jour automatique d abord : un service qui survivrait installerait chaque mois un',
+                '  # paquet pour un agent absent.',
+                '  pg_etape taches encours ""',
+                '  pg_avait_maj=0',
+                '  if [ -f ' . PluginPrintgestionAgentsetting::MACOS_PLIST . ' ] || [ -f ' . PluginPrintgestionAgentsetting::MACOS_SCRIPT . ' ]; then pg_avait_maj=1; fi',
+                '  {',
+            ],
+            PluginPrintgestionAgentsetting::buildMacosScheduleLines(false, ''),
+            [
+                '  } >> "$PG_JOURNAL" 2>&1',
+                '  rm -f ' . PluginPrintgestionAgentsetting::MACOS_LOG,
+                '  if [ "$pg_avait_maj" = 1 ]; then',
+                '    pg_etape taches ok ' . self::shQuote(__('service et script retirés', 'printgestion')),
+                '  else',
+                '    pg_etape taches saute ' . self::shQuote(__('aucune n\'était posée', 'printgestion')),
+                '  fi',
+                '  pg_pct 15',
+                '',
                 '  pg_etape service encours ""',
                 '  PG_PLIST=' . self::shQuote($plist),
                 '  # bootout sur macOS 13 et plus, unload avant : les deux, dans cet ordre.',
                 '  launchctl bootout system "$PG_PLIST" >> "$PG_JOURNAL" 2>&1',
                 '  launchctl unload "$PG_PLIST" >> "$PG_JOURNAL" 2>&1',
+                '  # Le processus doit etre parti avant qu on efface ses fichiers, comme le fait le desinstalleur de',
+                '  # Teclib : trente secondes, puis on l arrete nous-memes.',
+                '  pg_i=0',
+                '  while pgrep -f /Applications/GLPI-Agent/bin/glpi-agent >/dev/null 2>&1 && [ "$pg_i" -lt 30 ]; do sleep 1; pg_i=$((pg_i + 1)); done',
+                '  if pgrep -f /Applications/GLPI-Agent/bin/glpi-agent >/dev/null 2>&1; then',
+                '    pkill -f /Applications/GLPI-Agent/bin/glpi-agent',
+                '    pg_journal "        processus de l agent arrete de force"',
+                '  fi',
                 '  if [ -e "$PG_PLIST" ]; then',
                 '    rm -f "$PG_PLIST"',
                 '    pg_journal "        retire : $PG_PLIST"',
@@ -3592,8 +3778,18 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '    pg_journal "        retire : /Applications/GLPI-Agent"',
                 '    rm -f ' . self::AGENT_LOG_UNIX,
                 '    # Oubli du paquet : son identifiant varie selon la version, on prend ceux qui parlent de GLPI.',
+                '    # dmidecode : pose par le paquet sur certains Mac (son desinstalleur l enleve). Seulement s il vient',
+                '    # de lui — la liste des fichiers se lit AVANT l oubli du recu, qui l efface.',
                 '    for pg_paquet in $pg_paquets; do',
+                '      if pkgutil --files "$pg_paquet" 2>/dev/null | grep -qx "usr/local/bin/dmidecode"; then',
+                '        rm -f /usr/local/bin/dmidecode',
+                '        pg_journal "        retire : /usr/local/bin/dmidecode"',
+                '      fi',
                 '      pkgutil --forget "$pg_paquet" >> "$PG_JOURNAL" 2>&1',
+                '    done',
+                '    # Le paquet telecharge par l installation, garde pour une reinstallation : plus rien a reinstaller.',
+                '    for pg_pkg in /tmp/GLPI-Agent-*.pkg "${TMPDIR:-/tmp}"/GLPI-Agent-*.pkg; do',
+                '      if [ -f "$pg_pkg" ]; then rm -f "$pg_pkg"; pg_journal "        retire : $pg_pkg"; fi',
                 '    done',
                 '    pg_etape desinstallation ok ""',
                 '  else',
@@ -3933,6 +4129,23 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $choix = PluginPrintgestionCollectfrequency::getInstallerChoices();
         $ordre = array_merge([PluginPrintgestionCollectfrequency::INSTALLER_DEFAULT], array_diff(array_keys($choix), [PluginPrintgestionCollectfrequency::INSTALLER_DEFAULT]));
         $libelles = array_map(static fn(string $code): string => $code . '  —  ' . $choix[$code], $ordre);
+        // Ce que Windows et macOS disent sous leurs champs, ici dans le texte du formulaire — zenity n'a qu'un texte.
+        $aides = array_merge(
+            [''],
+            $update ? [sprintf(
+                __('Mise à jour automatique : posée sur ce poste (%s), réglage du serveur GLPI.', 'printgestion'),
+                $target !== '' ? sprintf(__('1er du mois à 3 h, version visée %s', 'printgestion'), $target) : __('1er du mois à 3 h', 'printgestion')
+            )] : array_merge(
+                [__('Mise à jour automatique : « Non », l\'agent fonctionne normalement mais restera dans cette version jusqu\'à une intervention sur ce poste.', 'printgestion')],
+                $target !== '' ? [sprintf(__('Version visée : %s.', 'printgestion'), $target)] : []
+            ),
+            [__('Adresses IP : 192.168.1.0/24 (tout le réseau), 192.168.1.30-35 (une plage), ou des adresses séparées par des virgules. Laissé vide : rien n\'est créé dans GLPI, le raccordement restera à faire.', 'printgestion')],
+            [__('Relevés : tous les combien les imprimantes sont relevées. Ce choix règle aussi le délai au-delà duquel GLPI signale qu\'une imprimante ne remonte plus.', 'printgestion')],
+            PluginPrintgestionCollectsetup::isAvailable()
+                ? array_map(static fn(array $texte): string => $texte[0] . ' : ' . $texte[1], array_values(self::pilotChoices()))
+                : [self::pilotLocalOnly()]
+        );
+        $mort = __('Le script d\'installation s\'est arrêté sans donner de résultat (erreur, fermeture du terminal ou arrêt forcé) : rien n\'est garanti installé. Voir le journal.', 'printgestion');
 
         return implode("\n", array_merge(
             [
@@ -3954,12 +4167,14 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 sprintf('Client : %s   TAG : %s   serveur : %s', $client, $tag, $server),
             ]),
             self::buildShellToolLines(),
-            self::buildLinuxUiLines($title, $infos, $steps),
+            self::buildLinuxUiLines($title, $infos, $steps, $mort),
             self::buildLinuxServiceLines(),
             [
+                'PG_FORM_Z=' . self::shQuote(htmlspecialchars(implode("\n", array_merge($infos, $aides)), ENT_NOQUOTES, 'UTF-8')),
                 'PG_URL=' . self::shQuote(PluginPrintgestionAgenttoken::getPullURL($token, 'linux')),
                 'PG_SHA=' . self::shQuote(strtolower((string) $installer['sha256'])),
                 'PG_FICHIER="${TMPDIR:-/tmp}/' . $installer['file'] . '"',
+                'PG_TAILLE=' . (int) ($installer['size'] ?? 0),
                 '',
                 '# ── Premiere page : les questions, toutes ensemble ──',
                 'pg_ips=""',
@@ -3969,19 +4184,19 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'pg_mode=' . (PluginPrintgestionCollectsetup::isAvailable() ? 'glpi' : 'local'),
                 'pg_maj=' . ($update ? 'oui' : 'non'),
                 'if [ "$pg_gui" = zenity ]; then',
-                '  pg_form=$(pg_zen --forms --width=560 --title="$PG_TITRE" --text="$PG_INFOS_Z" \\',
+                '  pg_form=$(pg_zen --forms --width=640 --title="$PG_TITRE" --text="$PG_FORM_Z" \\',
                 '    --ok-label=' . self::shQuote(__('Installer', 'printgestion')) . ' --cancel-label=' . self::shQuote(__('Annuler', 'printgestion')) . ' --separator="|" \\',
                 '    --add-entry=' . self::shQuote(__('Adresses IP (vide : aucune)', 'printgestion')) . ' \\',
                 '    --add-entry=' . self::shQuote(__('Communauté SNMP (vide : public)', 'printgestion')) . ' \\',
                 // Chaque option finit par une continuation, la dernière comprise : sans elle, la redirection de la ligne
                 // suivante deviendrait une commande à part, et $? vaudrait toujours 0 — « Annuler » lancerait l'installation.
-                '    --add-combo=' . self::shQuote(__('Relevés', 'printgestion')) . ' --combo-values=' . self::shQuote(implode('|', $libelles)) . ' \\',
+                '    --add-combo=' . self::shQuote(__('Fréquence des relevés', 'printgestion')) . ' --combo-values=' . self::shQuote(implode('|', $libelles)) . ' \\',
             ],
             $update ? [] : [
                 '    --add-combo=' . self::shQuote(__('Mise à jour auto. (1er du mois, 3 h)', 'printgestion')) . ' --combo-values=' . self::shQuote(__('Non', 'printgestion') . '|' . __('Oui', 'printgestion')) . ' \\',
             ],
             !PluginPrintgestionCollectsetup::isAvailable() ? [] : [
-                '    --add-combo=' . self::shQuote(__('Pilotage du scan', 'printgestion'))
+                '    --add-combo=' . self::shQuote(__('Qui pilote le scan des imprimantes', 'printgestion'))
                     . ' --combo-values=' . self::shQuote(implode('|', array_column(self::pilotChoices(), 0))) . ' \\',
             ],
             [
@@ -4063,7 +4278,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'pg_travail() {',
                 '  pg_pct 2',
                 '  pg_etape telechargement encours ""',
-                '  if [ "$pg_gui" = zenity ]; then pg_telecharger "$PG_URL" "$PG_FICHIER" >/dev/null 2>&1; else pg_telecharger "$PG_URL" "$PG_FICHIER"; fi',
+                '  if [ "$pg_gui" = zenity ]; then pg_telecharger_suivi "$PG_URL" "$PG_FICHIER" "$PG_TAILLE"; else pg_telecharger "$PG_URL" "$PG_FICHIER"; fi',
                 '  if [ "$?" -ne 0 ]; then pg_echec ' . self::shQuote(__('Téléchargement impossible : rien n\'a été installé. Causes habituelles : clé déjà utilisée ou expirée (régénérer le fichier dans GLPI), serveur GLPI injoignable depuis ce poste, certificat HTTPS inconnu, ou ni curl ni wget sur ce poste.', 'printgestion')) . '; fi',
                 '  pg_journal "        recu : $(wc -c < "$PG_FICHIER") octets"',
                 '  pg_etape telechargement ok ""',
@@ -4082,17 +4297,33 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '  pg_pct 50',
                 '',
                 '  pg_etape installation encours ""',
+                '  pg_detail ' . self::shQuote(__('Environ une minute. Aucune question ne sera posée.', 'printgestion')),
                 '  # Reessais SNMP : option absente de l installeur, posee en conf.d pour survivre aux mises a jour.',
                 '  mkdir -p /etc/glpi-agent/conf.d',
                 "  cat > /etc/glpi-agent/conf.d/90-printgestion.cfg <<'PRINTGESTION_EOF'",
                 rtrim(self::buildAgentConfig($tag, false), "\n"),
                 'PRINTGESTION_EOF',
+                '  # Un paquet retire dont dpkg garde la trace (etat « rc ») ne remet pas ses fichiers de configuration a',
+                '  # la reinstallation : agent.cfg manquerait, conf.d ne serait pas lu, l agent n aurait pas de serveur.',
+                '  # La trace est purgee d abord (un ancien retrait qui effacait /etc/glpi-agent a la main la laissait).',
+                '  if command -v dpkg-query >/dev/null 2>&1; then',
+                '    for pg_p in $(dpkg-query -W -f="\\${Package} \\${Status}\\n" "glpi-agent*" 2>/dev/null | awk \'$NF == "config-files" { print $1 }\'); do',
+                '      dpkg --purge "$pg_p" >> "$PG_JOURNAL" 2>&1',
+                '      pg_journal "        trace dpkg purgee avant installation : $pg_p"',
+                '    done',
+                '  fi',
                 '  # Ce que dit l installeur part au journal : c est la qu on le relira en cas d echec.',
                 '  ' . self::buildLinuxCommand('"$PG_FICHIER"', $tag) . ' >> "$PG_JOURNAL" 2>&1',
                 '  PG_RC=$?',
                 '  pg_journal "        code de retour : $PG_RC"',
                 '  if [ "$PG_RC" -ne 0 ]; then',
                 '    pg_echec "' . __('Installation non terminée, code $PG_RC : le détail de l\'installeur est dans le journal.', 'printgestion') . '"',
+                '  fi',
+                '  # Sans agent.cfg, l agent ne lit pas conf.d : un fichier minimal qui l inclut, et il repart.',
+                '  if [ ! -f /etc/glpi-agent/agent.cfg ]; then',
+                '    printf "include \\"conf.d/\\"\\n" > /etc/glpi-agent/agent.cfg',
+                '    pg_journal "        agent.cfg absent apres installation : fichier minimal pose (include conf.d/)"',
+                '    pg_relancer_agent >/dev/null 2>&1 || true',
                 '  fi',
                 '  pg_etape installation ok ""',
                 '  # Un poste installe avant la ToolBox garde peut-etre l ancien scan maison : retire, sinon il scannerait deux fois.',
@@ -4114,7 +4345,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '    else',
                 '      pg_maj=non',
                 '      pg_maj_ratee=1',
-                '      pg_etape maj echec ' . self::shQuote(__('curl absent de ce poste', 'printgestion')),
+                '      pg_etape maj echec ' . self::shQuote(__('ni curl ni wget sur ce poste', 'printgestion')),
                 '    fi',
                 '  else',
                 '    pg_etape maj saute ' . self::shQuote(__('non demandée', 'printgestion')),
@@ -4128,31 +4359,40 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             [
                 '  # ── Resultat : ce qui s est reellement passe, jamais une promesse ──',
                 '  pg_final=' . self::shQuote(sprintf(__('GLPI Agent %s est installé sur ce poste.', 'printgestion'), $version)),
-                '  if [ "$pg_maj" = oui ]; then pg_final="$pg_final¶"' . self::shQuote(__('Mise à jour automatique : posée (le 1er du mois à 3 h).', 'printgestion')) . '; fi',
-                '  if [ "$pg_maj_ratee" = 1 ]; then pg_final="$pg_final¶"' . self::shQuote(__('Mise à jour automatique : non posée (curl absent). L\'agent fonctionne, seule la mise à jour manque.', 'printgestion')) . '; fi',
-                '  pg_final="$pg_final¶¶"',
+                '  if [ "$pg_maj" = oui ]; then pg_final="${pg_final}¶"' . self::shQuote(__('Mise à jour automatique : posée (le 1er du mois à 3 h).', 'printgestion')) . '; fi',
+                '  if [ "$pg_maj_ratee" = 1 ]; then pg_final="${pg_final}¶"' . self::shQuote(__('Mise à jour automatique : non posée (ni curl ni wget). L\'agent fonctionne, seule la mise à jour manque.', 'printgestion')) . '; fi',
+                '  pg_final="${pg_final}¶¶"',
                 '  if [ "$pg_decouverte" = 1 ]; then',
-                '    pg_final="$pg_final"' . self::shQuote(__('Les imprimantes sont déclarées dans GLPI et la découverte vient de partir : rien d\'autre à faire sur ce poste.', 'printgestion')),
-                '  if [ -n "${pg_noms:-}" ]; then',
-                '    pg_final="$pg_final¶¶$(printf "%s" "$pg_noms" | tr "," "\\n" | grep -c .) '
-                    . __('imprimante(s) trouvée(s) et ajoutée(s) dans GLPI', 'printgestion') . '"',
-                '    pg_final="$pg_final¶' . __('Imprimantes trouvées et ajoutées :', 'printgestion') . ' $(printf "%s" "$pg_noms" | sed "s/,$//")"',
-                '    pg_final="$pg_final¶"' . self::shQuote(self::watchTexts()['detail']),
-                '  fi',
+                '    pg_final="$pg_final"' . self::shQuote(__('Les imprimantes sont déclarées dans GLPI et la découverte vient de partir : rien d\'autre à faire sur ce poste. Le résultat s\'affiche dans GLPI, fiche de l\'entité, onglet « Déploiement Agent ».', 'printgestion')),
                 '  elif [ "$pg_scan_local" = 1 ]; then',
                 '    pg_final="$pg_final"' . self::shQuote(__('Le scan des imprimantes est confié à la ToolBox de l\'agent, à la cadence choisie : elle envoie elle-même ses résultats à GLPI. Plage, identifiant et tâche se voient et se corrigent sur ce poste, à l\'adresse http://127.0.0.1:62354/toolbox.', 'printgestion')),
                 '  elif [ "$pg_reponse" = NOAGENT ]; then',
-                '    pg_final="$pg_final"' . self::shQuote(__('GLPI ne connaît pas encore cette sonde : les imprimantes n\'ont pas pu lui être confiées. Vérifier que ce poste joint le serveur GLPI, puis raccorder les imprimantes depuis l\'onglet « Déploiement Agent » de l\'entité.', 'printgestion')),
+                '    pg_final="$pg_final"' . self::shQuote(__('GLPI ne connaît pas encore cette sonde : les imprimantes n\'ont pas pu lui être confiées. Vérifier que ce poste joint le serveur GLPI, puis raccorder les imprimantes depuis la fiche de l\'entité, onglet « Déploiement Agent ».', 'printgestion')),
                 '  else',
-                '    pg_final="$pg_final"' . self::shQuote(__('Dernière étape, dans GLPI : onglet « Déploiement Agent » de l\'entité — vérifier que la sonde apparaît, puis raccorder les imprimantes (bloc 3).', 'printgestion')),
+                '    pg_final="$pg_final"' . self::shQuote(__('Dernière étape, dans GLPI : fiche de l\'entité, onglet « Déploiement Agent » — vérifier que la sonde apparaît avec un contact récent, puis raccorder les imprimantes (bloc 3).', 'printgestion')),
+                '  fi',
+                '  # Les imprimantes trouvees, par leur nom, decouverte GLPI ou ToolBox : c est ce que le technicien vient verifier.',
+                '  if [ -n "${pg_noms:-}" ]; then',
+                '    pg_nb=$(printf "%s" "$pg_noms" | tr "," "\\n" | grep -c .)',
+                '    if [ "${pg_niveaux:-0}" -ge "$pg_nb" ]; then',
+                '      pg_fin_niveaux=' . self::shQuote(self::watchTexts()['niveaux']),
+                '    elif [ "${pg_niveaux:-0}" -gt 0 ]; then',
+                '      pg_fin_niveaux="${pg_niveaux} ' . self::watchTexts()['sur'] . ' ${pg_nb} — ' . self::watchTexts()['reste'] . '"',
+                '    else',
+                '      pg_fin_niveaux=' . self::shQuote(self::watchTexts()['plus_tard']),
+                '    fi',
+                '    pg_final="${pg_final}¶¶$pg_nb ' . self::watchTexts()['trouve'] . ', $pg_fin_niveaux"',
+                '    pg_final="${pg_final}¶' . self::watchTexts()['liste'] . ' $(printf "%s" "$pg_noms" | sed "s/,$//")"',
+                '    pg_final="${pg_final}¶"' . self::shQuote(self::watchTexts()['detail']),
                 '  fi',
                 '  pg_journal "Journal de l agent : ' . self::AGENT_LOG_UNIX . '"',
-                '  pg_final="$pg_final¶¶"' . self::shQuote(__('Journal de l\'agent :', 'printgestion') . ' ' . self::AGENT_LOG_UNIX),
+                '  pg_final="${pg_final}¶¶"' . self::shQuote(__('Journal de l\'agent :', 'printgestion') . ' ' . self::AGENT_LOG_UNIX),
                 '  pg_fin OK "$pg_final"',
                 '}',
                 '',
+                'PG_TRAVAIL=1',
                 'if [ "$pg_gui" = zenity ]; then',
-                '  pg_travail | pg_zen --progress --width=560 --title="$PG_TITRE" --text=" " --percentage=0 --no-cancel >/dev/null 2>&1',
+                '  pg_suivi_zen | pg_zen --progress --width=560 --title="$PG_TITRE" --text=" " --percentage=0 --no-cancel >/dev/null 2>&1',
                 'else',
                 '  pg_travail',
                 'fi',
@@ -4207,6 +4447,10 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
 
     private static function buildMacosSingleFileScript(Entity $entity, array $installers, string $tag, string $token, string $report): string {
         $version = (string) $installers['macos-arm64']['version'];
+        $config  = PluginPrintgestionConfig::getInstance()->fields;
+        // « Imposée » : l'administrateur a tranché pour tout le monde, le technicien n'a pas à choisir.
+        $update  = (int) ($config['agent_update_default'] ?? 1) === 1;
+        $target  = PluginPrintgestionAgentsetting::getTargetVersion();
         $expires = date('d/m/Y H:i', time() + PluginPrintgestionAgenttoken::TTL);
         $size_mb = max(1, (int) round(((int) ($installers['macos-arm64']['size'] ?? 0)) / 1048576));
         $client  = (string) $entity->fields['completename'];
@@ -4222,6 +4466,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'telechargement' => __('Téléchargement du paquet officiel', 'printgestion'),
             'empreinte'      => __('Vérification de l\'empreinte', 'printgestion'),
             'installation'   => sprintf(__('Installation de GLPI Agent %s', 'printgestion'), $version),
+            'maj'            => __('Mise à jour automatique', 'printgestion'),
             'contact'        => __('Premier contact avec GLPI', 'printgestion'),
             'declaration'    => __('Compte rendu à GLPI', 'printgestion'),
             'decouverte'     => __('Découverte des imprimantes', 'printgestion'),
@@ -4230,6 +4475,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $choix    = PluginPrintgestionCollectfrequency::getInstallerChoices();
         $ordre    = array_merge([PluginPrintgestionCollectfrequency::INSTALLER_DEFAULT], array_diff(array_keys($choix), [PluginPrintgestionCollectfrequency::INSTALLER_DEFAULT]));
         $libelles = array_map(static fn(string $code): string => $code . '  —  ' . $choix[$code], $ordre);
+        // La fenêtre, elle, montre la liste dans l'ordre de Windows, la fréquence d'avance sélectionnée.
+        $menu     = array_map(static fn(string $code): string => $code . '  —  ' . $choix[$code], array_keys($choix));
+        $defaut   = (int) array_search(PluginPrintgestionCollectfrequency::INSTALLER_DEFAULT, array_keys($choix), true);
         $fenetre  = [
             'fenetre'     => $title,
             'titre'       => __('Sonde d\'inventaire des imprimantes', 'printgestion'),
@@ -4238,11 +4486,26 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'infos'       => implode("\n", $infos),
             'message'     => implode("\n", $notes),
             'formulaire'  => true,
+            // La case quand le technicien choisit, la phrase quand l'administrateur a déjà tranché : les mêmes
+            // mots que sous Windows, pour que les deux écrans se répondent.
+            'lib_maj'     => __('Mettre à jour l\'agent automatiquement (1er du mois à 3 h)', 'printgestion'),
+            'maj_impose'  => $update ? sprintf(
+                __('Mise à jour automatique : posée sur ce Mac (%s), réglage du serveur GLPI.', 'printgestion'),
+                $target !== ''
+                    ? sprintf(__('1er du mois à 3 h, version visée %s', 'printgestion'), $target)
+                    : __('1er du mois à 3 h', 'printgestion')
+            ) : '',
+            // Sous la case, ce que « décochée » veut dire — les mêmes phrases que sous Windows, « Mac » remplaçant « PC ».
+            'aide_maj'    => $update ? '' : implode(chr(10), array_merge(
+                [__('Décochée, l\'agent fonctionne normalement mais restera dans cette version jusqu\'à une intervention sur ce Mac.', 'printgestion')],
+                $target !== '' ? [sprintf(__('Version visée : %s.', 'printgestion'), $target)] : []
+            )),
             'lib_ips'     => __('Adresses IP des imprimantes de ce client', 'printgestion'),
             'exemple_ips' => '192.168.1.0/24',
             'aide_ips'    => __('Exemples : 192.168.1.0/24 (tout le réseau), 192.168.1.30-35 (une plage), ou des adresses séparées par des virgules. Laissé vide : rien n\'est créé dans GLPI, le raccordement restera à faire.', 'printgestion'),
             'lib_snmp'    => __('Communauté SNMP des imprimantes', 'printgestion'),
             'lib_freq'    => __('Fréquence des relevés', 'printgestion'),
+            'aide_freq'   => __('Tous les combien les imprimantes sont relevées. Ce choix règle aussi le délai au-delà duquel GLPI signale qu\'une imprimante ne remonte plus.', 'printgestion'),
             // Qui pilote le scan : deux choix, ou rien du tout quand le serveur n'a pas GLPI Inventory.
             'lib_mode'    => __('Qui pilote le scan des imprimantes', 'printgestion'),
             'modes'       => PluginPrintgestionCollectsetup::isAvailable()
@@ -4252,7 +4515,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 ? implode(chr(10), array_map(static fn(array $texte): string => $texte[0] . ' : ' . $texte[1], array_values(self::pilotChoices())))
                 : '',
             'sans_mode'   => PluginPrintgestionCollectsetup::isAvailable() ? '' : self::pilotLocalOnly(),
-            'frequences'  => array_values($libelles),
+            'frequences'  => array_values($menu),
+            'freq_defaut' => $defaut,
             'bouton'      => __('Installer', 'printgestion'),
             'annuler'     => __('Annuler', 'printgestion'),
             // Trois pages de réglages, comme sous Windows : l'agent, les imprimantes, le scan.
@@ -4265,6 +4529,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'termine'     => __('Terminé', 'printgestion'),
             'interrompu'  => __('Interrompu', 'printgestion'),
             'journal'     => __('Journal :', 'printgestion'),
+            // Quand le script meurt sans donner la fin : la fenêtre le dit et se laisse fermer, au lieu d'attendre.
+            'mort'        => __('Le script d\'installation s\'est arrêté sans donner de résultat (erreur, fermeture du terminal ou arrêt forcé) : rien n\'est garanti installé. Voir le journal.', 'printgestion'),
         ];
 
         return implode("\n", array_merge(
@@ -4295,16 +4561,19 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'PG_URL=""',
                 'PG_SHA=""',
                 'PG_FICHIER=""',
+                'PG_TAILLE=0',
                 'case "$PG_ARCH" in',
                 '  arm64)',
                 '    PG_URL=' . self::shQuote(PluginPrintgestionAgenttoken::getPullURL($token, 'macos-arm64')),
                 '    PG_SHA=' . self::shQuote(strtolower((string) $installers['macos-arm64']['sha256'])),
                 '    PG_FICHIER="${TMPDIR:-/tmp}/' . $installers['macos-arm64']['file'] . '"',
+                '    PG_TAILLE=' . (int) ($installers['macos-arm64']['size'] ?? 0),
                 '    ;;',
                 '  x86_64)',
                 '    PG_URL=' . self::shQuote(PluginPrintgestionAgenttoken::getPullURL($token, 'macos-x86_64')),
                 '    PG_SHA=' . self::shQuote(strtolower((string) $installers['macos-x86_64']['sha256'])),
                 '    PG_FICHIER="${TMPDIR:-/tmp}/' . $installers['macos-x86_64']['file'] . '"',
+                '    PG_TAILLE=' . (int) ($installers['macos-x86_64']['size'] ?? 0),
                 '    ;;',
                 'esac',
                 'pg_journal "Processeur : $PG_ARCH"',
@@ -4314,6 +4583,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'pg_snmp=""',
                 'pg_freq=""',
                 'pg_mode=' . (PluginPrintgestionCollectsetup::isAvailable() ? 'glpi' : 'local'),
+                'pg_maj=' . ($update ? 'oui' : 'non'),
                 'if pg_fenetre; then',
                 '  if [ "$(head -n 1 "$PG_DIR/reponses")" = annule ]; then',
                 '    pg_journal ' . self::shQuote(__('Installation annulée par le technicien : rien n\'a été installé.', 'printgestion')),
@@ -4324,6 +4594,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '  pg_freq=$(sed -n "s/^freq=//p" "$PG_DIR/reponses")',
                 '  pg_rep_mode=$(sed -n "s/^mode=//p" "$PG_DIR/reponses")',
                 '  if [ -n "$pg_rep_mode" ]; then pg_mode="$pg_rep_mode"; fi',
+                '  pg_rep_maj=$(sed -n "s/^maj=//p" "$PG_DIR/reponses")',
+                '  if [ -n "$pg_rep_maj" ]; then pg_maj="$pg_rep_maj"; fi',
                 '  # La communaute SNMP ne reste pas sur le disque plus longtemps que necessaire.',
                 '  rm -f "$PG_DIR/reponses"',
                 'else',
@@ -4353,6 +4625,14 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             array_map(static fn(int $i, string $code): string => '    ' . ($i + 1) . ') pg_freq=' . $code . ' ;;', array_keys($ordre), $ordre),
             [
                 '  esac',
+            ],
+            // Question posée seulement si l'administrateur laisse le choix : sinon, elle serait sans effet.
+            $update ? [] : [
+                '  printf "%s " ' . self::shQuote(__('Mettre à jour l\'agent automatiquement (1er du mois à 3 h) ? [o/N]', 'printgestion')),
+                '  read -r pg_rep',
+                '  case "$pg_rep" in [oOyY]*) pg_maj=oui ;; esac',
+            ],
+            [
                 'fi',
                 'if [ -z "$pg_snmp" ]; then pg_snmp=public; fi',
                 'if [ -z "$pg_freq" ]; then pg_freq=' . PluginPrintgestionCollectfrequency::INSTALLER_DEFAULT . '; fi',
@@ -4360,12 +4640,14 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '# Jamais la communaute elle-meme : c est un secret, et ce journal reste dans /var/tmp.',
                 'pg_journal "Communaute SNMP : renseignee (jamais ecrite dans ce journal)"',
                 'pg_journal "Frequence des releves : $pg_freq"',
+                'pg_journal "Mise a jour automatique : $pg_maj"',
+                'pg_journal "Pilotage du scan : $pg_mode"',
                 '',
                 'pg_travail() {',
                 '  pg_pct 2',
                 '  pg_etape telechargement encours ""',
                 '  if [ -z "$PG_URL" ]; then pg_echec "' . __('Processeur inconnu ($PG_ARCH) : ce Mac n\'est ni Apple Silicon ni Intel. Rien n\'a été installé.', 'printgestion') . '"; fi',
-                '  if [ "$pg_gui" = cocoa ]; then pg_telecharger "$PG_URL" "$PG_FICHIER" >/dev/null 2>&1; else pg_telecharger "$PG_URL" "$PG_FICHIER"; fi',
+                '  if [ "$pg_gui" = cocoa ]; then pg_telecharger_suivi "$PG_URL" "$PG_FICHIER" "$PG_TAILLE"; else pg_telecharger "$PG_URL" "$PG_FICHIER"; fi',
                 '  if [ "$?" -ne 0 ]; then pg_echec ' . self::shQuote(__('Téléchargement impossible : rien n\'a été installé. Causes habituelles : clé déjà utilisée ou expirée (régénérer le fichier dans GLPI), serveur GLPI injoignable depuis ce Mac, ou certificat HTTPS inconnu.', 'printgestion')) . '; fi',
                 '  pg_journal "        recu : $(wc -c < "$PG_FICHIER" | tr -d " ") octets"',
                 '  pg_etape telechargement ok ""',
@@ -4384,6 +4666,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '  pg_pct 50',
                 '',
                 '  pg_etape installation encours ""',
+                '  pg_detail ' . self::shQuote(__('Environ une minute. Aucune question ne sera posée.', 'printgestion')),
                 '  # Ce que dit l installeur d Apple part au journal : c est la qu on le relira en cas de refus.',
                 '  if ! installer -pkg "$PG_FICHIER" -target / >> "$PG_JOURNAL" 2>&1; then',
                 '    pg_echec ' . self::shQuote(__('Installation du paquet refusée : rien d\'autre n\'a été fait. Ouvrir Réglages Système > Confidentialité et sécurité, puis relancer.', 'printgestion')),
@@ -4398,33 +4681,63 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '    pg_echec ' . self::shQuote(__('Agent installé et configuré, mais le service n\'a pas redémarré : redémarrer le Mac, puis vérifier dans GLPI que la sonde apparaît.', 'printgestion')),
                 '  fi',
                 '  pg_etape installation ok ""',
-                '  pg_pct 72',
+                '  pg_pct 70',
+                '',
+                '  pg_maj_ratee=0',
+                '  if [ "$pg_maj" = oui ]; then',
+                '    pg_etape maj encours ""',
+                '    {',
+            ],
+            PluginPrintgestionAgentsetting::buildMacosScheduleLines(true, $target),
+            [
+                '    } >> "$PG_JOURNAL" 2>&1',
+                '    if [ -f ' . PluginPrintgestionAgentsetting::MACOS_PLIST . ' ] && [ -x ' . PluginPrintgestionAgentsetting::MACOS_SCRIPT . ' ]; then',
+                '      pg_etape maj ok ' . self::shQuote(__('le 1er du mois à 3 h', 'printgestion')),
+                '    else',
+                '      pg_maj=non',
+                '      pg_maj_ratee=1',
+                '      pg_etape maj echec ' . self::shQuote(__('service non posé (voir le journal)', 'printgestion')),
+                '    fi',
+                '  else',
+                '    pg_etape maj saute ' . self::shQuote(__('non demandée', 'printgestion')),
+                '  fi',
+                '  pg_pct 78',
                 '',
             ],
             self::buildShellContactLines(),
             ['  pg_pct 88', ''],
-            self::buildShellReportLines($report, 'non'),
+            self::buildShellReportLines($report, '"$pg_maj"'),
             [
                 '  pg_final=' . self::shQuote(sprintf(__('GLPI Agent %s est installé sur ce Mac.', 'printgestion'), $version)),
-                '  pg_final="$pg_final¶"' . self::shQuote(__('Mise à jour : manuelle sur macOS (relancer un fichier d\'installation plus récent ; la configuration est gardée).', 'printgestion')),
-                '  pg_final="$pg_final¶¶"',
+                '  if [ "$pg_maj" = oui ]; then pg_final="${pg_final}¶"' . self::shQuote(__('Mise à jour automatique : posée (le 1er du mois à 3 h).', 'printgestion')) . '; fi',
+                '  if [ "$pg_maj_ratee" = 1 ]; then pg_final="${pg_final}¶"' . self::shQuote(__('Mise à jour automatique : non posée (voir le journal). L\'agent fonctionne, seule la mise à jour manque.', 'printgestion')) . '; fi',
+                '  if [ "$pg_maj" != oui ] && [ "$pg_maj_ratee" != 1 ]; then pg_final="${pg_final}¶"' . self::shQuote(__('Mise à jour : à faire à la main (relancer un fichier d\'installation plus récent ; la configuration est gardée).', 'printgestion')) . '; fi',
+                '  pg_final="${pg_final}¶¶"',
                 '  if [ "$pg_decouverte" = 1 ]; then',
-                '    pg_final="$pg_final"' . self::shQuote(__('Les imprimantes sont déclarées dans GLPI et la découverte vient de partir : rien d\'autre à faire sur ce Mac.', 'printgestion')),
-                '  if [ -n "${pg_noms:-}" ]; then',
-                '    pg_final="$pg_final¶¶$(printf "%s" "$pg_noms" | tr "," "\\n" | grep -c .) '
-                    . __('imprimante(s) trouvée(s) et ajoutée(s) dans GLPI', 'printgestion') . '"',
-                '    pg_final="$pg_final¶' . __('Imprimantes trouvées et ajoutées :', 'printgestion') . ' $(printf "%s" "$pg_noms" | sed "s/,$//")"',
-                '    pg_final="$pg_final¶"' . self::shQuote(self::watchTexts()['detail']),
-                '  fi',
+                '    pg_final="$pg_final"' . self::shQuote(__('Les imprimantes sont déclarées dans GLPI et la découverte vient de partir : rien d\'autre à faire sur ce Mac. Le résultat s\'affiche dans GLPI, fiche de l\'entité, onglet « Déploiement Agent ».', 'printgestion')),
                 '  elif [ "$pg_scan_local" = 1 ]; then',
                 '    pg_final="$pg_final"' . self::shQuote(__('Le scan des imprimantes est confié à la ToolBox de l\'agent, à la cadence choisie : elle envoie elle-même ses résultats à GLPI. Plage, identifiant et tâche se voient et se corrigent sur ce Mac, à l\'adresse http://127.0.0.1:62354/toolbox.', 'printgestion')),
                 '  elif [ "$pg_reponse" = NOAGENT ]; then',
-                '    pg_final="$pg_final"' . self::shQuote(__('GLPI ne connaît pas encore cette sonde : les imprimantes n\'ont pas pu lui être confiées. Vérifier que ce Mac joint le serveur GLPI, puis raccorder les imprimantes depuis l\'onglet « Déploiement Agent » de l\'entité.', 'printgestion')),
+                '    pg_final="$pg_final"' . self::shQuote(__('GLPI ne connaît pas encore cette sonde : les imprimantes n\'ont pas pu lui être confiées. Vérifier que ce Mac joint le serveur GLPI, puis raccorder les imprimantes depuis la fiche de l\'entité, onglet « Déploiement Agent ».', 'printgestion')),
                 '  else',
-                '    pg_final="$pg_final"' . self::shQuote(__('Dernière étape, dans GLPI : onglet « Déploiement Agent » de l\'entité — vérifier que la sonde apparaît, puis raccorder les imprimantes (bloc 3).', 'printgestion')),
+                '    pg_final="$pg_final"' . self::shQuote(__('Dernière étape, dans GLPI : fiche de l\'entité, onglet « Déploiement Agent » — vérifier que la sonde apparaît avec un contact récent, puis raccorder les imprimantes (bloc 3).', 'printgestion')),
+                '  fi',
+                '  # Les imprimantes trouvees, par leur nom, decouverte GLPI ou ToolBox : c est ce que le technicien vient verifier.',
+                '  if [ -n "${pg_noms:-}" ]; then',
+                '    pg_nb=$(printf "%s" "$pg_noms" | tr "," "\\n" | grep -c .)',
+                '    if [ "${pg_niveaux:-0}" -ge "$pg_nb" ]; then',
+                '      pg_fin_niveaux=' . self::shQuote(self::watchTexts()['niveaux']),
+                '    elif [ "${pg_niveaux:-0}" -gt 0 ]; then',
+                '      pg_fin_niveaux="${pg_niveaux} ' . self::watchTexts()['sur'] . ' ${pg_nb} — ' . self::watchTexts()['reste'] . '"',
+                '    else',
+                '      pg_fin_niveaux=' . self::shQuote(self::watchTexts()['plus_tard']),
+                '    fi',
+                '    pg_final="${pg_final}¶¶$pg_nb ' . self::watchTexts()['trouve'] . ', $pg_fin_niveaux"',
+                '    pg_final="${pg_final}¶' . self::watchTexts()['liste'] . ' $(printf "%s" "$pg_noms" | sed "s/,$//")"',
+                '    pg_final="${pg_final}¶"' . self::shQuote(self::watchTexts()['detail']),
                 '  fi',
                 '  pg_journal "Journal de l agent : ' . self::AGENT_LOG_UNIX . '"',
-                '  pg_final="$pg_final¶¶"' . self::shQuote(__('Journal de l\'agent :', 'printgestion') . ' ' . self::AGENT_LOG_UNIX),
+                '  pg_final="${pg_final}¶¶"' . self::shQuote(__('Journal de l\'agent :', 'printgestion') . ' ' . self::AGENT_LOG_UNIX),
                 '  pg_fin OK "$pg_final"',
                 '}',
                 '',
@@ -5075,13 +5388,17 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         if (!empty($all_blockers)) {
             echo PluginPrintgestionUi::statusLine('error', __('Installeur indisponible — contactez l\'administrateur', 'printgestion'), $list($all_blockers));
         }
+        // Le bouton en avant est celui du système depuis lequel on regarde, et non Windows pour tout le monde :
+        // sur un Mac, on cherchait le sien parmi les trois. Les deux autres restent à côté, également cliquables.
+        $sien = self::getVisitorPlatform();
         echo "<div class='d-flex flex-wrap gap-2 my-2'>";
         foreach ($platforms as $platform => $label) {
-            $class = $platform === 'windows' ? 'btn-primary' : 'btn-outline-primary';
+            $class = $platform === $sien ? 'btn-primary' : 'btn-outline-primary';
+            $titre = $platform === $sien ? " title='" . $esc(__('Le système depuis lequel vous consultez cet écran', 'printgestion')) . "'" : '';
             if (empty($blockers[$platform])) {
-                echo "<a class='btn {$class}' href='" . $esc(self::getDownloadURL($id, $platform)) . "'><i class='ti {$icons[$platform]} me-1'></i>" . $esc($label) . "</a>";
+                echo "<a class='btn {$class}' href='" . $esc(self::getDownloadURL($id, $platform)) . "'{$titre}><i class='ti {$icons[$platform]} me-1'></i>" . $esc($label) . "</a>";
             } else {
-                echo "<button type='button' class='btn {$class}' disabled><i class='ti {$icons[$platform]} me-1'></i>" . $esc($label) . "</button>";
+                echo "<button type='button' class='btn {$class}' disabled{$titre}><i class='ti {$icons[$platform]} me-1'></i>" . $esc($label) . "</button>";
             }
         }
         echo "</div>";
@@ -5090,7 +5407,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         // panneau replié — c'est au moment où l'on tient le fichier qu'on se le demande. Un double-clic sur un .sh
         // n'ouvre qu'un éditeur de texte : rien ne se passe, et rien ne l'explique.
         echo "<p class='text-muted small mb-2'><i class='ti ti-info-circle me-1'></i>"
-            . $esc(__('Windows : clic droit sur le fichier, « Exécuter en tant qu\'administrateur ». Linux et macOS : un double-clic ne lance rien — ouvrir un terminal, taper « sudo sh » (avec l\'espace), glisser le fichier dans la fenêtre du terminal, et valider ; le mot de passe administrateur est demandé. Installation comme retrait.', 'printgestion'))
+            . $esc(__('Windows : clic droit sur le fichier, « Exécuter en tant qu\'administrateur ». Linux et macOS : un double-clic ne lance rien — ouvrir un terminal, taper « sudo sh » suivi d\'un espace SANS VALIDER, glisser le fichier dans la fenêtre du terminal, puis appuyer sur Entrée ; le mot de passe administrateur est demandé. Valider trop tôt ouvre un shell root, et le fichier glissé ensuite répond « permission denied ». Installation comme retrait.', 'printgestion'))
             . "</p>";
 
         // Retirer une sonde : au même endroit que ce qui l'installe, mais en retrait — c'est le geste rare, et un
@@ -5194,8 +5511,11 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         return "<p class='mb-1'>" . $esc(__('Un seul fichier à lancer par système, sur le PC qui servira de sonde (allumé en permanence, sur le réseau des imprimantes). Une fenêtre s\'ouvre et rappelle le client : rien à saisir.', 'printgestion')) . "</p>"
             . "<ul class='mb-2'>"
             . "<li>" . $esc(__('Windows : clic droit sur le fichier téléchargé > Exécuter en tant qu\'administrateur.', 'printgestion')) . "</li>"
-            . "<li>" . $esc(__('Linux : dans un terminal, taper « sudo sh » puis glisser le fichier téléchargé dans la fenêtre du terminal, et valider.', 'printgestion')) . "</li>"
-            . "<li>" . $esc(__('macOS : ouvrir Terminal (Applications > Utilitaires), taper « sudo sh » puis glisser le fichier téléchargé dans la fenêtre, et valider. Le mot de passe administrateur du Mac est demandé.', 'printgestion')) . "</li>"
+            . "<li>" . $esc(__('Linux : dans un terminal, taper « sudo sh » suivi d\'un espace — sans valider —, glisser le fichier téléchargé dans la fenêtre du terminal, puis appuyer sur Entrée.', 'printgestion')) . "</li>"
+            . "<li>" . $esc(__('macOS : ouvrir Terminal (Applications > Utilitaires), taper « sudo sh » suivi d\'un espace — sans valider —, glisser le fichier téléchargé dans la fenêtre, puis appuyer sur Entrée. Le mot de passe administrateur du Mac est demandé.', 'printgestion')) . "</li>"
+            // Le faux pas le plus courant, nommé par le mot qui s'affiche à l'écran : sans cette ligne, on
+            // soupçonne le fichier, et l'on cherche du côté des droits ou de l'antivirus.
+            . "<li>" . $esc(__('« permission denied » sous Linux ou macOS : c\'est qu\'on a validé après « sudo sh », ce qui ouvre un shell root ; le fichier glissé ensuite est lancé au lieu d\'être lu, et un fichier téléchargé n\'a pas le droit d\'exécution. Taper « exit », puis recommencer en une seule ligne.', 'printgestion')) . "</li>"
             . "</ul>"
             . "<p class='mb-3'>" . $esc(__('Le fichier va chercher l\'agent officiel sur ce serveur GLPI avec une clé qui ne vaut qu\'une fois et qu\'un jour : le télécharger au moment de partir, et le régénérer ici s\'il a déjà servi ou si le téléchargement a été interrompu. Ensuite, dans GLPI : vérifier que la sonde apparaît, puis raccorder les imprimantes (bloc 3) avant de partir.', 'printgestion')) . "</p>";
     }

@@ -2,6 +2,113 @@
 
 ## Non publié
 
+- **macOS a enfin sa mise à jour automatique, comme Windows et Linux.** La première page de la fenêtre porte la
+  case « Mettre à jour l'agent automatiquement (1er du mois à 3 h) », ou la phrase « posée sur ce Mac, réglage du
+  serveur GLPI » quand l'administrateur a tranché — les mêmes mots que sous Windows. Derrière : un service
+  `launchd` mensuel qui refuse d'agir pendant une tâche de l'agent, lit la release officielle, ne retient que le
+  paquet de la puce du Mac, vérifie son empreinte SHA-256 publiée, et n'installe que si la version diffère. Le
+  retrait l'enlève, service et script — sans quoi il aurait continué à mettre à jour un agent désinstallé.
+
+- **Fenêtre macOS inerte : ni les boutons ni la croix ne répondaient.** Deux pièges du pont JavaScript de macOS,
+  vérifiés sur un Mac : la constante « tous les événements » arrive arrondie à 2^63 et, repassée à Cocoa, ne garde
+  qu'un bit — la boucle n'obtenait plus jamais un événement ; et dans le rappel d'un clic, le numéro du bouton
+  arrive en chaîne, donc « 1 » n'était jamais égal à 1. Le masque est maintenant un nombre posé en clair, et le
+  numéro est relu comme un nombre. Vérifié en pilotant la fenêtre par l'accessibilité du Mac : trois pages,
+  saisie, menus, case, installation, étapes, fin, Entrée et Échap. Le harnais refuse désormais un fichier qui
+  reprendrait l'un des deux pièges.
+
+- **macOS : le suivi de la découverte attendait dix minutes une imprimante déjà dans GLPI, et le retrait disait
+  « sonde introuvable ».** Le serveur retrouve la sonde par le nom exact de l'ordinateur dans GLPI, celui que l'agent
+  déclare. Windows envoie COMPUTERNAME, qui est ce nom. Le script macOS envoyait « Mac.local » (`hostname`), alors
+  que l'agent, sur macOS, déclare le « nom de l'ordinateur » des Réglages Système (module `MacOS/Hostname`,
+  `system_profiler`), avec ses espaces : « Mac de TEST ». GLPI répondait « attente » au suivi sans rien écrire
+  au journal, et « absente » au retrait. Les scripts envoient maintenant ce que l'agent déclare (`pg_poste` :
+  `scutil --get ComputerName` sous macOS, nom coupé au premier point ailleurs), encodé pour l'URL comme le fait
+  Windows (espaces, accents, virgules des adresses, communauté SNMP), pour le compte rendu, le retrait et la question
+  « tout supprimer » ; le journal du poste dit le nom envoyé. Le serveur n'est pas touché : ce sont les mêmes points
+  d'entrée que pour Windows. Dès que chaque imprimante a ses niveaux, la fenêtre conclut, comme sous Windows.
+
+- **macOS : la fenêtre ne recevait jamais « Terminé », et le Terminal attendait pour toujours.** Le shell de macOS
+  (`/bin/sh`, bash 3.2) lit « $pg_final¶ » comme le nom de variable « pg_final¶ » dès que la locale est UTF-8, celle
+  de tout Terminal ; la variable n'existant pas, le script s'arrêtait net à la construction du message final, sans
+  rien dire, et attendait qu'on ferme une fenêtre dont la croix était désactivée. Toute variable suivie d'un
+  caractère non ASCII s'écrit désormais `${var}` — seize endroits, dans les scripts macOS, Linux et la fin du
+  retrait. Le harnais refuse un fichier servi qui reprendrait la forme fautive. Rejoué sous `/bin/sh` en locale
+  UTF-8 avec `set -u` : la fin s'écrit, avec et sans imprimante trouvée, à l'installation comme au retrait.
+
+- **Linux : après un retrait, la réinstallation laissait un agent qui ne démarrait pas.** Le retrait enlevait
+  `/etc/glpi-agent` à la main après un « apt-get remove » ; le paquet gère ses fichiers de configuration par `ucf`,
+  qui en garde la trace et ne remet pas `agent.cfg` à la réinstallation tant que le paquet n'a pas été purgé. Sans lui, `conf.d` n'est pas lu, l'agent n'a pas de
+  serveur, ne répond pas sur le poste, et GLPI répond NOAGENT au compte rendu : la sonde « remontait parfois, parfois
+  pas ». Le retrait passe par « purge » sur tous les paquets `glpi-agent*` ; l'installation purge d'abord une trace
+  laissée par un ancien retrait, et pose un `agent.cfg` minimal si le paquet ne l'a pas remis. Le compte rendu
+  attend le serveur deux minutes au lieu de vingt secondes : la suppression d'une sonde avec ses objets de collecte
+  dépassait ce délai, et le fichier annonçait « GLPI n'a pas reçu le compte rendu » alors que la suppression avait
+  eu lieu. La mise à jour mensuelle accepte `wget` quand `curl` manque, comme le téléchargement de l'installation.
+
+- **Linux et macOS : option `--console`.** `sudo sh fichier.sh --console` pose les questions dans le terminal même
+  quand le poste a un écran, au lieu d'ouvrir la fenêtre : pour vérifier ce chemin, ou en SSH sans qu'une fenêtre
+  s'ouvre sur l'écran du poste. Le journal le note. Installation comme retrait.
+
+- **Linux fait maintenant la même chose que Windows et macOS.** Dans la fenêtre zenity : le téléchargement avance
+  avec « 12 Mo sur 22 Mo », le texte de l'étape porte son détail (« Environ une minute », « Quelques minutes au
+  plus »), et le formulaire donne les mêmes explications que les deux autres systèmes (mise à jour automatique
+  imposée ou non et version visée, syntaxe des adresses, à quoi sert la fréquence, qui pilote le scan), avec les
+  libellés en clair. Le message final nomme les imprimantes trouvées quel que soit le chemin (découverte GLPI ou
+  ToolBox) avec l'état des niveaux, mot pour mot comme Windows. Si le script meurt en plein travail, la fenêtre
+  reçoit « Interrompu » et son bouton OK, et la console le dit, au lieu de se taire. Le retrait enlève aussi ce que
+  le paquet laisse derrière lui et ce que l'agent a écrit : `/etc/glpi-agent`, `/var/lib/glpi-agent`, l'installeur
+  téléchargé dans `/tmp`. Rejoué en console sur un shell aux commandes substituées (root, perl, systemd, dpkg,
+  apt-get), avec un faux serveur GLPI local et un faux agent local : chemin GLPI Inventory (réponse RUN, réveil de
+  l'agent, suivi jusqu'aux niveaux), chemin ToolBox (réponse SCAN), retrait avec « tout supprimer ». Windows n'est
+  pas touché.
+
+- **macOS : une fenêtre d'installation ne peut plus rester ouverte sans bouton.** Si le script meurt en plein travail
+  (erreur, Ctrl-C, fermeture du Terminal, arrêt forcé), la fenêtre passe à « Interrompu » avec « Fermer » et
+  « Ouvrir le journal », comme le piège d'erreur de Windows. Trois filets, du plus simple au plus rude : la sortie
+  ordinaire du script écrit la fin à la fenêtre si elle manque ; une sentinelle en tâche de fond, qui survit à Ctrl-C
+  et au raccrochage, l'écrit si le script a disparu sans passer par sa sortie ; et la fenêtre elle-même, qui surveille
+  le battement de la sentinelle (toutes les deux secondes), conclut seule après quinze secondes de silence. Vérifié
+  sur un Mac avec le vrai fichier généré : script tué net, script et sentinelle tués net, arrêt demandé — dans les
+  trois cas la fenêtre se ferme, et le journal porte une ligne IMPREVU quand le script a pu la laisser. Le parcours
+  nominal a été joué de bout en bout sur le même Mac, fenêtre comprise, avec un faux serveur GLPI local : le suivi
+  conclut dès que le serveur annonce les niveaux, le compte rendu porte le nom court du poste.
+
+- **Le retrait macOS enlève tout ce que l'installation a posé**, comme le désinstalleur livré par Teclib et un peu
+  plus : le service de mise à jour et son script, le service de l'agent — le processus est attendu trente secondes
+  puis arrêté s'il traîne, avant d'effacer ses fichiers —, son dossier avec la ToolBox et sa configuration, son
+  journal, `dmidecode` s'il vient du paquet (vérifié dans la liste des fichiers du paquet, jamais à l'aveugle), le
+  reçu du paquet, et le paquet téléchargé que l'installation gardait pour une réinstallation. Les journaux de Print
+  Gestion dans `/var/tmp` restent, comme sous Windows : c'est la trace de ce qui a été fait.
+
+- **La fenêtre macOS a les mêmes champs, boutons et gestes que celle de Windows.** Les notes restent visibles sur
+  les trois pages ; sous la case de mise à jour, ce que « décochée » veut dire et la version visée ; sous la
+  fréquence, à quoi elle sert ; la liste des fréquences dans le même ordre, la même sélectionnée d'avance. Entrée
+  fait « Suivant » puis « Installer » (jamais depuis la première page), Échap « Annuler », puis « Fermer » à la
+  fin ; la fenêtre reste au-dessus du Terminal ; chaque bloc de texte prend la hauteur qu'il lui faut, et la
+  fenêtre suit (un nom de client long ou une traduction plus longue ne passent plus sous un bouton). Pendant le
+  travail, les mêmes mots que Windows sous la barre : « 12 Mo sur 22 Mo » pendant le téléchargement, « Environ une
+  minute » pendant l'installation, la phrase du premier contact, celles de la découverte et de la ToolBox. À la
+  fin, les imprimantes trouvées sont nommées quel que soit le chemin (découverte GLPI ou ToolBox de l'agent), avec
+  l'état des niveaux, et les phrases de Windows mot pour mot (« Mac » pour « PC »). Sous Linux comme sous macOS, le
+  suivi de la découverte attend maintenant le relevé de chaque imprimante avant de conclure, comme Windows, et
+  non plus le premier. Côté serveur, rien de neuf ni de propre à un système : la même clé, le même compte rendu
+  et les mêmes réponses servent les trois fichiers. Windows n'est pas touché.
+
+- **Fenêtre macOS illisible en thème sombre.** Elle posait ses propres couleurs (bandeau bleu, cartes claires)
+  mais laissait au Mac le fond et la couleur du texte par défaut : en thème sombre, ce texte devient blanc, donc
+  invisible sur les cartes — et les libellés des boutons avec. Elle est maintenant dessinée en clair quel que soit
+  le thème, comme les fenêtres Windows et Linux, et tout texte sans couleur explicite en reçoit une, sombre.
+
+- **« sudo sh » : le texte dit où ne pas appuyer sur Entrée.** Valider après « sudo sh » ouvre un shell root — le
+  mot de passe est demandé, tout semble normal —, et le fichier glissé ensuite est lancé au lieu d'être lu :
+  « permission denied », alors que le fichier n'a rien. L'écran dit maintenant « suivi d'un espace SANS VALIDER »,
+  et le panneau d'aide nomme l'erreur avec le geste qui en sort.
+
+- **Le bouton de téléchargement mis en avant est celui de votre système.** Windows était en jaune pour tout le
+  monde : depuis un Mac, il fallait chercher le sien parmi les trois. Les deux autres restent à côté, également
+  cliquables. Un navigateur non reconnu, ou un téléphone, retombe sur Windows.
+
 - **Un contrôle de ce que le plugin emprunte à GLPI, avec alerte à la mise à jour.** Tables, colonnes, classes et
   constantes dont Print Gestion dépend sont déclarées, chacune avec ce qu'elle sert. Le contrôle est joué à
   l'installation et à chaque mise à jour du plugin (message à l'administrateur : « 2 éléments sur 47 ont changé ou

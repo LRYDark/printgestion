@@ -62,6 +62,17 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
     const LINUX_CRON = '/etc/cron.monthly/glpi-agent-printgestion';
     const LINUX_LOG  = '/var/log/glpi-agent-printgestion-update.log';
 
+    /**
+     * Mise à jour automatique sur macOS : un service launchd mensuel, l'équivalent du cron de Linux.
+     *
+     * Le service appelle un script déposé à part plutôt que d'embarquer les commandes : un plist se relit mal, et
+     * le script se lance à la main pour vérifier ce qu'il ferait (« sudo sh <script> »).
+     */
+    const MACOS_LABEL  = 'com.printgestion.glpi-agent-update';
+    const MACOS_PLIST  = '/Library/LaunchDaemons/com.printgestion.glpi-agent-update.plist';
+    const MACOS_SCRIPT = '/usr/local/sbin/glpi-agent-printgestion-update';
+    const MACOS_LOG    = '/var/log/glpi-agent-printgestion-update.log';
+
     /** Journal du scan local. En constante, pour que le fichier de retrait sache l'effacer lui aussi. */
     const LINUX_SCAN_LOG = '/var/log/glpi-agent-printgestion-scan.log';
 
@@ -814,8 +825,17 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             'TARGET="' . $target . '"',
             'exec >>' . self::LINUX_LOG . ' 2>&1',
             'echo "[$(date "+%Y-%m-%d %H:%M:%S")] Debut"',
+            '# curl, ou wget a defaut : les postes sans curl existent (vu a l installation), le poste choisit.',
+            'pg_get() {',
+            '  if command -v curl >/dev/null 2>&1; then curl -fsSL --max-time "$3" -H "Accept: application/vnd.github+json" -o "$2" "$1"; return $?; fi',
+            '  wget -q -T "$3" --header="Accept: application/vnd.github+json" -O "$2" "$1"',
+            '}',
+            'pg_page() {',
+            '  if command -v curl >/dev/null 2>&1; then curl -s --max-time 10 "$1"; return $?; fi',
+            '  wget -q -T 10 -O - "$1"',
+            '}',
             '# Pas de mise a jour pendant une tache de l agent : il doit etre en attente.',
-            'if ! curl -s --max-time 10 http://127.0.0.1:' . Agent::DEFAULT_PORT . '/status | grep -q waiting; then',
+            'if ! pg_page http://127.0.0.1:' . Agent::DEFAULT_PORT . '/status | grep -q waiting; then',
             '  echo "Agent occupe ou injoignable : mise a jour reportee"',
             '  exit 0',
             'fi',
@@ -823,7 +843,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             'trap \'rm -rf "$WORK"\' EXIT',
             'API="https://api.github.com/repos/' . $repository . '/releases"',
             'if [ -n "$TARGET" ]; then URL="$API/tags/$TARGET"; else URL="$API/latest"; fi',
-            'if ! curl -fsSL --max-time 60 -H "Accept: application/vnd.github+json" -o "$WORK/release.json" "$URL"; then',
+            'if ! pg_get "$URL" "$WORK/release.json" 60; then',
             '  echo "GitHub injoignable ou version inconnue : mise a jour reportee"',
             '  exit 1',
             'fi',
@@ -843,7 +863,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             '  https://github.com/' . $repository . '/releases/download/*) ;;',
             '  *) echo "Adresse de telechargement inattendue : $ASSET"; exit 1 ;;',
             'esac',
-            'if ! curl -fsSL --max-time 900 -o "$WORK/installer.pl" "$ASSET"; then',
+            'if ! pg_get "$ASSET" "$WORK/installer.pl" 900; then',
             '  echo "Telechargement interrompu"',
             '  exit 1',
             'fi',
@@ -859,6 +879,133 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         ]);
     }
 
+    /**
+     * Script de mise à jour pour macOS, lancé chaque mois par le service launchd.
+     *
+     * Même prudence que sous Linux, avec les outils du Mac : rien pendant une tâche de l'agent, la release lue
+     * sur GitHub, le paquet de CETTE puce seulement (Apple Silicon ou Intel), son empreinte SHA-256 vérifiée
+     * contre celle publiée, et l'installation seulement si la version diffère. `curl`, `perl`, `shasum` et
+     * `installer` sont livrés avec macOS : rien à installer sur le poste du client.
+     *
+     * @param string $target version épinglée, ou '' pour la dernière publiée
+     */
+    public static function buildMacosUpdateScript(string $target): string {
+        $repository = PluginPrintgestionAgentdeploy::REPOSITORY;
+        // Le paquet porte le nom de la puce : GLPI-Agent-1.20_arm64.pkg ou GLPI-Agent-1.20_x86_64.pkg.
+        $perl = 'local $/; my $r = decode_json(<STDIN>); my $s = $ENV{PG_SUFFIXE};'
+            . ' for my $a (@{$r->{assets}}) {'
+            . ' next unless $a->{name} =~ /^GLPI-Agent-([0-9.]+)_$s[.]pkg$/;'
+            . ' my $v = $1; my ($d) = ($a->{digest} // "") =~ /^sha256:([0-9a-f]{64})$/;'
+            . ' print "$v $a->{browser_download_url} ", ($d // ""), "' . chr(92) . 'n"; last }';
+        return implode("\n", [
+            '#!/bin/sh',
+            '# Mise a jour de GLPI Agent posee par Print Gestion : service launchd mensuel, compte root.',
+            '# ' . ($target !== '' ? 'Version cible : ' . $target . '.' : 'Derniere version publiee.') . ' Aucun identifiant ni secret.',
+            'TARGET="' . $target . '"',
+            'exec >>' . self::MACOS_LOG . ' 2>&1',
+            'echo "[$(date "+%Y-%m-%d %H:%M:%S")] Debut"',
+            '# Pas de mise a jour pendant une tache de l agent : il doit etre en attente.',
+            'if ! curl -s --max-time 10 http://127.0.0.1:' . Agent::DEFAULT_PORT . '/status | grep -q waiting; then',
+            '  echo "Agent occupe ou injoignable : mise a jour reportee"',
+            '  exit 0',
+            'fi',
+            'WORK=$(mktemp -d) || exit 1',
+            'trap ' . chr(39) . 'rm -rf "$WORK"' . chr(39) . ' EXIT',
+            'API="https://api.github.com/repos/' . $repository . '/releases"',
+            'if [ -n "$TARGET" ]; then URL="$API/tags/$TARGET"; else URL="$API/latest"; fi',
+            'if ! curl -fsSL --max-time 60 -H "Accept: application/vnd.github+json" -o "$WORK/release.json" "$URL"; then',
+            '  echo "GitHub injoignable ou version inconnue : mise a jour reportee"',
+            '  exit 1',
+            'fi',
+            '# La puce de ce Mac : on ne telecharge que son paquet.',
+            'case "$(uname -m)" in arm64) PG_SUFFIXE=arm64 ;; *) PG_SUFFIXE=x86_64 ;; esac',
+            'export PG_SUFFIXE',
+            '# Version, adresse et empreinte SHA-256 du paquet officiel, publiees par GitHub.',
+            'set -- $(perl -MJSON::PP -e ' . chr(39) . $perl . chr(39) . ' < "$WORK/release.json")',
+            'VERSION="$1"; ASSET="$2"; SHA="$3"',
+            'if [ -z "$VERSION" ] || [ -z "$SHA" ]; then',
+            '  echo "Paquet macOS ($PG_SUFFIXE) ou empreinte absents de la release : rien n est fait"',
+            '  exit 1',
+            'fi',
+            'PG_BIN=$(command -v glpi-agent 2>/dev/null)',
+            'if [ -z "$PG_BIN" ] && [ -x /Applications/GLPI-Agent/bin/glpi-agent ]; then PG_BIN=/Applications/GLPI-Agent/bin/glpi-agent; fi',
+            'INSTALLED=""',
+            'if [ -n "$PG_BIN" ]; then',
+            // Les crochets plutôt que l'antislash dans l'expression : une barre oblique inverse de moins à faire
+            // voyager du PHP au shell, et un motif que l'on relit sans compter les échappements.
+            '  INSTALLED=$("$PG_BIN" --version 2>/dev/null | head -n 1 | awk ' . chr(39)
+                . 'match($0, /[0-9]+[.][0-9]+([.][0-9]+)?/) { print substr($0, RSTART, RLENGTH); exit }' . chr(39) . ')',
+            'fi',
+            'if [ "$INSTALLED" = "$VERSION" ]; then',
+            '  echo "Deja en version $VERSION"',
+            '  exit 0',
+            'fi',
+            'case "$ASSET" in',
+            '  https://github.com/' . $repository . '/releases/download/*) ;;',
+            '  *) echo "Adresse de telechargement inattendue : $ASSET"; exit 1 ;;',
+            'esac',
+            'if ! curl -fsSL --max-time 900 -o "$WORK/agent.pkg" "$ASSET"; then',
+            '  echo "Telechargement interrompu"',
+            '  exit 1',
+            'fi',
+            'if ! echo "$SHA  $WORK/agent.pkg" | shasum -a 256 -c - >/dev/null 2>&1; then',
+            '  echo "Empreinte differente de celle publiee : paquet refuse"',
+            '  exit 1',
+            'fi',
+            '# Le paquet garde la configuration existante (/Applications/GLPI-Agent/etc/conf.d).',
+            'installer -pkg "$WORK/agent.pkg" -target /',
+            'echo "[$(date "+%Y-%m-%d %H:%M:%S")] Fin, version $VERSION, code $?"',
+            'exit 0',
+            '',
+        ]);
+    }
+
+    /**
+     * Lignes sh qui posent le service launchd mensuel de macOS, ou le retirent.
+     *
+     * Le service est recréé à chaque installation : « bootout » d'abord (sans quoi launchd garde l'ancien), puis
+     * « bootstrap ». Sur macOS 12 et avant, `unload`/`load` prennent le relais.
+     */
+    public static function buildMacosScheduleLines(bool $enabled, string $target): array {
+        if (!$enabled) {
+            return [
+                'launchctl bootout system ' . self::MACOS_PLIST . ' 2>/dev/null || launchctl unload ' . self::MACOS_PLIST . ' 2>/dev/null',
+                'rm -f ' . self::MACOS_PLIST . ' ' . self::MACOS_SCRIPT,
+            ];
+        }
+        return array_merge(
+            [
+                'mkdir -p ' . dirname(self::MACOS_SCRIPT),
+                "cat > " . self::MACOS_SCRIPT . " <<'PRINTGESTION_MAJ'",
+            ],
+            explode("\n", rtrim(self::buildMacosUpdateScript($target), "\n")),
+            [
+                'PRINTGESTION_MAJ',
+                'chmod 755 ' . self::MACOS_SCRIPT,
+                "cat > " . self::MACOS_PLIST . " <<'PRINTGESTION_PLIST'",
+                '<?xml version="1.0" encoding="UTF-8"?>',
+                '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+                '<plist version="1.0">',
+                '<dict>',
+                '  <key>Label</key><string>' . self::MACOS_LABEL . '</string>',
+                '  <key>ProgramArguments</key>',
+                '  <array><string>/bin/sh</string><string>' . self::MACOS_SCRIPT . '</string></array>',
+                '  <key>StartCalendarInterval</key>',
+                '  <dict><key>Day</key><integer>1</integer><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>',
+                '  <key>RunAtLoad</key><false/>',
+                '</dict>',
+                '</plist>',
+                'PRINTGESTION_PLIST',
+                'chmod 644 ' . self::MACOS_PLIST,
+                'launchctl bootout system ' . self::MACOS_PLIST . ' 2>/dev/null',
+                'launchctl unload ' . self::MACOS_PLIST . ' 2>/dev/null',
+                'if ! launchctl bootstrap system ' . self::MACOS_PLIST . ' 2>/dev/null; then',
+                '  launchctl load ' . self::MACOS_PLIST . ' 2>/dev/null',
+                'fi',
+            ]
+        );
+    }
+
     /** Lignes sh qui posent la tâche cron mensuelle Linux (curl nécessaire) ou la retirent. */
     public static function buildLinuxScheduleLines(bool $enabled, string $target): array {
         if (!$enabled) {
@@ -866,7 +1013,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         }
         return array_merge(
             [
-                'if command -v curl >/dev/null 2>&1; then',
+                'if command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; then',
                 "  cat > " . self::LINUX_CRON . " <<'PRINTGESTION_CRON'",
             ],
             explode("\n", rtrim(self::buildLinuxUpdateScript($target), "\n")),
@@ -875,7 +1022,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
                 '  chmod 755 ' . self::LINUX_CRON,
                 '  echo "Mise a jour automatique mensuelle posee : ' . ($target !== '' ? 'version cible ' . $target : 'derniere version publiee') . ' (' . self::LINUX_CRON . ')."',
                 'else',
-                '  echo "curl absent : mise a jour automatique non posee (installer curl puis relancer ce script)."',
+                '  echo "ni curl ni wget : mise a jour automatique non posee (installer curl puis relancer ce script)."',
                 'fi',
             ]
         );

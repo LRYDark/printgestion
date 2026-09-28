@@ -357,6 +357,26 @@ def main():
         constat("écran des sondes : comment lancer le fichier est visible sans déplier",
                 ok_ko("un double-clic ne lance rien" in lib.texte(page) and "sudo sh" in lib.texte(page)))
 
+        # Le bouton mis en avant est celui du système depuis lequel on regarde : sur un Mac, on cherchait le sien
+        # parmi trois boutons dont un seul était jaune, et c'était toujours Windows.
+        def classe_bouton(html, systeme):
+            trouve = re.search(r"<a class='btn (btn-[a-z-]+)' href='[^']*os=" + systeme + r"'", html)
+            return trouve.group(1) if trouve else "(bouton introuvable)"
+
+        navigateurs = {
+            "windows": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/129.0",
+            "macos":   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15",
+            "linux":   "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/128.0",
+        }
+        for systeme, navigateur in navigateurs.items():
+            _, vue, _ = WEB.brut("GET", ONGLET_ENTITE.format(d.CLIENT_A), None,
+                                 {"X-Requested-With": "XMLHttpRequest", "User-Agent": navigateur})
+            autres = [s2 for s2 in navigateurs if s2 != systeme]
+            constat(f"téléchargement vu depuis {systeme} : son bouton est en avant, les deux autres en retrait",
+                    ok_ko(classe_bouton(vue, systeme) == "btn-primary"
+                          and all(classe_bouton(vue, s2) == "btn-outline-primary" for s2 in autres)),
+                    ", ".join(f"{s2}={classe_bouton(vue, s2)}" for s2 in navigateurs))
+
         section("10. L'onglet Entité intègre l'environnement : rouge sans bloquer quand rien ne remontera")
         rien = "Rien ne remontera pour l&#039;instant — contactez l&#039;administrateur"
         constat("environnement correct : aucune ligne « Rien ne remontera »", ok_ko(rien not in page))
@@ -549,6 +569,17 @@ def main():
         constat("macOS : la fenêtre Cocoa existe et le fichier de l'entité la recopie",
                 ok_ko(os.path.exists(os.path.join(config.GLPI_DIR, "plugins", "printgestion", "resources", "macos-fenetre.js"))
                       and "PRINTGESTION_JS" in source_ad and "launchctl asuser" in source_ad))
+        # Deux pièges du pont JavaScript de macOS, constatés sur un Mac : la constante « tous les événements » arrive
+        # arrondie (masque vide une fois repassé à Cocoa : fenêtre inerte), et le tag d'un bouton arrive en chaîne
+        # dans les rappels (« 1 » === 1 est faux : aucun bouton n'agit). Le fichier ne doit dépendre d'aucun des deux.
+        js_mac = io.open(os.path.join(config.GLPI_DIR, "plugins", "printgestion", "resources", "macos-fenetre.js"), encoding="utf-8").read()
+        code_mac = js_mac.split("ObjC.import('Cocoa');", 1)[-1]
+        constat("macOS : la boucle d'événements pose son masque en nombre, jamais la constante du pont",
+                ok_ko("var MASQUE_EVENEMENTS = Math.pow(2, 53) - 1;" in code_mac and "NSEventMaskAny" not in code_mac
+                      and "nextEventMatchingMaskUntilDateInModeDequeue(MASQUE_EVENEMENTS," in code_mac))
+        constat("macOS : le numéro d'un bouton est relu comme un nombre avant d'être comparé",
+                ok_ko("clic(numero(bouton.tag))" in code_mac and "choisir(numero(bouton.tag))" in code_mac
+                      and "parseInt(String(valeur), 10)" in code_mac))
         constat("Linux : zenity sous le compte de la personne connectée, jamais en root",
                 ok_ko('sudo -u "$SUDO_USER" env DISPLAY=' in source_ad))
         constat("modules de la sonde : le profil « imprimantes » est posé dès le compte rendu",
@@ -652,6 +683,77 @@ def main():
                     else ["perl ", "id -u", "--forms", "--progress"])
                 manquants = [m for m in attendus if m not in texte]
                 constat(f"{libelle} : fenêtre, empreinte vérifiée et installation dans le même fichier", ok_ko(not manquants), ", ".join(manquants))
+                # Le serveur retrouve la sonde par le nom exact de l'ordinateur, que l'agent déclare coupé au premier
+                # point ; « hostname » rend « Mac.local » sous macOS, et le suivi attendait dix minutes une sonde
+                # introuvable. Le nom part donc court, comme COMPUTERNAME sous Windows.
+                constat(f"{libelle} : le nom du poste part à GLPI tel que l'agent le déclare (nom d'ordinateur sous macOS, nom court ailleurs), encodé",
+                        ok_ko("scutil --get ComputerName" in texte and "hostname 2>/dev/null | cut -d. -f1" in texte
+                              and 'pc=$(pg_url "$(pg_poste)")' in texte and "pc=$(hostname)" not in texte and "pc=$(pg_poste)" not in texte))
+                # /bin/sh de macOS est bash 3.2 : sous une locale UTF-8, « $pg_final¶ » y est lu comme le nom de variable
+                # « pg_final¶ », inconnu — avec set -u le script s'arrêtait net avant d'écrire la fin, et la fenêtre
+                # attendait pour toujours. Un caractère non ASCII qui suit une variable doit toujours voir ${var}.
+                _, octets_ret_sys = WEB.telecharger(config.FRONT + f"/agentdeploy.download.php?entities_id={d.CLIENT_A}&os={systeme}-retrait")
+                colles = [m.group(0) for contenu in (texte, octets_ret_sys.decode("utf-8", "replace"))
+                          for m in re.finditer(r"\$[A-Za-z_][A-Za-z0-9_]*[^\x00-\x7f]", contenu)]
+                constat(f"{libelle} : aucune variable du script n'est accolée à un caractère non ASCII (bash 3.2 de macOS)",
+                        ok_ko(not colles), ", ".join(sorted(set(colles))[:8]))
+                # Le même travail que Windows, dans les deux fichiers shell : téléchargement suivi dans la fenêtre, détail
+                # sous la barre, imprimantes nommées avec l'état des niveaux à la fin, et une fin donnée quoi qu'il arrive.
+                retrait_sys = octets_ret_sys.decode("utf-8", "replace")
+                attendus_communs = ["pg_telecharger_suivi", "pg_detail 'Environ une minute", "pg_fin_niveaux=", "pg_url() {"]
+                manquants_communs = [m for m in attendus_communs if m not in texte]
+                constat(f"{libelle} : téléchargement suivi, détail sous la barre, niveaux dans le message final, valeurs encodées",
+                        ok_ko(not manquants_communs), ", ".join(manquants_communs))
+                constat(f"{libelle} : l'option --console force les questions dans le terminal, installation et retrait",
+                        ok_ko(all('--console) PG_CONSOLE=1' in contenu and 'Option --console' in contenu for contenu in (texte, retrait_sys))))
+                if systeme == "linux":
+                    attendus_linux = ["pg_suivi_zen() {", "PG_FORM_Z=", "PG_MORT=", "trap 'exit 1' INT TERM HUP", "PG_TRAVAIL=1", "Qui pilote le scan des imprimantes"]
+                    manquants_linux = [m for m in attendus_linux if m not in texte] + [m for m in ("pg_suivi_zen() {", "PG_MORT=", "/var/lib/glpi-agent", "linux-installer.pl", "/etc/glpi-agent") if m not in retrait_sys]
+                    constat("Linux : formulaire zenity avec les explications, fin donnée même si le script meurt, retrait complet (configuration, état, installeur téléchargé)",
+                            ok_ko(not manquants_linux), ", ".join(sorted(set(manquants_linux))))
+                    # dpkg garde la trace des fichiers de configuration d'un paquet retiré (« rc ») et ne les remet pas à la
+                    # réinstallation : l'agent réinstallé n'avait plus agent.cfg et ne démarrait pas (vu sur un poste).
+                    # Le retrait purge, l'installation purge une trace laissée et pose agent.cfg s'il manque ; la mise à
+                    # jour mensuelle accepte wget ; le compte rendu attend le serveur deux minutes, comme Windows.
+                    attendus_dpkg = [m for m in ("apt-get -y purge ${pg_paquets:-glpi-agent}", 'dpkg-query -W -f="${Package}\\n" "glpi-agent*"') if m not in retrait_sys]
+                    attendus_dpkg += [m for m in ('dpkg --purge "$pg_p"', "agent.cfg absent apres installation", 'pg_http "$pg_rendu" 120', "command -v wget", "pg_get() {") if m not in texte]
+                    constat("Linux : retrait par purge, trace dpkg purgée avant installation, agent.cfg garanti, wget accepté, compte rendu attendu deux minutes",
+                            ok_ko(not attendus_dpkg), ", ".join(attendus_dpkg))
+                if systeme == "macos":
+                    # Chaque texte que la fenêtre lit (T.xxx) doit être fourni — installation et retrait réunis, car
+                    # certains n'existent que d'un côté : une clé absente ferait un libellé vide ou un champ qui
+                    # manque, sans aucune erreur. Le code recopié doit être celui du fichier, à l'octet.
+                    _, octets_ret_mac = WEB.telecharger(config.FRONT + f"/agentdeploy.download.php?entities_id={d.CLIENT_A}&os=macos-retrait")
+                    cles, recopies = set(), []
+                    for contenu in (texte, octets_ret_mac.decode("utf-8", "replace")):
+                        bloc = re.search(r"<<'PRINTGESTION_JS'\n(.*?)\nPRINTGESTION_JS\n", contenu, re.S)
+                        ligne_t = re.match(r"var T = (\{.*\});\n", bloc.group(1)) if bloc else None
+                        if ligne_t:
+                            cles |= set(json.loads(ligne_t.group(1)))
+                            recopies.append(bloc.group(1)[ligne_t.end():] == js_mac.rstrip("\n"))
+                    lues = set(re.findall(r"\bT\.([a-z_]+)", js_mac))
+                    constat("macOS : chaque texte que la fenêtre lit (T.…) est fourni par les fichiers d'installation et de retrait",
+                            ok_ko(bool(cles) and lues <= cles), ", ".join(sorted(lues - cles)) or f"{len(cles)} clés")
+                    constat("macOS : le code de la fenêtre recopié dans les deux fichiers est celui du dépôt, à l'octet",
+                            ok_ko(recopies == [True, True]), str(recopies))
+                    # Le retrait enlève tout ce que l'installation a posé sur le Mac : le service de mise à jour et son
+                    # script, le service de l'agent (processus attendu, puis arrêté), son dossier, son journal, dmidecode
+                    # s'il vient du paquet, le reçu du paquet, le paquet téléchargé ; et il envoie le nom court.
+                    retrait_mac = octets_ret_mac.decode("utf-8", "replace")
+                    attendus_retrait = ["com.printgestion.glpi-agent-update.plist", "/usr/local/sbin/glpi-agent-printgestion-update",
+                                        "com.teclib.glpi-agent.plist", "pgrep -f /Applications/GLPI-Agent/bin/glpi-agent",
+                                        "rm -rf /Applications/GLPI-Agent", "/var/log/glpi-agent.log", "usr/local/bin/dmidecode",
+                                        "pkgutil --forget", "GLPI-Agent-*.pkg", 'pc=$(pg_url "$(pg_poste)")']
+                    manquants_retrait = [m for m in attendus_retrait if m not in retrait_mac]
+                    constat("macOS : le retrait enlève service de mise à jour, agent, dossier, journal, dmidecode du paquet, reçu et paquet téléchargé",
+                            ok_ko(not manquants_retrait), ", ".join(manquants_retrait))
+                    # Une fenêtre jamais infermable : la sortie du script prévient la fenêtre, une sentinelle prend le relais
+                    # si le script a disparu, et la fenêtre surveille le battement de la sentinelle.
+                    filets = ["trap 'exit 1' INT TERM HUP", 'pg_ecrire "fin|ECHEC|$PG_MORT"', "PG_SENTINELLE=$!", 'date +%s > "$PG_DIR/vivant"',
+                              "function surveiller()", "finir(false, T.mort || '')"]
+                    manquants_filets = [f for contenu in (texte, retrait_mac) for f in filets if f not in contenu]
+                    constat("macOS : les trois filets contre une fenêtre sans bouton sont dans les deux fichiers (sortie, sentinelle, battement)",
+                            ok_ko(not manquants_filets), ", ".join(sorted(set(manquants_filets))))
             # Tout l'intérêt de la clé : le PC d'un client n'a aucun compte GLPI. Session neuve, sans cookie.
             attendu = empreintes["windows"] if systeme == "windows" else empreintes["linux"] if systeme == "linux" else empreintes["macos-arm64"]
             lien = [l for l in liens if "macos-arm64" in l or systeme != "macos"][0]
