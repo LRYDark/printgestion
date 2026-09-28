@@ -132,6 +132,42 @@ class PluginPrintgestionSchema {
             KEY `printers_id` (`printers_id`),
             KEY `status` (`status`)
         ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
+        // Vue « état de la collecte » : une ligne par imprimante (Collectview::rebuild), lue par le moteur natif.
+        'glpi_plugin_printgestion_collectviews' => 'CREATE TABLE `glpi_plugin_printgestion_collectviews` (
+            `id` int __KEY_SIGN__ NOT NULL AUTO_INCREMENT,
+            `printers_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `entities_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `is_recursive` tinyint NOT NULL DEFAULT 0,
+            `state` varchar(20) NOT NULL DEFAULT \'no_inventory\',
+            `last_inventory` timestamp NULL DEFAULT NULL,
+            `last_discovery` timestamp NULL DEFAULT NULL,
+            `agents_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `date_compute` timestamp NULL DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `printers_id` (`printers_id`),
+            KEY `entities_id` (`entities_id`),
+            KEY `state` (`state`),
+            KEY `agents_id` (`agents_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
+        // Vue « sonde » : une ligne par agent (Agentview::rebuild), lue par le moteur natif.
+        'glpi_plugin_printgestion_agentviews' => 'CREATE TABLE `glpi_plugin_printgestion_agentviews` (
+            `id` int __KEY_SIGN__ NOT NULL AUTO_INCREMENT,
+            `agents_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `entities_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `is_probe` tinyint NOT NULL DEFAULT 0,
+            `is_silent` tinyint NOT NULL DEFAULT 0,
+            `compliance` varchar(20) NULL DEFAULT NULL,
+            `target_version` varchar(20) NULL DEFAULT NULL,
+            `version_status` varchar(20) NULL DEFAULT NULL,
+            `printers_count` int NOT NULL DEFAULT 0,
+            `update_declared` varchar(20) NULL DEFAULT NULL,
+            `last_network_inventory` timestamp NULL DEFAULT NULL,
+            `date_compute` timestamp NULL DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `agents_id` (`agents_id`),
+            KEY `entities_id` (`entities_id`),
+            KEY `is_probe` (`is_probe`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
         'glpi_plugin_printgestion_billing' => 'CREATE TABLE `glpi_plugin_printgestion_billing` (
             `id` int __KEY_SIGN__ NOT NULL AUTO_INCREMENT,
             `printers_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
@@ -675,6 +711,26 @@ class PluginPrintgestionSchema {
             }
         }
         Config::setConfigurationValues(self::CONFIG_CONTEXT, [self::CONFIG_KEY => self::VERSION]);
+    }
+
+    /**
+     * Crée une table du plugin si elle manque : une vue ajoutée après l'installation existe dès qu'on en a besoin,
+     * sans attendre un passage par « Mettre à jour » dans la liste des plugins.
+     */
+    public static function createIfMissing(string $table): void {
+        global $DB;
+
+        if (!isset(self::TABLES[$table]) || $DB->tableExists($table)) {
+            return;
+        }
+        $replacements = [
+            '__CHARSET__'   => DBConnection::getDefaultCharset(),
+            '__COLLATION__' => DBConnection::getDefaultCollation(),
+            '__KEY_SIGN__'  => DBConnection::getDefaultPrimaryKeySignOption(),
+        ];
+        if ($DB->doQuery(strtr(self::TABLES[$table], $replacements)) === false) {
+            throw new RuntimeException(sprintf('Print Gestion : création de la table %s en échec : %s', $table, $DB->error()));
+        }
     }
 
     /** Toutes les tables (vivantes et anciennes) et le contexte de configuration du plugin. */

@@ -329,3 +329,23 @@ function plugin_printgestion_printer_probe_card($item): void {
 function plugin_printgestion_printer_probe_form($params): void {
     PluginPrintgestionPrinteragent::showAfterForm(is_array($params) ? $params : []);
 }
+
+/**
+ * Hook getAddSearchOptionsNew : les colonnes du plugin sur les Agents (sonde, contact, conformité, imprimantes
+ * collectées, mise à jour déclarée, dernier inventaire réseau) et sur les Imprimantes (état de la collecte, dates,
+ * sonde), dans les listes natives de GLPI comme dans celles du module. Rien quand le module est éteint, rien
+ * pendant une installation ou un retrait du plugin.
+ */
+function plugin_printgestion_getAddSearchOptionsNew($itemtype) {
+    try {
+        if (in_array($itemtype, ['Agent', 'PluginPrintgestionSonde'], true) && PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
+            return PluginPrintgestionAgentview::getSearchOptionsToAdd();
+        }
+        if (in_array($itemtype, ['Printer', 'PluginPrintgestionPrintercollect'], true) && PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
+            return PluginPrintgestionCollectview::getSearchOptionsToAdd();
+        }
+    } catch (Throwable $e) {
+        // Plugin en cours d'installation ou de retrait : pas de colonne, plutôt qu'une liste native cassée.
+    }
+    return [];
+}

@@ -250,7 +250,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
         ];
 
         $criteria = [
-            'SELECT'    => ['p.id', 'p.name', 'p.entities_id', 'e.completename AS entity'],
+            'SELECT'    => ['p.id', 'p.name', 'p.entities_id', 'p.is_recursive', 'e.completename AS entity'],
             'FROM'      => 'glpi_printers AS p',
             'LEFT JOIN' => ['glpi_entities AS e' => ['ON' => ['p' => 'entities_id', 'e' => 'id']]],
             'WHERE'     => ['p.is_deleted' => 0, 'p.is_template' => 0],
@@ -307,6 +307,8 @@ class PluginPrintgestionCollect extends CommonGLPI {
                 'id'                 => $pid,
                 'name'               => (string) $printer['name'],
                 'entity'             => (string) ($printer['entity'] ?? ''),
+                'entities_id'        => (int) $printer['entities_id'],
+                'is_recursive'       => (int) ($printer['is_recursive'] ?? 0),
                 'state'              => $state,
                 'last_inventory'     => $snmp,
                 'last_discovery'     => $dates[$pid]['discovery'] ?? null,
@@ -666,18 +668,12 @@ class PluginPrintgestionCollect extends CommonGLPI {
     }
 
     /** Écran « Contrôle de la remontée ». */
-    public static function showPage(string $state_filter): void {
-        $esc      = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        $date     = static fn($value) => $value === null || $value === '' ? '—' : Html::convDateTime((string) $value);
-        $analysis = self::analyze(true);
-        $labels   = self::getStateLabels();
-        $page     = PLUGIN_PRINTGESTION_WEBDIR . '/front/collect.php';
-
-        $admin     = PluginPrintgestionUi::isAdmin();
-        $info_html = "<p>" . $esc(__('Ce que l\'inventaire GLPI reçoit réellement des imprimantes, avant tout calcul d\'alerte. Lecture seule : rien n\'est modifié.', 'printgestion')) . "</p>";
-
-        // 1. Prérequis.
-        $pre  = self::getPrerequisites($analysis);
+    /**
+     * Ligne « prérequis de la collecte » (repliée, verte ou rouge) : inventaire GLPI, plugin GLPI Inventory,
+     * inventaires SNMP reçus, agents, versions. $pre : Collectview::getPrerequisites() ou getPrerequisites().
+     */
+    public static function showPrerequisitesLine(array $pre): void {
+        $esc  = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $item = static function (bool $ok, string $label, string $detail) use ($esc): void {
             echo "<div class='col-md-6 col-xl-4'><div class='d-flex align-items-start'>"
                 . "<i class='ti " . ($ok ? 'ti-circle-check text-success' : 'ti-alert-triangle text-warning') . " fs-2 me-2'></i>"
@@ -737,108 +733,17 @@ class PluginPrintgestionCollect extends CommonGLPI {
             $prerequisites_ok ? __('Collecte : prérequis corrects', 'printgestion') : __('Collecte incomplète — contactez l\'administrateur', 'printgestion'),
             $prerequisites_html
         ) . "</div></div>";
+    }
 
-        // 2. États des imprimantes.
-        $colors = [self::STATE_NO_INVENTORY => 'secondary', self::STATE_STALE => 'red', self::STATE_NO_LEVEL => 'orange', self::STATE_OK => 'green'];
-        $icons  = [self::STATE_NO_INVENTORY => 'ti ti-help-circle', self::STATE_STALE => 'ti ti-wifi-off', self::STATE_NO_LEVEL => 'ti ti-droplet-off', self::STATE_OK => 'ti ti-check'];
-        $cards  = [];
-        foreach ($labels as $state => $label) {
-            $cards[] = [
-                'count' => $analysis['counts'][$state],
-                'label' => $label,
-                'icon'  => $icons[$state],
-                'color' => $colors[$state],
-                'url'   => $page . '?state=' . $state,
-            ];
-        }
-        PluginPrintgestionUi::statsBar($cards, 'printgestionCollectStatsBar');
-
-        $info_html .= "<p>" . $esc(sprintf(
-            __('Date de référence : dernier inventaire réseau (SNMP) du journal d\'import GLPI ; une simple découverte réseau ne compte pas. Muette : aucun inventaire depuis plus de %d jour(s) (Configuration → Print Gestion), ou la fréquence de relevé de son entité plus un jour si elle est plus longue. Une imprimante muette ou sans niveau lisible ne déclenche aucune alerte toner : à traiter comme une alerte.', 'printgestion'),
-            self::getSilentDays()
-        )) . "</p>";
-        echo "<div class='text-end mb-2'>" . PluginPrintgestionUi::infoButton(__('Contrôle de la remontée', 'printgestion'), $admin ? $info_html : '') . "</div>";
-
-        // Agents.
-        $version_badges = [
-            'old'     => ['bg-red text-red-fg', __('Trop ancienne', 'printgestion')],
-            'update'  => ['bg-orange text-orange-fg', __('À mettre à jour', 'printgestion')],
-            'ok'      => ['bg-green text-green-fg', __('À jour', 'printgestion')],
-            'unknown' => ['bg-secondary text-secondary-fg', __('Inconnue', 'printgestion')],
-        ];
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
-            . $esc(__('Agents d\'inventaire des imprimantes', 'printgestion')) . "</h3></div>";
-        if (empty($analysis['agents'])) {
-            echo "<div class='card-body text-muted'>" . $esc(__('Aucun agent connu pour ces imprimantes (journal d\'import GLPI vide).', 'printgestion')) . "</div></div>";
-        } else {
-            $columns = ['agent' => __('Agent', 'printgestion')];
-            if ($admin) {
-                $columns['version'] = __('Version', 'printgestion');
-            }
-            $columns += ['contact' => __('Dernier contact', 'printgestion'), 'printers' => __('Imprimantes', 'printgestion'), 'state' => __('État', 'printgestion')];
-            $entries = [];
-            foreach ($analysis['agents'] as $agent) {
-                [$badge_class, $badge_label] = $version_badges[$agent['version_status']];
-                $entries[] = [
-                    'agent'    => "<a href='" . $esc(PluginPrintgestionAgentsetting::getPageURL($agent['id'])) . "'>" . $esc($agent['name']) . "</a>",
-                    'version'  => $esc($agent['version'] !== '' ? $agent['version'] : '—') . " <span class='badge {$badge_class}'>" . $esc($badge_label) . "</span>",
-                    'contact'  => $date($agent['last_contact']),
-                    'printers' => (int) $agent['printers'],
-                    'state'    => $agent['is_silent']
-                        ? "<span class='badge bg-red text-red-fg'>" . $esc(__('Ne remonte plus', 'printgestion')) . "</span>"
-                        : "<span class='badge bg-green text-green-fg'>" . $esc(__('Actif', 'printgestion')) . "</span>",
-                ];
-            }
-            echo PluginPrintgestionUi::datatable($columns, $entries, ['agent' => 'raw_html', 'version' => 'raw_html', 'printers' => 'integer', 'state' => 'raw_html']);
-            echo "</div>";
-        }
-
-        // Imprimantes de l'état choisi (par défaut : tout sauf la collecte normale).
-        $rows = array_filter($analysis['printers'], static fn(array $p) => $state_filter === ''
-            ? $p['state'] !== self::STATE_OK
-            : $p['state'] === $state_filter);
-
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc($state_filter === ''
-            ? __('Imprimantes à surveiller (hors collecte normale)', 'printgestion')
-            : sprintf(__('Imprimantes : %s', 'printgestion'), $labels[$state_filter] ?? $state_filter))
-            . " <span class='badge bg-secondary text-secondary-fg ms-1'>" . count($rows) . "</span></h3></div>";
-        if (empty($rows)) {
-            echo "<div class='card-body text-muted'>" . $esc(__('Aucune.', 'printgestion')) . "</div></div>";
-        } else {
-            // Ce sont des imprimantes de GLPI : les actions massives de Printer s'appliquent telles quelles.
-            $columns = [
-                'printer'   => _n('Imprimante', 'Imprimantes', 1, 'printgestion'),
-                'entity'    => Entity::getTypeName(1),
-                'state'     => __('État', 'printgestion'),
-                'inventory' => __('Dernier inventaire SNMP', 'printgestion'),
-            ];
-            if ($admin) {
-                $columns += ['discovery' => __('Dernière découverte', 'printgestion'), 'agent' => __('Agent', 'printgestion')];
-            }
-            $entries = [];
-            foreach (array_slice($rows, 0, 1000) as $printer) {
-                $entries[] = [
-                    'itemtype'  => Printer::class,
-                    'id'        => (int) $printer['id'],
-                    'printer'   => "<a href='" . $esc(Printer::getFormURLWithID($printer['id'])) . "'>" . $esc($printer['name']) . "</a>",
-                    'entity'    => $printer['entity'],
-                    'state'     => "<span class='badge bg-" . $colors[$printer['state']] . "-lt'>" . $esc($labels[$printer['state']]) . "</span>",
-                    'inventory' => $date($printer['last_inventory']),
-                    'discovery' => $date($printer['last_discovery']),
-                    'agent'     => $printer['agent_name'],
-                ];
-            }
-            echo PluginPrintgestionUi::datatable($columns, $entries, ['printer' => 'raw_html', 'state' => 'raw_html'],
-                Printer::class, Session::haveRight(Printer::$rightname, UPDATE));
-            echo "</div>";
-        }
-
-        $printer_ids = array_keys($analysis['printers']);
-
-        // 3 à 5 : analyses de réglage, pour l'administrateur seulement (repliées).
-        if (!$admin) {
+    /**
+     * Analyses de réglage, pour l'administrateur (repliées) : valeurs de consommables reçues par modèle, compteurs
+     * disponibles par modèle, numéros de série en double. $printer_ids : imprimantes des entités de l'utilisateur.
+     */
+    public static function showAdminAnalyses(array $printer_ids): void {
+        if (!PluginPrintgestionUi::isAdmin()) {
             return;
         }
+        $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         ob_start();
         // 3. Valeurs de consommables reçues.
         $class_labels = self::getValueClassLabels();

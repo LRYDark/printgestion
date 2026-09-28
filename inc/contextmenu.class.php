@@ -32,6 +32,8 @@ class PluginPrintgestionContextmenu {
             'PluginPrintgestionBillingview'  => 'cout',
             'PluginPrintgestionRaccordement' => 'deploiement',
             'Agent'                          => 'deploiement',
+            'PluginPrintgestionSonde'        => 'deploiement',
+            'PluginPrintgestionPrintercollect' => 'deploiement',
         ];
     }
 
@@ -56,7 +58,9 @@ class PluginPrintgestionContextmenu {
                 return Session::haveRight('plugin_printgestion_billing', READ);
             case 'PluginPrintgestionRaccordement':
             case 'Agent':
-                // Les sondes (Agents) ne sont montrées par le plugin qu'avec le droit Déploiement.
+            case 'PluginPrintgestionSonde':
+            case 'PluginPrintgestionPrintercollect':
+                // Sondes et imprimantes collectées : montrées par le plugin avec le droit Déploiement.
                 return Session::haveRight('plugin_printgestion_deploiement', READ);
         }
         return false;
@@ -168,12 +172,22 @@ class PluginPrintgestionContextmenu {
                 break;
 
             case 'Agent':
+            case 'PluginPrintgestionSonde':
                 $items[] = ['key' => 'open-agent', 'icon' => 'ti ti-robot', 'label' => __('Ouvrir la sonde', 'printgestion'),
                             'kind' => 'link', 'field' => 'agent_url', 'require' => ''];
                 $items[] = ['key' => 'open-raccordement', 'icon' => 'ti ti-plug-connected', 'label' => __('Reprendre le raccordement en cours', 'printgestion'),
                             'kind' => 'link', 'field' => 'raccordement_url', 'require' => 'has_open_raccordement'];
                 $items[] = ['key' => 'history', 'icon' => 'ti ti-history', 'label' => __('Historique des raccordements de cette sonde', 'printgestion'),
                             'kind' => 'link', 'field' => 'history_url', 'require' => 'has_raccordements'];
+                break;
+
+            case 'PluginPrintgestionPrintercollect':
+                if (Printer::canView()) {
+                    $items[] = ['key' => 'open-printer', 'icon' => 'ti ti-printer', 'label' => __('Ouvrir la fiche imprimante', 'printgestion'),
+                                'kind' => 'link', 'field' => 'printer_url', 'require' => ''];
+                }
+                $items[] = ['key' => 'open-agent', 'icon' => 'ti ti-robot', 'label' => __('Ouvrir la sonde qui la relève', 'printgestion'),
+                            'kind' => 'link', 'field' => 'agent_url', 'require' => 'has_agent'];
                 break;
         }
         return $items;
@@ -416,9 +430,37 @@ JS;
             case 'PluginPrintgestionRaccordement':
                 return self::raccordementContext($ids);
             case 'Agent':
+            case 'PluginPrintgestionSonde':
                 return self::agentContext($ids);
+            case 'PluginPrintgestionPrintercollect':
+                return self::printercollectContext($ids);
         }
         return [];
+    }
+
+    /** Imprimantes de la vue « Imprimantes collectées » : la fiche, et la sonde qui les relève. */
+    private static function printercollectContext(array $ids): array {
+        global $DB;
+
+        $view = PluginPrintgestionCollectview::getTable();
+        $out  = [];
+        foreach ($DB->request([
+            'SELECT'    => ['glpi_printers.id AS id', $view . '.agents_id AS agents_id'],
+            'FROM'      => 'glpi_printers',
+            'LEFT JOIN' => [$view => ['ON' => [$view => 'printers_id', 'glpi_printers' => 'id']]],
+            'WHERE'     => array_merge(
+                ['glpi_printers.id' => $ids, 'glpi_printers.is_deleted' => 0],
+                getEntitiesRestrictCriteria('glpi_printers', '', '', true)
+            ),
+        ]) as $row) {
+            $agents_id             = (int) ($row['agents_id'] ?? 0);
+            $out[(int) $row['id']] = [
+                'printer_url' => Printer::getFormURLWithID((int) $row['id']),
+                'agent_url'   => $agents_id > 0 ? PluginPrintgestionAgentsetting::getPageURL($agents_id) : '',
+                'has_agent'   => $agents_id > 0,
+            ];
+        }
+        return $out;
     }
 
     private static function raccordementContext(array $ids): array {

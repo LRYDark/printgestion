@@ -1,8 +1,7 @@
 <?php
 /**
- * Contrôle de la remontée : ce que l'inventaire GLPI reçoit réellement des imprimantes
- * (prérequis, états de collecte, agents, valeurs de consommables, compteurs, doublons).
- * Lecture seule.
+ * Ancienne page « Contrôle de la remontée » : son contenu est la vue « Imprimantes collectées » de l'écran
+ * « Sondes & remontée ». L'adresse reste servie (liens anciens, favoris) et y renvoie, filtre d'état compris.
  */
 include('../../../inc/includes.php');
 
@@ -13,25 +12,10 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
     || !PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
     throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
-// Module Collecte SNMP / Déploiement Agent : droit distinct de celui de la gestion toner.
 Session::checkRight('plugin_printgestion_deploiement', READ);
 
 $state = (string) ($_GET['state'] ?? '');
-if ($state !== '' && !isset(PluginPrintgestionCollect::getStateLabels()[$state])) {
-    $state = '';
+if ($state !== '' && isset(PluginPrintgestionCollect::getStateLabels()[$state])) {
+    Html::redirect(PluginPrintgestionCollectview::getStateURL($state));
 }
-
-Html::header(
-    PluginPrintgestionCollect::getTypeName(),
-    $_SERVER['PHP_SELF'],
-    'management',
-    'PluginPrintgestionMenu',
-    'dp_collect'
-);
-
-echo "<div class='container-fluid mt-3'>";
-PluginPrintgestionMenu::showTabBar('dp_collect');
-PluginPrintgestionCollect::showPage($state);
-echo "</div>";
-
-Html::footer();
+Html::redirect(PluginPrintgestionPrintercollect::getSearchURL());

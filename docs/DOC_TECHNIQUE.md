@@ -1480,7 +1480,7 @@ du PC sonde. Sans la tâche automatique, les tâches restent sans date : relevé
 remontée, alertes d'imprimantes, bloc de la fiche imprimante, onglet de la sonde). Une sonde reste muette au-delà de
 `silent_days` : elle contacte GLPI à la fréquence globale quelle que soit l'entité.
 
-### Contrôle de la remontée (`inc/collect.class.php`, onglet « Contrôle de la remontée »)
+### Contrôle de la remontée (`inc/collect.class.php` — aujourd'hui la vue « Imprimantes collectées » de « Sondes & remontée »)
 
 Ce que l'inventaire GLPI reçoit **réellement** des imprimantes, avant tout calcul d'alerte. Page en lecture
 seule sur les tables natives ; périmètre : entités de l'utilisateur (module Collecte SNMP / Déploiement Agent, droit `deploiement` READ ; la carte des imprimantes muettes de l'écran des alertes n'y renvoie qu'avec ce droit). L'absence de
@@ -1546,6 +1546,43 @@ facturation), sans rien changer à GLPI : `PluginPrintgestionContextmenu::render
   sonde, raccordement en cours, historique) et `PluginPrintgestionRaccordement` (liste native : raccordement,
   sonde). Dans un onglet AJAX rechargé, un seul jeu d'écouteurs sur le document (`window.PG_CTX`), qui appelle
   la dernière instance.
+
+### Sondes & remontée : vues matérialisées et listes natives (`inc/collectview.class.php`, `inc/agentview.class.php`)
+
+Un écran (`front/sondes.php`, `Collectview::showPage($vue)`), deux vues — `?vue=` absent : sondes ;
+`?vue=imprimantes` : imprimantes collectées — parce que le moteur de recherche natif ne sait rendre qu'une liste par
+page. `front/collect.php` redirige vers la vue des imprimantes (`Collectview::getStateURL()` si `state`).
+
+- **`glpi_plugin_printgestion_collectviews`** (une ligne par imprimante : `state`, `last_inventory`,
+  `last_discovery`, `agents_id`, `entities_id`/`is_recursive` de l'imprimante, `date_compute`) et
+  **`glpi_plugin_printgestion_agentviews`** (une ligne par agent : `is_probe`, `is_silent`, `compliance`,
+  `target_version`, `version_status`, `printers_count`, `update_declared`, `last_network_inventory`).
+  `Collectview::rebuild()` range `Collect::analyze(false)` (toutes entités — lecture toujours sous la restriction
+  d'entité native) puis appelle `Agentview::rebuild($analysis)` (`Agentsetting::getCoverage()`,
+  `Agentalert::getProbes()`, `getCompliance()`, `Agentreport::index()`). Rafraîchi par
+  `Reminder::cronPrintgestionCheckAlerts()` (horaire), `rebuildIfStale()` à l'affichage (`STALE_SECONDS` = 900) et
+  le bouton « Recalculer maintenant » (POST `recompute_views`, droit Déploiement en modification). Les deux tables
+  sont dans `Schema::TABLES` et créées à la volée par `Schema::createIfMissing()` (`ensureTable()`) sur une
+  installation existante, sans passer par « Mettre à jour ».
+- **Colonnes natives** : `plugin_printgestion_getAddSearchOptionsNew($itemtype)` (hook.php) renvoie
+  `Agentview::getSearchOptionsToAdd()` pour `Agent` et `PluginPrintgestionSonde`, `Collectview::getSearchOptionsToAdd()`
+  pour `Printer` et `PluginPrintgestionPrintercollect` — options 74001–74006 et 74011–74014 (plage réservée),
+  jointure `child` sur la vue, `datatype` bool / number / datetime / specific (`getSpecificValueToDisplay` et
+  `getSpecificValueToSelect` de la classe de la vue), la sonde de l'imprimante par `beforejoin` vers `glpi_agents`.
+  Rien quand le module Déploiement est éteint.
+- **Types dédiés** `PluginPrintgestionSonde extends Agent` et `PluginPrintgestionPrintercollect extends Printer`
+  (`getTable()` = table native, `getFormURL()` = fiche native, `getSearchURL()` = l'écran) : session de recherche,
+  colonnes et recherches enregistrées séparées de celles des listes natives ; `getDefaultSearchRequest()`
+  (`DefaultSearchRequestInterface`) pose le filtre de première ouverture (« Sonde = oui », « État ≠ normale »).
+  Lecture par le droit Déploiement du plugin (`$rightname`), création / modification / suppression déléguées aux
+  droits natifs (`canUpdate()` → `Agent::canUpdate()`…). **Aucune action massive** sur ces types
+  (`showmassiveactions = false`) : une action de masse jouée sur un type dérivé écrirait l'historique et les hooks
+  sous ce nom ; elles se font dans Administration > Agents et Parc > Imprimantes, qui portent les mêmes colonnes.
+- `Collect::showPrerequisitesLine($pre)` (ligne repliée des prérequis, `$pre` = `Collectview::getPrerequisites()`,
+  lu dans les vues) et `Collect::showAdminAnalyses($printer_ids)` (valeurs par modèle, compteurs, doublons de
+  série) remplacent `Collect::showPage()` ; `Agentsetting::showList()` a disparu (`showDetail()` reste pour
+  `sondes.php?id=`).
+- Harnais : `tests/securite/reference/etat-ancien-chemin.json` doit être régénéré (deux tables de plus).
 
 ### Raccordements : liste native et onglet de l'entité (`inc/raccordement.class.php`)
 

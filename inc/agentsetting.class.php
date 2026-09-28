@@ -119,7 +119,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         return ['version' => $version, 'source' => $source, 'checked' => $fields['agent_latest_checked'] ?? null];
     }
 
-    private static function getLatestSourceLabel(array $latest): string {
+    public static function getLatestSourceLabel(array $latest): string {
         return match ($latest['source']) {
             'manual' => __('saisie à la main', 'printgestion'),
             'github' => sprintf(__('vérifiée sur GitHub le %s', 'printgestion'), Html::convDateTime((string) $latest['checked'])),
@@ -1479,124 +1479,6 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         }
         echo "</div></div></div>";
         self::showForAgent($agent);
-    }
-
-    /** Page « Sondes » du module : compteurs, sondes sans contact par entité, conformité de chaque sonde. */
-    public static function showList(): void {
-        $esc         = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
-        $latest      = self::getLatestVersion();
-        $silent_days = PluginPrintgestionCollect::getSilentDays();
-        $probes      = PluginPrintgestionAgentalert::getProbes(true, self::getCoverage());
-        $settings    = self::getSettingsFor(array_keys($probes));
-        $hosts       = self::getHosts($probes);
-        $probe_state = self::getProbeStateId();
-
-        $counts = ['silent' => 0, 'update' => 0, 'ahead' => 0];
-        $silent = [];
-        foreach ($probes as $agents_id => $probe) {
-            $probes[$agents_id]['compliance'] = self::getCompliance(self::getAgentVersion($probe), $settings[$agents_id], $latest);
-            if ($probe['is_silent']) {
-                $counts['silent']++;
-                $silent[(string) $probe['entity']][] = $probes[$agents_id];
-            }
-            if (isset($counts[$probes[$agents_id]['compliance']['state']])) {
-                $counts[$probes[$agents_id]['compliance']['state']]++;
-            }
-        }
-
-        $admin = PluginPrintgestionUi::isAdmin();
-
-        // Une seule carte, vignettes alignées : le même rendu que « Contrôle de la remontée » et que les plugins
-        // voisins. Une carte pleine par indicateur donnait trois hauteurs différentes dès qu'un libellé était long.
-        $tiles = [
-            [
-                'count'   => $counts['silent'],
-                'label'   => __('Sondes sans contact', 'printgestion'),
-                'tooltip' => sprintf(__('Sondes sans contact depuis plus de %d jours', 'printgestion'), $silent_days),
-                'icon'    => 'ti ti-wifi-off',
-                'color'   => $counts['silent'] > 0 ? 'red' : 'green',
-            ],
-            [
-                'count' => $counts['update'],
-                'label' => __('À mettre à jour', 'printgestion'),
-                'icon'  => 'ti ti-refresh',
-                'color' => $counts['update'] > 0 ? 'orange' : 'green',
-            ],
-        ];
-        if ($admin) {
-            // Plus récentes que ce que le serveur distribue : après un retour arrière de la version du parc.
-            if ($counts['ahead'] > 0) {
-                $tiles[] = [
-                    'count' => $counts['ahead'],
-                    'label' => __('Plus récentes que le parc', 'printgestion'),
-                    'icon'  => 'ti ti-arrow-up',
-                    'color' => 'blue',
-                ];
-            }
-            $tiles[] = [
-                'count'   => $latest['version'],
-                'label'   => __('Dernière version connue', 'printgestion'),
-                'tooltip' => sprintf(__('Dernière version connue de GLPI Agent (%s)', 'printgestion'), self::getLatestSourceLabel($latest)),
-                'icon'    => 'ti ti-package',
-                'color'   => 'secondary',
-            ];
-        }
-        PluginPrintgestionUi::statsBar($tiles, 'printgestionSondesStatsBar');
-
-        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(sprintf(__('Sondes sans contact depuis plus de %d jours, par entité', 'printgestion'), $silent_days)) . "</h3></div><div class='card-body'>";
-        if (empty($silent)) {
-            echo "<p class='text-muted mb-0'>" . $esc(__('Aucune : toutes les sondes ont contacté GLPI récemment.', 'printgestion')) . "</p>";
-        }
-        foreach ($silent as $entity => $list) {
-            echo "<div class='mb-2'><span class='fw-bold'>" . $esc($entity) . "</span> : " . implode(', ', array_map(static fn(array $probe): string =>
-                "<a href='" . $esc(self::getPageURL((int) $probe['id'])) . "'>" . $esc($probe['name']) . "</a> <span class='text-muted small'>(" . $esc(empty($probe['last_contact']) ? __('jamais', 'printgestion') : Html::convDateTime((string) $probe['last_contact'])) . ")</span>", $list)) . "</div>";
-        }
-        echo "<div class='text-end'>" . PluginPrintgestionUi::infoButton(__('Sondes', 'printgestion'), $admin ? '<p>' . $esc(__('Sonde : agent installé avec l\'inventaire réseau ou qui collecte au moins une imprimante. Une sonde qui contacte GLPI ne garantit pas que ses imprimantes remontent : voir « Contrôle de la remontée ». Notifications : Configuration > Inventaire, « Agent cleanup ».', 'printgestion')) . '</p>' : '') . "</div>";
-        echo "</div></div>";
-
-        echo "<div class='card'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(self::getTypeName(Session::getPluralNumber())) . "</h3></div><div class='card-body'>";
-        if (empty($probes)) {
-            echo "<p class='mb-0'>" . $esc(__('Aucune sonde dans vos entités.', 'printgestion')) . "</p></div></div>";
-            return;
-        }
-        // Une sonde est un Agent de GLPI : les actions massives de l'Agent s'appliquent telles quelles, avec les
-        // droits de l'utilisateur sur cet objet — pas ceux du plugin. Les colonnes de l'administrateur sont
-        // absentes de la page d'un technicien, pas cachées.
-        $columns = ['entity' => Entity::getTypeName(1), 'probe' => __('Sonde', 'printgestion')];
-        if ($admin) {
-            $columns += ['host' => __('PC hôte', 'printgestion'), 'version' => __('Version', 'printgestion')];
-        }
-        $columns += ['compliance' => __('Conformité', 'printgestion'), 'contact' => __('Dernier contact', 'printgestion')];
-        if ($admin) {
-            $columns['report'] = __('Mise à jour automatique (déclarée)', 'printgestion');
-        }
-        $columns['printers'] = _n('Imprimante', 'Imprimantes', Session::getPluralNumber(), 'printgestion');
-        // Les comptes rendus sont lus une fois pour toute la liste : une lecture par ligne serait une requête par ligne.
-        $rapports = PluginPrintgestionAgentreport::index();
-        $entries  = [];
-        foreach ($probes as $agents_id => $probe) {
-            $entries[] = [
-                'itemtype'   => Agent::class,
-                'id'         => (int) $agents_id,
-                'entity'     => $probe['entity'],
-                'probe'      => "<a href='" . $esc(self::getPageURL($agents_id)) . "'>" . $esc($probe['name']) . "</a>",
-                'host'       => $admin ? self::getHostHtml($probe, $hosts, $probe_state) : '',
-                'version'    => self::getAgentVersion($probe) ?: '—',
-                'compliance' => "<span class='badge " . $probe['compliance']['class'] . "'>" . $esc($probe['compliance']['label']) . "</span>",
-                'contact'    => $esc(empty($probe['last_contact']) ? '—' : Html::convDateTime((string) $probe['last_contact']))
-                    . ($probe['is_silent'] ? " <span class='badge bg-red text-red-fg'>" . $esc(__('Sans contact', 'printgestion')) . "</span>" : ''),
-                'report'     => $admin ? PluginPrintgestionAgentreport::summarize($rapports[PluginPrintgestionAgentreport::key((int) $probe['entities_id'], self::getHostName($probe))] ?? null) : '',
-                'printers'   => (int) $probe['printers'],
-            ];
-        }
-        echo PluginPrintgestionUi::datatable($columns, $entries, [
-            'probe'      => 'raw_html',
-            'host'       => 'raw_html',
-            'compliance' => 'raw_html',
-            'contact'    => 'raw_html',
-            'printers'   => 'integer',
-        ], Agent::class, Session::haveRight(Agent::$rightname, UPDATE));
-        echo "</div></div>";
     }
 
     static function uninstall(Migration $migration) {
