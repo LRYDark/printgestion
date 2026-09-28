@@ -254,8 +254,9 @@ echo <<<HTML
 </script>
 HTML;
 
-// Bouton « Rafraîchir » de la barre d'onglets et menu contextuel « Ouvrir la fiche
-// imprimante » : leur script partagé n'était pas chargé sur cet écran (bouton inerte).
+// Bouton « Rafraîchir » de la barre d'onglets (script partagé), puis le menu clic droit « Ouvrir la fiche
+// imprimante » par-dessus le tableau natif (vue par imprimante ; rien sur une ligne de client).
 PluginPrintgestionDashboardactions::renderSharedAssets('billing');
+PluginPrintgestionContextmenu::render(PluginPrintgestionBillingview::class);
 
 Html::footer();

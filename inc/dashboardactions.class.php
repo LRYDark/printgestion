@@ -35,6 +35,10 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
      *     expeditions : modifier l'expédition, BL, fiche imprimante
      *     billing     : uniquement "Ouvrir la fiche imprimante"
      */
+    /**
+     * Fenêtres et script partagés par les écrans à tableau natif. Contextes : « alerts », « expeditions »
+     * (fenêtres Modifier expédition / Associer des BL) et « billing » (bouton Rafraîchir seulement).
+     */
     public static function renderSharedAssets(string $context = 'expeditions'): void {
         $can_expedition_update = Session::haveRight('plugin_printgestion_expedition', UPDATE);
         $ajax_base = PLUGIN_PRINTGESTION_WEBDIR . '/ajax';
@@ -52,11 +56,10 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
             );
         }
 
-        self::renderContextMenu($can_expedition_update, $bl_enabled, $context);
-
-        // Les modals ne sont rendus que si au moins une action du menu les utilise.
-        // Pour billing, seule "Ouvrir la fiche imprimante" est active → aucun modal.
-        if ($context === 'expeditions') {
+        // Le menu clic droit lui-même est rendu par PluginPrintgestionContextmenu, commun aux tableaux natifs :
+        // ici, seulement les fenêtres qu'il peut appeler. Alertes et expéditions modifient une expédition en
+        // cours ; la facturation n'ouvre que des fiches, aucune fenêtre.
+        if (in_array($context, ['alerts', 'expeditions'], true)) {
             self::renderEditExpeditionModal();
             if ($bl_enabled) {
                 self::renderLinkBlModal();
@@ -64,61 +67,6 @@ class PluginPrintgestionDashboardactions extends CommonGLPI {
         }
 
         self::renderJs($ajax_base, $can_expedition_update, $bl_enabled);
-    }
-
-    protected static function renderContextMenu(bool $can_update, bool $bl_enabled = false, string $context = 'expeditions'): void {
-        // Actions autorisées par contexte (déjà filtrées côté PHP — pas besoin
-        // de tout rendre puis de cacher en JS, ça allège le DOM).
-        $allowed = [
-            'expeditions' => ['edit-expedition', 'link-bl', 'open-printer'],
-            'billing'     => ['open-printer'],
-        ];
-        $ctx_actions = $allowed[$context] ?? $allowed['billing'];
-
-        $items = [
-            'edit-expedition' => [
-                'icon'    => 'fa-pen',
-                'label'   => 'Modifier expédition…',
-                'require' => 'has-exp',
-            ],
-            'link-bl' => [
-                'icon'    => 'fa-file-signature',
-                'label'   => 'Associer des BL (plugin Gestion)…',
-                'require' => 'has-exp',
-            ],
-            'open-printer' => [
-                'icon'    => 'fa-print',
-                'label'   => 'Ouvrir la fiche imprimante',
-                'require' => null,
-            ],
-        ];
-
-        $html_items = '';
-        foreach ($ctx_actions as $act) {
-            if ($act === 'link-bl' && !$bl_enabled) {
-                continue;
-            }
-            if (!isset($items[$act])) {
-                continue;
-            }
-            $it  = $items[$act];
-            $req = $it['require'] ? " data-pc-require='{$it['require']}'" : '';
-            $html_items .= '<a href="#" class="d-block px-3 py-2 text-decoration-none text-body" '
-                . "data-pc-action='{$act}'{$req}>"
-                . "<i class='fa-solid {$it['icon']} me-2'></i>"
-                . htmlspecialchars($it['label'], ENT_QUOTES, 'UTF-8')
-                . "</a>\n";
-        }
-
-        echo <<<HTML
-<div id="pc-ctx-menu" class="shadow border rounded bg-white"
-     style="position:absolute;display:none;z-index:9999;min-width:260px;padding:4px 0">
-{$html_items}</div>
-<style>
-#pc-ctx-menu a:hover { background:#f1f3f5; }
-tr[data-pc-row="1"] { cursor: context-menu; }
-</style>
-HTML;
     }
 
     protected static function renderEditExpeditionModal(): void {
@@ -499,75 +447,13 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  const menu = document.getElementById('pc-ctx-menu');
-  if (!menu) return;
-
-  let currentRow = null;
-
-  // ── Right-click sur les lignes ──
-  document.addEventListener('contextmenu', function(e) {
-    const tr = e.target.closest('tr[data-pc-row="1"]');
-    if (!tr) return;
-    e.preventDefault();
-    currentRow = tr;
-
-    const hasExp = tr.getAttribute('data-pc-has-expedition') === '1';
-
-    // Helper show/hide : les menu items ont la classe Bootstrap "d-block" qui
-    // applique `display: block !important` → setProperty avec priorité important.
-    function setShown(el, shown) {
-      el.style.setProperty('display', shown ? 'block' : 'none', 'important');
-    }
-
-    menu.querySelectorAll('[data-pc-require]').forEach(function(el) {
-      setShown(el, el.getAttribute('data-pc-require') === 'has-exp' ? hasExp : true);
-    });
-
-    if (!CAN_UPDATE) {
-      menu.querySelectorAll('[data-pc-action="edit-expedition"],[data-pc-action="link-bl"]')
-        .forEach(function(el) { el.style.setProperty('display', 'none', 'important'); });
-    }
-
-    menu.style.left = e.pageX + 'px';
-    menu.style.top  = e.pageY + 'px';
-    menu.style.display = 'block';
-  });
-
-  document.addEventListener('click', function(e) {
-    if (!e.target.closest('#pc-ctx-menu')) menu.style.display = 'none';
-  });
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') menu.style.display = 'none';
-  });
-
-  // ── Handlers des actions ──
-  menu.addEventListener('click', function(e) {
-    const a = e.target.closest('a[data-pc-action]');
-    if (!a || !currentRow) return;
-    e.preventDefault();
-    menu.style.display = 'none';
-    const act = a.getAttribute('data-pc-action');
-    const d = {
-      printers_id:   currentRow.getAttribute('data-pc-printers-id'),
-      printer_name:  currentRow.getAttribute('data-pc-printer-name'),
-      entity_name:   currentRow.getAttribute('data-pc-entity-name'),
-      property:      currentRow.getAttribute('data-pc-property'),
-      level:         currentRow.getAttribute('data-pc-level'),
-      days:          currentRow.getAttribute('data-pc-days'),
-      cartridge:     currentRow.getAttribute('data-pc-cartridge'),
-      expedition_id: currentRow.getAttribute('data-pc-expedition-id'),
-      exp_statut:    currentRow.getAttribute('data-pc-exp-statut'),
-      exp_carrier:   currentRow.getAttribute('data-pc-exp-carrier') || '',
-      exp_tracking:  currentRow.getAttribute('data-pc-exp-tracking') || '',
-    };
-
-    if (act === 'open-printer') {
-      window.location.href = window.PC_CONFIG.rootDoc
-        + '/front/printer.form.php?id=' + encodeURIComponent(d.printers_id);
-      return;
-    }
-    if (act === 'edit-expedition') { openEditExpModal(d); return; }
-    if (act === 'link-bl')         { openLinkBlModal(d);  return; }
+  // ── Signal du menu clic droit (PluginPrintgestionContextmenu) ──
+  // Le menu a déjà le contexte de la ligne (imprimante, client, toner, expédition en cours) : il arrive tel quel.
+  document.addEventListener('pg:contextmenu', function(e) {
+    const detail = e.detail || {};
+    const d = detail.context || {};
+    if (detail.action === 'edit-expedition') { if (CAN_UPDATE && d.expedition_id) openEditExpModal(d); return; }
+    if (detail.action === 'link-bl')         { if (CAN_UPDATE && d.expedition_id) openLinkBlModal(d);  return; }
   });
 
   // ── Edit expedition modal ──

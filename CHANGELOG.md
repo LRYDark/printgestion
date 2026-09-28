@@ -2,6 +2,18 @@
 
 ## Non publié
 
+- **Le clic droit revient sur les tableaux natifs — alertes toner, demandes d'envoi, expéditions, facturation.**
+  Il avait disparu des alertes avec le passage au moteur de recherche de GLPI. Un seul menu, léger, posé
+  par-dessus le tableau sans toucher à GLPI (`inc/contextmenu.class.php`) : les entrées « natives » cochent la
+  ligne et ouvrent la fenêtre « Actions » de GLPI avec l'action déjà choisie — Commander…, Ne plus alerter
+  pendant…, Réactiver les alertes, Valider, Annuler… —, les autres ouvrent une fiche (imprimante, stock de la
+  cartouche, expédition en cours, demande d'envoi liée) ou l'une des fenêtres du plugin (Modifier expédition,
+  Associer des BL). Chacun ne voit que ce qu'il a le droit de faire, et seulement ce qui a un sens pour la ligne
+  (Réactiver sur une alerte suspendue, Annuler sur une demande encore ouverte). Le contexte des lignes affichées
+  est lu en une requête (`ajax/rowcontext.php`), dans le périmètre de l'utilisateur : l'écran des expéditions
+  n'embarque plus toutes les expéditions dans la page. Nouvelle action de masse « Annuler… » des demandes
+  d'envoi, motif obligatoire, mêmes contrôles que la fiche.
+
 - **macOS a enfin sa mise à jour automatique, comme Windows et Linux.** La première page de la fenêtre porte la
   case « Mettre à jour l'agent automatiquement (1er du mois à 3 h) », ou la phrase « posée sur ce Mac, réglage du
   serveur GLPI » quand l'administrateur a tranché — les mêmes mots que sous Windows. Derrière : un service

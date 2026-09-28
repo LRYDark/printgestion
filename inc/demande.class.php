@@ -105,17 +105,29 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         ]);
     }
 
-    /** Action de masse « Valider » : mêmes contrôles que la fiche, demande par demande. */
+    /** Actions de masse « Valider » et « Annuler… » : mêmes contrôles que la fiche, demande par demande. */
     function getSpecificMassiveActions($checkitem = null) {
         $actions = parent::getSpecificMassiveActions($checkitem);
         if (self::canUpdate()) {
             $actions[self::class . MassiveAction::CLASS_ACTION_SEPARATOR . 'pg_validate']
                 = "<i class='ti ti-check me-1'></i>" . __('Valider', 'printgestion');
+            $actions[self::class . MassiveAction::CLASS_ACTION_SEPARATOR . 'pg_cancel']
+                = "<i class='ti ti-x me-1'></i>" . __('Annuler…', 'printgestion');
         }
         return $actions;
     }
 
     static function showMassiveActionsSubForm(MassiveAction $ma) {
+        if ($ma->getAction() === 'pg_cancel') {
+            // Le même motif obligatoire que sur la fiche : une annulation sans raison ne s'explique plus après.
+            echo "<p class='text-muted small'>"
+                . htmlspecialchars(__('Seule une demande proposée ou validée s\'annule ; ses cartouches redeviennent commandables. Le motif est gardé sur la demande.', 'printgestion'), ENT_QUOTES, 'UTF-8')
+                . "</p>";
+            echo "<textarea class='form-control mb-2' name='cancel_reason' rows='2' required maxlength='1000' placeholder='"
+                . htmlspecialchars(__('Motif d\'annulation (obligatoire)', 'printgestion'), ENT_QUOTES, 'UTF-8') . "'></textarea>";
+            echo Html::submit(__('Annuler la demande', 'printgestion'), ['name' => 'massiveaction', 'class' => 'btn btn-danger']);
+            return true;
+        }
         if ($ma->getAction() === 'pg_validate') {
             echo "<p class='text-muted small'>"
                 . htmlspecialchars(__('Chaque demande proposée est contrôlée à l\'instant (référence, contrat, prix, verrous) : une demande avec une ligne bloquante n\'est pas validée et le motif est affiché.', 'printgestion'), ENT_QUOTES, 'UTF-8')
@@ -127,8 +139,10 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
     }
 
     static function processMassiveActionsForOneItemtype(MassiveAction $ma, CommonDBTM $item, array $ids) {
+        $action = $ma->getAction();
+        $reason = (string) ($ma->getInput()['cancel_reason'] ?? '');
         foreach ($ids as $id) {
-            if ($ma->getAction() !== 'pg_validate' || !$item->getFromDB($id)) {
+            if (!in_array($action, ['pg_validate', 'pg_cancel'], true) || !$item->getFromDB($id)) {
                 $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_KO);
                 continue;
             }
@@ -137,13 +151,13 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_NORIGHT);
                 continue;
             }
-            $result = $item->validateDemande();
+            $result = $action === 'pg_cancel' ? $item->cancelDemande($reason) : $item->validateDemande();
             if ($result['ok']) {
                 $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_OK);
             } else {
                 $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_KO);
             }
-            foreach (array_merge($result['errors'], $result['warnings']) as $message) {
+            foreach (array_merge($result['errors'], $result['warnings'] ?? []) as $message) {
                 $ma->addMessage(htmlspecialchars(sprintf(__('Demande #%1$d — %2$s', 'printgestion'), $id, $message), ENT_QUOTES, 'UTF-8'));
             }
         }
@@ -374,7 +388,9 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         }
         switch ($field) {
             case 'statut':
-                return self::getStatusBadge((string) ($values[$field] ?? ''));
+                // Marqueur du menu clic droit : l'identité de la ligne quand la case native manque (lecture seule).
+                return self::getStatusBadge((string) ($values[$field] ?? ''))
+                    . PluginPrintgestionContextmenu::rowMarker(self::class, (int) ($options['raw_data']['id'] ?? 0));
             case 'delivery_mode':
                 $mode = (string) ($values[$field] ?? '');
                 return htmlspecialchars(self::getDeliveryModeLabels()[$mode] ?? $mode, ENT_QUOTES, 'UTF-8');

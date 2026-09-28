@@ -140,9 +140,10 @@ Search::showList($itemtype, $params, $forced);
 echo "</div></div>";
 
 echo "<p class='text-muted small mt-2'><i class='ti ti-info-circle me-1'></i>"
-    . $esc(__('Cochez des toners puis « Actions » : Commander (droit de validation), Ne plus alerter pendant…, Réactiver les alertes. Les motifs de verrou et de référence non résolue figurent dans leurs colonnes.', 'printgestion'))
+    . $esc(__('Clic droit sur une ligne, ou cases cochées puis « Actions » : Commander (droit de validation), Ne plus alerter pendant…, Réactiver les alertes, fiche imprimante, cartouche, expédition en cours. Les motifs de verrou et de référence non résolue figurent dans les colonnes du même nom.', 'printgestion'))
     . "</p>";
-
 echo "</div>"; // container-fluid
-
+// Menu clic droit par-dessus le tableau natif, et les fenêtres qu'il peut appeler (expédition en cours).
+PluginPrintgestionDashboardactions::renderSharedAssets('alerts');
+PluginPrintgestionContextmenu::render(PluginPrintgestionAlertview::class);
 Html::footer();

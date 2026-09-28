@@ -266,85 +266,10 @@ echo "</div></div>";
 
 echo "</div>"; // container-fluid
 
-// ── Restauration de l'UI « comme avant » sur le tableau natif ─────────────────
-// 1) Carte des données d'expédition (clés = id) pour alimenter le menu clic droit
-//    sans requête supplémentaire côté client. Inclut le nom imprimante/client
-//    (jointures) que getSpecificValueToDisplay ne peut pas fournir seul.
-$exp_map  = [];
-$exp_data = $DB->request([
-    'SELECT'     => [
-        $exp_t . '.id AS id',
-        $exp_t . '.printers_id AS printers_id',
-        $exp_t . '.toner_property AS property',
-        $exp_t . '.statut AS statut',
-        $exp_t . '.transport_carrier AS carrier',
-        $exp_t . '.transport_number AS tracking',
-        'glpi_printers.name AS printer_name',
-        'glpi_entities.completename AS entity_name',
-    ],
-    'FROM'       => $exp_t,
-    'INNER JOIN' => ['glpi_printers' => ['ON' => ['glpi_printers' => 'id', $exp_t => 'printers_id']]],
-    'LEFT JOIN'  => ['glpi_entities' => ['ON' => ['glpi_entities' => 'id', $exp_t => 'entities_id']]],
-    'WHERE'      => array_merge(['glpi_printers.is_deleted' => 0], getEntitiesRestrictCriteria($exp_t, '', '', true)),
-]);
-foreach ($exp_data as $r) {
-    $exp_map[(int) $r['id']] = [
-        'printers_id'  => (int) $r['printers_id'],
-        'printer_name' => (string) ($r['printer_name'] ?? ''),
-        'entity_name'  => (string) ($r['entity_name'] ?? ''),
-        'property'     => (string) ($r['property'] ?? ''),
-        'statut'       => (string) ($r['statut'] ?? ''),
-        'carrier'      => (string) ($r['carrier'] ?? ''),
-        'tracking'     => (string) ($r['tracking'] ?? ''),
-    ];
-}
-
-// 2) Menu clic droit + modales (Modifier expédition, Associer BL) + JS.
+// ── Menu clic droit par-dessus le tableau natif ──────────────────────────────
+// Fenêtres « Modifier expédition » et « Associer des BL » (script partagé), puis le menu : il lit lui-même le
+// contexte des lignes affichées (ajax/rowcontext.php), plus de carte de toutes les expéditions dans la page.
 PluginPrintgestionDashboardactions::renderSharedAssets('expeditions');
-
-// 3) Pont : recopie les data-pc-* sur chaque ligne native (via le marqueur caché
-//    .pg-exp-bridge rendu dans la cellule Statut), puis ré-applique après chaque
-//    rechargement AJAX du tableau natif (tri / pagination / recherche).
-// Noms d'imprimante (SNMP), clients, n° de suivi : données, jamais écrites dans un script exécuté.
-echo PluginPrintgestionUi::jsonData('pg-exp-data', $exp_map, 'PG_EXP_DATA') . "\n";
-echo <<<'JS'
-<script>
-(function() {
-  function applyBridge() {
-    if (!window.PG_EXP_DATA) return;
-    document.querySelectorAll('.pg-exp-bridge').forEach(function(span) {
-      var tr = span.closest('tr');
-      if (!tr || tr.getAttribute('data-pc-row') === '1') return;
-      var id = span.getAttribute('data-expid');
-      var d  = window.PG_EXP_DATA[id];
-      if (!d) return;
-      tr.setAttribute('data-pc-row', '1');
-      tr.setAttribute('data-pc-grouped', '0');
-      tr.setAttribute('data-pc-has-expedition', '1');
-      tr.setAttribute('data-pc-printers-id', d.printers_id || '');
-      tr.setAttribute('data-pc-printer-name', d.printer_name || '');
-      tr.setAttribute('data-pc-entity-name', d.entity_name || '');
-      tr.setAttribute('data-pc-property', d.property || '');
-      tr.setAttribute('data-pc-expedition-id', id);
-      tr.setAttribute('data-pc-exp-statut', d.statut || '');
-      tr.setAttribute('data-pc-exp-carrier', d.carrier || '');
-      tr.setAttribute('data-pc-exp-tracking', d.tracking || '');
-    });
-  }
-  function init() {
-    applyBridge();
-    var cont = document.querySelector('[data-glpi-search-container]');
-    if (cont && window.MutationObserver) {
-      new MutationObserver(function() { applyBridge(); }).observe(cont, { childList: true, subtree: true });
-    }
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-})();
-</script>
-JS;
+PluginPrintgestionContextmenu::render(PluginPrintgestionExpedition::class);
 
 Html::footer();

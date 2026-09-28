@@ -1519,10 +1519,34 @@ supposée.
 5. **Numéros de série en double** parmi les imprimantes actives ; doublon entre entités différentes signalé (« verrous
    anti-double-envoi non partagés, à vérifier »).
 
+### Menu clic droit sur les tableaux natifs (`inc/contextmenu.class.php`)
+
+Un seul composant pour les quatre écrans à tableau natif (alertes toner, demandes d'envoi, expéditions,
+facturation), sans rien changer à GLPI : `PluginPrintgestionContextmenu::render($itemtype)` en fin de page.
+
+- **Identité d'une ligne** : la case native `item[Type][id]` de la ligne ; à défaut (utilisateur sans action de
+  masse), le marqueur `<span class="pg-ctx-row-marker" data-itemtype data-id hidden>` posé par
+  `rowMarker()` dans la colonne de statut de chaque type (`getSpecificValueToDisplay`, via `$options['raw_data']['id']`).
+- **Trois sortes d'entrées** (`getItems()`, déjà filtrées par les droits : une entrée refusée n'arrive pas dans
+  la page) : `native` — coche cette ligne seule, clique le bouton « Actions » de GLPI, puis choisit l'action dans
+  le menu déroulant de la fenêtre (`select[name=massiveaction]`, attendu par scrutation) : sous-formulaire, droits
+  et traitement sont ceux de l'action de masse, rien n'est dupliqué ; `link` — adresse fabriquée côté serveur
+  dans le contexte de la ligne ; `plugin` — événement DOM `pg:contextmenu` (`detail.action`, `detail.context`)
+  qu'écoute `Dashboardactions::renderJs()` pour les fenêtres « Modifier expédition » et « Associer des BL ».
+- **Contexte des lignes** : après chaque rendu du tableau (`MutationObserver` sur `[data-glpi-search-container]`),
+  une requête `ajax/rowcontext.php?itemtype=…&ids=…` (200 lignes au plus) ; `getContext()` ne renvoie que les
+  lignes du périmètre (`getEntitiesRestrictCriteria`, imprimante non supprimée, vue de facturation de
+  l'utilisateur) avec, par type, les adresses et les prédicats `require` des entrées (`can_order`, `can_snooze`,
+  `can_unsnooze`, `has_expedition`, `has_cartridge`, `can_validate`, `can_cancel`, `has_demande`, `has_printer`).
+  Sans contexte (requête en échec), seules les entrées sans condition restent.
+- Si GLPI changeait le balisage de la fenêtre « Actions », le repli est naturel : la ligne reste cochée et le
+  bouton « Actions » apparaît.
+
 ### Points d'entrée (ajax/)
 
 | Endpoint | Action |
 |---|---|
+| `rowcontext.php` | Contexte des lignes d'un tableau natif pour le menu clic droit (GET, lecture seule, périmètre de l'utilisateur) — voir ci-dessus |
 | *(action de masse « Commander »)* | **Seul parcours de commande directe** : `Alertview::processOrder()` → `createPurchaseOrder()` (expéditions + fichier + mail Achats en transaction), droit validation UPDATE |
 | `update_expedition.php` | Marquer expédié (transporteur + tracking) → `markShipped()` |
 | `edit_expedition.php`, `reassign_expedition.php` | Édition / réassignation vers une autre imprimante |

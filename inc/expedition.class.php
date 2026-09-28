@@ -245,13 +245,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 [$cls, $label] = $map[$v] ?? ['bg-light text-dark border', ($v !== '' ? $v : '—')];
                 $out = "<span class='badge {$cls}'>" . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . "</span>";
 
-                // Pont pour le menu clic droit : expose l'id de l'expédition sur la
-                // ligne native (le JS du dashboard recopie ensuite les data-pc-* sur le <tr>).
-                $rawid = (int) ($options['raw_data']['id'] ?? 0);
-                if ($rawid > 0) {
-                    $out .= "<span class='pg-exp-bridge' data-expid='{$rawid}' style='display:none'></span>";
-                }
-                return $out;
+                // Marqueur du menu clic droit : l'identité de la ligne quand la case native manque.
+                return $out . PluginPrintgestionContextmenu::rowMarker(self::class, (int) ($options['raw_data']['id'] ?? 0));
 
             case 'transport_carrier':
                 $v = trim((string) ($values[$field] ?? ''));

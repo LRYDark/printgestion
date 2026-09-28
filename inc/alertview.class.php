@@ -383,8 +383,10 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
         switch ($field) {
             case 'status':
                 $classes = ['critical' => 'bg-red text-red-fg', 'watch' => 'bg-orange text-orange-fg', 'ok' => 'bg-green text-green-fg'];
+                // Marqueur du menu clic droit : l'identité de la ligne quand la case native manque (lecture seule).
                 return "<span class='badge " . ($classes[$value] ?? 'bg-secondary text-secondary-fg') . "'>"
-                    . $esc(self::getStatusLabels()[$value] ?? $value) . '</span>';
+                    . $esc(self::getStatusLabels()[$value] ?? $value) . '</span>'
+                    . PluginPrintgestionContextmenu::rowMarker(self::class, (int) ($options['raw_data']['id'] ?? 0));
 
             case 'lock_reason':
                 if ($value === '') {

@@ -89,5 +89,6 @@ Search::showList($itemtype, $params, $forced);
 echo "</div></div>";
 
 echo "</div>"; // container-fluid
-
+// Menu clic droit par-dessus le tableau natif : ouvrir, valider, annuler.
+PluginPrintgestionContextmenu::render(PluginPrintgestionDemande::class);
 Html::footer();
