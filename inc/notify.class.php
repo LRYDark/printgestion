@@ -127,7 +127,38 @@ class PluginPrintgestionNotify {
 
     /** Vrai si la notification de ce circuit existe et est active. */
     public static function isActive(string $itemtype, string $event): bool {
+        self::ensureInstalled();
         return countElementsInTable('glpi_notifications', ['itemtype' => $itemtype, 'event' => $event, 'is_active' => 1]) > 0;
+    }
+
+    /** @var bool|null vérification faite pour cette requête */
+    private static ?bool $installed = null;
+
+    /**
+     * Les notifications des circuits sont créées par « Mettre à jour » (plugin_printgestion_install()). Si le plugin
+     * a été mis à jour par copie des fichiers sans passer par l'écran des plugins, aucune n'existe encore : même
+     * geste à la première utilisation, une fois, idempotent — une commande ne doit pas partir en « non transmise »
+     * faute de notification. Une notification supprimée ensuite par l'administrateur n'est pas recréée ici
+     * (seulement par « Mettre à jour ») : pour couper un circuit, la désactiver.
+     */
+    private static function ensureInstalled(): void {
+        if (self::$installed !== null) {
+            return;
+        }
+        self::$installed = true;
+        try {
+            if (countElementsInTable('glpi_notifications', ['comment' => self::COMMENT, 'event' => array_keys(self::getCircuits())]) > 0) {
+                return;
+            }
+            self::ensureSchema();
+            if (function_exists('plugin_printgestion_create_templates')) {
+                plugin_printgestion_create_templates();
+            }
+            self::install();
+            PluginPrintgestionLogger::info('notifications', 'Notifications natives des circuits mail créées à la première utilisation (plugin mis à jour sans « Mettre à jour »).');
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::error('notifications', 'Notifications natives des circuits mail non créées.', $e);
+        }
     }
 
     // ── Destinataires ─────────────────────────────────────────────────────────
@@ -369,6 +400,7 @@ class PluginPrintgestionNotify {
     public static function describeCircuits(): array {
         global $DB;
 
+        self::ensureInstalled();
         $out       = [];
         $instances = [];
         foreach (self::getCircuits() as $event => $circuit) {

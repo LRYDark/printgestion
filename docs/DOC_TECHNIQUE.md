@@ -1811,7 +1811,9 @@ peut ajouter n'importe quel destinataire GLPI (profil, groupe) sur chaque notifi
   gabarits **manquants** (jamais réécrits : les modifications de l'administrateur survivent), avec pour type l'objet
   de leur circuit (`Notify::getTemplateTypes()` ; les anciens types `Printer` puis `Ticket` sont corrigés) ; les
   identifiants restent stockés dans la configuration (`gabarit_*`, dont `gabarit_suivi`) et servent à `Notify::install()`.
-- **Notifications** (`Notify::install()`, idempotent, jamais modifiées ensuite) : créées à l'entité racine,
+- **Notifications** (`Notify::install()`, idempotent, jamais modifiées ensuite ; appelé par « Mettre à jour », et à
+  la première utilisation si aucune n'existe — plugin mis à jour par copie des fichiers — via
+  `Notify::ensureInstalled()`) : créées à l'entité racine,
   récursives, avec le gabarit choisi dans la configuration (sinon le gabarit du plugin de ce nom), **dans l'état
   qu'avait le circuit** (gabarit choisi = active ; la commande aux Achats toujours active), les destinataires d'avant
   et le réglage des pièces jointes. À la première création du suivi de colis, si le gabarit « Information client

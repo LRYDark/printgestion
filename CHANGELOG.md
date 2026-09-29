@@ -4,8 +4,8 @@
 
 - **Les mails du plugin sont des notifications natives de GLPI.** Alerte toner, commande aux Achats, cartouches à
   expédier (simple et groupé), courtoisie client, suivi de colis, rappel d'installation : sept notifications
-  (Configuration → Notifications), créées à la mise à jour dans l'état qu'avait chaque circuit (gabarit choisi =
-  active), avec les gabarits existants — jamais réécrits — et les destinataires d'avant : les rôles du plugin y sont
+  (Configuration → Notifications), créées à la mise à jour — ou à la première utilisation si le plugin a été mis à
+  jour par copie des fichiers — dans l'état qu'avait chaque circuit (gabarit choisi = active), avec les gabarits existants — jamais réécrits — et les destinataires d'avant : les rôles du plugin y sont
   proposés comme destinataires « Rôle Planification / Achats / Commercial (Print Gestion) », l'auteur de la
   commande en copie, l'usager de l'imprimante pour la courtoisie ; l'administrateur peut y ajouter profils et
   groupes. Ce qui ne change pas : envoi immédiat et résultat connu (la file d'attente est relue ; un message non
