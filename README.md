@@ -47,7 +47,8 @@ Trois modules indépendants, activables par interrupteur dans la configuration :
 - **Aucune rafale de mails** : envois multi regroupés (1 mail avec liste plafonnée à 20 lignes,
   détail complet dans l'Excel joint), courtoisie regroupée par contact, crons en digest
   (1 mail par exécution).
-- 6 gabarits HTML responsive créés automatiquement, aperçu dans `docs/apercu_gabarits.html`.
+- 7 gabarits HTML responsive créés automatiquement, un par circuit, sur des notifications natives de GLPI
+  (Configuration → Notifications) ; aperçu dans `docs/apercu_gabarits.html`.
 
 ---
 

@@ -37,8 +37,10 @@ function plugin_printgestion_install() {
         PluginPrintgestionProfile::createFirstAccess($_SESSION['glpiactiveprofile']['id']);
     }
 
-    // Création des gabarits de notifications par défaut
+    // Gabarits de mail du plugin (jamais réécrits), puis les notifications natives de ses circuits (idempotent).
+    PluginPrintgestionNotify::ensureSchema();
     plugin_printgestion_create_templates();
+    PluginPrintgestionNotify::install();
 
     // Notifications natives des demandes d'envoi (créées inactives, idempotent).
     PluginPrintgestionNotificationTargetDemande::install();
@@ -228,6 +230,20 @@ function plugin_printgestion_template_definitions(): array {
                 . '<div style="margin:0;color:#374151;">##printgestion.cartridges_list##</div>'
             ),
         ],
+        'gabarit_suivi' => [
+            'name'    => 'Print Gestion - Suivi de colis (commercial)',
+            'subject' => '[Print Gestion] Cartouche expédiée — ##printgestion.client## · ##printgestion.printer##',
+            'html'    => plugin_printgestion_email_html('#0891b2', 'Cartouche expédiée',
+                plugin_printgestion_email_rows([
+                    ['Client',          '##printgestion.client##'],
+                    ['Imprimante',      '##printgestion.printer##'],
+                    ['Toner',           '##printgestion.toner##'],
+                    ['Transporteur',    '##printgestion.carrier##'],
+                    ['Numéro de suivi', '##printgestion.tracking##'],
+                ])
+                . '<p style="margin:0;color:#4b5563;">La cartouche est partie ; le suivi du colis est visible dans GLPI (Print Gestion → Expéditions).</p>'
+            ),
+        ],
         'gabarit_rappel' => [
             'name'    => 'Print Gestion - Rappel installation cartouche',
             'subject' => '[Print Gestion] Rappel — ##printgestion.count## cartouche(s) expédiée(s) non installée(s)',
@@ -264,6 +280,8 @@ function plugin_printgestion_create_templates() {
     }
 
     $templates = plugin_printgestion_template_definitions();
+    // Objet dont chaque gabarit notifie les événements : c'est ce type que GLPI montre dans « Balises disponibles ».
+    $types     = PluginPrintgestionNotify::getTemplateTypes();
 
     $config_updates = [];
 
@@ -280,18 +298,17 @@ function plugin_printgestion_create_templates() {
             // une mise à jour du plugin ne défait pas ses modifications ; seul l'identifiant est repris dans la
             // configuration. Un gabarit supprimé est recréé avec le texte par défaut.
             $tpl_id = (int)$existing['id'];
-            // Migration : corrige itemtype='Printer' (ancienne version buggée) → 'Ticket'
-            $DB->update('glpi_notificationtemplates',
-                ['itemtype' => 'Ticket'],
-                ['id' => $tpl_id, 'itemtype' => 'Printer']
-            );
+            // Type d'objet : celui du circuit (anciennes versions : 'Printer', puis 'Ticket' faute de cible).
+            if (isset($types[$config_field])) {
+                $DB->update('glpi_notificationtemplates', ['itemtype' => $types[$config_field]], ['id' => $tpl_id, 'NOT' => ['itemtype' => $types[$config_field]]]);
+            }
             $config_updates[$config_field] = $tpl_id;
             continue;
         }
 
         $DB->insert('glpi_notificationtemplates', [
             'name'          => $tpl['name'],
-            'itemtype'      => 'Ticket', // Ticket expose un NotificationTarget → showAvailableTags() ne crash pas
+            'itemtype'      => $types[$config_field] ?? 'Ticket',
             'comment'       => 'Created by plugin printgestion',
             'css'           => '',
             'date_creation' => date('Y-m-d H:i:s'),

@@ -2,6 +2,23 @@
 
 ## Non publié
 
+- **Les mails du plugin sont des notifications natives de GLPI.** Alerte toner, commande aux Achats, cartouches à
+  expédier (simple et groupé), courtoisie client, suivi de colis, rappel d'installation : sept notifications
+  (Configuration → Notifications), créées à la mise à jour dans l'état qu'avait chaque circuit (gabarit choisi =
+  active), avec les gabarits existants — jamais réécrits — et les destinataires d'avant : les rôles du plugin y sont
+  proposés comme destinataires « Rôle Planification / Achats / Commercial (Print Gestion) », l'auteur de la
+  commande en copie, l'usager de l'imprimante pour la courtoisie ; l'administrateur peut y ajouter profils et
+  groupes. Ce qui ne change pas : envoi immédiat et résultat connu (la file d'attente est relue ; un message non
+  remis est retiré de la file, la commande reste « non transmise » avec « Renvoyer aux Achats », les alertes
+  repartent au passage suivant), fichier Gesconso obligatoire (document archivé de la commande, attaché par la
+  notification), un seul mail par passage pour les digests, sujets identiques. Ce qui change : un mail par
+  destinataire (plus de copie carbone visible), le pied de page natif de GLPI, un nouveau gabarit « Suivi de
+  colis » (il reprend le texte personnalisé d'« Information client toner », qui servait aux deux), et la carte
+  « Rôles & notifications » montre l'état de chaque notification (active, gabarit, destinataires) à la place des
+  listes de gabarits et du bouton « Qui est notifié ? ». Les notifications de GLPI doivent être activées (elles
+  l'étaient déjà pour les demandes, les sondes et les commandes en attente). Retirés : `Config::sendMail()`,
+  `Expedition::sendRawMail()`.
+
 - **Audit « natif d'abord » : moins de code au plugin, rien de changé à l'écran.** Neuf listes en lecture seule que
   le plugin dessinait à la main en HTML passent par le gabarit natif de GLPI (`components/datatable.html.twig`, le
   même que les listes du module) : imprimantes collectées par une sonde (onglet de la sonde), analyses de

@@ -30,14 +30,6 @@ class PluginPrintgestionConfig extends CommonDBTM {
 
     static private $_instance = null;
 
-    /** Cause du dernier échec de sendMail() ; chaîne vide après un envoi réussi. */
-    private static string $last_mail_error = '';
-
-    /** Cause du dernier échec de sendMail(), à afficher ou journaliser par l'appelant. */
-    public static function getLastMailError(): string {
-        return self::$last_mail_error;
-    }
-
     /**
      * Valeur déchiffrée d'une clé API enregistrée. Chaîne vide si aucune clé, ou si
      * elle est indéchiffrable (GLPIKey signale alors lui-même l'échec).
@@ -411,40 +403,32 @@ class PluginPrintgestionConfig extends CommonDBTM {
 </script>";
 
 
-        // ── Card unique : Rôles & notifications ───────────────────
+        // ── Card : Rôles & notifications ──────────────────────────
+        // Les mails du plugin sont des notifications natives (Configuration → Notifications) : gabarit, activation
+        // et destinataires s'y règlent. Les trois rôles sont proposés là-bas comme destinataires
+        // « Rôle … (Print Gestion) » ; c'est ici qu'on dit qui les compose.
         $roles = [
-            'planif'     => [
-                'label'   => __('Planification (expédition cartouche)', 'printgestion'),
-                'gabarit' => 'gabarit_planif',
-            ],
-            'achat'      => [
-                'label'   => __('Achats (commande de cartouches)', 'printgestion'),
-                'gabarit' => 'gabarit_achat',
-            ],
-            'commercial' => [
-                'label'   => __('Commercial (information client)', 'printgestion'),
-                'gabarit' => 'gabarit_commercial',
-            ],
+            'planif'     => __('Planification (expédition cartouche)', 'printgestion'),
+            'achat'      => __('Achats (commande de cartouches)', 'printgestion'),
+            'commercial' => __('Commercial (information client)', 'printgestion'),
         ];
 
         echo "<div class='card mb-3'><div class='card-header d-flex justify-content-between align-items-center'>"
             . "<h3 class='card-title mb-0'>" . __('Rôles & notifications', 'printgestion') . "</h3>"
-            . "<button type='button' class='btn btn-sm btn-outline-primary' data-bs-toggle='modal' data-bs-target='#pg-notif-modal'>"
-            . "<i class='fa-solid fa-eye me-1'></i>" . __('Qui est notifié ?', 'printgestion') . "</button>"
+            . "<a class='btn btn-sm btn-outline-primary' href='" . htmlspecialchars(Notification::getSearchURL(), ENT_QUOTES, 'UTF-8') . "'>"
+            . "<i class='ti ti-bell me-1'></i>" . __('Ouvrir les notifications', 'printgestion') . "</a>"
             . "</div><div class='card-body'>";
 
         echo "<div class='alert alert-info py-2 mb-3'>"
             . "<i class='fa-solid fa-circle-info me-1'></i>"
-            . __("L'accès aux dashboards Print Gestion est géré via les droits de profil GLPI "
-                . "(Administration → Profils → Print Gestion). Cette section configure uniquement "
-                . "où sont envoyées les notifications email.", 'printgestion')
+            . __("Les mails du plugin sont des notifications natives de GLPI : gabarit, activation et destinataires se règlent dans Configuration → Notifications, où les trois rôles ci-dessous sont proposés comme destinataires « Rôle … (Print Gestion) ». L'accès aux dashboards reste réglé par les droits de profil (Administration → Profils → Print Gestion).", 'printgestion')
             . "</div>";
 
-        // 3 rôles avec notifications (switch groupe/emails + gabarit)
-        foreach ($roles as $role => $cfg) {
+        // 3 rôles : qui les compose (groupe GLPI ou utilisateurs directs), adresses résolues
+        foreach ($roles as $role => $label) {
             $mode        = (string)($config->fields['mode_' . $role] ?? 'group');
             $group_value = (int)($config->fields['group_' . $role] ?? 0);
-            // NB: la colonne emails_X stocke désormais une liste CSV d'IDs users GLPI
+            // NB: la colonne emails_X stocke une liste CSV d'IDs users GLPI
             $users_raw   = (string)($config->fields['emails_' . $role] ?? '');
             $users_ids   = array_values(array_filter(
                 array_map('intval', preg_split('/[,;\s]+/', $users_raw) ?: []),
@@ -455,32 +439,10 @@ class PluginPrintgestionConfig extends CommonDBTM {
             $group_div = "printgestion-{$role}-group";
             $users_div = "printgestion-{$role}-users";
             $switch_id = "printgestion-{$role}-switch";
+            $resolved  = PluginPrintgestionAlert::resolveRecipientsForRole($role);
 
             echo "<div class='mb-4 pb-3 border-bottom'>";
-            echo "<h5 class='mb-2'>" . htmlspecialchars($cfg['label'], ENT_QUOTES, 'UTF-8') . "</h5>";
-
-            // Gabarit
-            echo "<div class='row mb-3 align-items-center'><div class='col-md-4'><label class='form-label mb-0'>"
-                . __('Gabarit de notification', 'printgestion') . "</label></div><div class='col-md-8'>";
-            Dropdown::show('NotificationTemplate', [
-                'name'                => $cfg['gabarit'],
-                'value'               => (int)($config->fields[$cfg['gabarit']] ?? 0),
-                'display_emptychoice' => true,
-                'emptylabel'          => '-----',
-            ]);
-            echo "</div></div>";
-            if ($role === 'planif') {
-                // Envoi groupé (plusieurs cartouches d'un coup) : gabarit à part (Expedition), enregistré ici.
-                echo "<div class='row mb-3 align-items-center'><div class='col-md-4'><label class='form-label mb-0'>"
-                    . __('Gabarit envoi groupé (plusieurs cartouches)', 'printgestion') . "</label></div><div class='col-md-8'>";
-                Dropdown::show('NotificationTemplate', [
-                    'name'                => 'gabarit_planif_group',
-                    'value'               => (int)($config->fields['gabarit_planif_group'] ?? 0),
-                    'display_emptychoice' => true,
-                    'emptylabel'          => '-----',
-                ]);
-                echo "</div></div>";
-            }
+            echo "<h5 class='mb-2'>" . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . "</h5>";
 
             // Destinataires : label + switch + panneau dynamique
             echo "<div class='row align-items-start'><div class='col-md-4'><label class='form-label mb-0'>"
@@ -525,137 +487,48 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 . "</small>";
             echo "</div>";
 
+            // Adresses résolues avec la configuration ENREGISTRÉE (enregistrer avant de vérifier).
+            echo "<small class='d-block mt-2'>" . __('Adresses résolues :', 'printgestion') . ' '
+                . (empty($resolved)
+                    ? "<span class='text-danger'>" . __('aucune', 'printgestion') . "</span>"
+                    : "<span class='text-success'>" . htmlspecialchars(implode(', ', $resolved), ENT_QUOTES, 'UTF-8') . "</span>")
+                . "</small>";
+
             echo "</div></div>"; // row
             echo "</div>"; // rôle
         }
 
-        // Rappel installation : gabarit + destinataires (planif / commercial / les deux)
-        echo "<div class='mb-4 pb-3 border-bottom'>";
-        echo "<h5 class='mb-2'>" . __('Rappel installation', 'printgestion') . "</h5>";
-        echo "<div class='row mb-3 align-items-center'><div class='col-md-4'><label class='form-label mb-0'>"
-            . __('Gabarit si cartouche non installée après délai', 'printgestion') . "</label></div><div class='col-md-8'>";
-        Dropdown::show('NotificationTemplate', [
-            'name'                => 'gabarit_rappel',
-            'value'               => (int)($config->fields['gabarit_rappel'] ?? 0),
-            'display_emptychoice' => true,
-            'emptylabel'          => '-----',
-        ]);
-        echo "</div></div>";
-        echo "<div class='row align-items-center'><div class='col-md-4'><label class='form-label mb-0'>"
-            . __('Destinataires du rappel', 'printgestion') . "</label></div><div class='col-md-8'>";
-        Dropdown::showFromArray('reminder_recipients', [
-            'planif'     => __('Planification seule', 'printgestion'),
-            'commercial' => __('Commercial seul', 'printgestion'),
-            'both'       => __('Planification + Commercial', 'printgestion'),
-        ], ['value' => (string)($config->fields['reminder_recipients'] ?? 'both')]);
-        echo "<small class='text-muted d-block mt-1'>"
-            . __('Évite que les commerciaux relancent une demande déjà traitée.', 'printgestion')
-            . "</small>";
-        echo "</div></div>";
-        echo "</div>";
-
-        // Courtoisie client : gabarit (destinataire = usager imprimante, sinon entité)
-        echo "<div>";
-        echo "<h5 class='mb-2'>" . __('Courtoisie client', 'printgestion') . "</h5>";
-        echo "<div class='row align-items-center'><div class='col-md-4'><label class='form-label mb-0'>"
-            . __('Gabarit envoyé au client lors d\'un envoi de cartouche', 'printgestion') . "</label></div><div class='col-md-8'>";
-        Dropdown::show('NotificationTemplate', [
-            'name'                => 'gabarit_courtoisie',
-            'value'               => (int)($config->fields['gabarit_courtoisie'] ?? 0),
-            'display_emptychoice' => true,
-            'emptylabel'          => '-----',
-        ]);
-        echo "<small class='text-muted d-block mt-1'>"
-            . __('Destinataire : uniquement l\'usager renseigné sur la fiche imprimante. Sans usager, aucun mail n\'est envoyé pour cette imprimante.', 'printgestion')
-            . "</small>";
-        echo "</div></div>";
-        echo "</div>";
+        // Les circuits : la notification de chacun, son état, son gabarit, ses destinataires — lus dans GLPI.
+        echo "<h5 class='mb-2'>" . __('Notifications du plugin', 'printgestion') . "</h5>";
+        echo "<p class='text-muted small'>" . __('Chaque envoi du plugin est une notification native : cliquer sur son nom pour changer le gabarit, les destinataires ou l\'activer. Le fichier Gesconso joint aux commandes est le document archivé de la commande.', 'printgestion') . "</p>";
+        $entries = [];
+        foreach (PluginPrintgestionNotify::describeCircuits() as $circuit) {
+            $n         = $circuit['notification'];
+            $entries[] = [
+                'circuit'      => $circuit['label'],
+                'notification' => $n === null
+                    ? "<span class='text-danger'>" . __('absente : relancer « Mettre à jour » du plugin', 'printgestion') . "</span>"
+                    : "<a href='" . htmlspecialchars(Notification::getFormURLWithID((int) $n['id']), ENT_QUOTES, 'UTF-8') . "'>" . htmlspecialchars((string) $n['name'], ENT_QUOTES, 'UTF-8') . "</a>",
+                'state'        => $n === null ? '' : ((int) $n['is_active'] === 1
+                    ? "<span class='badge bg-green text-green-fg'>" . __('Active', 'printgestion') . "</span>"
+                    : "<span class='badge bg-secondary text-secondary-fg'>" . __('Inactive', 'printgestion') . "</span>"),
+                'template'     => $n === null || empty($n['templates_id'])
+                    ? '—'
+                    : "<a href='" . htmlspecialchars(NotificationTemplate::getFormURLWithID((int) $n['templates_id']), ENT_QUOTES, 'UTF-8') . "'>" . htmlspecialchars((string) $n['template'], ENT_QUOTES, 'UTF-8') . "</a>",
+                'targets'      => $circuit['targets'] === []
+                    ? "<span class='text-danger'>" . __('aucun destinataire', 'printgestion') . "</span>"
+                    : htmlspecialchars(implode(', ', $circuit['targets']), ENT_QUOTES, 'UTF-8'),
+            ];
+        }
+        echo "<div data-pg-noclick='1'>" . PluginPrintgestionUi::datatable([
+            'circuit'      => __('Circuit', 'printgestion'),
+            'notification' => __('Notification', 'printgestion'),
+            'state'        => __('État', 'printgestion'),
+            'template'     => __('Gabarit', 'printgestion'),
+            'targets'      => __('Destinataires', 'printgestion'),
+        ], $entries, ['notification' => 'raw_html', 'state' => 'raw_html', 'template' => 'raw_html', 'targets' => 'raw_html']) . "</div>";
 
         echo "</div></div>"; // fin card Rôles & notifications
-
-        // ── Modale « Qui est notifié ? » : VUE PAR DESTINATAIRE ─────────────────
-        // Pour chaque rôle, on liste TOUTES les notifications qu'il reçoit selon la
-        // config (ex : Commercial = info toner bas + rappel SI la cible rappel l'inclut),
-        // en signalant les gabarits non configurés (notification inactive).
-        $resolveTxt = function (string $role): string {
-            $emails = PluginPrintgestionAlert::resolveRecipientsForRole($role);
-            return empty($emails)
-                ? "<span class='text-danger'>" . __('aucun destinataire', 'printgestion') . "</span>"
-                : "<span class='text-success'>" . htmlspecialchars(implode(', ', $emails), ENT_QUOTES, 'UTF-8') . "</span>";
-        };
-        $rmode = (string)($config->fields['reminder_recipients'] ?? 'both');
-        $rappel_to_planif     = in_array($rmode, ['planif', 'both'], true);
-        $rappel_to_commercial = in_array($rmode, ['commercial', 'both'], true);
-        $gabOk = function (string $field) use ($config): bool {
-            return (int)($config->fields[$field] ?? 0) > 0;
-        };
-        // Rend une liste <ul> de notifications. Chaque item : [texte, gabarit_actif?].
-        $notifList = function (array $items): string {
-            if (empty($items)) {
-                return "<span class='text-muted'>—</span>";
-            }
-            $html = '<ul style="margin:0;padding-left:18px;">';
-            foreach ($items as $it) {
-                $warn = $it[1] ? '' : " <span style='color:#b91c1c;'>(" . __('gabarit non configuré', 'printgestion') . ")</span>";
-                $html .= '<li>' . htmlspecialchars($it[0], ENT_QUOTES, 'UTF-8') . $warn . '</li>';
-            }
-            return $html . '</ul>';
-        };
-
-        $recipients = [
-            [
-                __('Commercial', 'printgestion'),
-                $notifList(array_merge(
-                    [[__('Information toner bas — cron horaire, 1 seul mail digest par run', 'printgestion'), $gabOk('gabarit_commercial')]],
-                    $rappel_to_commercial ? [[__('Rappel cartouche non installée — cron, 1 seul mail digest par run', 'printgestion'), $gabOk('gabarit_rappel')]] : []
-                )),
-                $resolveTxt('commercial'),
-            ],
-            [
-                __('Planification', 'printgestion'),
-                $notifList(array_merge(
-                    [[__('Expédition cartouche (simple : gabarit unitaire / multi : gabarit groupé avec client par ligne) — « Envoyer cartouche » si la case Planif est cochée', 'printgestion'), $gabOk('gabarit_planif')]],
-                    $rappel_to_planif ? [[__('Rappel cartouche non installée — cron, 1 seul mail digest par run', 'printgestion'), $gabOk('gabarit_rappel')]] : []
-                )),
-                $resolveTxt('planif'),
-            ],
-            [
-                __('Achat', 'printgestion'),
-                $notifList([[__('Commande cartouche — fichier Excel joint (détail dans l\'Excel, plus de tableau dans le mail) — dès qu\'une cartouche est à commander', 'printgestion'), true]]),
-                $resolveTxt('achat'),
-            ],
-            [
-                __('Client (courtoisie)', 'printgestion'),
-                $notifList([[__('Cartouche(s) en cours d\'envoi — regroupé par contact (1 mail listant ses imprimantes) — si la case Courtoisie est cochée', 'printgestion'), $gabOk('gabarit_courtoisie')]]),
-                "<em>" . __('Usager renseigné sur la fiche imprimante (aucun envoi sans usager) — varie par imprimante', 'printgestion') . "</em>",
-            ],
-            [
-                __('Demandeur (en copie)', 'printgestion'),
-                $notifList([[__('En copie (CC) des mails Achat et Planif', 'printgestion'), true]]),
-                "<em>" . __('L\'utilisateur qui déclenche l\'envoi', 'printgestion') . "</em>",
-            ],
-        ];
-
-        echo "<div class='modal fade' id='pg-notif-modal' tabindex='-1'><div class='modal-dialog modal-lg modal-dialog-scrollable'><div class='modal-content'>";
-        echo "<div class='modal-header'><h5 class='modal-title'><i class='fa-solid fa-bell me-2'></i>"
-            . __('Qui est notifié ?', 'printgestion') . "</h5>"
-            . "<button type='button' class='btn-close' data-bs-dismiss='modal' aria-label='Close'></button></div>";
-        echo "<div class='modal-body'><p class='text-muted small'>"
-            . __('Pour chaque destinataire, les notifications qu\'il reçoit selon la configuration ENREGISTRÉE (enregistre avant de vérifier).', 'printgestion')
-            . "</p>";
-        echo "<table class='table table-sm align-middle'><thead><tr>"
-            . "<th>" . __('Destinataire', 'printgestion') . "</th>"
-            . "<th>" . __('Notifications reçues', 'printgestion') . "</th>"
-            . "<th>" . __('Emails résolus', 'printgestion') . "</th></tr></thead><tbody>";
-        foreach ($recipients as $r) {
-            echo "<tr><td><strong>" . htmlspecialchars($r[0], ENT_QUOTES, 'UTF-8') . "</strong></td>"
-                . "<td class='small'>" . $r[1] . "</td>"
-                . "<td class='small'>" . $r[2] . "</td></tr>";
-        }
-        echo "</tbody></table></div>";
-        echo "<div class='modal-footer'><button type='button' class='btn btn-secondary' data-bs-dismiss='modal'>"
-            . __('Fermer', 'printgestion') . "</button></div>";
-        echo "</div></div></div>";
 
         // ── Card : Mapping SNMP → Cartouches GLPI ─────────────────
 
@@ -868,7 +741,7 @@ HTML;
         $html = (string) ob_get_clean();
         if (!$canedit) {
             // Lecture seule réelle : champs, listes, zones de texte et boutons d'envoi désactivés ; les boutons
-            // « type=button » (chevrons, fenêtres d'information, « Qui est notifié ? ») restent utilisables.
+            // « type=button » (chevrons, fenêtres d'information) restent utilisables.
             $html = (string) preg_replace('/<(input|select|textarea)\b(?![^>]*\bdisabled\b)/i', '<$1 disabled', $html);
             $html = (string) preg_replace('/<button\b(?![^>]*type=[\'"]button[\'"])(?![^>]*\bdisabled\b)/i', '<button disabled', $html);
         }
@@ -1213,200 +1086,5 @@ HTML;
 
         // Ferme : collapse, card-body, card
         echo "</div></div></div>";
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    //  ENVOI DE MAIL PAR GABARIT (pattern plugin Gestion MailSend)
-    // ─────────────────────────────────────────────────────────────
-
-    /**
-     * Envoie un mail à partir d'un gabarit de notification.
-     * GLPI 11 : API Symfony Mailer via GLPIMailer::getEmail().
-     *
-     * @param string|array $email      Destinataire(s) — premier = TO, suivants = CC.
-     * @param int          $gabarit_id ID du gabarit glpi_notificationtemplates.
-     * @param array        $balises    ['##printgestion.printer##' => 'valeur', ...]
-     * @param string|null  $attachment Chemin fichier à joindre (optionnel).
-     * @param string|null  $attachment_name Nom de la pièce jointe (défaut : nom du fichier).
-     */
-    public static function sendMail($email, int $gabarit_id, array $balises = [], ?string $attachment = null, ?string $attachment_name = null): bool {
-        global $DB, $CFG_GLPI;
-
-        self::$last_mail_error = '';
-
-        if ($gabarit_id <= 0) {
-            self::$last_mail_error = __('aucun modèle de notification configuré', 'printgestion');
-            PluginPrintgestionLogger::warning('Config::sendMail', 'Mail non envoyé : ' . self::$last_mail_error . '.');
-            return false;
-        }
-
-        // Parsing & validation emails
-        $items = is_array($email)
-            ? $email
-            : preg_split('/[,\s;]+/u', (string)$email, -1, PREG_SPLIT_NO_EMPTY);
-        $valid = [];
-        foreach ($items as $e) {
-            $e = trim((string)$e);
-            if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) {
-                $valid[strtolower($e)] = $e;
-            }
-        }
-        if (empty($valid)) {
-            self::$last_mail_error = __('aucune adresse email valide parmi les destinataires', 'printgestion');
-            PluginPrintgestionLogger::warning(
-                'Config::sendMail',
-                sprintf('Mail non envoyé (modèle %d) : %s.', $gabarit_id, self::$last_mail_error)
-            );
-            return false;
-        }
-        $valid = array_values($valid);
-        $to    = array_shift($valid);
-        $cc    = $valid;
-
-        // Chargement gabarit avec fallback de langue
-        $curLang = $_SESSION['glpilanguage'] ?? ($CFG_GLPI['language'] ?? 'fr_FR');
-        $langs   = array_values(array_unique([$curLang, substr($curLang, 0, 2), 'fr_FR']));
-
-        $tpl = null;
-        foreach ($langs as $lang) {
-            $row = $DB->request([
-                'SELECT' => ['subject', 'content_text', 'content_html'],
-                'FROM'   => 'glpi_notificationtemplatetranslations',
-                'WHERE'  => [
-                    'notificationtemplates_id' => $gabarit_id,
-                    'language'                 => $lang,
-                ],
-                'LIMIT'  => 1,
-            ])->current();
-            if (is_array($row)) {
-                $tpl = $row;
-                break;
-            }
-        }
-        if ($tpl === null) {
-            $tpl = $DB->request([
-                'SELECT' => ['subject', 'content_text', 'content_html'],
-                'FROM'   => 'glpi_notificationtemplatetranslations',
-                'WHERE'  => ['notificationtemplates_id' => $gabarit_id],
-                'LIMIT'  => 1,
-            ])->current();
-        }
-        if (!is_array($tpl)) {
-            self::$last_mail_error = sprintf(__('modèle de notification %d introuvable ou sans traduction', 'printgestion'), $gabarit_id);
-            PluginPrintgestionLogger::warning('Config::sendMail', 'Mail non envoyé : ' . self::$last_mail_error . '.');
-            return false;
-        }
-
-        $subject  = (string)($tpl['subject'] ?? '');
-        $bodyText = isset($tpl['content_text']) ? html_entity_decode((string)$tpl['content_text'], ENT_QUOTES, 'UTF-8') : '';
-        $bodyHtml = isset($tpl['content_html']) ? html_entity_decode((string)$tpl['content_html'], ENT_QUOTES, 'UTF-8') : '';
-
-        // Balises disponibles par défaut
-        $defaults = [
-            '##printgestion.printer##'         => '',
-            '##printgestion.client##'          => '',
-            '##printgestion.toner##'           => '',
-            '##printgestion.level##'           => '',
-            '##printgestion.days##'            => '',
-            '##printgestion.cartridge##'       => '',
-            // Plus de stock GLPI : balise conservée, toujours vide, pour les gabarits existants.
-            '##printgestion.stock##'           => '',
-            '##printgestion.contract##'        => '',
-            '##printgestion.carrier##'         => '',
-            '##printgestion.tracking##'        => '',
-            '##printgestion.cartridges_list##' => '',
-            '##printgestion.printers_list##'   => '',
-            '##printgestion.count##'           => '',
-            '##printgestion.glpi_url##'        => (string)($CFG_GLPI['url_base'] ?? ''),
-        ];
-        $all = array_merge($defaults, $balises);
-
-        // Balises dont la valeur est du HTML construit par le plugin (listes <ul>
-        // dont chaque valeur dynamique est échappée à la construction). Toutes les
-        // autres valeurs — noms d'imprimante, de client, de cartouche… issus de
-        // l'inventaire SNMP ou de la saisie — sont du TEXTE, échappé dans le corps HTML.
-        $html_tags = ['##printgestion.cartridges_list##', '##printgestion.printers_list##'];
-
-        foreach ($all as $tag => $val) {
-            $val     = (string)$val;
-            $is_html = in_array($tag, $html_tags, true);
-
-            // Version texte : pour une liste HTML, un élément par ligne, sans balises.
-            $plain = $is_html
-                ? trim(html_entity_decode(
-                    strip_tags((string)preg_replace('#</li>\s*#i', "\n", $val)),
-                    ENT_QUOTES,
-                    'UTF-8'
-                ))
-                : $val;
-
-            // Sujet : une seule ligne (aucun retour à la ligne injecté dans l'en-tête).
-            $subject  = str_replace($tag, str_replace(["\r", "\n"], ' ', $plain), $subject);
-            $bodyText = str_replace($tag, $plain, $bodyText);
-            $bodyHtml = str_replace(
-                $tag,
-                $is_html ? $val : htmlspecialchars($val, ENT_QUOTES, 'UTF-8'),
-                $bodyHtml
-            );
-        }
-
-        // Mailer GLPI 11 (Symfony)
-        $mmail = new GLPIMailer();
-        $mmail->addCustomHeader("X-Auto-Response-Suppress: OOF, DR, NDR, RN, NRN");
-
-        $fromEmail = !empty($CFG_GLPI['from_email'])
-            ? (string)$CFG_GLPI['from_email']
-            : (string)($CFG_GLPI['admin_email'] ?? 'no-reply@localhost');
-        $fromName  = $CFG_GLPI['from_email_name'] ?? $CFG_GLPI['admin_email_name'] ?? 'GLPI';
-        $fromName  = (is_string($fromName) && $fromName !== '') ? $fromName : 'GLPI';
-
-        $emailObj = $mmail->getEmail();
-        $emailObj->from(new \Symfony\Component\Mime\Address($fromEmail, $fromName));
-        $emailObj->to($to);
-        if (!empty($cc)) {
-            $emailObj->cc(...$cc);
-        }
-        // Pièce jointe attendue (fichier Gesconso) : jamais de mail sans elle.
-        if ($attachment !== null && $attachment !== '') {
-            if (!is_file($attachment) || !is_readable($attachment) || filesize($attachment) === 0) {
-                self::$last_mail_error = __('pièce jointe introuvable ou vide, mail non envoyé', 'printgestion');
-                PluginPrintgestionLogger::error('Config::sendMail', sprintf('Mail non envoyé (modèle %d) : pièce jointe %s introuvable ou vide.', $gabarit_id, basename($attachment)));
-                return false;
-            }
-            $emailObj->attachFromPath($attachment, $attachment_name); // nom affiché (fichier archivé : nom d'origine)
-            if (count($emailObj->getAttachments()) === 0) {
-                self::$last_mail_error = __('pièce jointe non attachée au message, mail non envoyé', 'printgestion');
-                PluginPrintgestionLogger::error('Config::sendMail', sprintf('Mail non envoyé (modèle %d) : pièce jointe %s non attachée.', $gabarit_id, basename($attachment)));
-                return false;
-            }
-        }
-
-        if ($subject !== '') {
-            $mmail->Subject = $subject;
-        }
-        $mmail->Body    = $bodyHtml;
-        $mmail->AltBody = $bodyText;
-
-        $ok = (bool)$mmail->send();
-        if (!$ok) {
-            self::$last_mail_error = (string)$mmail->getError();
-            // Seule trace pour les envois des tâches automatiques (pas de session à l'écran).
-            PluginPrintgestionLogger::error(
-                'Config::sendMail',
-                sprintf(
-                    'Échec d\'envoi (modèle %d, destinataire principal %s) : %s',
-                    $gabarit_id,
-                    $to,
-                    self::$last_mail_error
-                )
-            );
-            // Réponse du serveur mail (bannière, nom d'hôte, message du relais) : rendue telle quelle par GLPI
-            // (`message|raw`), donc échappée ici comme toute donnée externe.
-            Session::addMessageAfterRedirect(
-                htmlspecialchars(__('Erreur envoi mail Print Gestion : ', 'printgestion') . self::$last_mail_error, ENT_QUOTES, 'UTF-8'),
-                true, ERROR
-            );
-        }
-        return $ok;
     }
 }

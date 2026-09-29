@@ -519,9 +519,6 @@ class PluginPrintgestionAlert extends CommonDBTM {
     public static function sendPendingAlerts(): int {
         global $DB;
 
-        $config = PluginPrintgestionConfig::getInstance();
-        $gabarit_commercial = (int)($config->fields['gabarit_commercial'] ?? 0);
-
         // Tâche automatique : toutes les entités (destinataires internes uniquement).
         $rows    = self::listAll(null, false);
         $pending = [];
@@ -564,69 +561,20 @@ class PluginPrintgestionAlert extends CommonDBTM {
             $pending[] = ['alert_id' => $id, 'row' => $row];
         }
 
-        if (empty($pending) || $gabarit_commercial <= 0) {
+        if (empty($pending) || !PluginPrintgestionNotify::isActive(self::class, 'toner_alert')) {
             return 0;
         }
 
-        $recipients = self::resolveRecipientsForRole('commercial');
-        if (empty($recipients)) {
-            return 0;
-        }
-
-        if (count($pending) === 1) {
-            // Envoi SIMPLE : balises unitaires détaillées
-            $row = $pending[0]['row'];
-            $balises = [
-                '##printgestion.printer##'  => $row['printer_name'],
-                '##printgestion.client##'   => $row['entity_name'],
-                '##printgestion.toner##'    => $row['property'],
-                '##printgestion.level##'    => (string)$row['level'],
-                '##printgestion.days##'     => $row['days_remaining'] !== null ? (string)$row['days_remaining'] : 'N/A',
-                '##printgestion.cartridge##'=> $row['cartridge_type'] ?? $row['property'],
-            ];
-        } else {
-            // Envoi MULTI : agrégats + liste détaillée (plafonnée)
-            $max  = PluginPrintgestionExpedition::MAIL_LIST_MAX;
-            $list = '<ul>';
-            foreach (array_slice($pending, 0, $max) as $p) {
-                $row = $p['row'];
-                $days_txt = $row['days_remaining'] !== null ? ($row['days_remaining'] . ' j') : 'N/A';
-                $list .= '<li>'
-                    . '<strong>' . htmlspecialchars((string)$row['printer_name'], ENT_QUOTES, 'UTF-8') . '</strong>'
-                    . ' — ' . htmlspecialchars((string)$row['entity_name'], ENT_QUOTES, 'UTF-8')
-                    . ' — ' . htmlspecialchars((string)$row['property'], ENT_QUOTES, 'UTF-8')
-                    . ' — ' . (int)$row['level'] . '% — ' . htmlspecialchars($days_txt, ENT_QUOTES, 'UTF-8')
-                    . '</li>';
+        // Notification native « Alerte toner » : un seul mail pour tout le passage, envoyé tout de suite (les
+        // balises se calculent dans PluginPrintgestionNotificationTargetAlert). Non partie — sans destinataire,
+        // serveur mail en panne — : les alertes restent « non envoyées » et repartent au prochain passage, comme avant.
+        $digest = new self();
+        $digest->getEmpty();
+        $sent = PluginPrintgestionNotify::raise($digest, 'toner_alert', ['entities_id' => 0, 'pending' => $pending]);
+        if (!$sent['ok']) {
+            if ($sent['reason'] !== 'no_recipient') {
+                PluginPrintgestionLogger::warning('alertes', sprintf('Alerte toner (%d alerte(s)) non envoyée : %s.', count($pending), $sent['error']));
             }
-            if (count($pending) > $max) {
-                $list .= '<li>… et ' . (count($pending) - $max) . ' autres</li>';
-            }
-            $list .= '</ul>';
-
-            $clients  = array_values(array_unique(array_map(fn($p) => (string)$p['row']['entity_name'], $pending)));
-            $printers = array_values(array_unique(array_map(fn($p) => (string)$p['row']['printer_name'], $pending)));
-            $level_min = min(array_map(fn($p) => (int)$p['row']['level'], $pending));
-            $days_vals = array_filter(
-                array_map(fn($p) => $p['row']['days_remaining'], $pending),
-                fn($d) => $d !== null
-            );
-
-            $balises = [
-                '##printgestion.printer##'         => count($printers) > 1
-                    ? sprintf(__('%d imprimantes', 'printgestion'), count($printers))
-                    : (string)($printers[0] ?? ''),
-                '##printgestion.client##'          => count($clients) > 1
-                    ? sprintf(__('%d clients', 'printgestion'), count($clients))
-                    : (string)($clients[0] ?? ''),
-                '##printgestion.toner##'           => sprintf(__('%d toners bas', 'printgestion'), count($pending)),
-                '##printgestion.level##'           => (string)$level_min,
-                '##printgestion.days##'            => !empty($days_vals) ? (string)min($days_vals) : 'N/A',
-                '##printgestion.cartridges_list##' => $list,
-                '##printgestion.count##'           => (string)count($pending),
-            ];
-        }
-
-        if (!PluginPrintgestionConfig::sendMail($recipients, $gabarit_commercial, $balises)) {
             return 0;
         }
 
@@ -638,14 +586,12 @@ class PluginPrintgestionAlert extends CommonDBTM {
     }
 
     /**
-     * Résout les destinataires mail pour un rôle donné (planif / achat / commercial).
-     *
-     * Selon la config :
-     * - mode 'group'  → récupère les emails par défaut des membres du groupe GLPI
-     * - mode 'emails' → récupère les emails par défaut des users GLPI sélectionnés
-     *                   (NB: la colonne `emails_X` stocke une liste CSV d'IDs users)
+     * Utilisateurs GLPI d'un rôle (planif / achat / commercial) : identifiant, nom, adresse par défaut, langue.
+     * Selon la configuration : mode « group », les membres du groupe GLPI ; mode « emails », les utilisateurs choisis
+     * (la colonne `emails_X` stocke leurs identifiants en CSV). Ce sont les destinataires « Rôle … (Print Gestion) »
+     * des notifications natives du plugin, résolus au moment de l'envoi.
      */
-    public static function resolveRecipientsForRole(string $role): array {
+    public static function resolveUsersForRole(string $role): array {
         $config = PluginPrintgestionConfig::getInstance();
         $mode   = (string)($config->fields['mode_' . $role] ?? 'group');
 
@@ -654,85 +600,64 @@ class PluginPrintgestionAlert extends CommonDBTM {
             if ($raw === '') {
                 return [];
             }
-            $user_ids = array_values(array_filter(
-                array_map('intval', preg_split('/[,;\s]+/u', $raw) ?: []),
-                fn($id) => $id > 0
-            ));
-            return self::resolveEmailsForUsers($user_ids);
+            return self::resolveUsers(array_map('intval', preg_split('/[,;\s]+/u', $raw) ?: []));
         }
+        return self::resolveUsersOfGroup((int)($config->fields['group_' . $role] ?? 0));
+    }
 
-        // Mode 'group' : emails par défaut des membres du groupe GLPI
-        return self::resolveRecipientsForGroup((int)($config->fields['group_' . $role] ?? 0));
+    /** Adresses mail d'un rôle (planif / achat / commercial). */
+    public static function resolveRecipientsForRole(string $role): array {
+        return array_column(self::resolveUsersForRole($role), 'email');
     }
 
     /**
-     * Retourne les emails par défaut d'une liste d'IDs users GLPI.
+     * Utilisateurs d'une liste d'identifiants avec leur adresse par défaut : sans adresse valide, ignorés ; une
+     * même adresse une seule fois.
      */
-    public static function resolveEmailsForUsers(array $user_ids): array {
+    public static function resolveUsers(array $user_ids): array {
         global $DB;
 
         $user_ids = array_values(array_filter(array_map('intval', $user_ids), fn($id) => $id > 0));
         if (empty($user_ids)) {
             return [];
         }
-
-        $emails = [];
+        $users = [];
         foreach ($DB->request([
-            'SELECT' => ['email'],
-            'FROM'   => 'glpi_useremails',
-            'WHERE'  => [
-                'users_id'   => $user_ids,
-                'is_default' => 1,
+            'SELECT'     => ['u.id', 'u.name', 'u.realname', 'u.firstname', 'u.language', 'e.email'],
+            'FROM'       => 'glpi_users AS u',
+            'INNER JOIN' => [
+                'glpi_useremails AS e' => ['ON' => ['e' => 'users_id', 'u' => 'id', ['AND' => ['e.is_default' => 1]]]],
             ],
+            'WHERE'      => ['u.id' => $user_ids],
+            'ORDER'      => ['u.id'],
         ]) as $row) {
-            $e = trim((string)($row['email'] ?? ''));
-            if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) {
-                $emails[strtolower($e)] = $e;
+            $email = trim((string)($row['email'] ?? ''));
+            $key   = strtolower($email);
+            if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || isset($users[$key])) {
+                continue;
             }
+            $users[$key] = [
+                'users_id' => (int)$row['id'],
+                'email'    => $email,
+                'name'     => formatUserName((int)$row['id'], (string)$row['name'], (string)$row['realname'], (string)$row['firstname']),
+                'language' => (string)($row['language'] ?? ''),
+            ];
         }
-
-        return array_values($emails);
+        return array_values($users);
     }
 
-    /**
-     * Récupère les emails des membres d'un groupe GLPI.
-     * Conservé pour compatibilité : utilisé en interne par resolveRecipientsForRole.
-     */
-    public static function resolveRecipientsForGroup(int $groups_id): array {
+    /** Membres d'un groupe GLPI, avec leur adresse par défaut. */
+    public static function resolveUsersOfGroup(int $groups_id): array {
         global $DB;
 
         if ($groups_id <= 0) {
             return [];
         }
-
-        $emails = [];
-        $rows = $DB->request([
-            'SELECT'    => ['u.id', 'u.name'],
-            'FROM'      => 'glpi_groups_users AS gu',
-            'INNER JOIN'=> [
-                'glpi_users AS u' => [
-                    'ON' => ['gu' => 'users_id', 'u' => 'id'],
-                ],
-            ],
-            'WHERE'     => ['gu.groups_id' => $groups_id],
-        ]);
-
-        foreach ($rows as $u) {
-            $ue = $DB->request([
-                'SELECT' => ['email'],
-                'FROM'   => 'glpi_useremails',
-                'WHERE'  => [
-                    'users_id'    => (int)$u['id'],
-                    'is_default'  => 1,
-                ],
-                'LIMIT'  => 1,
-            ])->current();
-            if (is_array($ue) && !empty($ue['email'])) {
-                $emails[] = (string)$ue['email'];
-            }
+        $ids = [];
+        foreach ($DB->request(['SELECT' => ['users_id'], 'FROM' => 'glpi_groups_users', 'WHERE' => ['groups_id' => $groups_id]]) as $row) {
+            $ids[] = (int)$row['users_id'];
         }
-
-        return $emails;
+        return self::resolveUsers($ids);
     }
 
     /**

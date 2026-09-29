@@ -688,13 +688,15 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             }
 
             // ── 5. Mails complémentaires, seulement si la commande est transmise : non bloquants, mais jamais passés sous silence ──
-            if ($sent['ok'] && $send_planif && !self::sendOrderPlanifMail($rows, $file['path'])) {
-                $result['warnings'][] = __('Commande envoyée aux Achats, mais le mail à la planification n\'est pas parti (destinataires ou modèle non configurés, ou erreur d\'envoi).', 'printgestion');
+            $order = new PluginPrintgestionPurchaseorder();
+            $order->getFromDB($order_id);
+            if ($sent['ok'] && $send_planif && !self::sendOrderPlanifMail($order)) {
+                $result['warnings'][] = __('Commande envoyée aux Achats, mais le mail à la planification n\'est pas parti (notification inactive ou sans destinataire, ou erreur d\'envoi).', 'printgestion');
             }
             if ($sent['ok'] && $send_courtesy) {
-                $courtesy = self::sendOrderCourtesyMails($rows);
+                $courtesy = self::sendOrderCourtesyMails($order);
                 if ($courtesy['no_template']) {
-                    $result['warnings'][] = __('Mail de courtoisie non envoyé : aucun modèle de notification configuré.', 'printgestion');
+                    $result['warnings'][] = __('Mail de courtoisie non envoyé : notification « Courtoisie client » inactive (Configuration → Notifications).', 'printgestion');
                 }
                 if ($courtesy['no_contact'] > 0) {
                     $result['warnings'][] = sprintf(
@@ -725,7 +727,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      * Balises agrégées pour le mail de commande achats (gabarit_achat).
      * Le détail ligne par ligne est dans l'Excel joint ; le corps reste synthétique.
      */
-    protected static function buildPurchaseBalises(array $rows): array {
+    public static function buildPurchaseBalises(array $rows): array {
         $uniq = function (string $key) use ($rows): array {
             $vals = [];
             foreach ($rows as $r) {
@@ -753,80 +755,36 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     }
 
     /**
-     * Envoie le mail de commande aux achats (demandeur en copie) avec le fichier Gesconso
-     * joint. Corps synthétique via gabarit_achat (fallback : mail brut) : le détail est
-     * dans le fichier. Le fichier appartient à l'appelant, qui le supprime.
+     * Mail de commande aux Achats d'une commande enregistrée : notification native « Commande aux Achats »
+     * (rôle Achats, auteur en copie), fichier Gesconso archivé joint — c'est le document de la commande —,
+     * envoyée tout de suite. L'appelant (Purchaseorder::send()) sait si elle est partie.
      *
-     * @param string $xlsx Chemin du fichier Gesconso à joindre.
-     * @param ?int $requester_user_id User GLPI à mettre en copie (défaut : user connecté).
      * @return array ['ok' => bool, 'error' => string] — error renseigné quand ok = false.
      */
-    public static function sendPurchaseOrderMail(array $rows, string $xlsx, ?int $requester_user_id = null, ?string $xlsx_name = null): array {
-        if (empty($rows)) {
+    public static function sendPurchaseOrderMail(PluginPrintgestionPurchaseorder $order): array {
+        $rows = json_decode((string) ($order->fields['mail_rows'] ?? ''), true);
+        if (!is_array($rows) || empty($rows)) {
             return ['ok' => false, 'error' => __('Aucune ligne à commander.', 'printgestion')];
         }
 
-        $normalize = static function (array $emails): array {
-            $out = [];
-            foreach ($emails as $e) {
-                $e = trim((string)$e);
-                if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) {
-                    $out[strtolower($e)] = $e;
-                }
-            }
-            return $out;
-        };
-
-        // Au moins un destinataire Achats valide est OBLIGATOIRE : le demandeur seul
-        // en destinataire ne vaut pas commande (les Achats ne la recevraient jamais).
-        $achats = $normalize(PluginPrintgestionAlert::resolveRecipientsForRole('achat'));
-        if (empty($achats)) {
+        // Au moins un destinataire Achats valide est OBLIGATOIRE : l'auteur seul en destinataire ne vaut pas
+        // commande (les Achats ne la recevraient jamais).
+        if (empty(PluginPrintgestionAlert::resolveRecipientsForRole('achat'))) {
             return [
                 'ok'    => false,
                 'error' => __('Commande non envoyée : aucun destinataire Achats avec une adresse email valide n\'est configuré (Configuration → Print Gestion → Rôles & notifications).', 'printgestion'),
             ];
         }
 
-        // TO = 1er achats ; CC = autres achats + demandeur (dédoublonnés, achats en tête)
-        $uid   = $requester_user_id ?? (int)(Session::getLoginUserID() ?: 0);
-        $valid = array_values($achats + $normalize(PluginPrintgestionAlert::resolveEmailsForUsers([$uid])));
-
-        $count = count($rows);
-
-        $config  = PluginPrintgestionConfig::getInstance();
-        $gabarit = (int)($config->fields['gabarit_achat'] ?? 0);
-        $ok      = false;
-        $error   = '';
-
-        if ($gabarit > 0) {
-            $ok = PluginPrintgestionConfig::sendMail($valid, $gabarit, self::buildPurchaseBalises($rows), $xlsx, $xlsx_name);
-            if (!$ok) {
-                $error = PluginPrintgestionConfig::getLastMailError();
-            }
-        } else {
-            // Fallback sans gabarit : corps générique
-            $to = array_shift($valid);
-            $cc = $valid;
-            $subject  = sprintf(__('[GLPI] Commande cartouches — %d référence(s)', 'printgestion'), $count);
-            $bodyHtml = '<p>' . __('Bonjour,', 'printgestion') . '</p>'
-                . '<p>' . sprintf(
-                    __('Veuillez trouver ci-joint le fichier Gesconso des cartouches à commander (%d ligne(s)) : code client, adresse de livraison, référence article, quantité et prix.', 'printgestion'),
-                    $count
-                ) . '</p>'
-                . '<p>' . __('Merci.', 'printgestion') . '</p>';
-            $raw_error = null;
-            $ok = self::sendRawMail($to, $cc, $subject, $bodyHtml, $xlsx, $raw_error, $xlsx_name);
-            if (!$ok) {
-                $error = (string)$raw_error;
-            }
-        }
-
-        if (!$ok) {
+        // Le fichier archivé, rattaché à la commande : la notification l'attache (attach_documents).
+        PluginPrintgestionNotify::ensureDocumentLink($order, (int) ($order->fields['documents_id'] ?? 0));
+        $sent = PluginPrintgestionNotify::raise($order, 'purchaseorder_sent', ['rows' => array_values($rows)]);
+        if (!$sent['ok']) {
             return [
                 'ok'    => false,
                 'error' => sprintf(
                     __('Commande non envoyée : échec de l\'envoi du mail aux Achats (%s).', 'printgestion'),
-                    $error !== '' ? $error : __('cause inconnue', 'printgestion')
+                    $sent['error'] !== '' ? $sent['error'] : __('cause inconnue', 'printgestion')
                 ),
             ];
         }
@@ -834,194 +792,67 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     }
 
     /**
-     * Envoi direct d'un mail (GLPIMailer/Symfony) sans gabarit : sujet + corps HTML
-     * + pièce jointe optionnelle. $to = destinataire principal, $cc = copies.
+     * Usagers du CLIENT à prévenir pour une imprimante (mail de courtoisie) : uniquement l'usager renseigné sur la
+     * fiche imprimante (champ « Utilisateur »), avec son adresse par défaut. Sans usager identifié, ou sans
+     * adresse, AUCUN destinataire : plus de repli sur les utilisateurs ayant un profil sur l'entité.
      */
-    protected static function sendRawMail(string $to, array $cc, string $subject, string $bodyHtml, ?string $attachment = null, ?string &$error = null, ?string $attachment_name = null): bool {
-        global $CFG_GLPI;
-
-        $mmail = new GLPIMailer();
-        $mmail->addCustomHeader("X-Auto-Response-Suppress: OOF, DR, NDR, RN, NRN");
-
-        $fromEmail = !empty($CFG_GLPI['from_email'])
-            ? (string)$CFG_GLPI['from_email']
-            : (string)($CFG_GLPI['admin_email'] ?? 'no-reply@localhost');
-        $fromName  = $CFG_GLPI['from_email_name'] ?? $CFG_GLPI['admin_email_name'] ?? 'GLPI';
-        $fromName  = (is_string($fromName) && $fromName !== '') ? $fromName : 'GLPI';
-
-        $emailObj = $mmail->getEmail();
-        $emailObj->from(new \Symfony\Component\Mime\Address($fromEmail, $fromName));
-        $emailObj->to($to);
-        if (!empty($cc)) {
-            $emailObj->cc(...$cc);
-        }
-        // Pièce jointe attendue (fichier Gesconso) : jamais de mail sans elle.
-        if ($attachment !== null && $attachment !== '') {
-            if (!is_file($attachment) || !is_readable($attachment) || filesize($attachment) === 0) {
-                $error = __('pièce jointe introuvable ou vide, mail non envoyé', 'printgestion');
-                PluginPrintgestionLogger::error('Expedition::sendRawMail', sprintf('Mail « %s » non envoyé : pièce jointe %s introuvable ou vide.', $subject, basename($attachment)));
-                return false;
-            }
-            $emailObj->attachFromPath($attachment, $attachment_name);
-            if (count($emailObj->getAttachments()) === 0) {
-                $error = __('pièce jointe non attachée au message, mail non envoyé', 'printgestion');
-                PluginPrintgestionLogger::error('Expedition::sendRawMail', sprintf('Mail « %s » non envoyé : pièce jointe %s non attachée.', $subject, basename($attachment)));
-                return false;
-            }
-        }
-
-        $mmail->Subject = $subject;
-        $mmail->Body    = $bodyHtml;
-        $mmail->AltBody = strip_tags($bodyHtml);
-
-        // Cause de l'échec renvoyée à l'appelant ($error), null si succès.
-        $ok    = (bool)$mmail->send();
-        $error = $ok ? null : (string)$mmail->getError();
-        return $ok;
-    }
-
-    /**
-     * Emails du CLIENT à prévenir pour une imprimante (mail de courtoisie) :
-     * uniquement l'usager renseigné sur la fiche imprimante (champ « Utilisateur »).
-     * Sans usager identifié, ou sans email, AUCUN destinataire : plus de repli sur
-     * les utilisateurs ayant un profil sur l'entité (techniciens internes compris).
-     */
-    public static function resolveClientEmailsForPrinter(int $printers_id): array {
+    public static function resolveClientUsersForPrinter(int $printers_id): array {
         $printer = new Printer();
         if (!$printer->getFromDB($printers_id)) {
             return [];
         }
-
         $uid = (int)($printer->fields['users_id'] ?? 0);
         if ($uid <= 0) {
             return [];
         }
-        return PluginPrintgestionAlert::resolveEmailsForUsers([$uid]);
+        return PluginPrintgestionAlert::resolveUsers([$uid]);
     }
 
     /**
-     * Mail de planification (logistique) pour une commande — simple ou multi :
-     *   - 1 cartouche  → gabarit_planif (détail unitaire client/imprimante/cartouche)
-     *   - N cartouches → gabarit_planif_group, liste avec CLIENT par ligne
-     *     (une commande peut couvrir plusieurs imprimantes / plusieurs clients).
-     * Demandeur en copie. Fallback mail brut si aucun gabarit configuré.
-     *
-     * @param ?string $xlsx Fichier Gesconso joint à l'envoi groupé (supprimé par l'appelant).
+     * Mail de planification (logistique) d'une commande — notification native, envoyée tout de suite :
+     *   - 1 cartouche  → « Cartouche à expédier » (détail unitaire client / imprimante / cartouche) ;
+     *   - N cartouches → « Cartouches à expédier, envoi groupé », client sur chaque ligne, fichier Gesconso joint.
+     * Chacune se rabat sur l'autre si elle est inactive (le gabarit groupé manquait : le gabarit simple servait).
+     * Rôle Planification et auteur en copie.
      */
-    protected static function sendOrderPlanifMail(array $rows, ?string $xlsx = null): bool {
-        if (empty($rows)) {
+    protected static function sendOrderPlanifMail(PluginPrintgestionPurchaseorder $order): bool {
+        $rows = json_decode((string) ($order->fields['mail_rows'] ?? ''), true);
+        if (!is_array($rows) || empty($rows)) {
             return false;
         }
-        $planif_mail = PluginPrintgestionAlert::resolveRecipientsForRole('planif');
-        if (empty($planif_mail)) {
-            return false;
-        }
-        $requester = PluginPrintgestionAlert::resolveEmailsForUsers([(int)(Session::getLoginUserID() ?: 0)]);
-
-        $valid = [];
-        foreach (array_merge($planif_mail, $requester) as $e) {
-            $e = trim((string)$e);
-            if ($e !== '' && filter_var($e, FILTER_VALIDATE_EMAIL)) {
-                $valid[strtolower($e)] = $e;
+        $events = count($rows) === 1
+            ? ['purchaseorder_planif', 'purchaseorder_planif_group']
+            : ['purchaseorder_planif_group', 'purchaseorder_planif'];
+        foreach ($events as $event) {
+            if (!PluginPrintgestionNotify::isActive(PluginPrintgestionPurchaseorder::class, $event)) {
+                continue;
             }
-        }
-        if (empty($valid)) {
-            return false;
-        }
-        $valid = array_values($valid);
-
-        $config = PluginPrintgestionConfig::getInstance();
-
-        // ── Envoi SIMPLE : 1 cartouche → gabarit unitaire ──
-        if (count($rows) === 1) {
-            $gabarit = (int)($config->fields['gabarit_planif'] ?? 0);
-            if ($gabarit > 0) {
-                $r = $rows[0];
-                $contract_name = '';
-                $contracts_id  = PluginPrintgestionContractrate::getContractIdForPrinter((int)($r['printers_id'] ?? 0));
-                if ($contracts_id > 0) {
-                    $c = new Contract();
-                    if ($c->getFromDB($contracts_id)) {
-                        $contract_name = (string)$c->fields['name'];
-                    }
-                }
-                return PluginPrintgestionConfig::sendMail($valid, $gabarit, [
-                    '##printgestion.printer##'   => (string)($r['printer_name'] ?? ''),
-                    '##printgestion.client##'    => (string)($r['client'] ?? ''),
-                    '##printgestion.toner##'     => (string)($r['property'] ?? ''),
-                    '##printgestion.level##'     => (string)(int)($r['level'] ?? 0),
-                    '##printgestion.days##'      => isset($r['days']) && $r['days'] !== null ? (string)(int)$r['days'] : 'N/A',
-                    '##printgestion.cartridge##' => (string)($r['cartridge_name'] ?? ''),
-                    '##printgestion.contract##'  => $contract_name,
-                    '##printgestion.count##'     => '1',
-                ]);
+            if ($event === 'purchaseorder_planif_group') {
+                PluginPrintgestionNotify::ensureDocumentLink($order, (int) ($order->fields['documents_id'] ?? 0));
             }
-        }
-
-        // ── Envoi MULTI : gabarit groupé, client précisé sur chaque ligne.
-        //    Liste plafonnée à MAIL_LIST_MAX ; le détail complet part dans
-        //    le fichier Excel joint (évite un corps de mail à 100 lignes). ──
-        $gabarit = (int)($config->fields['gabarit_planif_group'] ?? 0);
-        if ($gabarit <= 0) {
-            $gabarit = (int)($config->fields['gabarit_planif'] ?? 0);
-        }
-        if ($gabarit > 0) {
-            $list = '<ul>';
-            foreach (array_slice($rows, 0, self::MAIL_LIST_MAX) as $r) {
-                $list .= '<li>'
-                    . '<strong>' . htmlspecialchars((string)($r['cartridge_name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</strong>'
-                    . ' — ' . htmlspecialchars((string)($r['client'] ?? ''), ENT_QUOTES, 'UTF-8')
-                    . ' — ' . htmlspecialchars((string)($r['printer_name'] ?? ''), ENT_QUOTES, 'UTF-8')
-                    . '</li>';
+            $sent = PluginPrintgestionNotify::raise($order, $event, ['rows' => array_values($rows)]);
+            if (!$sent['ok']) {
+                PluginPrintgestionLogger::warning('commande', sprintf('Transmission #%d : mail à la planification (%s) non parti : %s.', $order->getID(), $event, $sent['error']));
             }
-            if (count($rows) > self::MAIL_LIST_MAX) {
-                $list .= '<li>' . htmlspecialchars(sprintf(__('… et %d autres — détail complet dans le fichier Excel joint', 'printgestion'), count($rows) - self::MAIL_LIST_MAX), ENT_QUOTES, 'UTF-8') . '</li>';
-            }
-            $list .= '</ul>';
-
-            $balises = self::buildPurchaseBalises($rows);
-            $balises['##printgestion.cartridges_list##'] = $list;
-            $balises['##printgestion.contract##']        = '';
-            $balises['##printgestion.days##']            = 'N/A';
-
-            return PluginPrintgestionConfig::sendMail($valid, $gabarit, $balises, $xlsx);
+            return $sent['ok'];
         }
-
-        // ── Fallback sans gabarit : mail brut (ancien comportement) ──
-        $to = array_shift($valid);
-        $cc = $valid;
-
-        $list = '<ul>';
-        foreach ($rows as $r) {
-            $list .= '<li><strong>' . htmlspecialchars((string)($r['printer_name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</strong> — '
-                . htmlspecialchars((string)($r['client'] ?? ''), ENT_QUOTES, 'UTF-8') . ' — '
-                . htmlspecialchars((string)($r['cartridge_name'] ?? ''), ENT_QUOTES, 'UTF-8') . '</li>';
-        }
-        $list .= '</ul>';
-
-        $subject  = sprintf(__('[GLPI] Cartouches à expédier — %d', 'printgestion'), count($rows));
-        $bodyHtml = '<p>' . __('Bonjour,', 'printgestion') . '</p>'
-            . '<p>' . __('Cartouches à préparer / expédier :', 'printgestion') . '</p>'
-            . $list
-            . '<p>' . __('Merci.', 'printgestion') . '</p>';
-
-        return self::sendRawMail($to, $cc, $subject, $bodyHtml, null);
+        return false;
     }
 
     /**
-     * Mail de courtoisie au client — regroupé par DESTINATAIRE :
-     * si le même contact couvre plusieurs imprimantes (ex. 3 cartouches pour
-     * 3 imprimantes du même client), il reçoit UN seul mail listant toutes
-     * ses imprimantes au lieu d'un mail par imprimante. Gabarit dédié
-     * (balise ##printgestion.printers_list##).
+     * Mail de courtoisie au client — regroupé par DESTINATAIRE : si le même contact couvre plusieurs imprimantes
+     * (ex. 3 cartouches pour 3 imprimantes du même client), il reçoit UN seul mail listant toutes ses imprimantes.
+     * Notification native « Courtoisie client » (balise ##printgestion.printers_list##), un envoi par contact.
      */
-    protected static function sendOrderCourtesyMails(array $rows): array {
+    protected static function sendOrderCourtesyMails(PluginPrintgestionPurchaseorder $order): array {
         // Bilan renvoyé à l'appelant : rien ne doit rester non signalé.
-        $stats  = ['sent' => 0, 'failed' => 0, 'no_contact' => 0, 'no_template' => false];
-        $config = PluginPrintgestionConfig::getInstance();
-        $gab    = (int)($config->fields['gabarit_courtoisie'] ?? 0);
-        if ($gab <= 0) {
+        $stats = ['sent' => 0, 'failed' => 0, 'no_contact' => 0, 'no_template' => false];
+        if (!PluginPrintgestionNotify::isActive(PluginPrintgestionPurchaseorder::class, 'purchaseorder_courtesy')) {
             $stats['no_template'] = true;
+            return $stats;
+        }
+        $rows = json_decode((string) ($order->fields['mail_rows'] ?? ''), true);
+        if (!is_array($rows)) {
             return $stats;
         }
 
@@ -1037,48 +868,26 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         // Regroupe les imprimantes partageant exactement les mêmes destinataires
         $groups = [];
         foreach ($byPrinter as $pid => $r) {
-            $emails = self::resolveClientEmailsForPrinter($pid);
-            $norm = [];
-            foreach ($emails as $e) {
-                $e = strtolower(trim((string)$e));
-                if ($e !== '') {
-                    $norm[$e] = $e;
-                }
-            }
-            if (empty($norm)) {
+            $users = self::resolveClientUsersForPrinter($pid);
+            if (empty($users)) {
                 $stats['no_contact']++;
                 continue;
             }
-            ksort($norm);
-            $key = implode(',', array_keys($norm));
+            $emails = array_map(static fn(array $u) => strtolower($u['email']), $users);
+            sort($emails);
+            $key = implode(',', $emails);
             if (!isset($groups[$key])) {
-                $groups[$key] = ['emails' => array_values($norm), 'printers' => []];
+                $groups[$key] = ['users' => $users, 'printers' => []];
             }
             $groups[$key]['printers'][] = $r;
         }
 
         foreach ($groups as $g) {
-            $list     = '<ul>';
-            $printers = [];
-            $clients  = [];
-            foreach ($g['printers'] as $r) {
-                $pname = (string)($r['printer_name'] ?? '');
-                $printers[] = $pname;
-                $client = trim((string)($r['client'] ?? ''));
-                if ($client !== '') {
-                    $clients[$client] = $client;
-                }
-                $list .= '<li><strong>' . htmlspecialchars($pname, ENT_QUOTES, 'UTF-8') . '</strong></li>';
+            $sent = PluginPrintgestionNotify::raise($order, 'purchaseorder_courtesy', ['rows' => $g['printers'], 'recipients' => $g['users']]);
+            if (!$sent['ok']) {
+                PluginPrintgestionLogger::warning('commande', sprintf('Transmission #%d : mail de courtoisie non parti : %s.', $order->getID(), $sent['error']));
             }
-            $list .= '</ul>';
-
-            $sent = PluginPrintgestionConfig::sendMail($g['emails'], $gab, [
-                '##printgestion.printer##'       => implode(', ', $printers),
-                '##printgestion.client##'        => implode(', ', array_values($clients)),
-                '##printgestion.printers_list##' => $list,
-                '##printgestion.count##'         => (string)count($g['printers']),
-            ]);
-            $stats[$sent ? 'sent' : 'failed']++;
+            $stats[$sent['ok'] ? 'sent' : 'failed']++;
         }
 
         return $stats;
@@ -1139,48 +948,19 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         return $ok;
     }
 
+    /** Expédition partie : notification native « Suivi de colis » au rôle Commercial (transporteur, numéro). */
     protected static function notifyShippedToCommercial(int $expedition_id): void {
-        global $DB;
-
-        $exp = $DB->request([
-            'FROM'  => self::getTable(),
-            'WHERE' => ['id' => $expedition_id],
-            'LIMIT' => 1,
-        ])->current();
-        if (!is_array($exp)) {
+        if (!PluginPrintgestionNotify::isActive(self::class, 'expedition_shipped')) {
             return;
         }
-
-        $config = PluginPrintgestionConfig::getInstance();
-        if ((int)($config->fields['gabarit_commercial'] ?? 0) <= 0) {
+        $expedition = new self();
+        if (!$expedition->getFromDB($expedition_id)) {
             return;
         }
-
-        $mail = PluginPrintgestionAlert::resolveRecipientsForRole('commercial');
-        if (empty($mail)) {
-            return;
+        $sent = PluginPrintgestionNotify::raise($expedition, 'expedition_shipped');
+        if (!$sent['ok'] && $sent['reason'] !== 'no_recipient') {
+            PluginPrintgestionLogger::warning('expedition', sprintf('Expédition #%d : information de suivi au commercial non partie : %s.', $expedition_id, $sent['error']));
         }
-
-        $printer = new Printer();
-        if (!$printer->getFromDB((int)$exp['printers_id'])) {
-            return;
-        }
-
-        $entity_name = '';
-        $entity = new Entity();
-        if ($entity->getFromDB((int)$printer->fields['entities_id'])) {
-            $entity_name = (string)$entity->fields['completename'];
-        }
-
-        $balises = [
-            '##printgestion.printer##'  => (string)$printer->fields['name'],
-            '##printgestion.client##'   => $entity_name,
-            '##printgestion.toner##'    => (string)$exp['toner_property'],
-            '##printgestion.carrier##'  => strtoupper((string)$exp['transport_carrier']),
-            '##printgestion.tracking##' => (string)$exp['transport_number'],
-        ];
-
-        PluginPrintgestionConfig::sendMail($mail, (int)$config->fields['gabarit_commercial'], $balises);
     }
 
     /**
@@ -1212,8 +992,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
 
         $config = PluginPrintgestionConfig::getInstance();
         $reminder_days = max(1, (int)($config->fields['reminder_days'] ?? 7));
-        $gabarit       = (int)($config->fields['gabarit_rappel'] ?? 0);
-        if ($gabarit <= 0) {
+        if (!PluginPrintgestionNotify::isActive(self::class, 'expedition_reminder')) {
             return 0;
         }
 
@@ -1272,53 +1051,17 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             return 0;
         }
 
-        // Destinataires selon config : planif / commercial / les deux (défaut).
-        $mode = (string)($config->fields['reminder_recipients'] ?? 'both');
-        $mail = [];
-        if ($mode === 'planif' || $mode === 'both') {
-            $mail = array_merge($mail, PluginPrintgestionAlert::resolveRecipientsForRole('planif'));
-        }
-        if ($mode === 'commercial' || $mode === 'both') {
-            $mail = array_merge($mail, PluginPrintgestionAlert::resolveRecipientsForRole('commercial'));
-        }
-        $mail = array_values(array_unique($mail));
-        if (empty($mail)) {
-            return 0;
-        }
-
-        // DIGEST : un seul mail listant toutes les cartouches en retard
-        // (au lieu d'un mail par expédition).
-        $list = '<ul>';
-        foreach (array_slice($items, 0, self::MAIL_LIST_MAX) as $it) {
-            $list .= '<li>'
-                . '<strong>' . htmlspecialchars($it['printer'], ENT_QUOTES, 'UTF-8') . '</strong>'
-                . ' — ' . htmlspecialchars($it['client'], ENT_QUOTES, 'UTF-8')
-                . ' — ' . htmlspecialchars($it['property'], ENT_QUOTES, 'UTF-8')
-                . ' — ' . htmlspecialchars(sprintf(__('expédiée il y a %d j', 'printgestion'), (int)$it['days']), ENT_QUOTES, 'UTF-8')
-                . '</li>';
-        }
-        if (count($items) > self::MAIL_LIST_MAX) {
-            $list .= '<li>… et ' . (count($items) - self::MAIL_LIST_MAX) . ' autres</li>';
-        }
-        $list .= '</ul>';
-
-        $clients  = array_values(array_unique(array_map(fn($it) => $it['client'], $items)));
-        $printers = array_values(array_unique(array_map(fn($it) => $it['printer'], $items)));
-        $days_max = max(array_map(fn($it) => (int)$it['days'], $items));
-
-        $balises = [
-            '##printgestion.cartridges_list##' => $list,
-            '##printgestion.count##'           => (string)count($items),
-            '##printgestion.printer##'         => count($printers) > 1
-                ? sprintf(__('%d imprimantes', 'printgestion'), count($printers))
-                : (string)($printers[0] ?? ''),
-            '##printgestion.client##'          => count($clients) > 1
-                ? sprintf(__('%d clients', 'printgestion'), count($clients))
-                : (string)($clients[0] ?? ''),
-            '##printgestion.days##'            => (string)$days_max,
-        ];
-
-        if (!PluginPrintgestionConfig::sendMail($mail, $gabarit, $balises)) {
+        // Notification native « Rappel installation cartouche » : un seul mail listant toutes les cartouches en
+        // retard (balises dans PluginPrintgestionNotificationTargetExpedition), envoyé tout de suite ; destinataires
+        // réglés sur la notification (rôles Planification et/ou Commercial). Non parti : rien n'est journalisé
+        // comme rappelé, le prochain passage recommence, comme avant.
+        $digest = new self();
+        $digest->getEmpty();
+        $sent = PluginPrintgestionNotify::raise($digest, 'expedition_reminder', ['entities_id' => 0, 'items' => $items]);
+        if (!$sent['ok']) {
+            if ($sent['reason'] !== 'no_recipient') {
+                PluginPrintgestionLogger::warning('rappels', sprintf('Rappel d\'installation (%d cartouche(s)) non envoyé : %s.', count($items), $sent['error']));
+            }
             return 0;
         }
 

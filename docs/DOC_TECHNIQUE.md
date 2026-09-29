@@ -52,7 +52,7 @@ printgestion/
 
 | Classe | Rôle |
 |---|---|
-| `Config` | Singleton de configuration (ligne id=1), **crée toutes les tables à l'install**, envoi mail générique `sendMail()` ; droit de configuration en lecture seule : formulaire mis en tampon, chaque champ, liste, zone de texte et bouton d'envoi ressort `disabled`, pas de bouton Sauvegarder (les boutons `type=button` restent) |
+| `Config` | Singleton de configuration (ligne id=1), **crée toutes les tables à l'install** (les mails passent par `Notify`, §6) ; droit de configuration en lecture seule : formulaire mis en tampon, chaque champ, liste, zone de texte et bouton d'envoi ressort `disabled`, pas de bouton Sauvegarder (les boutons `type=button` restent) |
 | `Menu` | Entrée de menu + hub à catégories + barre d'onglets unifiée |
 | `Profile` | Droits du plugin (8 droits, voir §8) |
 | `Dashboard` | Dashboard contrats (tuiles, camemberts ECharts, liste Search native) |
@@ -473,10 +473,10 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
   `_only_if_upload_succeed` (jamais de document sans fichier), copie présente dans le dossier des documents et
   fichier temporaire toujours lisible. Tout échec lève une exception de code `Gesconso::ARCHIVE_FAILURE` dont le
   message, affichable, dit la cause : commande directe et export de demandes l'affichent tel quel.
-- **Pièce jointe obligatoire** : quand un fichier est attendu, `Config::sendMail()` et `Expedition::sendRawMail()`
-  refusent d'envoyer si le fichier est absent, vide ou n'est pas attaché au message (`Email::getAttachments()`) :
-  mail non envoyé, cause journalisée, et pour les Achats la commande est annulée. Le mail de planification d'une
-  seule cartouche n'a jamais de pièce jointe (inchangé) ; le mail groupé garde la sienne.
+- **Pièce jointe obligatoire** : le fichier Gesconso est le document archivé de la commande, rattaché à elle
+  (`glpi_documents_items`) et attaché par la notification native ; `Purchaseorder::send()` refuse d'émettre si le
+  fichier est absent, vide ou illisible : commande « non transmise », cause journalisée. Le mail de planification
+  d'une seule cartouche n'a jamais de pièce jointe (inchangé) ; le mail groupé garde la sienne.
 - La commande directe (action de masse « Commander » de l'écran des alertes) utilise ce générateur : plus de colonne « Stock
   GLPI », plus de nom d'entité en code client.
 
@@ -496,8 +496,8 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
   et bouton d'activation (droit GLPI `config` UPDATE) — action automatique `contract`, alertes de l'entité
   racine (délai 30 jours s'il n'y en a pas), notifications de contrat. La configuration globale des
   notifications GLPI n'est jamais modifiée : si elle est désactivée, c'est signalé.
-- Les mails historiques du plugin (Achats, planification, courtoisie, digests) restent sur leurs gabarits
-  (§6) : pas de refonte globale.
+- Les mails du plugin (Achats, planification, courtoisie, suivi de colis, digests) sont eux aussi des notifications
+  natives depuis l'audit de septembre 2026 (§6), avec leurs gabarits historiques.
 
 ### Déploiement Agent — phase 1 (`inc/agentdeploy.class.php`, module « Collecte SNMP / Déploiement Agent »)
 
@@ -1736,80 +1736,102 @@ des fichiers ajax (token `X-Glpi-Csrf-Token`). Ne PAS rajouter de `Session::chec
   un message ou un journal. Harnais `tests/securite/suivi_gls.py` (65 contrôles, transport et transporteur simulés,
   copies d'écran des deux profils hors dépôt).
 
-## 6. Circuits mail — règle d'or : REGROUPER
+## 6. Circuits mail — notifications natives, règle d'or : REGROUPER
 
 > Principe directeur (décision projet) : **jamais N mails identiques quand 1 mail groupé suffit.**
 > Les listes dans les corps de mail sont plafonnées à `Expedition::MAIL_LIST_MAX` (20) lignes
 > (« … et N autres ») ; le détail complet part en **pièce jointe Excel** quand pertinent.
 
+Depuis l'audit « natif d'abord » (septembre 2026), **chaque envoi du plugin est une notification native de GLPI**
+(`NotificationTarget`, `NotificationTemplate`, `QueuedNotification`) : gabarit, activation et destinataires se
+règlent dans Configuration → Notifications. `PluginPrintgestionNotify` (`inc/notify.class.php`) tient la liste des
+circuits, les crée à l'installation et émet les événements ; trois cibles portent les balises :
+`NotificationTargetAlert` (alerte toner), `NotificationTargetPurchaseorder` (commande, planification, courtoisie,
+commande non transmise), `NotificationTargetExpedition` (suivi de colis, rappel d'installation).
+
 ### 6.1 Destinataires par rôle
 
-3 rôles configurables (Configuration → Rôles & notifications) : `planif`, `achat`, `commercial`.
-Chaque rôle = un groupe GLPI **ou** une liste d'utilisateurs GLPI (`Alert::resolveRecipientsForRole()`).
-Le **demandeur** (user qui déclenche) est toujours en copie des mails planif/achats.
-Le bouton « Qui est notifié ? » de la config affiche le récapitulatif selon la config enregistrée.
+3 rôles configurables (Configuration → Print Gestion → Rôles & notifications) : `planif`, `achat`, `commercial`,
+chacun un groupe GLPI **ou** une liste d'utilisateurs GLPI. Ils sont proposés dans Configuration → Notifications
+comme destinataires « Rôle Planification / Achats / Commercial (Print Gestion) » (`Notify::ROLE_*`, identifiants
+7311–7313 du type utilisateur) et résolus **au moment de l'envoi** (`Alert::resolveUsersForRole()` : identifiant,
+nom, adresse par défaut, langue). Ajoutés par leur adresse au type « utilisateur GLPI » (`Notify::addUser()`) :
+liens vers GLPI et pièces jointes comme pour un utilisateur, **sans le filtre d'entité** que GLPI applique aux
+destinataires donnés par identifiant — un rôle est une liste d'adresses réglée par l'administrateur, comme avant.
+L'**auteur** de la commande (`NotificationTargetPurchaseorder::AUTHOR`, 7301) est en copie des mails Achats et
+planification ; l'**usager des imprimantes** (`Notify::PRINTER_USER`, 7314) reçoit la courtoisie. L'administrateur
+peut ajouter n'importe quel destinataire GLPI (profil, groupe) sur chaque notification. Un destinataire = un mail
+(GLPI n'envoie pas de copie carbone) ; une adresse n'est servie qu'une fois par événement.
 
 ### 6.2 Les circuits
 
-| Déclencheur | Planif | Achats | Commercial | Client (courtoisie) |
-|---|---|---|---|---|
-| Commande (N cartouches, N imprimantes/clients) | case « Planif » : 1 → unitaire ; N → groupé **client par ligne** + **Excel joint** | **Excel joint** (toujours) | — | case « Courtoisie » : regroupé par contact |
-| Cron toner bas (horaire) | — | — | **DIGEST** : 1 mail/run | — |
-| Cron rappel installation | mode `planif`/`both` : **DIGEST** 1 mail/run | — | mode `commercial`/`both` : même digest | — |
-| Marquer expédié | — | — | gabarit unitaire (transporteur + tracking) | — |
+| Circuit | Objet / événement | Destinataires à la création | Pièce jointe |
+|---|---|---|---|
+| Commande aux Achats (toujours active) | `Purchaseorder` / `purchaseorder_sent` | rôle Achats, auteur | fichier Gesconso archivé (document de la commande) |
+| Cartouche à expédier, 1 ligne | `Purchaseorder` / `purchaseorder_planif` | rôle Planification, auteur | — |
+| Cartouches à expédier, N lignes | `Purchaseorder` / `purchaseorder_planif_group` | rôle Planification, auteur | fichier Gesconso archivé |
+| Courtoisie client (par contact) | `Purchaseorder` / `purchaseorder_courtesy` | usager des imprimantes | — |
+| Commande non transmise (> 4 h, file ordinaire) | `Purchaseorder` / `purchaseorder_not_sent` | administrateur, auteur | — |
+| Alerte toner (digest horaire) | `Alert` / `toner_alert` | rôle Commercial | — |
+| Suivi de colis (marquer expédié) | `Expedition` / `expedition_shipped` | rôle Commercial | — |
+| Rappel installation (digest) | `Expedition` / `expedition_reminder` | rôles selon l'ancien réglage (planif / commercial / les deux) | — |
 
-Détails d'implémentation (tous dans `expedition.class.php` sauf mention) :
-
-- **`sendPurchaseOrderMail($rows, $requester_uid)`** : point UNIQUE du mail achats.
-  Appelé par `Purchaseorder::send()` après l'enregistrement de la commande, avec le fichier archivé.
-  Joint le fichier Gesconso (`Gesconso::write`, voir « Fichier Gesconso », 1 cartouche/ligne),
-  l'envoie via `gabarit_achat` (corps synthétique : « N référence(s), détail dans l'Excel joint »),
-  fallback mail brut si gabarit non configuré. Fichier temporaire supprimé après envoi.
-- **Planif simple/multi** : 1 cartouche → `gabarit_planif` (détail unitaire) ;
-  N cartouches → `gabarit_planif_group` avec liste `##printgestion.cartridges_list##`
-  (client précisé par ligne pour les commandes multi-clients), plafonnée à 20, + Excel joint.
-- **Courtoisie** (`sendOrderCourtesyMails`) : regroupée par **destinataire** (clé = ensemble
-  d'emails résolus, trié) — un contact couvrant 3 imprimantes reçoit 1 seul mail listant
-  ses 3 imprimantes (`##printgestion.printers_list##`). Destinataires résolus par
-  `resolveClientEmailsForPrinter()` : **uniquement l'usager renseigné sur la fiche imprimante** ;
-  sans usager (ou sans email), aucun mail n'est envoyé pour cette imprimante. Case décochée par défaut.
-- **Digests cron** : `Alert::sendPendingAlerts()` et `Expedition::sendInstallReminders()`
-  collectent d'abord tous les items du run (anti-doublon 24 h conservé PAR item via
-  `glpi_plugin_printgestion_alerts`), puis envoient **un seul mail** avec liste plafonnée.
-  1 seul item → balises unitaires détaillées (pas de digest inutile).
+- **Envoi immédiat et résultat connu** : les cibles déclarent leurs événements dans `getEventsToSendImmediately()`,
+  GLPI envoie dès la mise en file ; `Notify::raise()` relit ensuite `glpi_queuednotifications` (lignes créées
+  pendant l'émission) : `sent_time` posé = parti. Un message que GLPI n'a pas pu remettre est **retiré de la file**
+  (elle le renverrait d'elle-même plus tard, et une commande partirait deux fois) et l'erreur du serveur mail est
+  rendue à l'appelant (`reason` : `disabled`, `inactive`, `no_recipient`, `failed`, `exception`) ; l'appelant garde
+  ses gestes d'avant : commande « non transmise » et « Renvoyer aux Achats », alertes `mail_sent = 0` reprises au
+  passage suivant, rappel recommencé. Les notifications de GLPI désactivées (`use_notifications`,
+  `notifications_mailing`) sont une cause explicite, plus un envoi silencieux à côté.
+- **Commande** (`Expedition::sendPurchaseOrderMail($order)`, appelée par `Purchaseorder::send()`) : au moins un
+  destinataire du rôle Achats reste obligatoire (l'auteur seul ne vaut pas commande) ; le fichier archivé est
+  rattaché à la commande (`Notify::ensureDocumentLink()`, `glpi_documents_items`) et la notification l'attache
+  (`attach_documents = ATTACH_ALL_DOCUMENTS`) ; le fichier absent, vide ou illisible est refusé avant l'émission,
+  comme avant. Les lignes du mail sont celles gardées avec la commande (`mail_rows`) : un renvoi envoie la même chose.
+- **Planification** (`sendOrderPlanifMail($order)`) : une ligne → `purchaseorder_planif` ; plusieurs →
+  `purchaseorder_planif_group` (fichier joint) ; chacune se rabat sur l'autre si elle est inactive (le gabarit
+  groupé manquait : le gabarit simple servait). Les balises suivent le nombre de lignes, pas l'événement.
+- **Courtoisie** (`sendOrderCourtesyMails($order)`) : regroupée par **destinataire** (clé = adresses de l'usager,
+  triées) — un contact couvrant 3 imprimantes reçoit 1 seul mail (`##printgestion.printers_list##`) ; un événement
+  par contact, ses utilisateurs en option `recipients`. **Uniquement l'usager renseigné sur la fiche imprimante**
+  (`resolveClientUsersForPrinter()`) ; sans usager ou sans adresse, aucun mail pour cette imprimante.
+- **Digests** (`Alert::sendPendingAlerts()`, `Expedition::sendInstallReminders()`) : les items du passage sont
+  collectés d'abord (anti-doublon 24 h par item dans `glpi_plugin_printgestion_alerts`), puis **un seul
+  événement** est émis sur un objet vide (`getEmpty()`, `entities_id => 0`) avec la liste en option (`pending`,
+  `items`), comme `CartridgeItem::cronCartridge()` ; 1 seul item → balises unitaires détaillées.
+- **Suivi de colis** (`notifyShippedToCommercial()`) : l'expédition elle-même est l'objet de l'événement.
+- Un circuit dont la notification est inactive ne fait rien et ne journalise rien ; sans destinataire, rien non
+  plus (comme avant) ; un échec d'envoi est journalisé (`printgestion.log`) et, pour la commande, affiché.
 
 ### 6.3 Gabarits de notification
 
-- **Source de vérité : `hook.php` → `plugin_printgestion_template_definitions()`** (fonction pure).
-- À chaque install/« Mettre à jour » du plugin, `plugin_printgestion_create_templates()` crée les gabarits
-  **manquants** (jamais réécrits : les modifications de l'administrateur survivent) dans `glpi_notificationtemplates` /
-  `glpi_notificationtemplatetranslations` (marqués `comment = 'Created by plugin printgestion'`).
-  Les IDs sont stockés dans la config (`gabarit_planif`, `gabarit_planif_group`, `gabarit_achat`,
-  `gabarit_commercial`, `gabarit_rappel`, `gabarit_courtoisie`).
-- L'envoi (`Config::sendMail($emails, $gabarit_id, $balises, $attachment)`) charge la traduction
-  (langue session → 2 lettres → fr_FR → première dispo), substitue les balises, envoie via
-  `GLPIMailer` (Symfony Mailer GLPI 11), pièce jointe optionnelle.
+- **Source de vérité des textes par défaut : `hook.php` → `plugin_printgestion_template_definitions()`** (fonction
+  pure, sept gabarits). À chaque install/« Mettre à jour », `plugin_printgestion_create_templates()` crée les
+  gabarits **manquants** (jamais réécrits : les modifications de l'administrateur survivent), avec pour type l'objet
+  de leur circuit (`Notify::getTemplateTypes()` ; les anciens types `Printer` puis `Ticket` sont corrigés) ; les
+  identifiants restent stockés dans la configuration (`gabarit_*`, dont `gabarit_suivi`) et servent à `Notify::install()`.
+- **Notifications** (`Notify::install()`, idempotent, jamais modifiées ensuite) : créées à l'entité racine,
+  récursives, avec le gabarit choisi dans la configuration (sinon le gabarit du plugin de ce nom), **dans l'état
+  qu'avait le circuit** (gabarit choisi = active ; la commande aux Achats toujours active), les destinataires d'avant
+  et le réglage des pièces jointes. À la première création du suivi de colis, si le gabarit « Information client
+  toner » avait été personnalisé, le gabarit de suivi en reprend le texte (il servait aux deux).
+- **Langue** : le gabarit est rendu dans la langue du destinataire si sa traduction existe (ou une traduction par
+  défaut), sinon la première disponible (`Notify::pickLanguage()`) — l'ancien repli sur le français.
+- **Sujet** sans le préfixe « [GLPI] » (`getSubjectPrefix()` vide) : les sujets ne changent pas ; le pied de page
+  natif (« Généré automatiquement par GLPI », signature) s'ajoute au corps.
 - **Aperçu** : `docs/apercu_gabarits.html`, régénérable par `php tools/generate_apercu.php`
   (lit les vraies définitions, aucune BDD).
-- **Circuit gardé volontairement** (audit de septembre 2026, après lecture de `NotificationTarget`,
-  `NotificationEvent`, `QueuedNotification` et `NotificationEventMailing`). Le circuit natif met le mail en file
-  (`glpi_queuednotifications`) et l'envoie par la tâche `queuednotification`, sans rendre à l'appelant le résultat
-  de l'envoi ; il ne joint que des documents GLPI liés à l'objet déclencheur et envoie quand même si le fichier
-  manque (`attachDocuments()` : avertissement, pas d'échec) ; ses destinataires sont ceux de Configuration →
-  Notifications (administrateurs, profils, groupes), pas les rôles du plugin ni les contacts du client ; un
-  événement vaut pour un objet, le regroupement par passage demanderait un objet de synthèse. Les sept envois
-  (`Alert::sendPendingAlerts()`, commande aux Achats, envoi de cartouches simple et groupé, courtoisie, suivi de
-  colis, rappel) ont besoin du résultat immédiat (`mail_sent`, « Commandes non transmises », renvoi aux Achats,
-  journal des rappels), du fichier Gesconso obligatoire, des rôles et des contacts : les migrer changerait le
-  fonctionnement, pas seulement le code. Les trois notifications natives du plugin (demandes, alertes des sondes,
-  commandes en attente) couvrent les cas où ces contraintes n'existent pas.
 
 ### 6.4 Balises disponibles
 
-`##printgestion.printer##`, `client`, `toner`, `level`, `days`, `cartridge`, `contract`,
-`carrier`, `tracking`, `cartridges_list` (liste HTML détaillée), `printers_list` (liste imprimantes,
-courtoisie), `count`, `glpi_url`. Toute balise non fournie est remplacée par une chaîne vide.
-`stock` reste reconnue pour les gabarits existants, toujours vide : aucun stock GLPI n'est lu.
+`##printgestion.printer##`, `client`, `toner`, `level`, `days`, `cartridge`, `contract`, `carrier`, `tracking`,
+`cartridges_list` (liste HTML détaillée), `printers_list` (liste imprimantes, courtoisie), `count`, `glpi_url`,
+déclarées par `Notify::addTags()` (onglet « Balises disponibles » du gabarit) et posées à vide par
+`Notify::getDefaultTags()` : toute balise non fournie ressort vide. Les listes HTML sont reconnues comme telles par
+GLPI (`RichText`) et assainies ; les autres valeurs sont échappées. `stock` reste reconnue, toujours vide. Les
+gabarits des commandes disposent aussi des balises `##order.*##` (identifiant, date, auteur, origine, lignes,
+tentatives, dernière erreur, URL).
 
 ---
 

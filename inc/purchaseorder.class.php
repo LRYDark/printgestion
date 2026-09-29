@@ -101,17 +101,16 @@ class PluginPrintgestionPurchaseorder extends CommonDBTM {
         $order = new self();
         $order->getFromDB($id);
         $error = '';
-        $rows     = json_decode((string) $order->fields['mail_rows'], true);
-        $document = new Document();
-        $path     = self::getArchivedFilePath((int) $order->fields['documents_id']);
-        $name     = $path !== null && $document->getFromDB((int) $order->fields['documents_id']) ? (string) $document->fields['filename'] : null;
+        $rows  = json_decode((string) $order->fields['mail_rows'], true);
+        $path  = self::getArchivedFilePath((int) $order->fields['documents_id']);
         if (!is_array($rows) || empty($rows)) {
             $error = __('lignes de la commande illisibles', 'printgestion');
         } elseif ($path === null) {
             $error = __('fichier Gesconso archivé introuvable ou illisible', 'printgestion');
         } else {
             try {
-                $mail  = PluginPrintgestionExpedition::sendPurchaseOrderMail($rows, $path, (int) $order->fields['users_id'] ?: null, $name);
+                // Notification native « Commande aux Achats » : le fichier archivé, document de la commande, est joint.
+                $mail  = PluginPrintgestionExpedition::sendPurchaseOrderMail($order);
                 $error = $mail['ok'] ? '' : (string) $mail['error'];
             } catch (Throwable $e) {
                 PluginPrintgestionLogger::error('commande', sprintf('Transmission #%d : erreur pendant l\'envoi du mail aux Achats.', $id), $e);

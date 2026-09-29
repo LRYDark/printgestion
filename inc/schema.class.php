@@ -299,6 +299,7 @@ class PluginPrintgestionSchema {
             `gabarit_commercial` int __KEY_SIGN__ NULL DEFAULT NULL,
             `gabarit_rappel` int __KEY_SIGN__ NULL DEFAULT NULL,
             `gabarit_courtoisie` int __KEY_SIGN__ NULL DEFAULT NULL,
+            `gabarit_suivi` int __KEY_SIGN__ NULL DEFAULT NULL,
             `wrong_printer_lookback_days` int NOT NULL DEFAULT 30,
             `default_pages_per_cartridge` int NOT NULL DEFAULT 5000,
             `enable_contrats` tinyint NOT NULL DEFAULT 1,

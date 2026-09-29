@@ -74,7 +74,7 @@ function plugin_init_printgestion() {
         // Fichiers Gesconso archivés en Documents natifs (expéditions, demandes) et
         // notifications natives des demandes : déclarés hors session aussi, pour les tâches
         // automatiques qui émettent ces notifications.
-        Plugin::registerClass('PluginPrintgestionExpedition', ['document_types' => true]);
+        Plugin::registerClass('PluginPrintgestionExpedition', ['document_types' => true, 'notificationtemplates_types' => true]);
         Plugin::registerClass('PluginPrintgestionDemande', [
             'document_types'              => true,
             'notificationtemplates_types' => true,
@@ -82,8 +82,10 @@ function plugin_init_printgestion() {
         // Déploiement Agent : notifications des alertes de sondes, réglages et action dans « Agent cleanup »
         // (lus par la tâche native Cleanoldagents, hors session) et cartes du tableau de bord.
         Plugin::registerClass('PluginPrintgestionAgentalert', ['notificationtemplates_types' => true]);
-        // Commandes enregistrées mais non transmises aux Achats : notification native.
-        Plugin::registerClass('PluginPrintgestionPurchaseorder', ['notificationtemplates_types' => true]);
+        // Commandes : notifications natives (Achats, planification, courtoisie, non transmise), fichier Gesconso
+        // archivé rattaché en document ; alertes toner : notification native (information commerciale).
+        Plugin::registerClass('PluginPrintgestionPurchaseorder', ['document_types' => true, 'notificationtemplates_types' => true]);
+        Plugin::registerClass('PluginPrintgestionAlert', ['notificationtemplates_types' => true]);
         if (PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
             $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::STALE_AGENT_CONFIG]['printgestion'] = PluginPrintgestionAgentalert::getStaleAgentHook();
             $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::DASHBOARD_CARDS]['printgestion']    = [PluginPrintgestionAgentalert::class, 'getDashboardCards'];

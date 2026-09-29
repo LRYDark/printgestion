@@ -526,8 +526,8 @@ def main():
         constat("lecture seule réelle : aucun champ, liste ou zone de texte modifiable, aucun bouton d'envoi, pas de Sauvegarder",
                 ok_ko(not actifs and not envois and "name='update'" not in page and 'name="update"' not in page),
                 f"{len(actifs)} champ(s) actif(s) : {' '.join(a[:60] for a in actifs[:3])} ; {len(envois)} bouton(s)")
-        constat("lecture seule : « Qui est notifié ? » et les chevrons restent utilisables (type=button non désactivé)",
-                ok_ko(re.search(r"<button type='button'(?![^>]*disabled)[^>]*data-bs-target='#pg-notif-modal'", page) is not None))
+        constat("lecture seule : les boutons d'affichage (chevrons, fenêtres d'information) restent utilisables (type=button non désactivé)",
+                ok_ko(re.search(r"<button type=['\"]button['\"](?![^>]*disabled)", page) is not None))
         intermediaire = CTX.profil(4, "Profil test configuration du plugin sans configuration GLPI", {"plugin_printgestion_config": 3, "config": 1})
         CTX.utilisateur("test-config-sans-glpi", intermediaire, 0)
         CTX.connecter("test-config-sans-glpi")

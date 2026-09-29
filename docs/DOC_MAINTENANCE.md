@@ -15,7 +15,7 @@ elle contient quelque chose à garder.
 1. Configuration → Plugins → Print Gestion → **Désinstaller** (si une version de développement est en place).
 2. Déployer les fichiers dans `plugins/printgestion/` (remplacer le dossier).
 3. Configuration → Plugins → Print Gestion → **Installer**, puis **Activer**.
-4. Vérifier la carte « Santé de la configuration » (§6) et le bouton **« Qui est notifié ? »**.
+4. Vérifier la carte « Santé de la configuration » (§6) et le tableau **« Notifications du plugin »** (Rôles & notifications).
 
 Réinstaller par-dessus une base déjà en 1.0.0 (« Mettre à jour » après un redéploiement de la même version) est sans
 effet sur les données : tables existantes gardées, gabarits existants jamais réécrits (§3), tâches réenregistrées.
@@ -68,19 +68,27 @@ le vérifie à chaque passe.
   Le générateur lit les définitions réelles (aucune BDD requise) ; si un nouveau gabarit ou une
   nouvelle variante d'envoi apparaît, ajouter un jeu d'exemple dans `$variants` du script.
 
+Les circuits eux-mêmes sont des **notifications natives** (Configuration → Notifications), créées par
+`PluginPrintgestionNotify::install()` à l'installation ou à la mise à jour, jamais modifiées ensuite : gabarit,
+activation et destinataires appartiennent à l'administrateur. Une notification supprimée est recréée par « Mettre
+à jour », dans l'état par défaut (gabarit du plugin, destinataires d'origine).
+
 ### Ajouter une balise mail
 
-1. L'ajouter au tableau `$defaults` de `Config::sendMail()` (valeur vide par défaut —
-   une balise non fournie ne doit jamais rester visible dans un mail).
-2. La renseigner dans le(s) appelant(s) (`expedition.class.php`, `alert.class.php`).
+1. L'ajouter à `Notify::getTagLabels()` : déclarée dans « Balises disponibles » et posée à vide par défaut
+   (une balise non fournie ne doit jamais rester visible dans un mail).
+2. La renseigner dans `addDataForTemplate()` de la cible concernée (`inc/notificationtarget*.class.php`).
 3. L'utiliser dans le gabarit (`hook.php`) ; mettre à jour l'aperçu.
 
-### Ajouter un nouveau gabarit
+### Ajouter un nouveau gabarit (nouveau circuit)
 
-1. Ajouter l'entrée dans `plugin_printgestion_template_definitions()` (clé = nom du champ config).
-2. Ajouter la colonne `gabarit_xxx` dans la table configs (voir §2 — mécanisme d'ajout de colonnes
-   de config) ; `create_templates()` stocke automatiquement l'ID créé dans ce champ.
-3. L'exposer dans l'UI de config si nécessaire (`config.class.php`, section Rôles & notifications).
+1. Ajouter l'entrée dans `plugin_printgestion_template_definitions()` (clé = nom du champ config) et son type
+   dans `Notify::getTemplateTypes()`.
+2. Ajouter la colonne `gabarit_xxx` dans la table configs (`Schema`, et `Notify::ensureSchema()` pour les
+   installations existantes) ; `create_templates()` stocke automatiquement l'ID créé dans ce champ.
+3. Déclarer le circuit dans `Notify::getCircuits()` (objet, événement, destinataires, pièces jointes) et
+   l'événement dans la cible (`getEvents()`, `getEventsToSendImmediately()`, `addDataForTemplate()`) ; « Mettre à
+   jour » crée la notification, dans l'état du gabarit choisi.
 
 ---
 
@@ -192,10 +200,12 @@ concernent aucun client. Ne jamais supprimer une expédition ni une demande.
 
 1. Config GLPI → Notifications : mode mail activé + serveur SMTP fonctionnel (tester avec une
    notification native).
-2. Plugin → Configuration → bouton **« Qui est notifié ? »** : vérifie rôles résolus
-   (groupe/users avec email par défaut) et gabarits configurés (alerte rouge si manquant).
-3. Gabarit à 0 dans la config (`gabarit_xxx`) → relancer « Mettre à jour » (recrée et re-stocke
-   les IDs).
+2. Plugin → Configuration → carte **« Rôles & notifications »** : adresses résolues de chaque rôle (rouge si
+   aucune) et tableau « Notifications du plugin » — active ?, gabarit, destinataires ; chaque ligne mène à la
+   notification native.
+3. Notification absente du tableau → relancer « Mettre à jour » (`Notify::install()` la recrée) ; inactive →
+   l'activer dans Configuration → Notifications ; échec d'envoi → `files/_log/mail-error.log` et
+   `printgestion.log`.
 4. Crons : Configuration → Actions automatiques → `PrintgestionCheckAlerts` (logs de la tâche :
    volumes « Alertes: X — Rappels: Y »). Vérifier que la feature `toner` est activée
    (cron sort en silence sinon).
@@ -577,7 +587,8 @@ reconduction tacite (un contrat terminé ne couvre plus rien).
   complet sur une instance de test (tâches, jobs, plages IP, préparation des jobs, états des jobs), puis mettre à
   jour `GLPIINVENTORY_TESTED_VERSION`.
 - Points sensibles à re-tester lors d'une montée GLPI :
-  - `GLPIMailer` / Symfony Mailer (`Config::sendMail`, `Expedition::sendRawMail`) ;
+  - notifications natives (`NotificationTarget`, envoi immédiat par `getEventsToSendImmediately()`, lecture de
+    `glpi_queuednotifications` par `Notify::raise()`, pièces jointes par `glpi_documents_items`) ;
   - moteur Search (tables matérialisées, `addDefaultWhere`, mapping itemtype) ;
   - `glpi_printers_cartridgeinfos` (structure de l'inventaire SNMP) ;
   - validation CSRF des endpoints ajax (`CheckCsrfListener`).
@@ -592,7 +603,7 @@ reconduction tacite (un contrat terminé ne couvre plus rien).
 - [ ] Jeton anti-cache incrémenté si JS/CSS modifié.
 - [ ] `php tools/generate_apercu.php` exécuté si gabarits modifiés ; aperçu relu.
 - [ ] Test d'un envoi de chaque circuit modifié (unitaire, groupé, commande, crons).
-- [ ] « Qui est notifié ? » cohérent avec l'attendu.
+- [ ] Tableau « Notifications du plugin » (Rôles & notifications) cohérent avec l'attendu : actives, gabarits, destinataires.
 - [ ] Carte « Santé de la configuration » : « Configuration : complète » sur le serveur cible.
 - [ ] Pas de nouvelle table/colonne oubliée pour les instances existantes (§2).
 - [ ] Aucune donnée PHP écrite dans un `<script>` exécuté : `PluginPrintgestionUi::jsonData()` (§5).

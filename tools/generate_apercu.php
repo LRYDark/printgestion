@@ -116,6 +116,18 @@ $variants = [
             ],
         ],
     ],
+    'gabarit_suivi' => [
+        [
+            'title'   => 'Suivi de colis (expédition marquée envoyée — transporteur et numéro)',
+            'balises' => [
+                '##printgestion.client##'   => 'Client test &gt; Site test A',
+                '##printgestion.printer##'  => 'Canon iR-ADV C3530i',
+                '##printgestion.toner##'    => 'tonerblack',
+                '##printgestion.carrier##'  => 'GLS',
+                '##printgestion.tracking##' => '00TSTA1X',
+            ],
+        ],
+    ],
     'gabarit_rappel' => [
         [
             'title'   => 'DIGEST cron rappel installation (1 seul mail pour toutes les expéditions en retard)',
@@ -151,7 +163,7 @@ $variants = [
 
 // ── Rendu ────────────────────────────────────────────────────────────────────
 $apply = function (string $text, array $balises): string {
-    // Balises non fournies → vides (même comportement que sendMail)
+    // Balises non fournies → vides (même comportement que Notify::getDefaultTags())
     $text = str_replace(array_keys($balises), array_values($balises), $text);
     return (string)preg_replace('/##printgestion\.[a-z_]+##/', '', $text);
 };

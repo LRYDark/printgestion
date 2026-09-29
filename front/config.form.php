@@ -140,13 +140,7 @@ if (isset($_POST['activate_contract_alerts'])) {
         'emails_planif'          => $normalize_user_ids($_POST['emails_planif']     ?? ''),
         'emails_achat'           => $normalize_user_ids($_POST['emails_achat']      ?? ''),
         'emails_commercial'      => $normalize_user_ids($_POST['emails_commercial'] ?? ''),
-        'gabarit_planif'         => (int)($_POST['gabarit_planif']     ?? 0) ?: null,
-        'gabarit_planif_group'   => (int)($_POST['gabarit_planif_group'] ?? 0) ?: null,
-        'gabarit_achat'          => (int)($_POST['gabarit_achat']      ?? 0) ?: null,
-        'gabarit_commercial'     => (int)($_POST['gabarit_commercial'] ?? 0) ?: null,
-        'gabarit_rappel'         => (int)($_POST['gabarit_rappel']     ?? 0) ?: null,
-        'gabarit_courtoisie'     => (int)($_POST['gabarit_courtoisie'] ?? 0) ?: null,
-        'reminder_recipients'    => in_array($_POST['reminder_recipients'] ?? 'both', ['planif', 'commercial', 'both'], true) ? $_POST['reminder_recipients'] : 'both',
+        // Gabarits et destinataires des circuits : sur les notifications natives (Configuration → Notifications).
         'default_pages_per_cartridge' => max(100, (int)($_POST['default_pages_per_cartridge'] ?? 5000)),
         // Anti-double-envoi
         'guard_days'             => max(0, min(365, (int)($_POST['guard_days'] ?? 5))),
