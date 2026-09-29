@@ -177,6 +177,7 @@ class PluginPrintgestionSchema {
             `is_recursive` tinyint NOT NULL DEFAULT 0,
             `reading_date` date NULL DEFAULT NULL,
             `levels` text NULL DEFAULT NULL,
+            `counters` text NULL DEFAULT NULL,
             `total_pages` int NULL DEFAULT NULL,
             `color_pages` int NULL DEFAULT NULL,
             `comment` text NULL DEFAULT NULL,

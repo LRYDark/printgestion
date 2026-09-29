@@ -5,8 +5,9 @@
 - **Relevé manuel : une imprimante sans sonde se suit à la main.** Certains clients refusent l'agent ; ils
   envoient ou dictent leurs niveaux et leurs compteurs. Un bouton « Saisir un relevé manuel » ouvre une fenêtre —
   niveaux par emplacement, rangés par famille et par couleur (toners, tambours, autres ; les toners standard et
-  ceux que l'imprimante connaît, vide = inchangé), compteur total et pages couleur, commentaire ; le relevé est
-  daté de maintenant, comme un passage de sonde — dans les **onglets natifs « Cartouches » et
+  ceux que l'imprimante connaît, vide = inchangé), les douze compteurs du journal natif avec les noms de GLPI
+  (pages, noir & blanc, couleur, recto/verso, impressions, photocopies, scans, fax — dernière valeur en filigrane),
+  commentaire ; le relevé est daté de maintenant, comme un passage de sonde — dans les **onglets natifs « Cartouches » et
   « Compteurs de pages »** de l'imprimante (hook officiel autour des onglets, rien dans le code de GLPI), dans la
   carte « Sonde responsable » de la fiche, et par le clic droit des alertes toner et des imprimantes collectées. Le
   relevé est écrit là où l'inventaire l'aurait écrit, par les classes natives (cartouches d'inventaire, journal

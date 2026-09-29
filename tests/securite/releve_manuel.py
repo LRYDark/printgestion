@@ -36,18 +36,18 @@ def main():
                     ok_ko(statut == 200 and "data-pg-manual-open" in page and "pg-manual-modal" in page), f"HTTP {statut}")
 
         section("2. Un relevé : tables natives, trace, relevé du plugin, alertes")
-        statut, reponse = poster(imp, [("levels[tonerblack]", "8"), ("levels[tonercyan]", ""),
-                                       ("total_pages", "12340"), ("color_pages", "340"), ("comment", "mail du client")])
+        statut, reponse = poster(imp, [("levels[tonerblack]", "8"), ("levels[tonercyan]", ""), ("counters[total_pages]", "12340"),
+                                       ("counters[color_pages]", "340"), ("counters[scanned]", "77"), ("comment", "mail du client")])
         niveau = valeur(f"SELECT value FROM glpi_printers_cartridgeinfos WHERE printers_id = {imp} AND property = 'tonerblack'")
         cyan = valeur(f"SELECT COUNT(*) FROM glpi_printers_cartridgeinfos WHERE printers_id = {imp} AND property = 'tonercyan'")
-        journal = lib.lignes(f"SELECT total_pages, bw_pages, color_pages FROM glpi_printerlogs WHERE itemtype = 'Printer' AND items_id = {imp}")
+        journal = lib.lignes(f"SELECT total_pages, bw_pages, color_pages, scanned FROM glpi_printerlogs WHERE itemtype = 'Printer' AND items_id = {imp}")
         compteur = valeur(f"SELECT last_pages_counter FROM glpi_printers WHERE id = {imp}")
         trace = lib.lignes(f"SELECT levels, total_pages, color_pages, comment, users_id FROM glpi_plugin_printgestion_manualreadings WHERE printers_id = {imp}")
         releve = valeur(f"SELECT level_percent FROM glpi_plugin_printgestion_toner_readings WHERE printers_id = {imp} AND property_name = 'tonerblack' ORDER BY reading_date DESC LIMIT 1")
         constat("niveau noir écrit dans les cartouches d'inventaire de GLPI, le cyan vide non touché",
                 ok_ko(statut == 200 and reponse.get("ok") is True and niveau == "8" and cyan == "0"), f"HTTP {statut}, {reponse}, noir {niveau}, cyan {cyan}")
-        constat("compteurs dans le journal natif (total, noir = total - couleur, couleur) et sur la fiche",
-                ok_ko(journal == [["12340", "12000", "340"]] and compteur == "12340"), f"{journal}, fiche {compteur}")
+        constat("compteurs dans le journal natif (total, noir = total - couleur, couleur, scans) et sur la fiche",
+                ok_ko(journal == [["12340", "12000", "340", "77"]] and compteur == "12340"), f"{journal}, fiche {compteur}")
         constat("trace du plugin : niveaux, compteurs, commentaire, auteur",
                 ok_ko(len(trace) == 1 and '"tonerblack":8' in trace[0][0] and trace[0][1] == "12340" and trace[0][2] == "340" and trace[0][3] == "mail du client" and trace[0][4] == str(d.ADMIN_ID)),
                 str(trace))

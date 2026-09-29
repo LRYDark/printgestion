@@ -3,8 +3,8 @@
  * Relevé manuel d'une imprimante (POST, JSON) : niveaux et compteurs saisis d'après le client, écrits là où
  * l'inventaire les écrit (Printer_CartridgeInfo, PrinterLog, Printer), trace du plugin, alertes recalculées.
  *
- * POST attendu : printers_id, levels[<propriété>] (0-100 ou vide), total_pages, color_pages, comment. Le relevé
- * est daté de maintenant. Droit : Alertes toner en modification, imprimante du périmètre.
+ * POST attendu : printers_id, levels[<propriété>] (0-100 ou vide), counters[<compteur du journal natif>] (entier ou
+ * vide), comment. Le relevé est daté de maintenant. Droit : Alertes toner en modification, imprimante du périmètre.
  * Retourne : { ok: true, warnings: [] } ou { ok: false, errors: [] }.
  */
 include('../../../inc/includes.php');

@@ -27,6 +27,14 @@ class PluginPrintgestionManualreading extends CommonDBTM {
 
     const SOURCE_MANUAL = 'manual';
 
+    /** Les compteurs du journal natif des imprimantes (glpi_printerlogs), dans l'ordre de la fenêtre. */
+    const COUNTERS = [
+        'total_pages', 'bw_pages', 'color_pages', 'rv_pages',
+        'prints', 'bw_prints', 'color_prints',
+        'copies', 'bw_copies', 'color_copies',
+        'scanned', 'faxed',
+    ];
+
     private static bool $table_checked = false;
 
     public static function getTable($classname = null) {
@@ -46,6 +54,7 @@ class PluginPrintgestionManualreading extends CommonDBTM {
         PluginPrintgestionSchema::createIfMissing(self::getTable());
         PluginPrintgestionSchema::ensureColumn(self::getTable(), 'superseded', 'tinyint NOT NULL DEFAULT 0');
         PluginPrintgestionSchema::ensureColumn(self::getTable(), 'superseded_date', 'timestamp NULL DEFAULT NULL');
+        PluginPrintgestionSchema::ensureColumn(self::getTable(), 'counters', 'text NULL DEFAULT NULL');
         // L'origine d'un relevé du plugin : « snmp » (photographie de l'inventaire) ou « manual ».
         PluginPrintgestionSchema::ensureColumn(PluginPrintgestionTonerreading::getTable(), 'source', "varchar(10) NOT NULL DEFAULT 'snmp'");
     }
@@ -180,6 +189,27 @@ class PluginPrintgestionManualreading extends CommonDBTM {
         ]), false);
     }
 
+    /** Derniers compteurs connus du journal natif (la ligne la plus récente), pour les valeurs actuelles de la fenêtre. */
+    public static function getCurrentCounters(Printer $printer): array {
+        global $DB;
+
+        $row = $DB->request([
+            'SELECT' => self::COUNTERS,
+            'FROM'   => PrinterLog::getTable(),
+            'WHERE'  => ['itemtype' => Printer::class, 'items_id' => (int) $printer->getID()],
+            'ORDER'  => ['date DESC', 'id DESC'],
+            'LIMIT'  => 1,
+        ])->current();
+        $out = [];
+        foreach (self::COUNTERS as $field) {
+            $out[$field] = is_array($row) ? (int) $row[$field] : 0;
+        }
+        if ($out['total_pages'] === 0) {
+            $out['total_pages'] = (int) ($printer->fields['last_pages_counter'] ?? 0);
+        }
+        return $out;
+    }
+
     /** L'imprimante est-elle relevée par une sonde (un inventaire réseau connu, ou une date d'inventaire sur la fiche) ? */
     public static function hasInventory(Printer $printer): bool {
         $printers_id = (int) $printer->getID();
@@ -215,7 +245,7 @@ class PluginPrintgestionManualreading extends CommonDBTM {
      * Enregistre un relevé : contrôles, tables natives, trace du plugin, relevé du jour, alertes de l'imprimante.
      * Le relevé est daté du jour, à l'heure de l'enregistrement — comme un passage de sonde, rien à saisir.
      *
-     * @param array $input levels (property => '' | 0-100), total_pages, color_pages, comment
+     * @param array $input levels (property => '' | 0-100), counters (compteur du journal natif => '' | entier), comment
      * @return array ['ok' => bool, 'errors' => string[], 'warnings' => string[]]
      */
     public static function record(Printer $printer, array $input): array {
@@ -247,41 +277,55 @@ class PluginPrintgestionManualreading extends CommonDBTM {
             $levels[$property] = (int) $value;
         }
 
-        // Compteurs : total facultatif mais demandé (coût à la page), couleur facultatif (sinon compté en noir).
-        $total       = trim((string) ($input['total_pages'] ?? ''));
-        $color       = trim((string) ($input['color_pages'] ?? ''));
-        $total_pages = null;
-        $color_pages = null;
-        if ($total !== '') {
-            if (!preg_match('/^\d{1,9}$/', $total)) {
-                $errors[] = __('Compteur total : un nombre entier de pages.', 'printgestion');
-            } else {
-                $total_pages = (int) $total;
+        // Compteurs : ceux du journal natif, tous facultatifs, vide = pas écrit. Le total est déduit de noir + couleur
+        // s'il manque, et noir de total − couleur : les mêmes règles que le coût à la page.
+        $counters = [];
+        foreach (self::COUNTERS as $field) {
+            $value = trim((string) ($input['counters'][$field] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            if (!preg_match('/^\d{1,9}$/', $value)) {
+                $errors[] = sprintf(__('« %s » : un nombre entier de pages.', 'printgestion'), PrinterLog::getLabelFor($field));
+                continue;
+            }
+            $counters[$field] = (int) $value;
+        }
+        if (!isset($counters['total_pages']) && isset($counters['bw_pages'], $counters['color_pages'])) {
+            $counters['total_pages'] = $counters['bw_pages'] + $counters['color_pages'];
+        }
+        if (isset($counters['total_pages'], $counters['color_pages']) && !isset($counters['bw_pages'])) {
+            $counters['bw_pages'] = max(0, $counters['total_pages'] - $counters['color_pages']);
+        }
+        foreach ([['color_pages', 'total_pages'], ['bw_pages', 'total_pages'], ['color_prints', 'prints'], ['bw_prints', 'prints'], ['color_copies', 'copies'], ['bw_copies', 'copies']] as [$part, $whole]) {
+            if (isset($counters[$part], $counters[$whole]) && $counters[$part] > $counters[$whole]) {
+                $errors[] = sprintf(__('« %1$s » supérieur à « %2$s ».', 'printgestion'), PrinterLog::getLabelFor($part), PrinterLog::getLabelFor($whole));
             }
         }
-        if ($color !== '') {
-            if (!preg_match('/^\d{1,9}$/', $color)) {
-                $errors[] = __('Pages couleur : un nombre entier de pages.', 'printgestion');
-            } elseif ($total_pages === null) {
-                $errors[] = __('Pages couleur sans compteur total : indiquez aussi le total.', 'printgestion');
-            } elseif ((int) $color > $total_pages) {
-                $errors[] = __('Pages couleur supérieures au total.', 'printgestion');
-            } else {
-                $color_pages = (int) $color;
-            }
-        }
-        if (empty($levels) && $total_pages === null) {
-            $errors[] = __('Rien à enregistrer : au moins un niveau ou le compteur total.', 'printgestion');
+        if (empty($levels) && empty($counters)) {
+            $errors[] = __('Rien à enregistrer : au moins un niveau ou un compteur.', 'printgestion');
         }
         $comment = mb_substr(trim((string) ($input['comment'] ?? '')), 0, 1000);
         if (!empty($errors)) {
             return ['ok' => false, 'errors' => $errors, 'warnings' => $warnings];
         }
+        $total_pages = $counters['total_pages'] ?? null;
+        $color_pages = $counters['color_pages'] ?? null;
 
         // Un compteur plus bas que le précédent : signalé, pas refusé (compteur remis à zéro, imprimante changée).
         $previous = (int) ($printer->fields['last_pages_counter'] ?? 0);
         if ($total_pages !== null && $previous > 0 && $total_pages < $previous) {
             $warnings[] = sprintf(__('Compteur saisi (%1$d) inférieur au précédent (%2$d) : enregistré tel quel.', 'printgestion'), $total_pages, $previous);
+        }
+        // Noir + couleur différent du total : les trois viennent du client, on garde ce qu'il a dit et on le signale.
+        if (isset($counters['total_pages'], $counters['bw_pages'], $counters['color_pages'])
+            && $counters['bw_pages'] + $counters['color_pages'] !== $counters['total_pages']) {
+            $warnings[] = sprintf(
+                __('Noir & blanc (%1$d) + couleur (%2$d) ne font pas le total (%3$d) : enregistré tel quel.', 'printgestion'),
+                $counters['bw_pages'],
+                $counters['color_pages'],
+                $counters['total_pages']
+            );
         }
         // Une sonde relève déjà cette imprimante : elle reprendra la main à son prochain passage.
         if (self::hasInventory($printer)) {
@@ -300,22 +344,22 @@ class PluginPrintgestionManualreading extends CommonDBTM {
             }
         }
 
-        // 2. Compteurs, là où l'inventaire les écrit : le journal du jour (une ligne par date) et le compteur de la
-        //    fiche. Couleur inconnue : comptée en noir et blanc, comme le dit la fenêtre.
-        if ($total_pages !== null) {
-            $bw  = $total_pages - ($color_pages ?? 0);
+        // 2. Compteurs, là où l'inventaire les écrit : le journal du jour (une ligne par date, complétée si elle
+        //    existe) et le compteur de la fiche.
+        if (!empty($counters)) {
             $log = new PrinterLog();
-            $row = ['itemtype' => Printer::class, 'items_id' => $printers_id, 'date' => $date,
-                    'total_pages' => $total_pages, 'bw_pages' => $bw, 'color_pages' => $color_pages ?? 0];
+            $row = ['itemtype' => Printer::class, 'items_id' => $printers_id, 'date' => $date] + $counters;
             if ($log->getFromDBByCrit(['itemtype' => Printer::class, 'items_id' => $printers_id, 'date' => $date])) {
                 $ok = $log->update(['id' => (int) $log->getID()] + $row);
             } else {
                 $ok = (bool) $log->add($row);
             }
             if (!$ok) {
-                return ['ok' => false, 'errors' => [__('Compteur non enregistré (refus de GLPI).', 'printgestion')], 'warnings' => $warnings];
+                return ['ok' => false, 'errors' => [__('Compteurs non enregistrés (refus de GLPI).', 'printgestion')], 'warnings' => $warnings];
             }
-            $printer->update(['id' => $printers_id, 'last_pages_counter' => $total_pages]);
+            if ($total_pages !== null) {
+                $printer->update(['id' => $printers_id, 'last_pages_counter' => $total_pages]);
+            }
         }
 
         // 3. La trace du plugin : qui, quand, quoi.
@@ -325,6 +369,7 @@ class PluginPrintgestionManualreading extends CommonDBTM {
             'is_recursive'  => (int) $printer->fields['is_recursive'],
             'reading_date'  => $date,
             'levels'        => json_encode($levels),
+            'counters'      => json_encode($counters),
             'total_pages'   => $total_pages,
             'color_pages'   => $color_pages,
             'comment'       => $comment,
@@ -421,16 +466,22 @@ class PluginPrintgestionManualreading extends CommonDBTM {
         );
     }
 
-    /** Ce qu'un relevé contient, en une ligne : « Toner noir 8 %, 12 340 pages ». */
+    /** Ce qu'un relevé contient, en une ligne : « Toner noir 8 %, Pages 12 340, Impressions couleur 340 ». */
     private static function describe(array $row): string {
         $levels = json_decode((string) $row['levels'], true) ?: [];
         $parts  = [];
         foreach ($levels as $property => $level) {
             $parts[] = self::labelFor((string) $property) . ' ' . (int) $level . ' %';
         }
-        if ($row['total_pages'] !== null) {
-            $parts[] = sprintf(__('%s pages', 'printgestion'), number_format((int) $row['total_pages'], 0, ',', ' '))
-                . ($row['color_pages'] !== null ? ' ' . sprintf(__('(dont %s couleur)', 'printgestion'), number_format((int) $row['color_pages'], 0, ',', ' ')) : '');
+        $counters = json_decode((string) ($row['counters'] ?? ''), true);
+        if (!is_array($counters) || empty($counters)) {
+            // Relevés d'avant la saisie de tous les compteurs : total et couleur seulement.
+            $counters = array_filter(['total_pages' => $row['total_pages'], 'color_pages' => $row['color_pages']], static fn($v) => $v !== null);
+        }
+        foreach (self::COUNTERS as $field) {
+            if (isset($counters[$field])) {
+                $parts[] = PrinterLog::getLabelFor($field) . ' ' . number_format((int) $counters[$field], 0, ',', ' ');
+            }
         }
         return implode(', ', $parts);
     }
@@ -598,12 +649,22 @@ class PluginPrintgestionManualreading extends CommonDBTM {
             }
             echo "</div>";
         }
+        // Les compteurs du journal natif, avec les noms de GLPI (ceux de l'onglet « Compteurs de pages ») et leur
+        // dernière valeur connue en filigrane.
+        $current = self::getCurrentCounters($printer);
+        $icons   = [
+            'total_pages' => 'ti ti-sum', 'bw_pages' => 'ti ti-contrast', 'color_pages' => 'ti ti-palette', 'rv_pages' => 'ti ti-arrows-left-right',
+            'prints' => 'ti ti-printer', 'bw_prints' => 'ti ti-printer', 'color_prints' => 'ti ti-printer',
+            'copies' => 'ti ti-copy', 'bw_copies' => 'ti ti-copy', 'color_copies' => 'ti ti-copy',
+            'scanned' => 'ti ti-scan', 'faxed' => 'ti ti-device-landline-phone',
+        ];
         echo self::sectionBand('ti ti-file-text', __('Compteurs de pages', 'printgestion'), __('en pages', 'printgestion')) . "<div class='row g-2 mb-3'>";
-        echo "<div class='col-6'><label class='form-label small fw-normal mb-1' for='" . $uid . "-total'><i class='ti ti-sum me-1 text-muted'></i>" . $esc(__('Total', 'printgestion')) . "</label>"
-            . "<input type='number' min='0' class='form-control' id='" . $uid . "-total' placeholder='"
-            . $esc((int) ($printer->fields['last_pages_counter'] ?? 0) > 0 ? sprintf(__('actuel : %d', 'printgestion'), (int) $printer->fields['last_pages_counter']) : __('inconnu', 'printgestion')) . "'></div>";
-        echo "<div class='col-6'><label class='form-label small fw-normal mb-1' for='" . $uid . "-color'><i class='ti ti-palette me-1 text-muted'></i>" . $esc(__('Dont couleur', 'printgestion')) . "</label>"
-            . "<input type='number' min='0' class='form-control' id='" . $uid . "-color' placeholder='" . $esc(__('vide : compté en noir et blanc', 'printgestion')) . "'></div>";
+        foreach (self::COUNTERS as $field) {
+            $id = $uid . '-counter-' . $field;
+            echo "<div class='col-6 col-md-3'><label class='form-label small fw-normal mb-1' for='" . $esc($id) . "'><i class='" . $icons[$field] . " me-1 text-muted'></i>" . $esc(PrinterLog::getLabelFor($field)) . "</label>"
+                . "<input type='number' min='0' class='form-control' id='" . $esc($id) . "' data-pg-manual-counter='" . $field . "' placeholder='"
+                . $esc($current[$field] > 0 ? sprintf(__('actuel : %d', 'printgestion'), $current[$field]) : '—') . "'></div>";
+        }
         echo "</div>";
         echo self::sectionBand('ti ti-message', __('Commentaire', 'printgestion'), '');
         echo "<div class='mb-2'><input type='text' class='form-control' id='" . $uid . "-comment' maxlength='1000' aria-label='" . $esc(__('Commentaire', 'printgestion')) . "' placeholder='" . $esc(__('mail de M. Dupont, appel du 12/09…', 'printgestion')) . "'></div>";
@@ -640,9 +701,9 @@ class PluginPrintgestionManualreading extends CommonDBTM {
             . "    var save = byId('-save');\n"
             . "    var fd = new FormData();\n"
             . "    fd.append('printers_id', cfg.printers_id);\n"
-            . "    fd.append('total_pages', byId('-total').value);\n"
-            . "    fd.append('color_pages', byId('-color').value);\n"
             . "    fd.append('comment', byId('-comment').value);\n"
+            . "    var counters = byId('-modal').querySelectorAll('[data-pg-manual-counter]');\n"
+            . "    for (var c = 0; c < counters.length; c++) { fd.append('counters[' + counters[c].getAttribute('data-pg-manual-counter') + ']', counters[c].value); }\n"
             . "    var levels = byId('-modal').querySelectorAll('[data-pg-manual-level]');\n"
             . "    for (var k = 0; k < levels.length; k++) { fd.append('levels[' + levels[k].getAttribute('data-pg-manual-level') + ']', levels[k].value); }\n"
             . "    save.disabled = true;\n"

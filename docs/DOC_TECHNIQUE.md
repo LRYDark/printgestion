@@ -1605,8 +1605,9 @@ pastilles sur un même écran n'auraient rien apporté. `collect.php?state=` red
   passage de sonde) ; contrôles (niveaux 0-100 sur des emplacements connus, compteurs entiers, couleur ≤ total, au
   moins une valeur, commentaire ≤ 1000) ; puis, par les classes
   natives : `Printer_CartridgeInfo` (une ligne par emplacement, `add` ou `update`), `PrinterLog` (une ligne par
-  date, unicité itemtype/items_id/date : `update` si elle existe ; `bw_pages` = total − couleur, couleur inconnue
-  = 0), `Printer->update(last_pages_counter)` ; trace dans `glpi_plugin_printgestion_manualreadings` (levels en
+  date, unicité itemtype/items_id/date : `update` si elle existe ; tous les compteurs du journal natif —
+  `COUNTERS`, libellés de `PrinterLog::getLabelFor()` —, total déduit de noir + couleur et noir de total − couleur
+  s'ils manquent, une partie ne peut dépasser son tout), `Printer->update(last_pages_counter)` ; trace dans `glpi_plugin_printgestion_manualreadings` (levels en
   JSON, compteurs, commentaire, users_id) ; relevé du plugin (`toner_readings`) à la date dite, par `updateOrInsert`
   sur la clé quotidienne (le passage nocturne retrouve les mêmes valeurs et n'ajoute rien) ;
   `Cartridgehistory::detectChanges()` (cartouche neuve saisie → envoi clos) ; `Alert::invalidateCache()` et
