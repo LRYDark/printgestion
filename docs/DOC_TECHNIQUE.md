@@ -1588,6 +1588,48 @@ pastilles sur un même écran n'auraient rien apporté. `collect.php?state=` red
   `sondes.php?id=`).
 - Harnais : `tests/securite/reference/etat-ancien-chemin.json` doit être régénéré (deux tables de plus).
 
+### Relevé manuel d'une imprimante sans sonde (`inc/manualreading.class.php`, `ajax/manual_reading.php`)
+
+- **Où** : hook `POST_SHOW_TAB` (`setup.php` → `plugin_printgestion_post_show_tab()` dans hook.php), appelé par
+  `CommonGLPI::displayStandardTab()` après le contenu natif d'un onglet ; le plugin ne rend le bouton que pour un
+  `Printer` et les onglets `Cartridge` (« Cartouches ») et `PrinterLog` (« Compteurs de pages »)
+  (`Manualreading::renderForTab()`). Aussi dans la carte « Sonde responsable » (`Printeragent::render()`) et par
+  le clic droit (`Contextmenu`, entrée `manual-reading` → fiche de l'imprimante, `forcetab=Cartridge$1`).
+- **Fenêtre** (`renderModal()`, rangée par famille — toners, tambours, autres — puis par couleur, pastille et
+  icône par emplacement, `getSlots()` / `classify()`) : pas de `<form>` — elle peut se trouver dans le formulaire de la
+  fiche —, le script lit ses champs et POSTe `ajax/manual_reading.php` avec le jeton CSRF en en-tête ; rechargement
+  de la page en cas de succès (message flash). Emplacements proposés : `getSlots()` = niveaux lisibles connus de GLPI
+  (`Snmpadapter::getLevels()`) + `STANDARD_SLOTS` (tonerblack, tonercyan, tonermagenta, toneryellow) ; libellés par
+  `labelFor()`.
+- **Enregistrement** (`record()`) : relevé daté du jour, à l'heure de l'enregistrement (rien à saisir, comme un
+  passage de sonde) ; contrôles (niveaux 0-100 sur des emplacements connus, compteurs entiers, couleur ≤ total, au
+  moins une valeur, commentaire ≤ 1000) ; puis, par les classes
+  natives : `Printer_CartridgeInfo` (une ligne par emplacement, `add` ou `update`), `PrinterLog` (une ligne par
+  date, unicité itemtype/items_id/date : `update` si elle existe ; `bw_pages` = total − couleur, couleur inconnue
+  = 0), `Printer->update(last_pages_counter)` ; trace dans `glpi_plugin_printgestion_manualreadings` (levels en
+  JSON, compteurs, commentaire, users_id) ; relevé du plugin (`toner_readings`) à la date dite, par `updateOrInsert`
+  sur la clé quotidienne (le passage nocturne retrouve les mêmes valeurs et n'ajoute rien) ;
+  `Cartridgehistory::detectChanges()` (cartouche neuve saisie → envoi clos) ; `Alert::invalidateCache()` et
+  `Alertview::rebuild([$printers_id])`. Un compteur plus bas que `last_pages_counter` est un avertissement.
+- **Collecte** : `Collect::analyze()` lit `Manualreading::getLastForPrinters()` ; un relevé manuel plus récent que
+  le dernier inventaire SNMP vaut inventaire (`is_manual`, sonde à 0) ; `Collectview` porte `is_manual`
+  (`Schema::ensureColumn()` sur une vue déjà créée) et l'option 74015 « Relevé manuel » (bool), forcée dans
+  l'onglet « Imprimantes collectées ».
+- **La sonde a raison** : `supersedeByInventory()` (appelé avant `Tonerreading::snapshotAllPrinters()` et
+  `Alertview::rebuild()`) marque « dépassé » tout relevé manuel suivi d'un inventaire réseau plus récent
+  (`Collect::getImportDates()` > `date_creation`), retire ses lignes de `toner_readings` (colonne `source` =
+  `manual`, ajoutée par `ensureColumn`) — sans quoi une hausse saisie par erreur passerait pour une cartouche
+  changée —, et garde la trace avec `superseded_date`. Un relevé dépassé ne compte plus (`getLastForPrinters()`).
+- **« Informations d'inventaire manuel »** : bloc de la carte native « Informations d'inventaire », après « Sonde
+  responsable » (`showInInventoryCard()`, hook AUTOINVENTORY_INFORMATION, même règle d'affichage que la sonde :
+  droit inventaire + imprimante dynamique) ; sinon carte à part sous le formulaire (`showAfterForm()`, hook
+  POST_ITEM_FORM). Contenu (`renderFields()`) : dernier relevé (date et heure), par, contenu, commentaire, état ;
+  le bouton. Chaque rendu du bouton porte un identifiant propre (`pgm…`), et la fenêtre est
+  déplacée à la racine du document à l'ouverture (rendue dans un onglet ou une carte, elle resterait sinon dans un
+  bloc masqué).
+- Droits : `canRecord()` = module toner + `plugin_printgestion_dashboard` UPDATE + `canViewItem()` ;
+  `canSee()` (bouton absent, historique visible) avec READ.
+
 ### Raccordements : liste native et onglet de l'entité (`inc/raccordement.class.php`)
 
 - **Page « Raccordements »** (`showList()`) : `Search::showList(PluginPrintgestionRaccordement)` avec
@@ -1610,6 +1652,7 @@ pastilles sur un même écran n'auraient rien apporté. `collect.php?state=` red
 | Endpoint | Action |
 |---|---|
 | `rowcontext.php` | Contexte des lignes d'un tableau natif pour le menu clic droit (GET, lecture seule, périmètre de l'utilisateur) — voir ci-dessus |
+| `manual_reading.php` | Relevé manuel d'une imprimante sans sonde (POST, JSON) : `Manualreading::record()`, droit Alertes toner en modification — voir ci-dessus |
 | *(action de masse « Commander »)* | **Seul parcours de commande directe** : `Alertview::processOrder()` → `createPurchaseOrder()` (expéditions + fichier + mail Achats en transaction), droit validation UPDATE |
 | `update_expedition.php` | Marquer expédié (transporteur + tracking) → `markShipped()` |
 | `edit_expedition.php`, `reassign_expedition.php` | Édition / réassignation vers une autre imprimante |

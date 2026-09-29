@@ -142,6 +142,7 @@ class PluginPrintgestionSchema {
             `last_inventory` timestamp NULL DEFAULT NULL,
             `last_discovery` timestamp NULL DEFAULT NULL,
             `agents_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `is_manual` tinyint NOT NULL DEFAULT 0,
             `date_compute` timestamp NULL DEFAULT NULL,
             PRIMARY KEY (`id`),
             UNIQUE KEY `printers_id` (`printers_id`),
@@ -167,6 +168,26 @@ class PluginPrintgestionSchema {
             UNIQUE KEY `agents_id` (`agents_id`),
             KEY `entities_id` (`entities_id`),
             KEY `is_probe` (`is_probe`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
+        // Relevés manuels : la trace de chaque saisie (les valeurs elles-mêmes sont dans les tables natives).
+        'glpi_plugin_printgestion_manualreadings' => 'CREATE TABLE `glpi_plugin_printgestion_manualreadings` (
+            `id` int __KEY_SIGN__ NOT NULL AUTO_INCREMENT,
+            `printers_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `entities_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `is_recursive` tinyint NOT NULL DEFAULT 0,
+            `reading_date` date NULL DEFAULT NULL,
+            `levels` text NULL DEFAULT NULL,
+            `total_pages` int NULL DEFAULT NULL,
+            `color_pages` int NULL DEFAULT NULL,
+            `comment` text NULL DEFAULT NULL,
+            `users_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `date_creation` timestamp NULL DEFAULT NULL,
+            `superseded` tinyint NOT NULL DEFAULT 0,
+            `superseded_date` timestamp NULL DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            KEY `printers_id` (`printers_id`),
+            KEY `reading_date` (`reading_date`),
+            KEY `entities_id` (`entities_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
         'glpi_plugin_printgestion_billing' => 'CREATE TABLE `glpi_plugin_printgestion_billing` (
             `id` int __KEY_SIGN__ NOT NULL AUTO_INCREMENT,
@@ -626,6 +647,7 @@ class PluginPrintgestionSchema {
             `bw_pages` int NOT NULL DEFAULT 0,
             `color_pages` int NOT NULL DEFAULT 0,
             `is_suspect` tinyint NOT NULL DEFAULT 0,
+            `source` varchar(10) NOT NULL DEFAULT \'snmp\',
             `entities_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
             `is_recursive` tinyint NOT NULL DEFAULT 0,
             PRIMARY KEY (`id`),
@@ -730,6 +752,18 @@ class PluginPrintgestionSchema {
         ];
         if ($DB->doQuery(strtr(self::TABLES[$table], $replacements)) === false) {
             throw new RuntimeException(sprintf('Print Gestion : création de la table %s en échec : %s', $table, $DB->error()));
+        }
+    }
+
+    /** Ajoute une colonne à une table du plugin si elle manque (vue enrichie après sa création). */
+    public static function ensureColumn(string $table, string $column, string $definition): void {
+        global $DB;
+
+        if (!$DB->tableExists($table) || $DB->fieldExists($table, $column, false)) {
+            return;
+        }
+        if ($DB->doQuery('ALTER TABLE ' . $DB::quoteName($table) . ' ADD COLUMN ' . $DB::quoteName($column) . ' ' . $definition) === false) {
+            throw new RuntimeException(sprintf('Print Gestion : ajout de la colonne %s.%s en échec : %s', $table, $column, $DB->error()));
         }
     }
 

@@ -77,3 +77,19 @@
 .pg-datatable tbody tr:has(a[href]) {
     cursor: pointer;
 }
+
+/* Carte native « Informations d'inventaire » d'un objet (card m-n2 dans inventory_info.html.twig) : GLPI trace le
+   trait entre deux blocs sur toute la largeur du bloc, qui déborde de la carte par les marges négatives de la
+   rangée. Ici le trait est redessiné à la largeur du contenu — un choix d'affichage du plugin, rien dans GLPI. */
+.card.m-n2 > .card-body + .card-body {
+    border-top: 0 !important;
+    position: relative;
+}
+.card.m-n2 > .card-body + .card-body::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 1.75rem;
+    right: 1.75rem;
+    border-top: 1px solid var(--tblr-border-color, #e6e7e9);
+}

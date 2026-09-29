@@ -21,6 +21,7 @@ class PluginPrintgestionCollectview extends CommonDBTM {
     const OPTION_INVENTORY = 74012;
     const OPTION_DISCOVERY = 74013;
     const OPTION_AGENT     = 74014;
+    const OPTION_MANUAL    = 74015;
 
     static $rightname = 'plugin_printgestion_deploiement';
 
@@ -43,6 +44,8 @@ class PluginPrintgestionCollectview extends CommonDBTM {
         }
         self::$table_checked = true;
         PluginPrintgestionSchema::createIfMissing(self::getTable());
+        // Colonne arrivée après la création de la vue : ajoutée si elle manque.
+        PluginPrintgestionSchema::ensureColumn(self::getTable(), 'is_manual', 'tinyint NOT NULL DEFAULT 0');
     }
 
     /** Recalcule la vue des imprimantes puis celle des sondes ; renvoie le nombre d'imprimantes rangées. */
@@ -64,6 +67,7 @@ class PluginPrintgestionCollectview extends CommonDBTM {
                 'last_inventory' => $printer['last_inventory'],
                 'last_discovery' => $printer['last_discovery'],
                 'agents_id'      => (int) ($printer['agents_id'] ?? 0),
+                'is_manual'      => (int) ($printer['is_manual'] ?? 0),
                 'date_compute'   => $now,
             ]);
         }
@@ -191,6 +195,8 @@ class PluginPrintgestionCollectview extends CommonDBTM {
             ['id' => self::OPTION_AGENT, 'table' => Agent::getTable(), 'field' => 'name', 'name' => __('Sonde', 'printgestion'),
              'datatype' => 'dropdown', 'massiveaction' => false,
              'joinparams' => ['beforejoin' => ['table' => $table, 'joinparams' => $join]]],
+            ['id' => self::OPTION_MANUAL, 'table' => $table, 'field' => 'is_manual', 'name' => __('Relevé manuel', 'printgestion'),
+             'datatype' => 'bool', 'searchequalsonfield' => true, 'joinparams' => $join, 'massiveaction' => false],
         ];
         return $with_group ? array_merge([['id' => 'printgestion', 'name' => 'Print Gestion']], $options) : $options;
     }
@@ -384,7 +390,7 @@ class PluginPrintgestionCollectview extends CommonDBTM {
         $params['target']             = PluginPrintgestionPrintercollect::getSearchURL();
         $params['showmassiveactions'] = false;
         // Nom, entité, état, dernier inventaire SNMP ; découverte et sonde pour l'administrateur.
-        $forced = [1, 80, self::OPTION_STATE, self::OPTION_INVENTORY];
+        $forced = [1, 80, self::OPTION_STATE, self::OPTION_INVENTORY, self::OPTION_MANUAL];
         if ($admin) {
             $forced = array_merge($forced, [self::OPTION_DISCOVERY, self::OPTION_AGENT]);
         }

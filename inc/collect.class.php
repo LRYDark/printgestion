@@ -263,8 +263,10 @@ class PluginPrintgestionCollect extends CommonGLPI {
         if (empty($printers)) {
             return $out;
         }
-        $ids   = array_map(static fn(array $p) => (int) $p['id'], $printers);
-        $dates = self::getImportDates($ids);
+        $ids    = array_map(static fn(array $p) => (int) $p['id'], $printers);
+        $dates  = self::getImportDates($ids);
+        // Imprimantes suivies à la main : le dernier relevé saisi vaut inventaire s'il est plus récent.
+        $manual = PluginPrintgestionManualreading::getLastForPrinters($ids);
 
         $agents    = [];
         $agent_ids = array_values(array_unique(array_filter(array_column($dates, 'agents_id'))));
@@ -291,13 +293,18 @@ class PluginPrintgestionCollect extends CommonGLPI {
         $levels = PluginPrintgestionSnmpadapter::getLevels($ids);
 
         foreach ($printers as $printer) {
-            $pid  = (int) $printer['id'];
-            $snmp = $dates[$pid]['snmp'] ?? null;
+            $pid       = (int) $printer['id'];
+            $snmp      = $dates[$pid]['snmp'] ?? null;
+            $is_manual = 0;
+            if (isset($manual[$pid]) && ($snmp === null || $manual[$pid]['date'] > $snmp)) {
+                $snmp      = $manual[$pid]['date'];
+                $is_manual = 1;
+            }
 
             // Seuil de l'entité de l'imprimante : une entité relevée moins souvent n'est pas muette plus tôt.
             $state = self::getState($snmp, self::hasReadableLevel($levels[$pid] ?? []), self::getPrinterCutoff((int) $printer['entities_id']));
 
-            $agents_id = (int) ($dates[$pid]['agents_id'] ?? 0);
+            $agents_id = $is_manual ? 0 : (int) ($dates[$pid]['agents_id'] ?? 0);
             if (isset($agents[$agents_id])) {
                 $agents[$agents_id]['printers']++;
             }
@@ -309,6 +316,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
                 'entity'             => (string) ($printer['entity'] ?? ''),
                 'entities_id'        => (int) $printer['entities_id'],
                 'is_recursive'       => (int) ($printer['is_recursive'] ?? 0),
+                'is_manual'          => $is_manual,
                 'state'              => $state,
                 'last_inventory'     => $snmp,
                 'last_discovery'     => $dates[$pid]['discovery'] ?? null,

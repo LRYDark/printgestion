@@ -111,6 +111,10 @@ class PluginPrintgestionContextmenu {
                     $items[] = ['key' => 'open-cartridge', 'icon' => 'ti ti-box', 'label' => __('Voir le stock de la cartouche', 'printgestion'),
                                 'kind' => 'link', 'field' => 'cartridge_url', 'require' => 'has_cartridge'];
                 }
+                if (Session::haveRight('plugin_printgestion_dashboard', UPDATE) && Printer::canView()) {
+                    $items[] = ['key' => 'manual-reading', 'icon' => 'ti ti-pencil-plus', 'label' => __('Saisir un relevé manuel…', 'printgestion'),
+                                'kind' => 'link', 'field' => 'manual_url', 'require' => ''];
+                }
                 if (Session::haveRight('plugin_printgestion_expedition', READ)) {
                     $items[] = ['key' => 'open-expedition', 'icon' => 'ti ti-truck', 'label' => __('Ouvrir l\'expédition en cours', 'printgestion'),
                                 'kind' => 'link', 'field' => 'expedition_url', 'require' => 'has_expedition'];
@@ -188,6 +192,10 @@ class PluginPrintgestionContextmenu {
                 }
                 $items[] = ['key' => 'open-agent', 'icon' => 'ti ti-robot', 'label' => __('Ouvrir la sonde qui la relève', 'printgestion'),
                             'kind' => 'link', 'field' => 'agent_url', 'require' => 'has_agent'];
+                if (Session::haveRight('plugin_printgestion_dashboard', UPDATE) && Printer::canView()) {
+                    $items[] = ['key' => 'manual-reading', 'icon' => 'ti ti-pencil-plus', 'label' => __('Saisir un relevé manuel…', 'printgestion'),
+                                'kind' => 'link', 'field' => 'manual_url', 'require' => ''];
+                }
                 break;
         }
         return $items;
@@ -456,6 +464,7 @@ JS;
             $agents_id             = (int) ($row['agents_id'] ?? 0);
             $out[(int) $row['id']] = [
                 'printer_url' => Printer::getFormURLWithID((int) $row['id']),
+                'manual_url'  => Printer::getFormURLWithID((int) $row['id']) . '&forcetab=' . urlencode('Cartridge$1'),
                 'agent_url'   => $agents_id > 0 ? PluginPrintgestionAgentsetting::getPageURL($agents_id) : '',
                 'has_agent'   => $agents_id > 0,
             ];
@@ -601,6 +610,7 @@ JS;
                 'days'           => $row['days'],
                 'cartridge'      => (string) ($row['cartridge'] ?? ''),
                 'printer_url'    => Printer::getFormURLWithID($printers_id),
+                'manual_url'     => Printer::getFormURLWithID($printers_id) . '&forcetab=' . urlencode('Cartridge$1'),
                 'cartridge_url'  => $cartridge_id > 0 ? CartridgeItem::getFormURLWithID($cartridge_id) : '',
                 'expedition_id'  => $exp !== null ? (int) $exp['id'] : 0,
                 'expedition_url' => $exp !== null ? PluginPrintgestionExpedition::getFormURLWithID((int) $exp['id']) : '',

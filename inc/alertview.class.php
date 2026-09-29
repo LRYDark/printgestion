@@ -119,6 +119,8 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
             }
         }
 
+        // Un inventaire reçu après un relevé manuel rend ce relevé caduc : la sonde a raison.
+        PluginPrintgestionManualreading::supersedeByInventory();
         // Calcul lourd, TOUTES entités : la table est lue ensuite avec la restriction
         // d'entité native (colonne entities_id) — ne jamais l'exposer sans elle.
         $rows = PluginPrintgestionAlert::listAll(null, false, $ids);

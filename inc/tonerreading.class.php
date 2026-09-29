@@ -56,6 +56,9 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
     public static function snapshotAllPrinters(): int {
         global $DB;
 
+        // Un inventaire reçu après un relevé manuel rend ce relevé caduc : retiré avant de photographier.
+        PluginPrintgestionManualreading::supersedeByInventory();
+
         $table = self::getTable();
         // Normalisé à minuit du jour courant — garantit que 2 runs le même jour
         // produisent la même clé (printer, property, reading_date) → le unique key

@@ -2,6 +2,24 @@
 
 ## Non publié
 
+- **Relevé manuel : une imprimante sans sonde se suit à la main.** Certains clients refusent l'agent ; ils
+  envoient ou dictent leurs niveaux et leurs compteurs. Un bouton « Saisir un relevé manuel » ouvre une fenêtre —
+  niveaux par emplacement, rangés par famille et par couleur (toners, tambours, autres ; les toners standard et
+  ceux que l'imprimante connaît, vide = inchangé), compteur total et pages couleur, commentaire ; le relevé est
+  daté de maintenant, comme un passage de sonde — dans les **onglets natifs « Cartouches » et
+  « Compteurs de pages »** de l'imprimante (hook officiel autour des onglets, rien dans le code de GLPI), dans la
+  carte « Sonde responsable » de la fiche, et par le clic droit des alertes toner et des imprimantes collectées. Le
+  relevé est écrit là où l'inventaire l'aurait écrit, par les classes natives (cartouches d'inventaire, journal
+  des compteurs, compteur de la fiche, historique de GLPI compris) : alertes, jours restants, cartouche changée,
+  commande, expédition, coût à la page — tout suit sans distinction, et les alertes de l'imprimante sont
+  recalculées sur-le-champ. Le plugin garde la trace de chaque relevé (qui, quand, quoi, commentaire), la montre
+  sous le bouton et dans une carte « Informations d'inventaire manuel » sous la fiche (imprimante sans inventaire
+  réseau, ou déjà relevée à la main), et compte un relevé manuel récent comme un inventaire dans « Imprimantes
+  collectées » (colonne « Relevé manuel ») ; passé le délai « imprimante muette », elle redevient muette. **La
+  sonde a raison** : un inventaire réseau reçu après un relevé manuel rend ce relevé caduc — valeurs de la sonde
+  gardées, relevé du plugin retiré, trace marquée « dépassé par la sonde ». Droit : Alertes toner en
+  modification, imprimante du périmètre ; compteur plus bas que le précédent signalé, pas refusé.
+
 - **Réglages lisibles par un débutant.** Configuration → Print Gestion s'ouvre sur un sommaire et se lit en six
   sections dans l'ordre du menu — Modules, Gestion contractuelle, Gestion toner & expéditions, Transport, Collecte
   SNMP / Déploiement Agent, Maintenance —, chacune avec une phrase qui dit à quoi elle sert ; le seuil

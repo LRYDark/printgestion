@@ -108,14 +108,20 @@ function plugin_init_printgestion() {
             if (PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
                 Plugin::registerClass('PluginPrintgestionAgentdeploy', ['addtabon' => 'Entity']); // Déploiement Agent
                 Plugin::registerClass('PluginPrintgestionAgentsetting', ['addtabon' => 'Agent']); // conformité, mise à jour
-                // Sonde responsable sur la fiche imprimante : dans la carte native « Informations d'inventaire »
-                // quand l'utilisateur la voit, sinon sous le formulaire (droits revérifiés à l'affichage).
-                $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::AUTOINVENTORY_INFORMATION]['printgestion'] = ['Printer' => 'plugin_printgestion_printer_probe_card'];
-                $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::POST_ITEM_FORM]['printgestion']             = 'plugin_printgestion_printer_probe_form';
             }
+            // Dans la carte native « Informations d'inventaire » d'une imprimante : la sonde responsable (module
+            // Déploiement) et le repère de la carte du relevé manuel (module toner) ; droits revérifiés à l'affichage.
+            $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::AUTOINVENTORY_INFORMATION]['printgestion'] = ['Printer' => 'plugin_printgestion_printer_probe_card'];
+            // Sous la fiche d'une imprimante : la sonde responsable (module Déploiement) et la carte du relevé manuel
+            // (module toner) ; chaque carte revérifie son module et ses droits.
+            $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::POST_ITEM_FORM]['printgestion'] = 'plugin_printgestion_printer_probe_form';
+
+            // Relevé manuel : bouton dans les onglets natifs « Cartouches » et « Compteurs de pages » d'une
+            // imprimante, par le hook officiel autour du contenu d'un onglet (droits revérifiés à l'affichage).
+            $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::POST_SHOW_TAB]['printgestion'] = 'plugin_printgestion_post_show_tab';
 
             // Jeton anti-cache (beta) : à incrémenter à chaque modif de public/css|js.
-            $cb = '?b=9';
+            $cb = '?b=10';
             $PLUGIN_HOOKS['add_css']['printgestion']        = ['public/css/printgestion.css' . $cb];
             $PLUGIN_HOOKS['add_javascript']['printgestion'] = ['public/js/printgestion.js' . $cb];
         }

@@ -320,6 +320,8 @@ function plugin_printgestion_create_templates() {
  */
 function plugin_printgestion_printer_probe_card($item): void {
     PluginPrintgestionPrinteragent::showInInventoryCard($item);
+    // Bloc « Informations d'inventaire manuel » dans la même carte, après la sonde responsable.
+    PluginPrintgestionManualreading::showInInventoryCard($item);
 }
 
 /**
@@ -328,6 +330,8 @@ function plugin_printgestion_printer_probe_card($item): void {
  */
 function plugin_printgestion_printer_probe_form($params): void {
     PluginPrintgestionPrinteragent::showAfterForm(is_array($params) ? $params : []);
+    // Carte « Informations d'inventaire manuel » : imprimante sans inventaire réseau, ou déjà relevée à la main.
+    PluginPrintgestionManualreading::showAfterForm(is_array($params) ? $params : []);
 }
 
 /**
@@ -350,4 +354,17 @@ function plugin_printgestion_getAddSearchOptionsNew($itemtype) {
         // Plugin en cours d'installation ou de retrait : pas de colonne, plutôt qu'une liste native cassée.
     }
     return [];
+}
+
+/**
+ * Hook POST_SHOW_TAB : sous le contenu natif des onglets « Cartouches » (Cartridge) et « Compteurs de pages »
+ * (PrinterLog) d'une imprimante, le bouton « Saisir un relevé manuel » et l'historique des relevés.
+ */
+function plugin_printgestion_post_show_tab($params): void {
+    $item    = is_array($params) ? ($params['item'] ?? null) : null;
+    $options = is_array($params) ? (array) ($params['options'] ?? []) : [];
+    if ($item instanceof Printer && (int) $item->getID() > 0
+        && in_array((string) ($options['itemtype'] ?? ''), ['Cartridge', 'PrinterLog'], true)) {
+        PluginPrintgestionManualreading::renderForTab($item);
+    }
 }
