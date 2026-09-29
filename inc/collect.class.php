@@ -898,11 +898,12 @@ class PluginPrintgestionCollect extends CommonGLPI {
                     : '';
                 $entries[] = ['serial' => "<code>" . $esc($serial) . "</code>" . $cross, 'printers' => implode('<br>', $links)];
             }
-            echo PluginPrintgestionUi::datatable(
+            // data-pg-noclick : plusieurs imprimantes par ligne, la ligne ne s'ouvre pas d'un clic (comme avant).
+            echo "<div data-pg-noclick='1'>" . PluginPrintgestionUi::datatable(
                 ['serial' => __('Numéro de série', 'printgestion'), 'printers' => _n('Imprimante', 'Imprimantes', 2, 'printgestion')],
                 $entries,
                 ['serial' => 'raw_html', 'printers' => 'raw_html']
-            );
+            ) . "</div>";
             echo "</div>";
         }
         echo PluginPrintgestionUi::adminDetails(__('Numéros de série en double', 'printgestion'), (string) ob_get_clean());

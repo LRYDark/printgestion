@@ -563,11 +563,12 @@ class PluginPrintgestionRaccordementdetail {
                 'state' => $state,
             ];
         }
-        echo PluginPrintgestionUi::datatable(
+        // data-pg-noclick : dans l'assistant, la ligne ne quitte pas la page d'un clic (comme avant) ; le lien reste.
+        echo "<div data-pg-noclick='1'>" . PluginPrintgestionUi::datatable(
             ['ip' => __('Adresse', 'printgestion'), 'item' => __('Imprimante', 'printgestion'), 'apply' => __('À appliquer', 'printgestion'), 'state' => __('État', 'printgestion')],
             $entries,
             ['ip' => 'raw_html', 'item' => 'raw_html', 'state' => 'raw_html']
-        );
+        ) . "</div>";
         if (self::canEdit($racc, $can_edit) && $ready > 0) {
             echo "<form method='post' action='" . $esc(PluginPrintgestionRaccordement::getPageURL()) . "' class='mt-3'>" . PluginPrintgestionRaccordement::stepField() . Html::hidden('id', ['value' => (int) $racc->getID()])
                 . "<button type='submit' name='apply_details' value='1' class='btn btn-primary'><i class='ti ti-check me-1'></i>"

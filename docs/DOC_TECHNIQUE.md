@@ -1004,7 +1004,9 @@ série ; fabricant et modèle sont répétés à chaque ligne, le gabarit ne gro
 (`Sageimport::showHistory()`), commandes non transmises aux Achats (`Purchaseorder::showNotSentCard()`). Une
 cellule qui porte un lien, un badge, un formulaire ou un alignement à droite passe en `raw_html`, échappée par
 l'appelant ; les nombres passent en `integer`. Les lignes qui représentent une imprimante portent `itemtype` /
-`id` : le clic ouvre la fiche, et le menu clic droit ne les prend que si la page est configurée pour ce type.
+`id` : le clic ouvre la fiche, et le menu clic droit ne les prend que si la page est configurée pour ce type. Un
+conteneur `data-pg-noclick` (commandes non transmises, doublons de série, étape 5) laisse la ligne inerte comme
+avant : `printgestion.js` ne suit le premier lien de la ligne qu'en dehors d'un tel conteneur.
 
 Restent dessinés à la main, volontairement : les tableaux qui portent un champ de saisie ou un formulaire par
 ligne (résultats du raccordement avec « Ramener ici » et regroupement, étape 3, tarifs de contrat, correspondances

@@ -241,7 +241,8 @@ class PluginPrintgestionPurchaseorder extends CommonDBTM {
                 'action' => "<span class='d-block text-end'>" . $action . "</span>",
             ];
         }
-        echo PluginPrintgestionUi::datatable([
+        // data-pg-noclick : comme avant, la ligne ne s'ouvre pas d'un clic (le premier lien serait le fichier archivé).
+        echo "<div data-pg-noclick='1'>" . PluginPrintgestionUi::datatable([
             'date'   => __('Enregistrée le', 'printgestion'),
             'source' => __('Origine', 'printgestion'),
             'user'   => __('Par', 'printgestion'),
@@ -249,7 +250,7 @@ class PluginPrintgestionPurchaseorder extends CommonDBTM {
             'error'  => __('Dernière erreur', 'printgestion'),
             'file'   => __('Fichier', 'printgestion'),
             'action' => '',
-        ], $entries, ['lines' => 'integer', 'error' => 'raw_html', 'file' => 'raw_html', 'action' => 'raw_html']);
+        ], $entries, ['lines' => 'integer', 'error' => 'raw_html', 'file' => 'raw_html', 'action' => 'raw_html']) . "</div>";
         echo "</div></div>";
     }
 

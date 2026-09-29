@@ -7,8 +7,8 @@
   même que les listes du module) : imprimantes collectées par une sonde (onglet de la sonde), analyses de
   l'administrateur (valeurs de consommables et compteurs par modèle, anomalies de compteurs, numéros de série en
   double), journal d'un raccordement, récapitulatif « À appliquer » de l'étape 5, historique des imports Sage,
-  commandes non transmises aux Achats. Même contenu, mêmes liens ; les lignes d'imprimante s'ouvrent d'un clic
-  comme partout ailleurs. Restent dessinés à la main les tableaux qui portent un champ de saisie ou un bouton par
+  commandes non transmises aux Achats. Même contenu, mêmes liens ; les lignes d'imprimante d'une sonde et des
+  anomalies de compteurs s'ouvrent d'un clic, les autres restent inertes comme avant. Restent dessinés à la main les tableaux qui portent un champ de saisie ou un bouton par
   ligne (résultats et étape 3 du raccordement, tarifs, correspondances, lignes de demande…) et l'aide de l'import
   Sage. Cinq tableaux encore stylés à la façon de GLPI 9 (`tab_cadre_fixehov`) prennent les classes de GLPI 11
   (correspondances SNMP, tarifs de contrat, coûts par imprimante, expédition). Deux méthodes que rien n'appelait
