@@ -360,6 +360,9 @@ class PluginPrintgestionManualreading extends CommonDBTM {
             if ($total_pages !== null) {
                 $printer->update(['id' => $printers_id, 'last_pages_counter' => $total_pages]);
             }
+            // Le tableau de bord du coût à la page garde ses calculs dix minutes : des compteurs saisis à la main
+            // doivent s'y lire tout de suite, comme dans l'onglet de l'imprimante.
+            PluginPrintgestionBilling::invalidateCache();
         }
 
         // 3. La trace du plugin : qui, quand, quoi.
