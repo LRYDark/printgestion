@@ -175,26 +175,32 @@ class PluginPrintgestionAgentview extends CommonDBTM {
         ];
     }
 
-    /** Colonnes ajoutées aux agents (listes natives et liste du module) : jointure sur la vue par agents_id. */
-    public static function getSearchOptionsToAdd(): array {
+    /**
+     * Colonnes ajoutées aux agents : jointure sur la vue par agents_id.
+     *
+     * Dans la liste native de GLPI (hook), sous un groupe « Print Gestion » : le moteur préfixe alors chaque en-tête
+     * du nom du groupe. Dans la liste du module (rawSearchOptions du type dédié), sans groupe : en-tête nu.
+     * `searchequalsonfield` : sans lui, « égal » sur une table jointe compare son `id`, pas la colonne.
+     */
+    public static function getOptionsForAgents(bool $with_group = true): array {
         self::ensureTable();
-        $table = self::getTable();
-        $join  = ['jointype' => 'child'];
-        return [
-            ['id' => 'printgestion_sonde', 'name' => __('Print Gestion — sonde', 'printgestion')],
-            ['id' => self::OPTION_PROBE, 'table' => $table, 'field' => 'is_probe', 'name' => __('Sonde Print Gestion', 'printgestion'),
-             'datatype' => 'bool', 'joinparams' => $join, 'massiveaction' => false],
-            ['id' => self::OPTION_SILENT, 'table' => $table, 'field' => 'is_silent', 'name' => __('Sans contact (Print Gestion)', 'printgestion'),
-             'datatype' => 'bool', 'joinparams' => $join, 'massiveaction' => false],
-            ['id' => self::OPTION_COMPLIANCE, 'table' => $table, 'field' => 'compliance', 'name' => __('Conformité de version (Print Gestion)', 'printgestion'),
-             'datatype' => 'specific', 'searchtype' => ['equals', 'notequals'], 'joinparams' => $join, 'massiveaction' => false],
-            ['id' => self::OPTION_PRINTERS, 'table' => $table, 'field' => 'printers_count', 'name' => __('Imprimantes collectées (Print Gestion)', 'printgestion'),
-             'datatype' => 'number', 'joinparams' => $join, 'massiveaction' => false],
-            ['id' => self::OPTION_UPDATE, 'table' => $table, 'field' => 'update_declared', 'name' => __('Mise à jour automatique déclarée (Print Gestion)', 'printgestion'),
-             'datatype' => 'specific', 'searchtype' => ['equals', 'notequals'], 'joinparams' => $join, 'massiveaction' => false],
-            ['id' => self::OPTION_INVENTORY, 'table' => $table, 'field' => 'last_network_inventory', 'name' => __('Dernier inventaire réseau réussi (Print Gestion)', 'printgestion'),
-             'datatype' => 'datetime', 'joinparams' => $join, 'massiveaction' => false],
+        $table   = self::getTable();
+        $join    = ['jointype' => 'child'];
+        $options = [
+            ['id' => self::OPTION_PROBE, 'table' => $table, 'field' => 'is_probe', 'name' => __('Sonde', 'printgestion'),
+             'datatype' => 'bool', 'searchequalsonfield' => true, 'joinparams' => $join, 'massiveaction' => false],
+            ['id' => self::OPTION_SILENT, 'table' => $table, 'field' => 'is_silent', 'name' => __('Sans contact', 'printgestion'),
+             'datatype' => 'bool', 'searchequalsonfield' => true, 'joinparams' => $join, 'massiveaction' => false],
+            ['id' => self::OPTION_COMPLIANCE, 'table' => $table, 'field' => 'compliance', 'name' => __('Conformité de version', 'printgestion'),
+             'datatype' => 'specific', 'searchtype' => ['equals', 'notequals'], 'searchequalsonfield' => true, 'joinparams' => $join, 'massiveaction' => false],
+            ['id' => self::OPTION_PRINTERS, 'table' => $table, 'field' => 'printers_count', 'name' => __('Imprimantes collectées', 'printgestion'),
+             'datatype' => 'number', 'searchequalsonfield' => true, 'joinparams' => $join, 'massiveaction' => false],
+            ['id' => self::OPTION_UPDATE, 'table' => $table, 'field' => 'update_declared', 'name' => __('Mise à jour automatique déclarée', 'printgestion'),
+             'datatype' => 'specific', 'searchtype' => ['equals', 'notequals'], 'searchequalsonfield' => true, 'joinparams' => $join, 'massiveaction' => false],
+            ['id' => self::OPTION_INVENTORY, 'table' => $table, 'field' => 'last_network_inventory', 'name' => __('Dernier inventaire réseau réussi', 'printgestion'),
+             'datatype' => 'datetime', 'searchequalsonfield' => true, 'joinparams' => $join, 'massiveaction' => false],
         ];
+        return $with_group ? array_merge([['id' => 'printgestion', 'name' => 'Print Gestion']], $options) : $options;
     }
 
     static function getSpecificValueToDisplay($field, $values, array $options = []) {

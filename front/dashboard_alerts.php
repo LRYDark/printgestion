@@ -90,7 +90,7 @@ PluginPrintgestionUi::statsBar([
      'tooltip' => __('Niveau inchangé alors que l\'imprimante imprime : estimation approximative', 'printgestion'),
      'icon' => 'ti ti-snowflake', 'color' => 'azure'],
     ['count' => $silent, 'label' => __('Imprimantes muettes ou illisibles', 'printgestion'),
-     'tooltip' => __('Aucune alerte possible sans remontée : voir « Contrôle de la remontée » (module Collecte SNMP / Déploiement Agent)', 'printgestion'),
+     'tooltip' => __('Aucune alerte possible sans remontée : voir « Imprimantes collectées » (module Collecte SNMP / Déploiement Agent)', 'printgestion'),
      'icon' => 'ti ti-wifi-off', 'color' => 'dark',
      // Page d'un autre module, à droit distinct : lien seulement pour qui y a accès.
      'url' => PluginPrintgestionMenu::tabAllowed('deploiement', ['plugin_printgestion_deploiement', READ])
@@ -122,7 +122,7 @@ if (countElementsInTable('glpi_plugin_printgestion_alertview') === 0) {
         __('Aucune alerte pour l\'instant. Les alertes viennent des relevés SNMP des sondes : déployer une sonde chez le client, raccorder ses imprimantes depuis la fiche de l\'entité (onglet Déploiement Agent), puis suivre la remontée. Les premières alertes apparaissent au passage de la tâche horaire, ou avec « Recalculer maintenant ».', 'printgestion'),
         [
             __('Installeur GLPI Agent', 'printgestion')      => PLUGIN_PRINTGESTION_WEBDIR . '/front/agentdeploy.php',
-            __('Contrôle de la remontée', 'printgestion')    => PLUGIN_PRINTGESTION_WEBDIR . '/front/collect.php',
+            __('Imprimantes collectées', 'printgestion')     => PLUGIN_PRINTGESTION_WEBDIR . '/front/collect.php',
         ]
     );
 }

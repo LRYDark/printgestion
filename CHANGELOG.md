@@ -2,20 +2,28 @@
 
 ## Non publié
 
-- **« Sondes & remontée » : un écran, deux listes natives, à la place des onglets « Sondes » et « Contrôle de la
-  remontée » qui listaient chacun les mêmes agents dans un tableau fait à la main.** Les tuiles (sondes sans
-  contact, à mettre à jour, imprimantes muettes, sans niveau, jamais inventoriées, collecte normale) ouvrent la
-  liste filtrée ; la ligne des prérequis reste ; puis la vue **Sondes** — la liste native des Agents de GLPI avec
-  les colonnes du plugin (sonde, sans contact, conformité de version, imprimantes collectées, mise à jour
-  automatique déclarée, dernier inventaire réseau réussi) — ou la vue **Imprimantes collectées** — la liste native
-  des Imprimantes avec l'état de la collecte, les dates d'inventaire et de découverte, la sonde. Recherche, tri,
-  filtres par entité, par sonde et par état, choix des colonnes, export : tout est natif. Ces colonnes existent
-  aussi dans Administration → Agents et Parc → Imprimantes : c'est là que se font les actions massives sur ces
-  objets, avec leurs droits natifs (aucune sur un type dérivé, qui écrirait l'historique sous un autre nom).
-  Derrière : deux vues matérialisées (`collectviews`, `agentviews`) recalculées toutes les heures avec les alertes,
-  à l'ouverture de l'écran si elles datent de plus de quinze minutes, et par « Recalculer maintenant » ; créées
-  d'elles-mêmes sur une installation existante. L'ancienne adresse `collect.php` renvoie vers la vue des
-  imprimantes, filtre d'état compris.
+- **Réglages lisibles par un débutant.** Configuration → Print Gestion s'ouvre sur un sommaire et se lit en six
+  sections dans l'ordre du menu — Modules, Gestion contractuelle, Gestion toner & expéditions, Transport, Collecte
+  SNMP / Déploiement Agent, Maintenance —, chacune avec une phrase qui dit à quoi elle sert ; le seuil
+  « imprimante muette après » quitte les seuils d'alerte pour la section Collecte, qui renvoie vers les réglages
+  des sondes (version des agents, mise à jour automatique, statut des PC) sur la page « Installeur GLPI Agent »,
+  dont la carte s'appelle désormais « Réglages des sondes ». Les textes qui disaient encore « mise à jour manuelle »
+  pour macOS (fiche Agent, notice, panneau « i », compte rendu d'installation, documentation) disent maintenant ce
+  qui est : le service launchd posé par le fichier d'installation, sans consigne à part.
+
+- **Onglets « Sondes » et « Imprimantes collectées » : deux listes natives, à la place de « Sondes » et
+  « Contrôle de la remontée » qui listaient chacun les mêmes agents dans un tableau fait à la main.** **Sondes** :
+  la liste native des Agents de GLPI avec les colonnes du plugin (sonde, sans contact, conformité de version,
+  imprimantes collectées, mise à jour automatique déclarée, dernier inventaire réseau réussi), tuiles « sans
+  contact » et « à mettre à jour ». **Imprimantes collectées** : la liste native des Imprimantes avec l'état de la
+  collecte, les dates d'inventaire et de découverte, la sonde ; tuiles par état, ligne des prérequis, analyses de
+  réglage de l'administrateur. Recherche, tri, filtres par entité, par sonde et par état, choix des colonnes,
+  export : tout est natif. Ces colonnes existent aussi dans Administration → Agents et Parc → Imprimantes (groupe
+  « Print Gestion ») : c'est là que se font les actions massives sur ces objets, avec leurs droits natifs (aucune
+  sur un type dérivé, qui écrirait l'historique sous un autre nom). Derrière : deux vues matérialisées
+  (`collectviews`, `agentviews`) recalculées toutes les heures avec les alertes, à l'ouverture d'un onglet si elles
+  datent de plus de quinze minutes, et par « Recalculer maintenant » ; créées d'elles-mêmes sur une installation
+  existante. L'ancien lien `collect.php?state=` devient le filtre natif.
 
 - **Onglet « Déploiement Agent » de l'entité : un seul tableau de sondes.** Le bloc 3 montrait « Raccordements
   en cours » puis « Sondes rattachées » — deux tableaux pour les mêmes machines. Il montre maintenant une ligne

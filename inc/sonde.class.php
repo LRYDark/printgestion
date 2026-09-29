@@ -42,7 +42,7 @@ class PluginPrintgestionSonde extends Agent implements Glpi\Search\DefaultSearch
         return Agent::canPurge();
     }
 
-    /** La « recherche » de ce type est l'écran « Sondes & remontée » du module. */
+    /** La « recherche » de ce type est l'onglet « Sondes » du module. */
     public static function getSearchURL($full = true) {
         return ($full ? PLUGIN_PRINTGESTION_WEBDIR : PLUGIN_PRINTGESTION_NOTFULL_WEBDIR) . '/front/sondes.php';
     }
@@ -54,6 +54,17 @@ class PluginPrintgestionSonde extends Agent implements Glpi\Search\DefaultSearch
 
     public static function getFormURLWithID($id = 0, $full = true) {
         return Agent::getFormURLWithID($id, $full);
+    }
+
+    /**
+     * Les options de l'Agent, plus celles du plugin juste après l'en-tête « Caractéristiques » : sans groupe à
+     * part, les en-têtes de colonnes restent nus (le moteur préfixe du nom du groupe tout ce qui n'est pas dans le
+     * premier). Le hook ne les ajoute pas à ce type : elles y seraient en double.
+     */
+    public function rawSearchOptions() {
+        $tab = parent::rawSearchOptions();
+        array_splice($tab, 1, 0, PluginPrintgestionAgentview::getOptionsForAgents(false));
+        return $tab;
     }
 
     /** Première ouverture et « réinitialiser » : les sondes seulement, les plus anciennes au contact en premier. */

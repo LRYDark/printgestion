@@ -11,7 +11,7 @@
  *   SYSTEM ; Linux : tâche cron, installeur officiel vérifié) est posée sur le PC par le paquet d'installation
  *   selon les réglages par défaut, puis changée par la consigne de la sonde, lancée sur le PC. Sans la tâche Deploy
  *   (exclue) ni jeton (exclu), GLPI ne peut pas la changer à distance : décocher la case ne retire pas une tâche
- *   déjà posée. macOS : mise à jour manuelle, aucun mécanisme officiel.
+ *   déjà posée. macOS : service launchd mensuel posé par le fichier d'installation ; pas de consigne à part.
  * - Statut GLPI du PC sonde, choisi par l'administrateur, pour distinguer la sonde du parc du client.
  * - Onglet sur la fiche Agent native (seulement ce qui y manque) et page « Sondes » du module, pour les
  *   techniciens qui n'ont pas le droit Agent.
@@ -1298,7 +1298,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
 
     /** Rappel de ce que le plugin fait et ne fait pas des mises à jour, sous les paramètres des paquets. */
     public static function getUpdateNotice(): string {
-        return __('Le plugin ne pousse aucune mise à jour : rien ne part d\'ici vers un PC. Selon ces réglages, le fichier d\'installation pose sur le PC une tâche planifiée mensuelle (Windows : winget, compte SYSTEM ; Linux : cron, installeur officiel vérifié), qui ne fait rien tant que l\'agent travaille ; macOS : mise à jour manuelle. Ensuite, seule une consigne lancée sur le PC change cette tâche. Microsoft ne prend pas officiellement en charge winget sous le compte SYSTEM : à vérifier au pilote.', 'printgestion');
+        return __('Le plugin ne pousse aucune mise à jour : rien ne part d\'ici vers un PC. Selon ces réglages, le fichier d\'installation pose sur le PC une tâche planifiée mensuelle (Windows : winget, compte SYSTEM ; Linux : cron ; macOS : service launchd — installeur officiel vérifié), qui ne fait rien tant que l\'agent travaille. Ensuite, seule une consigne lancée sur le PC change cette tâche (sur un Mac : relancer le fichier d\'installation de l\'entité). Microsoft ne prend pas officiellement en charge winget sous le compte SYSTEM : à vérifier au pilote.', 'printgestion');
     }
 
     /**
@@ -1385,7 +1385,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             . PluginPrintgestionUi::infoButton(__('Mise à jour automatique', 'printgestion'), $admin ? '<p>' . $esc(__('GLPI ne pousse aucune mise à jour : rien ne part d\'ici vers ce PC. La tâche de mise à jour y est posée par le fichier d\'installation (imposée si la page « Installeur GLPI Agent » le demande, sinon proposée au technicien) ; ensuite, seuls ces deux fichiers la posent ou la retirent, une fois lancés sur le PC. La ligne ci-dessus est la seule chose que GLPI sache de ce PC : ce que l\'installation lui a déclaré ce jour-là. La tâche elle-même ne met pas à jour sur commande — elle s\'exécute le 1er du mois à 3 h, et seulement si l\'agent est en attente. Retour à une version plus ancienne : renseignez la version cible, posez la consigne, et sachez que l\'installeur peut refuser de rétrograder (signalé dans le journal de la tâche) ; il faut alors désinstaller puis réinstaller avec le fichier de l\'entité.', 'printgestion')) . '</p>' : '') . "</p>";
         $platform = self::getHostPlatform($agent->fields);
         if ($platform === 'macos') {
-            echo "<p class='mb-0'>" . $esc(__('Mac : pas de mise à jour automatique, réinstaller le paquet de l\'entité.', 'printgestion')) . "</p>";
+            echo "<p class='mb-0'>" . $esc(__('Mac : la mise à jour automatique (service launchd, le 1er du mois à 3 h) se pose ou se retire en relançant le fichier d\'installation de l\'entité ; pas de consigne à part sous macOS.', 'printgestion')) . "</p>";
         } else {
             echo "<div class='d-flex flex-wrap gap-2'>";
             // Un bouton par action, et l'action dans le libellé : personne n'a à deviner ce que le fichier fera.

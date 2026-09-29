@@ -338,11 +338,13 @@ function plugin_printgestion_printer_probe_form($params): void {
  */
 function plugin_printgestion_getAddSearchOptionsNew($itemtype) {
     try {
-        if (in_array($itemtype, ['Agent', 'PluginPrintgestionSonde'], true) && PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
-            return PluginPrintgestionAgentview::getSearchOptionsToAdd();
+        // Les types dédiés du module (PluginPrintgestionSonde, PluginPrintgestionPrintercollect) les portent déjà dans
+        // leurs rawSearchOptions, sans groupe : ici les listes natives seulement.
+        if ($itemtype === 'Agent' && PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
+            return PluginPrintgestionAgentview::getOptionsForAgents();
         }
-        if (in_array($itemtype, ['Printer', 'PluginPrintgestionPrintercollect'], true) && PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
-            return PluginPrintgestionCollectview::getSearchOptionsToAdd();
+        if ($itemtype === 'Printer' && PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
+            return PluginPrintgestionCollectview::getOptionsForPrinters();
         }
     } catch (Throwable $e) {
         // Plugin en cours d'installation ou de retrait : pas de colonne, plutôt qu'une liste native cassée.

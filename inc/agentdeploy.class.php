@@ -4929,7 +4929,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     /**
      * Paquet macOS d'une entité (ZIP), fichier temporaire que l'appelant supprime : les deux paquets officiels
      * vérifiés (Apple Silicon, Intel), local.cfg à déposer dans /Applications/GLPI-Agent/etc/conf.d, note avec la
-     * procédure. Pas de fichier .command ; mise à jour manuelle (réinstaller le paquet, local.cfg est gardé).
+     * procédure. Pas de fichier .command ni de mise à jour automatique dans ce recours (le fichier unique, lui, la pose).
      *
      * @return array ['ok' => bool, 'errors' => string[], 'path', 'filename', 'version', 'tag']
      */
@@ -5479,7 +5479,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $esc  = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $html = "<div class='fw-bold mb-1'>" . $esc(__('Ce que contient le fichier unique', 'printgestion')) . "</div>"
             . "<p class='small'>" . $esc(sprintf(__('GLPI Agent %s. Le fichier porte l\'adresse du serveur GLPI, le TAG, l\'empreinte SHA-256 attendue et une clé de récupération à usage unique valable 24 h : aucun identifiant, aucun mot de passe. Il télécharge l\'installeur officiel de Teclib\' depuis ce serveur, refuse d\'installer quoi que ce soit si l\'empreinte diffère, puis l\'installe avec les propriétés ci-dessous. C\'est le seul livrable du plugin qui porte un secret : il se donne au technicien pour l\'intervention, il ne s\'archive pas.', 'printgestion'), $version)) . "</p>"
-            . "<p class='small'>" . $esc(__('Windows : un .bat dont la seconde moitié est du PowerShell (fenêtre WinForms) ; la mise à jour automatique est une case à cocher, décochée. Linux : un .sh (fenêtre zenity si le poste en a une, question en console sinon) qui pose aussi les réessais SNMP en conf.d et la tâche cron mensuelle si on l\'a voulu. macOS : un .sh qui lit la puce du Mac, ne télécharge que le paquet correspondant, l\'installe, dépose local.cfg et relance le service ; mise à jour manuelle.', 'printgestion')) . "</p>";
+            . "<p class='small'>" . $esc(__('Windows : un .bat dont la seconde moitié est du PowerShell (fenêtre WinForms) ; la mise à jour automatique est une case à cocher, décochée. Linux : un .sh (fenêtre zenity si le poste en a une, question en console sinon) qui pose aussi les réessais SNMP en conf.d et la tâche cron mensuelle si on l\'a voulu. macOS : un .sh qui lit la puce du Mac, ne télécharge que le paquet correspondant, l\'installe, dépose local.cfg, relance le service et pose la mise à jour automatique (service launchd mensuel) si on l\'a voulu.', 'printgestion')) . "</p>";
         if ($entities_id > 0) {
             // Recours quand l'antivirus d'un client refuse les scripts : les archives complètes, qui ne portent aucun
             // secret mais demandent d'extraire un dossier. Rangées ici, pas dans l'écran : ce n'est plus le chemin normal.
@@ -5688,7 +5688,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         }
         echo "</div></div>";
         // Toujours dépliée : ce sont des réglages qu'on vient changer, pas un détail qu'on consulte.
-        echo PluginPrintgestionUi::adminCard(__('Paramètres transmis à l\'installation', 'printgestion'), $params_html, false);
+        echo PluginPrintgestionUi::adminCard(__('Réglages des sondes — transmis par le fichier d\'installation', 'printgestion'), $params_html, false);
 
         $prerequisites_ok = $inventory_on && empty($inventory['blocking']) && $rule['active'] !== null && $with_tag > 0;
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(__('Prérequis', 'printgestion')) . "</h3></div><div class='card-body'>";

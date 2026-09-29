@@ -186,6 +186,27 @@ class PluginPrintgestionConfig extends CommonDBTM {
         // En tête : état réel de l'environnement (contrôles automatiques, journal du plugin compris).
         PluginPrintgestionConfighealth::showCard($canedit);
 
+        // ── Sommaire et sections : le lecteur sait où il est, et où aller ──
+        $escape   = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $sections = [
+            'modules'     => __('Modules', 'printgestion'),
+            'contrats'    => __('Gestion contractuelle', 'printgestion'),
+            'toner'       => __('Gestion toner & expéditions', 'printgestion'),
+            'transport'   => __('Transport', 'printgestion'),
+            'collecte'    => __('Collecte SNMP / Déploiement Agent', 'printgestion'),
+            'maintenance' => __('Maintenance', 'printgestion'),
+        ];
+        echo "<div class='card mb-3'><div class='card-body d-flex flex-wrap align-items-center gap-2'>"
+            . "<span class='fw-bold me-1'><i class='ti ti-list me-1'></i>" . $escape(__('Sommaire', 'printgestion')) . "</span>";
+        foreach ($sections as $anchor => $title) {
+            echo "<a class='btn btn-sm btn-outline-secondary' href='#pg-sec-" . $anchor . "'>" . $escape($title) . "</a>";
+        }
+        echo "</div></div>";
+        $section = static function (string $anchor, string $intro) use ($sections, $escape): void {
+            echo "<h2 class='mt-4 mb-1' id='pg-sec-" . $anchor . "'>" . $escape($sections[$anchor]) . "</h2>"
+                . "<p class='text-muted mb-3'>" . $escape($intro) . "</p>";
+        };
+
         // ── Seuils ────────────────────────────────────────────────
         // Helper : rend un label avec icône d'info et tooltip
         $label_with_tip = function (string $label, string $tip): string {
@@ -194,6 +215,8 @@ class PluginPrintgestionConfig extends CommonDBTM {
                 . " <i class='fa-solid fa-circle-info text-muted ms-1' data-bs-toggle='tooltip'"
                 . " title=\"{$tip_esc}\"></i></label>";
         };
+
+        $section('modules', __('Allumez seulement ce que vous utilisez : chaque module a son menu, ses onglets et ses tâches automatiques.', 'printgestion'));
 
         // ── Activation des modules (interrupteurs de features) ────────
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
@@ -220,8 +243,14 @@ class PluginPrintgestionConfig extends CommonDBTM {
         $feature_toggle('sage', __('Référentiel Sage', 'printgestion'));
         echo "</div></div></div>";
 
+        $section('contrats', __('Contrats d\'impression : les alertes natives de fin de contrat et de préavis, réglées d\'ici.', 'printgestion'));
+        PluginPrintgestionContractalert::showConfigCard();
+
+        $section('toner', __('Du relevé SNMP à la cartouche livrée : seuils d\'alerte, verrous contre le double envoi, commande aux Achats, demandes d\'envoi, notifications, correspondance des cartouches.', 'printgestion'));
+
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
             . __("Seuils d'alerte", 'printgestion') . "</h3></div><div class='card-body'>";
+        echo "<p class='text-muted small mb-3'>" . $escape(__('Ce qui fait passer un toner « à surveiller » puis « critique », l\'estimation des jours restants, la détection d\'une cartouche changée.', 'printgestion')) . "</p>";
         echo "<div class='row g-3'>";
 
         echo "<div class='col-md-3'>"
@@ -272,30 +301,6 @@ class PluginPrintgestionConfig extends CommonDBTM {
         echo "<input type='number' min='100' class='form-control' name='default_pages_per_cartridge' value='"
             . (int)($config->fields['default_pages_per_cartridge'] ?? 5000) . "'></div>";
 
-        echo "<div class='col-md-3'>"
-            . $label_with_tip(
-                __('Imprimante muette après (jours)', 'printgestion'),
-                __("Sans inventaire depuis ce nombre de jours, une imprimante (ou l'agent qui l'inventorie) est signalée muette dans l'écran « Contrôle de la remontée » : elle ne peut plus déclencher d'alerte toner.", 'printgestion')
-            );
-        echo "<input type='number' min='1' max='365' class='form-control' name='silent_days' value='"
-            . PluginPrintgestionCollect::getSilentDays() . "'>";
-        // Réglage natif voisin, affiché et jamais redéfini : GLPI nettoie (supprime) un agent sans contact après ce délai.
-        // L'alerte « sonde muette » doit arriver avant : seuil du plugin plus court que le délai natif.
-        $stale_days = (int) Config::getConfigurationValue('inventory', 'stale_agents_delay');
-        $inventory_url = $CFG_GLPI['root_doc'] . '/front/inventory.conf.php';
-        echo "<div class='form-hint'>" . ($stale_days > 0
-            ? sprintf(htmlspecialchars(__('GLPI nettoie un agent sans contact après %1$d jours (%2$s). Ce seuil doit rester plus court.', 'printgestion'), ENT_QUOTES, 'UTF-8'),
-                $stale_days, "<a href='" . htmlspecialchars($inventory_url, ENT_QUOTES, 'UTF-8') . "'>" . htmlspecialchars(__('Administration → Inventaire, nettoyage des agents', 'printgestion'), ENT_QUOTES, 'UTF-8') . "</a>")
-            : sprintf(htmlspecialchars(__('GLPI ne nettoie pas les agents sans contact (%s).', 'printgestion'), ENT_QUOTES, 'UTF-8'),
-                "<a href='" . htmlspecialchars($inventory_url, ENT_QUOTES, 'UTF-8') . "'>" . htmlspecialchars(__('Administration → Inventaire, nettoyage des agents', 'printgestion'), ENT_QUOTES, 'UTF-8') . "</a>")) . "</div>";
-        if ($stale_days > 0 && PluginPrintgestionCollect::getSilentDays() >= $stale_days) {
-            echo "<div class='alert alert-warning mt-2 mb-0'>" . htmlspecialchars(sprintf(
-                __('Seuil de %1$d jours ≥ délai de nettoyage de GLPI (%2$d jours) : l\'alerte « sonde muette » arriverait après que GLPI a supprimé l\'agent — et une sonde éteinte pendant des congés serait effacée avant d\'être signalée. Baisser ce seuil, ou allonger le délai dans GLPI.', 'printgestion'),
-                PluginPrintgestionCollect::getSilentDays(),
-                $stale_days
-            ), ENT_QUOTES, 'UTF-8') . "</div>";
-        }
-        echo "</div>";
 
         echo "</div></div></div>";
 
@@ -393,9 +398,6 @@ class PluginPrintgestionConfig extends CommonDBTM {
         echo "<input type='number' min='0' max='90' class='form-control' name='demande_reminder_days' value='"
             . (int)($config->fields['demande_reminder_days'] ?? 2) . "'></div></div>";
         echo "</div></div>";
-
-        // ── Alertes de contrat natives GLPI ──────────────────────
-        PluginPrintgestionContractalert::showConfigCard();
 
         // Active les tooltips Bootstrap sur les icônes d'info
         echo "<script>
@@ -656,7 +658,6 @@ class PluginPrintgestionConfig extends CommonDBTM {
         echo "</div></div></div>";
 
         // ── Card : Mapping SNMP → Cartouches GLPI ─────────────────
-        self::showSnmpMappingCard();
 
         // ── JS : toggle switch entre panneau groupe / panneau users ─
         echo <<<'HTML'
@@ -741,6 +742,8 @@ HTML;
             echo "</div></div>";
         }
 
+        $section('transport', __('Suivi des colis par les transporteurs : rien n\'est obligatoire, chaque service se teste ici.', 'printgestion'));
+
         // ── Suivi GLS (identifiant client et secret, rien d'autre : les URL sont des constantes du code) ──
         $gls_id     = (string) ($config->fields['gls_client_id'] ?? '');
         $gls_set    = (string) ($config->fields['gls_client_secret'] ?? '') !== '';
@@ -823,7 +826,42 @@ HTML;
         echo "</div></div>";
 
 
+        $section('collecte', __('Ce qui juge la remontée des imprimantes. Les réglages des sondes elles-mêmes — version des agents, mise à jour automatique, statut des PC — sont sur la page « Installeur GLPI Agent » du module.', 'printgestion'));
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $escape(__('Collecte SNMP', 'printgestion')) . "</h3></div><div class='card-body'>";
+        echo "<div class='row g-3'>";
+        echo "<div class='col-md-3'>"
+            . $label_with_tip(
+                __('Imprimante muette après (jours)', 'printgestion'),
+                __("Sans inventaire depuis ce nombre de jours, une imprimante (ou l'agent qui l'inventorie) est signalée muette dans l'onglet « Imprimantes collectées » : elle ne peut plus déclencher d'alerte toner.", 'printgestion')
+            );
+        echo "<input type='number' min='1' max='365' class='form-control' name='silent_days' value='"
+            . PluginPrintgestionCollect::getSilentDays() . "'>";
+        // Réglage natif voisin, affiché et jamais redéfini : GLPI nettoie (supprime) un agent sans contact après ce délai.
+        // L'alerte « sonde muette » doit arriver avant : seuil du plugin plus court que le délai natif.
+        $stale_days = (int) Config::getConfigurationValue('inventory', 'stale_agents_delay');
+        $inventory_url = $CFG_GLPI['root_doc'] . '/front/inventory.conf.php';
+        echo "<div class='form-hint'>" . ($stale_days > 0
+            ? sprintf(htmlspecialchars(__('GLPI nettoie un agent sans contact après %1$d jours (%2$s). Ce seuil doit rester plus court.', 'printgestion'), ENT_QUOTES, 'UTF-8'),
+                $stale_days, "<a href='" . htmlspecialchars($inventory_url, ENT_QUOTES, 'UTF-8') . "'>" . htmlspecialchars(__('Administration → Inventaire, nettoyage des agents', 'printgestion'), ENT_QUOTES, 'UTF-8') . "</a>")
+            : sprintf(htmlspecialchars(__('GLPI ne nettoie pas les agents sans contact (%s).', 'printgestion'), ENT_QUOTES, 'UTF-8'),
+                "<a href='" . htmlspecialchars($inventory_url, ENT_QUOTES, 'UTF-8') . "'>" . htmlspecialchars(__('Administration → Inventaire, nettoyage des agents', 'printgestion'), ENT_QUOTES, 'UTF-8') . "</a>")) . "</div>";
+        if ($stale_days > 0 && PluginPrintgestionCollect::getSilentDays() >= $stale_days) {
+            echo "<div class='alert alert-warning mt-2 mb-0'>" . htmlspecialchars(sprintf(
+                __('Seuil de %1$d jours ≥ délai de nettoyage de GLPI (%2$d jours) : l\'alerte « sonde muette » arriverait après que GLPI a supprimé l\'agent — et une sonde éteinte pendant des congés serait effacée avant d\'être signalée. Baisser ce seuil, ou allonger le délai dans GLPI.', 'printgestion'),
+                PluginPrintgestionCollect::getSilentDays(),
+                $stale_days
+            ), ENT_QUOTES, 'UTF-8') . "</div>";
+        }
+        echo "</div>";
+
+        echo "</div>";
+        echo "<p class='text-muted small mt-3 mb-0'><i class='ti ti-arrow-right me-1'></i><a href='" . $escape(PLUGIN_PRINTGESTION_WEBDIR . '/front/agentdeploy.php') . "'>"
+            . $escape(__('Réglages des sondes : page « Installeur GLPI Agent »', 'printgestion')) . "</a></p>";
+        echo "</div></div>";
+
+        $section('maintenance', __('Lignes sans rattachement et correspondances de secours : à regarder quand quelque chose ne colle pas, pas au quotidien.', 'printgestion'));
         self::showOrphansCard();
+        self::showSnmpMappingCard();
         // Une seule fenêtre pour les deux tests de connexion, rendue en fin de formulaire.
         self::showTestModal();
 

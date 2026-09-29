@@ -1,8 +1,8 @@
-"""Écran « Sondes & remontée » : deux listes natives (sondes, imprimantes collectées) sur des vues matérialisées.
+"""Onglets « Sondes » et « Imprimantes collectées » : deux listes natives sur des vues matérialisées.
 
 Les vues se recalculent sur demande et à l'affichage ; leurs colonnes s'ajoutent aux listes natives de GLPI
-(Administration > Agents, Parc > Imprimantes) comme à celles du module. L'ancienne page « Contrôle de la remontée »
-renvoie vers la vue des imprimantes, filtre d'état compris. Le technicien (droit Déploiement en lecture) voit les
+(Administration > Agents, Parc > Imprimantes) comme à celles du module. L'ancien lien « collect.php?state= »
+devient le filtre natif de l'onglet des imprimantes. Le technicien (droit Déploiement en lecture) voit les
 listes sans action massive ni colonne réservée.
 """
 import json
@@ -43,26 +43,25 @@ def main():
         section("2. L'écran : tuiles, prérequis, deux vues natives")
         statut, page, _ = WEB.get(config.FRONT + "/sondes.php")
         itemtype, cles = configuration(page)
-        constat("vue des sondes : liste native, tuiles, prérequis, clic droit",
+        constat("onglet Sondes : liste native, tuiles, clic droit",
                 ok_ko(statut == 200 and "data-glpi-search-container" in page and "Sondes sans contact" in page
-                      and "Imprimantes : Muette" in page and "prérequis" in page and itemtype == "PluginPrintgestionSonde"
-                      and set(cles) == {"open-agent", "open-raccordement", "history"}),
+                      and itemtype == "PluginPrintgestionSonde" and set(cles) == {"open-agent", "open-raccordement", "history"}),
                 f"HTTP {statut}, {itemtype} {cles}")
         constat("aucune action massive sur ce type dérivé", ok_ko("massiveactions-control" not in page))
-        statut, page, _ = WEB.get(config.FRONT + "/sondes.php?vue=imprimantes")
+        statut, page, _ = WEB.get(config.FRONT + "/collect.php")
         itemtype, cles = configuration(page)
-        constat("vue des imprimantes : état de la collecte, analyses de l'administrateur, clic droit",
-                ok_ko(statut == 200 and "data-glpi-search-container" in page and "État de la collecte" in page
-                      and "Numéros de série en double" in page and itemtype == "PluginPrintgestionPrintercollect"
+        constat("onglet Imprimantes collectées : état de la collecte, tuiles, prérequis, analyses de l'administrateur, clic droit",
+                ok_ko(statut == 200 and "data-glpi-search-container" in page and "État de la collecte" in page and "Muette" in page
+                      and "prérequis" in page and "Numéros de série en double" in page and itemtype == "PluginPrintgestionPrintercollect"
                       and set(cles) == {"open-printer", "open-agent"}),
                 f"HTTP {statut}, {itemtype} {cles}")
-        statut, page, _ = WEB.get(config.FRONT + "/sondes.php?vue=imprimantes&criteria[0][field]=74011&criteria[0][searchtype]=equals&criteria[0][value]=" + str(etat) + "&reset=reset")
+        statut, page, _ = WEB.get(config.FRONT + "/collect.php?criteria[0][field]=74011&criteria[0][searchtype]=equals&criteria[0][value]=" + str(etat) + "&reset=reset")
         constat("filtre natif par état : l'imprimante de cet état est listée",
                 ok_ko(statut == 200 and f"printer.form.php?id={d.IMP_A1}" in page), f"HTTP {statut}")
         statut, page, en_tetes = WEB.brut("GET", config.FRONT + "/collect.php?state=stale")
         cible = en_tetes.get("Location", "") if en_tetes else ""
-        constat("l'ancienne page « Contrôle de la remontée » renvoie vers la vue des imprimantes, état conservé",
-                ok_ko(statut in (301, 302) and "sondes.php" in cible and "vue=imprimantes" in cible and "74011" in cible), f"HTTP {statut} → {cible[:120]}")
+        constat("l'ancien lien « ?state= » devient le filtre natif de l'onglet Imprimantes collectées",
+                ok_ko(statut in (301, 302) and "collect.php" in cible and "74011" in cible and "stale" in cible), f"HTTP {statut} → {cible[:120]}")
 
         section("3. Les mêmes colonnes dans les listes natives de GLPI")
         statut, page, _ = WEB.get("/front/agent.php?criteria[0][field]=74001&criteria[0][searchtype]=equals&criteria[0][value]=1&reset=reset")
@@ -82,9 +81,9 @@ def main():
         profil = CTX.profil(6, "Profil test supervision (Déploiement en lecture)", {"plugin_printgestion_deploiement": 1, "plugin_printgestion_config": 0})
         CTX.utilisateur("test-supervision-tech", profil, d.CLIENT_A)
         CTX.connecter("test-supervision-tech")
-        for vue in ("", "?vue=imprimantes"):
-            statut, page, _ = WEB.get(config.FRONT + "/sondes.php" + vue)
-            constat(f"sondes.php{vue} : ouverte par le technicien, liste native, rien de réservé",
+        for page_nom in ("sondes.php", "collect.php"):
+            statut, page, _ = WEB.get(config.FRONT + "/" + page_nom)
+            constat(f"{page_nom} : ouverte par le technicien, liste native, rien de réservé",
                     ok_ko(statut == 200 and "data-glpi-search-container" in page and "massiveactions-control" not in page
                           and "data-pg-admin" not in page and "Numéros de série en double" not in page and "recompute_views" not in page),
                     f"HTTP {statut}")

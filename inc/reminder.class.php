@@ -102,7 +102,7 @@ class PluginPrintgestionReminder extends CommonGLPI {
         PluginPrintgestionAlert::invalidateCache();
         // Matérialise les alertes pour le tableau Search natif (Phase 3).
         $materialized = PluginPrintgestionAlertview::rebuild();
-        // Vues « Sondes & remontée » (état de la collecte des imprimantes, sondes) : même cadence.
+        // Vues « Sondes » et « Imprimantes collectées » (état de la collecte, sondes) : même cadence.
         if (PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
             PluginPrintgestionCollectview::rebuild();
         }

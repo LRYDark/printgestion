@@ -372,8 +372,10 @@ Raccordement :
   (« Agent occupé », « GitHub injoignable », « Empreinte différente », « Déjà en version »). Le PC sonde doit joindre
   api.github.com et github.com, et avoir curl. Pour ne pas attendre le mois suivant :
   `sudo /etc/cron.monthly/glpi-agent-printgestion`.
-- **macOS** : pas de mise à jour automatique ; réinstaller le paquet d'une version plus récente (paquet de l'entité),
-  `local.cfg` est gardé.
+- **macOS** : service launchd `com.printgestion.glpi-agent-update` (le 1er du mois à 3 h), script
+  `/usr/local/sbin/glpi-agent-printgestion-update`, journal `/var/log/glpi-agent-printgestion-update.log`. Pour ne
+  pas attendre le mois suivant : `sudo sh /usr/local/sbin/glpi-agent-printgestion-update`. Poser ou retirer le
+  service : relancer le fichier d'installation de l'entité (case « Mettre à jour l'agent automatiquement »).
 
 ### Fréquence des relevés d'imprimantes
 

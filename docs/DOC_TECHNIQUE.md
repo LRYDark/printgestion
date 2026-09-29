@@ -1437,12 +1437,13 @@ journal de l'agent (`logger = file`, `logfile = /var/log/glpi-agent.log`, `logfi
 affichée dans l'onglet et la note : installer le bon paquet, puis dans Terminal
 `sudo cp ~/Downloads/<dossier>/local.cfg /Applications/GLPI-Agent/etc/conf.d/local.cfg`,
 `sudo launchctl bootout system /Library/LaunchDaemons/com.teclib.glpi-agent.plist` et
-`sudo launchctl bootstrap system …` (macOS 13 et plus ; `unload`/`load` avant). Mise à jour : manuelle
-(réinstaller le paquet, `local.cfg` gardé), aucun mécanisme officiel.
+`sudo launchctl bootstrap system …` (macOS 13 et plus ; `unload`/`load` avant). Mise à jour : dans ce recours ZIP,
+réinstaller le paquet (`local.cfg` gardé) ; le fichier unique, lui, pose le service launchd mensuel
+(`Agentsetting::buildMacosScheduleLines()`).
 
 **Onglet de la fiche Agent / page « Sondes »** : consigne proposée selon le système du PC sonde lu dans son
 inventaire (`Agentsetting::getHostPlatform()` : Windows, macOS, sinon Linux) ; les deux consignes Windows et Linux
-si le système est inconnu ; note de mise à jour manuelle pour macOS.
+si le système est inconnu ; pour macOS, pas de consigne : relancer le fichier d'installation de l'entité pose ou retire le service.
 
 ### Fréquence des relevés d'imprimantes par entité (`inc/collectfrequency.class.php`)
 
@@ -1480,7 +1481,7 @@ du PC sonde. Sans la tâche automatique, les tâches restent sans date : relevé
 remontée, alertes d'imprimantes, bloc de la fiche imprimante, onglet de la sonde). Une sonde reste muette au-delà de
 `silent_days` : elle contacte GLPI à la fréquence globale quelle que soit l'entité.
 
-### Contrôle de la remontée (`inc/collect.class.php` — aujourd'hui la vue « Imprimantes collectées » de « Sondes & remontée »)
+### Contrôle de la remontée (`inc/collect.class.php` — aujourd'hui l'onglet « Imprimantes collectées »)
 
 Ce que l'inventaire GLPI reçoit **réellement** des imprimantes, avant tout calcul d'alerte. Page en lecture
 seule sur les tables natives ; périmètre : entités de l'utilisateur (module Collecte SNMP / Déploiement Agent, droit `deploiement` READ ; la carte des imprimantes muettes de l'écran des alertes n'y renvoie qu'avec ce droit). L'absence de
@@ -1547,11 +1548,12 @@ facturation), sans rien changer à GLPI : `PluginPrintgestionContextmenu::render
   sonde). Dans un onglet AJAX rechargé, un seul jeu d'écouteurs sur le document (`window.PG_CTX`), qui appelle
   la dernière instance.
 
-### Sondes & remontée : vues matérialisées et listes natives (`inc/collectview.class.php`, `inc/agentview.class.php`)
+### Sondes et Imprimantes collectées : vues matérialisées et listes natives (`inc/collectview.class.php`, `inc/agentview.class.php`)
 
-Un écran (`front/sondes.php`, `Collectview::showPage($vue)`), deux vues — `?vue=` absent : sondes ;
-`?vue=imprimantes` : imprimantes collectées — parce que le moteur de recherche natif ne sait rendre qu'une liste par
-page. `front/collect.php` redirige vers la vue des imprimantes (`Collectview::getStateURL()` si `state`).
+Deux onglets, `front/sondes.php` (`Collectview::showPage('sondes')`) et `front/collect.php`
+(`showPage('imprimantes')`), parce que le moteur de recherche natif ne sait rendre qu'une liste par page — et deux
+pastilles sur un même écran n'auraient rien apporté. `collect.php?state=` redirige vers le filtre natif
+(`Collectview::getStateURL()`). Le POST « Recalculer maintenant » passe par `Collectview::processRecompute($back)`.
 
 - **`glpi_plugin_printgestion_collectviews`** (une ligne par imprimante : `state`, `last_inventory`,
   `last_discovery`, `agents_id`, `entities_id`/`is_recursive` de l'imprimante, `date_compute`) et
@@ -1565,15 +1567,17 @@ page. `front/collect.php` redirige vers la vue des imprimantes (`Collectview::ge
   sont dans `Schema::TABLES` et créées à la volée par `Schema::createIfMissing()` (`ensureTable()`) sur une
   installation existante, sans passer par « Mettre à jour ».
 - **Colonnes natives** : `plugin_printgestion_getAddSearchOptionsNew($itemtype)` (hook.php) renvoie
-  `Agentview::getSearchOptionsToAdd()` pour `Agent` et `PluginPrintgestionSonde`, `Collectview::getSearchOptionsToAdd()`
-  pour `Printer` et `PluginPrintgestionPrintercollect` — options 74001–74006 et 74011–74014 (plage réservée),
-  jointure `child` sur la vue, `datatype` bool / number / datetime / specific (`getSpecificValueToDisplay` et
+  `Agentview::getOptionsForAgents()` pour `Agent`, `Collectview::getOptionsForPrinters()` pour `Printer`, sous un
+  groupe « Print Gestion » (le moteur préfixe alors les en-têtes du nom du groupe) — options 74001–74006 et
+  74011–74014 (plage réservée), jointure `child` sur la vue, `searchequalsonfield` (sinon « égal » sur une table
+  jointe compare son `id`), `datatype` bool / number / datetime / specific (`getSpecificValueToDisplay` et
   `getSpecificValueToSelect` de la classe de la vue), la sonde de l'imprimante par `beforejoin` vers `glpi_agents`.
-  Rien quand le module Déploiement est éteint.
+  Les types dédiés les reçoivent sans groupe par leur `rawSearchOptions()` (insérées après l'en-tête
+  « Caractéristiques » : en-têtes nus). Rien quand le module Déploiement est éteint.
 - **Types dédiés** `PluginPrintgestionSonde extends Agent` et `PluginPrintgestionPrintercollect extends Printer`
   (`getTable()` = table native, `getFormURL()` = fiche native, `getSearchURL()` = l'écran) : session de recherche,
   colonnes et recherches enregistrées séparées de celles des listes natives ; `getDefaultSearchRequest()`
-  (`DefaultSearchRequestInterface`) pose le filtre de première ouverture (« Sonde = oui », « État ≠ normale »).
+  (`DefaultSearchRequestInterface`) pose la recherche de première ouverture (sondes : « Sonde = oui » ; imprimantes : toutes, par nom — les tuiles filtrent par état).
   Lecture par le droit Déploiement du plugin (`$rightname`), création / modification / suppression déléguées aux
   droits natifs (`canUpdate()` → `Agent::canUpdate()`…). **Aucune action massive** sur ces types
   (`showmassiveactions = false`) : une action de masse jouée sur un type dérivé écrirait l'historique et les hooks

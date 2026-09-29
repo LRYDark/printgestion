@@ -284,10 +284,6 @@ class PluginPrintgestionAgentreport {
         if (!empty($report['removed'])) {
             return sprintf(__('Sur ce PC : GLPI Agent a été retiré le %s (déclaré par le fichier de retrait). Cette sonde ne remontera plus rien ; elle peut être supprimée de la liste des agents.', 'printgestion'), $quand);
         }
-        // macOS n'a pas de tâche automatique : l'absence y est normale, la dire « non posée » ferait croire à un oubli.
-        if ((string) ($report['platform'] ?? '') === 'macos') {
-            return sprintf(__('Sur ce Mac : installation déclarée le %s. Pas de tâche automatique sous macOS — la mise à jour s\'y fait en relançant un fichier d\'installation plus récent.', 'printgestion'), $quand);
-        }
         $phrase = !empty($report['scheduled'])
             ? sprintf(__('Sur ce PC : tâche de mise à jour posée, déclarée par l\'installation du %s. Ce qui a pu changer sur le PC depuis n\'est pas connu de GLPI.', 'printgestion'), $quand)
             : sprintf(__('Sur ce PC : aucune tâche de mise à jour posée, déclaré par l\'installation du %s. Ce qui a pu changer sur le PC depuis n\'est pas connu de GLPI.', 'printgestion'), $quand);
@@ -324,9 +320,6 @@ class PluginPrintgestionAgentreport {
         }
         if (!empty($report['removed'])) {
             return __('agent retiré', 'printgestion');
-        }
-        if ((string) ($report['platform'] ?? '') === 'macos') {
-            return __('sans objet (macOS)', 'printgestion');
         }
         return !empty($report['scheduled']) ? __('posée', 'printgestion') : __('non posée', 'printgestion');
     }

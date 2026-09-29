@@ -91,7 +91,7 @@ def ecrans(agent):
     return [
         ("onglet Déploiement Agent de l'entité", ONGLET_ENTITE.format(d.CLIENT_A), True),
         ("page Installeur GLPI Agent", config.FRONT + "/agentdeploy.php", False),
-        ("page Sondes & remontée (imprimantes)", config.FRONT + "/sondes.php?vue=imprimantes", False),
+        ("page Imprimantes collectées", config.FRONT + "/collect.php", False),
         ("page Sondes", config.FRONT + "/sondes.php", False),
         ("fiche d'une sonde", config.FRONT + f"/sondes.php?id={agent}", False),
         ("onglet Print Gestion de la fiche Agent", ONGLET_AGENT.format(agent), True),

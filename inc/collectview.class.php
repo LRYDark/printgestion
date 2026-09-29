@@ -169,23 +169,30 @@ class PluginPrintgestionCollectview extends CommonDBTM {
         ];
     }
 
-    /** Colonnes ajoutées aux imprimantes (listes natives et liste du module) : jointure sur la vue par printers_id. */
-    public static function getSearchOptionsToAdd(): array {
+    /**
+     * Colonnes ajoutées aux imprimantes : jointure sur la vue par printers_id.
+     *
+     * Dans la liste native de GLPI (hook), sous un groupe « Print Gestion » : le moteur préfixe alors chaque en-tête
+     * du nom du groupe, comme pour « Composants - Processeur ». Dans la liste du module (rawSearchOptions du type
+     * dédié), sans groupe : les options prennent place sous « Caractéristiques » et l'en-tête reste nu.
+     * `searchequalsonfield` : sans lui, « égal » sur une table jointe compare son `id`, pas la colonne.
+     */
+    public static function getOptionsForPrinters(bool $with_group = true): array {
         self::ensureTable();
-        $table = self::getTable();
-        $join  = ['jointype' => 'child'];
-        return [
-            ['id' => 'printgestion_collecte', 'name' => __('Print Gestion — collecte', 'printgestion')],
-            ['id' => self::OPTION_STATE, 'table' => $table, 'field' => 'state', 'name' => __('État de la collecte (Print Gestion)', 'printgestion'),
-             'datatype' => 'specific', 'searchtype' => ['equals', 'notequals'], 'joinparams' => $join, 'massiveaction' => false],
-            ['id' => self::OPTION_INVENTORY, 'table' => $table, 'field' => 'last_inventory', 'name' => __('Dernier inventaire SNMP (Print Gestion)', 'printgestion'),
-             'datatype' => 'datetime', 'joinparams' => $join, 'massiveaction' => false],
-            ['id' => self::OPTION_DISCOVERY, 'table' => $table, 'field' => 'last_discovery', 'name' => __('Dernière découverte réseau (Print Gestion)', 'printgestion'),
-             'datatype' => 'datetime', 'joinparams' => $join, 'massiveaction' => false],
-            ['id' => self::OPTION_AGENT, 'table' => Agent::getTable(), 'field' => 'name', 'name' => __('Sonde (Print Gestion)', 'printgestion'),
+        $table   = self::getTable();
+        $join    = ['jointype' => 'child'];
+        $options = [
+            ['id' => self::OPTION_STATE, 'table' => $table, 'field' => 'state', 'name' => __('État de la collecte', 'printgestion'),
+             'datatype' => 'specific', 'searchtype' => ['equals', 'notequals'], 'searchequalsonfield' => true, 'joinparams' => $join, 'massiveaction' => false],
+            ['id' => self::OPTION_INVENTORY, 'table' => $table, 'field' => 'last_inventory', 'name' => __('Dernier inventaire SNMP', 'printgestion'),
+             'datatype' => 'datetime', 'searchequalsonfield' => true, 'joinparams' => $join, 'massiveaction' => false],
+            ['id' => self::OPTION_DISCOVERY, 'table' => $table, 'field' => 'last_discovery', 'name' => __('Dernière découverte réseau', 'printgestion'),
+             'datatype' => 'datetime', 'searchequalsonfield' => true, 'joinparams' => $join, 'massiveaction' => false],
+            ['id' => self::OPTION_AGENT, 'table' => Agent::getTable(), 'field' => 'name', 'name' => __('Sonde', 'printgestion'),
              'datatype' => 'dropdown', 'massiveaction' => false,
              'joinparams' => ['beforejoin' => ['table' => $table, 'joinparams' => $join]]],
         ];
+        return $with_group ? array_merge([['id' => 'printgestion', 'name' => 'Print Gestion']], $options) : $options;
     }
 
     static function getSpecificValueToDisplay($field, $values, array $options = []) {
@@ -218,120 +225,130 @@ class PluginPrintgestionCollectview extends CommonDBTM {
         return parent::getSpecificValueToSelect($field, $name, $values, $options);
     }
 
-    /** Liste du module filtrée sur un état (tuiles, liens). */
+    /** Liste des imprimantes collectées filtrée sur un état (tuiles, liens). */
     public static function getStateURL(string $state): string {
-        return PluginPrintgestionPrintercollect::getSearchURL() . '&' . http_build_query([
+        return PluginPrintgestionPrintercollect::getSearchURL() . '?' . http_build_query([
             'criteria' => [['field' => self::OPTION_STATE, 'searchtype' => 'equals', 'value' => $state]],
             'reset'    => 'reset',
         ]);
     }
 
-    // ── Écran « Sondes & remontée » ─────────────────────────────────────────
+    // ── Onglets « Sondes » et « Imprimantes collectées » ────────────────────
+
+    /** POST « Recalculer maintenant » : droit Déploiement en modification, recalcul des deux vues, retour à la page. */
+    public static function processRecompute(string $back): void {
+        // Jeton CSRF déjà validé par CheckCsrfListener avant le fichier appelant.
+        Session::checkRight(self::$rightname, UPDATE);
+        if (!isset($_POST['recompute_views'])) {
+            throw new \Glpi\Exception\Http\NotFoundHttpException();
+        }
+        $printers = self::rebuild();
+        Session::addMessageAfterRedirect(
+            htmlspecialchars(sprintf(__('État de la collecte recalculé : %d imprimante(s), sondes mises à jour.', 'printgestion'), $printers), ENT_QUOTES, 'UTF-8'),
+            false,
+            INFO
+        );
+        Html::redirect($back);
+    }
 
     /**
-     * L'écran de supervision du module : tuiles, prérequis, fraîcheur et recalcul, puis l'une des deux listes
-     * natives — sondes (Agents de GLPI, colonnes du plugin) ou imprimantes (état de la collecte) — et, pour
-     * l'administrateur, les analyses de réglage. Une seule liste native par page : c'est ce que le moteur de
-     * recherche sait faire.
+     * L'un des deux onglets du module : « sondes » (Agents de GLPI, colonnes du plugin) ou « imprimantes » (état de
+     * la collecte). Tuiles, fraîcheur et recalcul, liste native ; pour les imprimantes, la ligne des prérequis et
+     * les analyses de réglage de l'administrateur. Une liste native par page — c'est ce que le moteur de recherche
+     * sait faire —, d'où deux onglets et non deux boutons sur un même écran.
      */
     public static function showPage(string $vue): void {
         $esc        = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $admin      = PluginPrintgestionUi::isAdmin();
         $can_update = Session::haveRight(self::$rightname, UPDATE);
         $silent     = PluginPrintgestionCollect::getSilentDays();
-        $agents     = PluginPrintgestionAgentview::getCounts();
-        $counts     = self::getCounts();
-        $labels     = PluginPrintgestionCollect::getStateLabels();
-        $colors     = self::getStateColors();
-        $icons      = [
-            PluginPrintgestionCollect::STATE_NO_INVENTORY => 'ti ti-help-circle',
-            PluginPrintgestionCollect::STATE_STALE        => 'ti ti-wifi-off',
-            PluginPrintgestionCollect::STATE_NO_LEVEL     => 'ti ti-droplet-off',
-            PluginPrintgestionCollect::STATE_OK           => 'ti ti-check',
-        ];
+        $printers   = $vue === 'imprimantes';
+        $page       = $printers ? PluginPrintgestionPrintercollect::getSearchURL() : PluginPrintgestionSonde::getSearchURL();
 
-        // ── Tuiles : sondes puis imprimantes, chacune ouvrant la liste filtrée ──
-        $tiles = [
-            [
-                'count'   => $agents['silent'],
-                'label'   => __('Sondes sans contact', 'printgestion'),
-                'tooltip' => sprintf(__('Sondes sans contact depuis plus de %d jours', 'printgestion'), $silent),
-                'icon'    => 'ti ti-wifi-off',
-                'color'   => $agents['silent'] > 0 ? 'red' : 'green',
-                'url'     => PluginPrintgestionAgentview::getListURL([PluginPrintgestionAgentview::OPTION_SILENT => 1]),
-            ],
-            [
-                'count' => $agents['update'],
-                'label' => __('Sondes à mettre à jour', 'printgestion'),
-                'icon'  => 'ti ti-refresh',
-                'color' => $agents['update'] > 0 ? 'orange' : 'green',
-                'url'   => PluginPrintgestionAgentview::getListURL([PluginPrintgestionAgentview::OPTION_COMPLIANCE => 'update']),
-            ],
-        ];
-        if ($admin && $agents['ahead'] > 0) {
-            // Plus récentes que ce que le serveur distribue : après un retour arrière de la version du parc.
-            $tiles[] = [
-                'count' => $agents['ahead'],
-                'label' => __('Sondes plus récentes que le parc', 'printgestion'),
-                'icon'  => 'ti ti-arrow-up',
-                'color' => 'blue',
-                'url'   => PluginPrintgestionAgentview::getListURL([PluginPrintgestionAgentview::OPTION_COMPLIANCE => 'ahead']),
+        // ── Tuiles : chacune ouvre la liste filtrée ──
+        if ($printers) {
+            $counts = self::getCounts();
+            $colors = self::getStateColors();
+            $icons  = [
+                PluginPrintgestionCollect::STATE_NO_INVENTORY => 'ti ti-help-circle',
+                PluginPrintgestionCollect::STATE_STALE        => 'ti ti-wifi-off',
+                PluginPrintgestionCollect::STATE_NO_LEVEL     => 'ti ti-droplet-off',
+                PluginPrintgestionCollect::STATE_OK           => 'ti ti-check',
             ];
-        }
-        foreach ($labels as $state => $label) {
-            $tiles[] = [
-                'count' => $counts[$state],
-                'label' => sprintf(__('Imprimantes : %s', 'printgestion'), $label),
-                'icon'  => $icons[$state],
-                'color' => $colors[$state],
-                'url'   => self::getStateURL($state),
+            $tiles = [];
+            foreach (PluginPrintgestionCollect::getStateLabels() as $state => $label) {
+                $tiles[] = [
+                    'count' => $counts[$state],
+                    'label' => $label,
+                    'icon'  => $icons[$state],
+                    'color' => $colors[$state],
+                    'url'   => self::getStateURL($state),
+                ];
+            }
+            PluginPrintgestionUi::statsBar($tiles, 'printgestionCollectStatsBar');
+            PluginPrintgestionCollect::showPrerequisitesLine(self::getPrerequisites());
+        } else {
+            $agents = PluginPrintgestionAgentview::getCounts();
+            $tiles  = [
+                [
+                    'count'   => $agents['silent'],
+                    'label'   => __('Sondes sans contact', 'printgestion'),
+                    'tooltip' => sprintf(__('Sondes sans contact depuis plus de %d jours', 'printgestion'), $silent),
+                    'icon'    => 'ti ti-wifi-off',
+                    'color'   => $agents['silent'] > 0 ? 'red' : 'green',
+                    'url'     => PluginPrintgestionAgentview::getListURL([PluginPrintgestionAgentview::OPTION_SILENT => 1]),
+                ],
+                [
+                    'count' => $agents['update'],
+                    'label' => __('À mettre à jour', 'printgestion'),
+                    'icon'  => 'ti ti-refresh',
+                    'color' => $agents['update'] > 0 ? 'orange' : 'green',
+                    'url'   => PluginPrintgestionAgentview::getListURL([PluginPrintgestionAgentview::OPTION_COMPLIANCE => 'update']),
+                ],
             ];
+            if ($admin && $agents['ahead'] > 0) {
+                // Plus récentes que ce que le serveur distribue : après un retour arrière de la version du parc.
+                $tiles[] = [
+                    'count' => $agents['ahead'],
+                    'label' => __('Plus récentes que le parc', 'printgestion'),
+                    'icon'  => 'ti ti-arrow-up',
+                    'color' => 'blue',
+                    'url'   => PluginPrintgestionAgentview::getListURL([PluginPrintgestionAgentview::OPTION_COMPLIANCE => 'ahead']),
+                ];
+            }
+            if ($admin) {
+                $latest  = PluginPrintgestionAgentsetting::getLatestVersion();
+                $tiles[] = [
+                    'count'   => $latest['version'],
+                    'label'   => __('Dernière version connue', 'printgestion'),
+                    'tooltip' => sprintf(__('Dernière version connue de GLPI Agent (%s)', 'printgestion'), PluginPrintgestionAgentsetting::getLatestSourceLabel($latest)),
+                    'icon'    => 'ti ti-package',
+                    'color'   => 'secondary',
+                ];
+            }
+            PluginPrintgestionUi::statsBar($tiles, 'printgestionSondesStatsBar');
         }
-        if ($admin) {
-            $latest  = PluginPrintgestionAgentsetting::getLatestVersion();
-            $tiles[] = [
-                'count'   => $latest['version'],
-                'label'   => __('Dernière version connue de GLPI Agent', 'printgestion'),
-                'tooltip' => PluginPrintgestionAgentsetting::getLatestSourceLabel($latest),
-                'icon'    => 'ti ti-package',
-                'color'   => 'secondary',
-            ];
-        }
-        PluginPrintgestionUi::statsBar($tiles, 'printgestionSupervisionStatsBar');
 
-        // ── Prérequis, fraîcheur, recalcul ──
-        PluginPrintgestionCollect::showPrerequisitesLine(self::getPrerequisites());
+        // ── Fraîcheur et recalcul : les deux vues sont calculées ensemble ──
         $computed = self::getComputedAt();
         echo "<div class='d-flex flex-wrap align-items-center gap-2 mb-3'>";
         echo "<span class='text-muted small'>" . $esc($computed !== null
             ? sprintf(__('État calculé le %s', 'printgestion'), Html::convDateTime($computed))
             : __('État pas encore calculé', 'printgestion')) . "</span>";
         if ($can_update) {
-            $page = $vue === 'imprimantes' ? PluginPrintgestionPrintercollect::getSearchURL() : PluginPrintgestionSonde::getSearchURL();
             echo "<form method='post' action='" . $esc($page) . "' class='ms-auto'>";
             echo "<button type='submit' name='recompute_views' value='1' class='btn btn-sm btn-outline-secondary'>"
                 . "<i class='ti ti-refresh me-1'></i>" . $esc(__('Recalculer maintenant', 'printgestion')) . "</button>";
             Html::closeForm();
         }
-        echo PluginPrintgestionUi::infoButton(__('Sondes & remontée', 'printgestion'), $admin
-            ? "<p>" . $esc(__('Sonde : agent installé avec l\'inventaire réseau, ou qui collecte au moins une imprimante. Imprimante : ce que l\'inventaire GLPI reçoit réellement, avant tout calcul d\'alerte.', 'printgestion')) . "</p>"
+        echo PluginPrintgestionUi::infoButton($printers ? __('Imprimantes collectées', 'printgestion') : __('Sondes', 'printgestion'), $admin
+            ? "<p>" . $esc(__('Sonde : agent installé avec l\'inventaire réseau, ou qui collecte au moins une imprimante. Imprimante collectée : ce que l\'inventaire GLPI reçoit réellement, avant tout calcul d\'alerte.', 'printgestion')) . "</p>"
                 . "<p>" . $esc(sprintf(__('Date de référence : dernier inventaire réseau (SNMP) du journal d\'import GLPI ; une simple découverte réseau ne compte pas. Muette : aucun inventaire depuis plus de %d jour(s) (Configuration → Print Gestion). L\'état est recalculé toutes les heures, à l\'ouverture de l\'écran s\'il date de plus de quinze minutes, et sur demande.', 'printgestion'), $silent)) . "</p>"
                 . "<p class='mb-0'>" . $esc(__('Les mêmes colonnes existent dans Administration → Agents et Parc → Imprimantes : c\'est là que se font les actions massives sur ces objets, avec leurs droits natifs.', 'printgestion')) . "</p>"
             : '');
         echo "</div>";
 
-        // ── Deux vues : sondes, imprimantes ──
-        $pills = [
-            'sondes'      => [PluginPrintgestionSonde::getSearchURL(), 'ti ti-robot', _n('Sonde', 'Sondes', Session::getPluralNumber(), 'printgestion')],
-            'imprimantes' => [PluginPrintgestionPrintercollect::getSearchURL(), 'ti ti-printer', __('Imprimantes collectées', 'printgestion')],
-        ];
-        echo "<ul class='nav nav-pills mb-3'>";
-        foreach ($pills as $key => [$url, $icon, $label]) {
-            echo "<li class='nav-item'><a class='nav-link" . ($key === $vue ? ' active' : '') . "' href='" . $esc($url) . "'><i class='{$icon} me-1'></i>" . $esc($label) . "</a></li>";
-        }
-        echo "</ul>";
-
-        if ($vue === 'imprimantes') {
+        if ($printers) {
             self::showPrintersList($admin);
             if ($admin) {
                 PluginPrintgestionCollect::showAdminAnalyses(self::getPrinterIds());

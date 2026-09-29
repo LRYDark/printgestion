@@ -42,9 +42,9 @@ class PluginPrintgestionPrintercollect extends Printer implements Glpi\Search\De
         return Printer::canPurge();
     }
 
-    /** La « recherche » de ce type est la vue « Imprimantes collectées » de l'écran « Sondes & remontée ». */
+    /** La « recherche » de ce type est l'onglet « Imprimantes collectées » du module. */
     public static function getSearchURL($full = true) {
-        return ($full ? PLUGIN_PRINTGESTION_WEBDIR : PLUGIN_PRINTGESTION_NOTFULL_WEBDIR) . '/front/sondes.php?vue=imprimantes';
+        return ($full ? PLUGIN_PRINTGESTION_WEBDIR : PLUGIN_PRINTGESTION_NOTFULL_WEBDIR) . '/front/collect.php';
     }
 
     /** Les liens de la liste ouvrent la fiche native de l'imprimante. */
@@ -56,10 +56,26 @@ class PluginPrintgestionPrintercollect extends Printer implements Glpi\Search\De
         return Printer::getFormURLWithID($id, $full);
     }
 
-    /** Première ouverture et « réinitialiser » : les imprimantes à surveiller, hors collecte normale. */
+    /**
+     * Les options de l'Imprimante, plus celles du plugin juste après l'en-tête « Caractéristiques » : sans groupe à
+     * part, les en-têtes de colonnes restent nus. Le hook ne les ajoute pas à ce type : elles y seraient en double.
+     */
+    public function rawSearchOptions() {
+        $tab = parent::rawSearchOptions();
+        array_splice($tab, 1, 0, PluginPrintgestionCollectview::getOptionsForPrinters(false));
+        return $tab;
+    }
+
+    /**
+     * Première ouverture et « réinitialiser » : toutes les imprimantes, par nom. Ce sont les tuiles qui filtrent par
+     * état ; une liste qui s'ouvrait sur les seules imprimantes à surveiller affichait « Aucun résultat » à qui n'a
+     * qu'une imprimante en collecte normale — et laissait croire à une panne.
+     */
     public static function getDefaultSearchRequest(): array {
         return [
-            'criteria' => [['field' => PluginPrintgestionCollectview::OPTION_STATE, 'searchtype' => 'notequals', 'value' => PluginPrintgestionCollect::STATE_OK]],
+            'criteria' => [],
+            'sort'     => 1,
+            'order'    => 'ASC',
         ];
     }
 }
