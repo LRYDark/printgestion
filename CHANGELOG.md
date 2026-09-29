@@ -2,6 +2,13 @@
 
 ## Non publié
 
+- **« Tous les jours » donnait un relevé tous les deux jours.** La tâche d'inventaire réseau devenait due au
+  dernier relevé + 24 h, soit quelques minutes après le passage de la sonde (le relevé s'était fait pendant) ;
+  la sonde, qui ne vient chercher ses tâches qu'à son rythme (contact de GLPI, 24 h par défaut), repartait sans
+  rien et ne revenait que le lendemain. La tâche est maintenant due un contact avant l'échéance (cadence −
+  intervalle de contact − 1 h de marge) : un relevé à chaque passage pour une cadence quotidienne, et à temps
+  pour les cadences plus longues.
+
 - **Relevé manuel : une imprimante sans sonde se suit à la main.** Certains clients refusent l'agent ; ils
   envoient ou dictent leurs niveaux et leurs compteurs. Un bouton « Saisir un relevé manuel » ouvre une fenêtre —
   niveaux par emplacement, rangés par famille et par couleur (toners, tambours, autres ; les toners standard et

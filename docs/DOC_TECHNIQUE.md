@@ -1468,7 +1468,7 @@ trois paquets la rappelle.
 (tous statuts). Vérifié dans GLPI Inventory : un job n'est préparé que si la date de début de sa tâche est vide ou
 passée, et un job demandé avant cette date, ou pour une tâche désactivée, est annulé à la remise à l'agent. La tâche
 automatique `PrintgestionCollectSchedule` (toutes les 15 minutes, et à chaque enregistrement) pose donc
-`datetime_start` = fin du dernier relevé terminé (journal des jobs `FINISHED` ou `IN_ERROR`) + fréquence, ou l'efface
+`datetime_start` = fin du dernier relevé terminé (journal des jobs `FINISHED` ou `IN_ERROR`) + fréquence − (intervalle de contact de la sonde + 1 h) — due avant le prochain passage de la sonde, sans quoi « tous les jours » donnait un relevé tous les deux jours —, ou l'efface
 quand le relevé est dû ; elle ne touche ni une tâche dont un relevé est en cours (jobs transmis à la sonde), ni une
 tâche avec une date de fin (plage réglée à la main). Écriture directe dans la table de GLPI Inventory : il refuse toute
 modification d'une tâche active et annule ses jobs préparés quand on la désactive. L'assistant efface la date avant de

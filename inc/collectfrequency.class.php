@@ -398,7 +398,12 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
 
             $desired = null;
             if (!empty($last['last_end'])) {
-                $next = strtotime((string) $last['last_end']) + self::getForEntity((int) $task['entities_id'])['hours'] * HOUR_TIMESTAMP;
+                // Due AVANT le prochain passage de la sonde : elle ne vient chercher ses tâches qu'à son rythme (le
+                // contact réglé par GLPI, 24 h par défaut). « Dernier relevé + cadence » tombait juste après son
+                // passage — le relevé s'était fait pendant —, et « tous les jours » donnait un relevé tous les deux
+                // jours. Une heure de marge pour un passage un peu en avance.
+                $lead = (self::getContactHours() + 1) * HOUR_TIMESTAMP;
+                $next = strtotime((string) $last['last_end']) + self::getForEntity((int) $task['entities_id'])['hours'] * HOUR_TIMESTAMP - $lead;
                 if ($next > time()) {
                     $desired = date('Y-m-d H:i:s', $next);
                 }
