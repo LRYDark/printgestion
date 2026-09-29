@@ -765,12 +765,16 @@ class PluginPrintgestionCollect extends CommonGLPI {
         if (empty($values)) {
             echo "<div class='card-body text-muted'>" . $esc(__('Aucune valeur de consommable remontée.', 'printgestion')) . "</div></div>";
         } else {
-            echo "<div class='table-responsive'><table class='table table-sm card-table'><thead><tr>"
-                . "<th>" . $esc(Manufacturer::getTypeName(1)) . "</th><th>" . $esc(__('Modèle', 'printgestion')) . "</th>"
-                . "<th class='text-end'>" . $esc(__('Imprimantes', 'printgestion')) . "</th><th>" . $esc(__('Propriété', 'printgestion')) . "</th>"
-                . "<th>" . $esc(__('Valeurs reçues', 'printgestion')) . "</th><th>" . $esc(__('Exemples non chiffrés', 'printgestion')) . "</th></tr></thead><tbody>";
+            $columns = [
+                'manufacturer' => Manufacturer::getTypeName(1),
+                'model'        => __('Modèle', 'printgestion'),
+                'printers'     => __('Imprimantes', 'printgestion'),
+                'property'     => __('Propriété', 'printgestion'),
+                'values'       => __('Valeurs reçues', 'printgestion'),
+                'examples'     => __('Exemples non chiffrés', 'printgestion'),
+            ];
+            $entries = [];
             foreach ($values as $entry) {
-                $first = true;
                 foreach ($entry['properties'] as $property => $data) {
                     $badges = '';
                     foreach ($class_labels as $class => $class_label) {
@@ -782,14 +786,18 @@ class PluginPrintgestionCollect extends CommonGLPI {
                     foreach ($data['examples'] ?? [] as $raw) {
                         $examples[] = "<code>" . $esc($raw) . "</code>";
                     }
-                    echo "<tr><td>" . ($first ? $esc($entry['manufacturer'] !== '' ? $entry['manufacturer'] : '—') : '') . "</td>"
-                        . "<td>" . ($first ? $esc($entry['model'] !== '' ? $entry['model'] : '—') : '') . "</td>"
-                        . "<td class='text-end'>" . ($first ? (int) $entry['printers'] : '') . "</td>"
-                        . "<td><code>" . $esc($property) . "</code></td><td>{$badges}</td><td>" . implode(' ', $examples) . "</td></tr>";
-                    $first = false;
+                    $entries[] = [
+                        'manufacturer' => $entry['manufacturer'] !== '' ? $entry['manufacturer'] : '—',
+                        'model'        => $entry['model'] !== '' ? $entry['model'] : '—',
+                        'printers'     => (int) $entry['printers'],
+                        'property'     => "<code>" . $esc($property) . "</code>",
+                        'values'       => $badges,
+                        'examples'     => implode(' ', $examples),
+                    ];
                 }
             }
-            echo "</tbody></table></div></div>";
+            echo PluginPrintgestionUi::datatable($columns, $entries, ['printers' => 'integer', 'property' => 'raw_html', 'values' => 'raw_html', 'examples' => 'raw_html']);
+            echo "</div>";
         }
 
         $values_html = (string) ob_get_clean();
@@ -818,22 +826,22 @@ class PluginPrintgestionCollect extends CommonGLPI {
                 'resets'                => __('Baisses', 'printgestion'),
             ];
             $warn = ['stale_log', 'total_only', 'no_counter', 'color_without_counter', 'color_over_total', 'resets'];
-            echo "<div class='table-responsive'><table class='table table-sm card-table'><thead><tr>"
-                . "<th>" . $esc(Manufacturer::getTypeName(1)) . "</th><th>" . $esc(__('Modèle', 'printgestion')) . "</th>";
-            foreach ($headers as $header) {
-                echo "<th class='text-end'>" . $esc($header) . "</th>";
-            }
-            echo "</tr></thead><tbody>";
+            $columns = ['manufacturer' => Manufacturer::getTypeName(1), 'model' => __('Modèle', 'printgestion')] + $headers;
+            $entries = [];
             foreach ($counters['models'] as $entry) {
-                echo "<tr><td>" . $esc($entry['manufacturer'] !== '' ? $entry['manufacturer'] : '—') . "</td><td>" . $esc($entry['model'] !== '' ? $entry['model'] : '—') . "</td>";
+                $line = [
+                    'manufacturer' => $entry['manufacturer'] !== '' ? $entry['manufacturer'] : '—',
+                    'model'        => $entry['model'] !== '' ? $entry['model'] : '—',
+                ];
                 foreach (array_keys($headers) as $field) {
-                    $count = (int) $entry[$field];
-                    $class = in_array($field, $warn, true) && $count > 0 ? " class='text-end text-danger fw-bold'" : " class='text-end'";
-                    echo "<td{$class}>{$count}</td>";
+                    $count        = (int) $entry[$field];
+                    $line[$field] = in_array($field, $warn, true) && $count > 0
+                        ? "<span class='d-block text-end text-danger fw-bold'>" . $count . "</span>"
+                        : "<span class='d-block text-end'>" . $count . "</span>";
                 }
-                echo "</tr>";
+                $entries[] = $line;
             }
-            echo "</tbody></table></div>";
+            echo PluginPrintgestionUi::datatable($columns, $entries, array_fill_keys(array_keys($headers), 'raw_html'));
 
             $lists = [
                 'color_without_counter' => [__('Imprimantes couleur sans compteur couleur', 'printgestion'), [__('Date du relevé', 'printgestion'), __('Total', 'printgestion')]],
@@ -845,21 +853,24 @@ class PluginPrintgestionCollect extends CommonGLPI {
                     continue;
                 }
                 echo "<div class='card-body pt-2 pb-0'><h4 class='mb-2'>" . $esc($title) . " <span class='badge bg-secondary text-secondary-fg'>" . count($counters[$key]) . "</span></h4></div>";
-                echo "<div class='table-responsive'><table class='table table-sm card-table'><thead><tr>"
-                    . "<th>" . $esc(_n('Imprimante', 'Imprimantes', 1, 'printgestion')) . "</th><th>" . $esc(__('Modèle', 'printgestion')) . "</th>"
-                    . "<th>" . $esc($columns[0]) . "</th><th class='text-end'>" . $esc($columns[1]) . "</th></tr></thead><tbody>";
+                $cols    = ['printer' => _n('Imprimante', 'Imprimantes', 1, 'printgestion'), 'model' => __('Modèle', 'printgestion'), 'when' => $columns[0], 'figure' => $columns[1]];
+                $entries = [];
                 foreach ($counters[$key] as $row) {
                     $figure = match ($key) {
                         'color_over_total' => number_format($row['color'], 0, ',', ' ') . ' / ' . number_format($row['total'], 0, ',', ' '),
                         'resets'           => number_format($row['before'], 0, ',', ' ') . ' → ' . number_format($row['after'], 0, ',', ' '),
                         default            => number_format($row['total'], 0, ',', ' '),
                     };
-                    $fiche = $esc(Printer::getFormURLWithID($row['id']));
-                    echo "<tr data-pg-href='{$fiche}' style='cursor:pointer'><td><a href='{$fiche}'>" . $esc($row['name']) . "</a></td>"
-                        . "<td>" . $esc($row['model']) . "</td><td>" . $esc(Html::convDate($row['date'])) . "</td>"
-                        . "<td class='text-end'>" . $esc($figure) . "</td></tr>";
+                    $entries[] = [
+                        'itemtype' => Printer::class,
+                        'id'       => (int) $row['id'],
+                        'printer'  => "<a href='" . $esc(Printer::getFormURLWithID($row['id'])) . "'>" . $esc($row['name']) . "</a>",
+                        'model'    => $row['model'],
+                        'when'     => Html::convDate($row['date']),
+                        'figure'   => "<span class='d-block text-end'>" . $esc($figure) . "</span>",
+                    ];
                 }
-                echo "</tbody></table></div>";
+                echo PluginPrintgestionUi::datatable($cols, $entries, ['printer' => 'raw_html', 'figure' => 'raw_html']);
             }
             echo "</div>";
         }
@@ -875,8 +886,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
             echo "<div class='card-body text-muted'>" . $esc(__('Aucun : chaque numéro de série correspond à une seule imprimante active.', 'printgestion')) . "</div></div>";
         } else {
             echo "<div class='card-body pb-0'><p class='text-muted small'>" . $esc(__('Plusieurs imprimantes actives pour un même numéro de série : l\'historique des niveaux et des compteurs est scindé entre elles (règles d\'import GLPI, inventaire local d\'un poste, import par nom ou par adresse IP). À fusionner ou corriger dans GLPI. Dans des entités différentes, elles ne partagent pas les verrous anti-double-envoi.', 'printgestion')) . "</p></div>";
-            echo "<div class='table-responsive'><table class='table table-sm card-table'><thead><tr>"
-                . "<th>" . $esc(__('Numéro de série', 'printgestion')) . "</th><th>" . $esc(_n('Imprimante', 'Imprimantes', 2, 'printgestion')) . "</th></tr></thead><tbody>";
+            $entries = [];
             foreach ($duplicates as $serial => $printers) {
                 $links = array_map(
                     static fn(array $p) => "<a href='" . $esc(Printer::getFormURLWithID($p['id'])) . "'>" . $esc($p['name']) . "</a>" . ($p['entity'] !== '' ? " <span class='text-muted small'>(" . $esc($p['entity']) . ")</span>" : ''),
@@ -886,9 +896,14 @@ class PluginPrintgestionCollect extends CommonGLPI {
                 $cross = count(array_unique(array_column($printers, 'entities_id'))) > 1
                     ? "<br><span class='badge bg-warning text-warning-fg'>" . $esc(__('Entités différentes : verrous anti-double-envoi non partagés, à vérifier', 'printgestion')) . "</span>"
                     : '';
-                echo "<tr><td><code>" . $esc($serial) . "</code>{$cross}</td><td>" . implode('<br>', $links) . "</td></tr>";
+                $entries[] = ['serial' => "<code>" . $esc($serial) . "</code>" . $cross, 'printers' => implode('<br>', $links)];
             }
-            echo "</tbody></table></div></div>";
+            echo PluginPrintgestionUi::datatable(
+                ['serial' => __('Numéro de série', 'printgestion'), 'printers' => _n('Imprimante', 'Imprimantes', 2, 'printgestion')],
+                $entries,
+                ['serial' => 'raw_html', 'printers' => 'raw_html']
+            );
+            echo "</div>";
         }
         echo PluginPrintgestionUi::adminDetails(__('Numéros de série en double', 'printgestion'), (string) ob_get_clean());
     }

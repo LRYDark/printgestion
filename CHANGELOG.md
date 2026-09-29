@@ -2,6 +2,28 @@
 
 ## Non publié
 
+- **Audit « natif d'abord » : moins de code au plugin, rien de changé à l'écran.** Neuf listes en lecture seule que
+  le plugin dessinait à la main en HTML passent par le gabarit natif de GLPI (`components/datatable.html.twig`, le
+  même que les listes du module) : imprimantes collectées par une sonde (onglet de la sonde), analyses de
+  l'administrateur (valeurs de consommables et compteurs par modèle, anomalies de compteurs, numéros de série en
+  double), journal d'un raccordement, récapitulatif « À appliquer » de l'étape 5, historique des imports Sage,
+  commandes non transmises aux Achats. Même contenu, mêmes liens ; les lignes d'imprimante s'ouvrent d'un clic
+  comme partout ailleurs. Restent dessinés à la main les tableaux qui portent un champ de saisie ou un bouton par
+  ligne (résultats et étape 3 du raccordement, tarifs, correspondances, lignes de demande…) et l'aide de l'import
+  Sage. Cinq tableaux encore stylés à la façon de GLPI 9 (`tab_cadre_fixehov`) prennent les classes de GLPI 11
+  (correspondances SNMP, tarifs de contrat, coûts par imprimante, expédition). Deux méthodes que rien n'appelait
+  sont retirées (`Billing::isColorPrinter()`, `Cartridgehistory::getHistoryForPrinter()`). Vérifié : aucune
+  classe, page, point d'entrée ou fichier statique orphelin ; aucun fichier de GLPI modifié (tout le code du cœur
+  comparé à l'archive 11.0.8). **Gardés volontairement**, après lecture du circuit natif (`NotificationTarget`,
+  `NotificationEvent`, `QueuedNotification`, `NotificationEventMailing`) : les sept envois par
+  `Config::sendMail()` (alerte toner, commande aux Achats, envoi de cartouches, courtoisie, suivi de colis, rappel).
+  Le circuit natif met le mail en file et l'envoie plus tard par la tâche `queuednotification`, sans dire à
+  l'appelant s'il est parti ; il ne joint que des documents GLPI liés à l'objet, et envoie quand même si le fichier
+  manque ; ses destinataires se choisissent dans Configuration → Notifications, pas par rôle ni par contact client.
+  Le plugin, lui, doit savoir tout de suite si la commande est partie (« Commandes non transmises », renvoi,
+  `mail_sent`), refuser un mail sans son fichier Gesconso, écrire aux contacts du client et regrouper par passage :
+  le remplacer changerait le fonctionnement, pas seulement le code.
+
 - **« Tous les jours » donnait un relevé tous les deux jours.** La tâche d'inventaire réseau devenait due au
   dernier relevé + 24 h, soit quelques minutes après le passage de la sonde (le relevé s'était fait pendant) ;
   la sonde, qui ne vient chercher ses tâches qu'à son rythme (contact de GLPI, 24 h par défaut), repartait sans

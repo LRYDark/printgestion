@@ -43,7 +43,7 @@ echo "<h1><i class='fa-solid fa-truck me-2'></i>"
 
 echo "<div class='card'><div class='card-body'>";
 
-echo "<table class='tab_cadre_fixehov mb-3'>";
+echo "<table class='table table-sm table-hover align-middle mb-3'>";
 echo "<tr><th>" . __('Imprimante', 'printgestion') . "</th><td>"
     . htmlspecialchars((string)$printer->fields['name'], ENT_QUOTES, 'UTF-8') . "</td></tr>";
 echo "<tr><th>" . __('Client', 'printgestion') . "</th><td>"

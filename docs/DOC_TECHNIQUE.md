@@ -996,9 +996,20 @@ supprimé en lot. `Raccordement::rawSearchOptions()` donne au raccordement ses o
 (numéro, entité, sonde, statut, auteur, dates) ; rien n'y est modifiable en masse, le statut et les dates suivant le
 déroulé de l'assistant.
 
-Restent dessinés à la main, volontairement : les tableaux d'analyse de l'administrateur (valeurs de consommables et
-compteurs par modèle, repliés) — des lignes groupées par modèle sur plusieurs rangs et une couleur par cellule,
-que le gabarit ne sait pas faire, et aucun objet GLPI à cocher dessus.
+Le même gabarit sert aussi, sans cases ni actions massives (`$massive = null`), aux listes en lecture seule :
+imprimantes collectées par une sonde (`Agentsetting::showForAgent()`), analyses de l'administrateur
+(`Collect::showAdminAnalyses()` — valeurs et compteurs par modèle, anomalies de compteurs, doublons de numéro de
+série ; fabricant et modèle sont répétés à chaque ligne, le gabarit ne groupe pas), journal d'un raccordement
+(`Raccordement::showLogs()`), étape 5 (`Raccordementdetail::showStep5()`), historique des imports Sage
+(`Sageimport::showHistory()`), commandes non transmises aux Achats (`Purchaseorder::showNotSentCard()`). Une
+cellule qui porte un lien, un badge, un formulaire ou un alignement à droite passe en `raw_html`, échappée par
+l'appelant ; les nombres passent en `integer`. Les lignes qui représentent une imprimante portent `itemtype` /
+`id` : le clic ouvre la fiche, et le menu clic droit ne les prend que si la page est configurée pour ce type.
+
+Restent dessinés à la main, volontairement : les tableaux qui portent un champ de saisie ou un formulaire par
+ligne (résultats du raccordement avec « Ramener ici » et regroupement, étape 3, tarifs de contrat, correspondances
+SNMP, lignes de demande, réglages des sondes, tâches automatiques de la page Santé, règles SNMP) et l'aide statique
+de l'import Sage.
 
 ### Ce qui passe par GLPI, et ce qui reste au plugin
 
@@ -1778,6 +1789,18 @@ Détails d'implémentation (tous dans `expedition.class.php` sauf mention) :
   `GLPIMailer` (Symfony Mailer GLPI 11), pièce jointe optionnelle.
 - **Aperçu** : `docs/apercu_gabarits.html`, régénérable par `php tools/generate_apercu.php`
   (lit les vraies définitions, aucune BDD).
+- **Circuit gardé volontairement** (audit de septembre 2026, après lecture de `NotificationTarget`,
+  `NotificationEvent`, `QueuedNotification` et `NotificationEventMailing`). Le circuit natif met le mail en file
+  (`glpi_queuednotifications`) et l'envoie par la tâche `queuednotification`, sans rendre à l'appelant le résultat
+  de l'envoi ; il ne joint que des documents GLPI liés à l'objet déclencheur et envoie quand même si le fichier
+  manque (`attachDocuments()` : avertissement, pas d'échec) ; ses destinataires sont ceux de Configuration →
+  Notifications (administrateurs, profils, groupes), pas les rôles du plugin ni les contacts du client ; un
+  événement vaut pour un objet, le regroupement par passage demanderait un objet de synthèse. Les sept envois
+  (`Alert::sendPendingAlerts()`, commande aux Achats, envoi de cartouches simple et groupé, courtoisie, suivi de
+  colis, rappel) ont besoin du résultat immédiat (`mail_sent`, « Commandes non transmises », renvoi aux Achats,
+  journal des rappels), du fichier Gesconso obligatoire, des rôles et des contacts : les migrer changerait le
+  fonctionnement, pas seulement le code. Les trois notifications natives du plugin (demandes, alertes des sondes,
+  commandes en attente) couvrent les cas où ces contraintes n'existent pas.
 
 ### 6.4 Balises disponibles
 

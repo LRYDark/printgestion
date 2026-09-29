@@ -216,32 +216,41 @@ class PluginPrintgestionPurchaseorder extends CommonDBTM {
             . $esc(sprintf(__('Commandes non transmises aux Achats (%d)', 'printgestion'), count($orders))) . "</h3></div><div class='card-body'>";
         echo "<p class='mb-2'>" . $esc(__('Enregistrées, cartouches verrouillées, mais le mail aux Achats n\'est pas parti. Ne recommandez pas : renvoyez le fichier d\'origine.', 'printgestion'))
             . " <span class='text-muted small'>" . $esc(sprintf(__('Sans renvoi, une notification part à l\'administrateur et à l\'auteur %d h après l\'enregistrement.', 'printgestion'), self::STALE_HOURS)) . "</span></p>";
-        echo "<div class='table-responsive'><table class='table table-sm table-vcenter mb-0'><thead><tr>"
-            . "<th>" . $esc(__('Enregistrée le', 'printgestion')) . "</th><th>" . $esc(__('Origine', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Par', 'printgestion')) . "</th><th class='text-end'>" . $esc(__('Lignes', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Dernière erreur', 'printgestion')) . "</th><th>" . $esc(__('Fichier', 'printgestion')) . "</th><th></th></tr></thead><tbody>";
+        $entries = [];
         foreach ($orders as $order) {
             $document = new Document();
             $file     = $document->getFromDB((int) $order['documents_id'])
                 ? "<a href='" . $esc($document->getLinkURL()) . "'>" . $esc($document->fields['name']) . "</a>"
                 : '—';
-            echo "<tr><td>" . $esc(Html::convDateTime((string) $order['date_creation'])) . "</td>"
-                . "<td>" . $esc($sources[(string) $order['source']] ?? (string) $order['source']) . "</td>"
-                . "<td>" . $esc(getUserName((int) $order['users_id'])) . "</td>"
-                . "<td class='text-end'>" . (int) $order['nb_lines'] . "</td>"
-                . "<td class='small'>" . $esc((string) ($order['last_error'] ?? '') !== '' ? $order['last_error'] : __('envoi non terminé', 'printgestion'))
-                . ' ' . $esc(sprintf(__('(%d tentative(s))', 'printgestion'), (int) $order['attempts'])) . "</td>"
-                . "<td>" . $file . "</td><td class='text-end'>";
+            $action = '';
             if ($can_send) {
-                echo "<form method='post' action='" . $esc(PLUGIN_PRINTGESTION_WEBDIR . '/front/purchaseorder.form.php') . "' class='d-inline'>"
+                $action = "<form method='post' action='" . $esc(PLUGIN_PRINTGESTION_WEBDIR . '/front/purchaseorder.form.php') . "' class='d-inline'>"
                     . Html::hidden('id', ['value' => (int) $order['id']])
                     . "<button type='submit' name='resend' value='1' data-pg-submit-once='1' class='btn btn-sm btn-danger'><i class='ti ti-send me-1'></i>"
                     . $esc(__('Renvoyer aux Achats', 'printgestion')) . "</button>"
                     . Html::closeForm(false);
             }
-            echo "</td></tr>";
+            $entries[] = [
+                'date'   => Html::convDateTime((string) $order['date_creation']),
+                'source' => $sources[(string) $order['source']] ?? (string) $order['source'],
+                'user'   => getUserName((int) $order['users_id']),
+                'lines'  => (int) $order['nb_lines'],
+                'error'  => "<span class='small'>" . $esc((string) ($order['last_error'] ?? '') !== '' ? $order['last_error'] : __('envoi non terminé', 'printgestion'))
+                    . ' ' . $esc(sprintf(__('(%d tentative(s))', 'printgestion'), (int) $order['attempts'])) . "</span>",
+                'file'   => $file,
+                'action' => "<span class='d-block text-end'>" . $action . "</span>",
+            ];
         }
-        echo "</tbody></table></div></div></div>";
+        echo PluginPrintgestionUi::datatable([
+            'date'   => __('Enregistrée le', 'printgestion'),
+            'source' => __('Origine', 'printgestion'),
+            'user'   => __('Par', 'printgestion'),
+            'lines'  => __('Lignes', 'printgestion'),
+            'error'  => __('Dernière erreur', 'printgestion'),
+            'file'   => __('Fichier', 'printgestion'),
+            'action' => '',
+        ], $entries, ['lines' => 'integer', 'error' => 'raw_html', 'file' => 'raw_html', 'action' => 'raw_html']);
+        echo "</div></div>";
     }
 
     /**

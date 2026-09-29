@@ -131,7 +131,7 @@ class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
             . _sx('button', 'Search') . "</button></div>";
         echo "</form>";
 
-        echo "<table class='tab_cadre_fixehov' style='width:100%' id='{$uid}-table'>";
+        echo "<table class='table table-sm table-hover align-middle' id='{$uid}-table'>";
         echo "<tr><th style='width:40%'>" . __('Contrat lié', 'printgestion')
             . "</th><td data-pc-field='contract_name'>"
             . htmlspecialchars($contract_name, ENT_QUOTES, 'UTF-8') . "</td></tr>";

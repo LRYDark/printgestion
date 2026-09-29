@@ -202,7 +202,7 @@ class PluginPrintgestionCartridgesnmp extends CommonDBTM {
         echo "<form method='post' action='" . PLUGIN_PRINTGESTION_WEBDIR . "/front/cartridgesnmp.form.php'>";
         echo Html::hidden('cartridgeitems_id', ['value' => $cartridgeitems_id]);
 
-        echo "<table class='tab_cadre_fixehov' style='width:100%'>";
+        echo "<table class='table table-sm table-hover align-middle'>";
         echo "<thead><tr class='noHover'>";
         echo "<th style='width:80px;text-align:center'>" . __('Lié', 'printgestion') . "</th>";
         echo "<th>" . __('Propriété SNMP', 'printgestion') . "</th>";

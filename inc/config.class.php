@@ -1081,7 +1081,7 @@ HTML;
             echo Html::hidden('existing_ids[]', ['value' => (int)$m['id']]);
         }
 
-        echo "<table class='tab_cadre_fixehov' style='width:100%' id='printgestion-mapping-table'>";
+        echo "<table class='table table-sm table-hover align-middle' id='printgestion-mapping-table'>";
         echo "<thead><tr class='noHover'>";
         echo "<th style='width:50%'>" . __('Propriété SNMP', 'printgestion') . "</th>";
         echo "<th style='width:40%'>" . __('Type cartouche GLPI', 'printgestion') . "</th>";

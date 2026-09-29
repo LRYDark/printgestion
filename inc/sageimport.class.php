@@ -662,21 +662,30 @@ class PluginPrintgestionSageimport extends CommonDBTM {
             echo "<div class='card-body text-muted'>" . $esc(__('Aucun import.', 'printgestion')) . "</div></div>";
             return;
         }
-        echo "<div class='table-responsive'><table class='table table-sm card-table'><thead><tr>"
-            . "<th>" . $esc(__('Date', 'printgestion')) . "</th><th>" . $esc(__('Référentiel', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Fichier', 'printgestion')) . "</th><th>" . $esc(__('Par', 'printgestion')) . "</th>"
-            . "<th class='text-end'>" . $esc(__('Nouvelles', 'printgestion')) . "</th><th class='text-end'>" . $esc(__('Modifiées', 'printgestion')) . "</th>"
-            . "<th class='text-end'>" . $esc(__('Inchangées', 'printgestion')) . "</th><th class='text-end'>" . $esc(__('Absentes', 'printgestion')) . "</th>"
-            . "</tr></thead><tbody>";
+        $entries = [];
         foreach ($imports as $import) {
-            echo "<tr><td>" . $esc(Html::convDateTime((string) $import['date_creation'])) . "</td>"
-                . "<td>" . $esc(self::getTypeLabels()[$import['type']] ?? $import['type']) . "</td>"
-                . "<td>" . $esc($import['filename']) . "</td>"
-                . "<td>" . $esc(getUserName((int) $import['users_id'])) . "</td>"
-                . "<td class='text-end'>" . (int) $import['nb_created'] . "</td><td class='text-end'>" . (int) $import['nb_updated'] . "</td>"
-                . "<td class='text-end'>" . (int) $import['nb_unchanged'] . "</td><td class='text-end'>" . (int) $import['nb_absent'] . "</td></tr>";
+            $entries[] = [
+                'date'      => Html::convDateTime((string) $import['date_creation']),
+                'type'      => self::getTypeLabels()[$import['type']] ?? $import['type'],
+                'file'      => $import['filename'],
+                'user'      => getUserName((int) $import['users_id']),
+                'created'   => (int) $import['nb_created'],
+                'updated'   => (int) $import['nb_updated'],
+                'unchanged' => (int) $import['nb_unchanged'],
+                'absent'    => (int) $import['nb_absent'],
+            ];
         }
-        echo "</tbody></table></div></div>";
+        echo PluginPrintgestionUi::datatable([
+            'date'      => __('Date', 'printgestion'),
+            'type'      => __('Référentiel', 'printgestion'),
+            'file'      => __('Fichier', 'printgestion'),
+            'user'      => __('Par', 'printgestion'),
+            'created'   => __('Nouvelles', 'printgestion'),
+            'updated'   => __('Modifiées', 'printgestion'),
+            'unchanged' => __('Inchangées', 'printgestion'),
+            'absent'    => __('Absentes', 'printgestion'),
+        ], $entries, ['created' => 'integer', 'updated' => 'integer', 'unchanged' => 'integer', 'absent' => 'integer']);
+        echo "</div>";
     }
 
     public static function getPageURL(): string {

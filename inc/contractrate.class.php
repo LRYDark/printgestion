@@ -84,7 +84,7 @@ class PluginPrintgestionContractrate extends CommonDBTM {
             echo Html::hidden('contracts_id', ['value' => $contracts_id]);
         }
 
-        echo "<table class='tab_cadre_fixehov' style='width:100%'>";
+        echo "<table class='table table-sm table-hover align-middle'>";
         echo "<thead><tr class='noHover'>";
         echo "<th style='width:25%'>" . __('Type', 'printgestion') . "</th>";
         echo "<th style='width:35%'>" . __('Tarif (€/page)', 'printgestion') . "</th>";
@@ -121,7 +121,7 @@ class PluginPrintgestionContractrate extends CommonDBTM {
         }
 
         if ($canedit) {
-            echo "<tr class='tab_bg_2'><td>";
+            echo "<tr><td>";
             Dropdown::showFromArray('type_cout', $type_labels, ['value' => 'both']);
             echo "</td><td><input type='number' step='0.000001' min='0' name='rate' value='0' class='form-control'></td>";
             echo "<td>";

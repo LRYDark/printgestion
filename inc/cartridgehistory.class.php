@@ -586,23 +586,6 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
         self::openNativeCartridge($cartridgeitems_id, $printers_id, $today, $current_counter);
     }
 
-    /**
-     * Retourne l'historique d'une imprimante (toutes cartouches).
-     */
-    public static function getHistoryForPrinter(int $printers_id): array {
-        global $DB;
-
-        $rows = [];
-        foreach ($DB->request([
-            'FROM'  => self::getTable(),
-            'WHERE' => ['printers_id' => $printers_id],
-            'ORDER' => ['date_install DESC'],
-        ]) as $r) {
-            $rows[] = $r;
-        }
-        return $rows;
-    }
-
     static function install(Migration $migration) { return true; }
     static function uninstall(Migration $migration) { return true; }
 }

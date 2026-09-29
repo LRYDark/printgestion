@@ -126,55 +126,6 @@ class PluginPrintgestionBilling extends CommonDBTM {
     }
 
     /**
-     * Détecte si une imprimante est couleur.
-     * Double heuristique (l'une OU l'autre suffit) :
-     *   1. Un toner couleur (cyan/magenta/yellow) est présent dans
-     *      glpi_printers_cartridgeinfos. Critère le plus fiable — les monochromes
-     *      n'ont physiquement que le toner noir donc l'agent ne remonte rien d'autre.
-     *   2. Fallback : au moins un printerlog a color_pages > 0 (historique).
-     */
-    protected static function isColorPrinter(int $printers_id, array $current_counters): bool {
-        global $DB;
-
-        // 1. Toner couleur dans l'inventaire SNMP
-        $row = $DB->request([
-            'SELECT' => [new \QueryExpression('COUNT(*) AS cnt')],
-            'FROM'   => 'glpi_printers_cartridgeinfos',
-            'WHERE'  => [
-                'printers_id' => $printers_id,
-                'property'    => ['LIKE', '%cyan%'], // tonercyan, tonerCyan, etc.
-            ],
-        ])->current();
-        if (is_array($row) && (int)($row['cnt'] ?? 0) > 0) {
-            return true;
-        }
-        foreach (['magenta', 'yellow'] as $kw) {
-            $row = $DB->request([
-                'SELECT' => [new \QueryExpression('COUNT(*) AS cnt')],
-                'FROM'   => 'glpi_printers_cartridgeinfos',
-                'WHERE'  => [
-                    'printers_id' => $printers_id,
-                    'property'    => ['LIKE', '%' . $kw . '%'],
-                ],
-            ])->current();
-            if (is_array($row) && (int)($row['cnt'] ?? 0) > 0) {
-                return true;
-            }
-        }
-
-        // 2. Fallback : un printerlog a remonté color_pages > 0 historiquement
-        if ($current_counters['end_color'] > 0 || $current_counters['start_color'] > 0) {
-            return true;
-        }
-        $row = $DB->request([
-            'SELECT' => [new \QueryExpression('MAX(color_pages) AS max_color')],
-            'FROM'   => 'glpi_printerlogs',
-            'WHERE'  => ['itemtype' => 'Printer', 'items_id' => $printers_id],
-        ])->current();
-        return is_array($row) && (int)($row['max_color'] ?? 0) > 0;
-    }
-
-    /**
      * Version cachée de computeForPeriod via $GLPI_CACHE (fichiers dans files/_cache/).
      * TTL 10min — suffisant pour un dashboard consulté.
      */

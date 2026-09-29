@@ -533,9 +533,7 @@ class PluginPrintgestionRaccordementdetail {
             echo "<p class='mb-0'>" . $esc(__('Aucun lieu, commentaire ou contrat déclaré à l\'étape 3 : rien à appliquer.', 'printgestion')) . "</p></div></div>";
             return;
         }
-        echo "<div class='table-responsive'><table class='table table-sm align-middle mb-0'><thead><tr>"
-            . "<th>" . $esc(__('Adresse', 'printgestion')) . "</th><th>" . $esc(__('Imprimante', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('À appliquer', 'printgestion')) . "</th><th>" . $esc(__('État', 'printgestion')) . "</th></tr></thead><tbody>";
+        $entries = [];
         foreach ($rows as $row) {
             $parts = [];
             if ((int) $row['locations_id'] > 0) {
@@ -558,9 +556,18 @@ class PluginPrintgestionRaccordementdetail {
                 $state = "<span class='badge " . ($row['result'] === 'wrong_entity' ? 'bg-red text-red-fg' : 'bg-secondary text-secondary-fg') . "'>" . $esc(ucfirst($reason)) . "</span>";
                 $item  = self::getItemHtml($row);
             }
-            echo "<tr><td class='font-monospace'>" . $esc($row['ip']) . "</td><td>{$item}</td><td class='small'>" . $esc(implode(', ', $parts)) . "</td><td>{$state}</td></tr>";
+            $entries[] = [
+                'ip'    => "<span class='font-monospace'>" . $esc($row['ip']) . "</span>",
+                'item'  => $item,
+                'apply' => implode(', ', $parts),
+                'state' => $state,
+            ];
         }
-        echo "</tbody></table></div>";
+        echo PluginPrintgestionUi::datatable(
+            ['ip' => __('Adresse', 'printgestion'), 'item' => __('Imprimante', 'printgestion'), 'apply' => __('À appliquer', 'printgestion'), 'state' => __('État', 'printgestion')],
+            $entries,
+            ['ip' => 'raw_html', 'item' => 'raw_html', 'state' => 'raw_html']
+        );
         if (self::canEdit($racc, $can_edit) && $ready > 0) {
             echo "<form method='post' action='" . $esc(PluginPrintgestionRaccordement::getPageURL()) . "' class='mt-3'>" . PluginPrintgestionRaccordement::stepField() . Html::hidden('id', ['value' => (int) $racc->getID()])
                 . "<button type='submit' name='apply_details' value='1' class='btn btn-primary'><i class='ti ti-check me-1'></i>"

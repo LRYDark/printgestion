@@ -1655,9 +1655,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         $users = [];
         // Construit d'abord, montre ensuite : le journal ne s'ouvre que lorsqu'on cherche ce qui s'est passé.
         ob_start();
-        echo "<div class='table-responsive'><table class='table table-sm mb-0'><thead><tr>"
-            . "<th>" . $esc(__('Date', 'printgestion')) . "</th><th>" . $esc(__('Utilisateur', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Étape', 'printgestion')) . "</th><th>" . $esc(__('Événement', 'printgestion')) . "</th></tr></thead><tbody>";
+        $entries = [];
         foreach ($DB->request([
             'FROM'  => self::LOGS_TABLE,
             'WHERE' => ['plugin_printgestion_raccordements_id' => (int) $this->getID()],
@@ -1666,11 +1664,18 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             $users_id          = (int) $log['users_id'];
             $users[$users_id] ??= $users_id > 0 ? getUserName($users_id) : '—';
             [$icon, $class]    = $levels[$log['level']] ?? $levels['info'];
-            echo "<tr><td class='text-nowrap'>" . $esc(Html::convDateTime((string) $log['date'], null, true)) . "</td>"
-                . "<td class='text-nowrap'>" . $esc($users[$users_id]) . "</td><td>" . (int) $log['step'] . "</td>"
-                . "<td><i class='ti {$icon} {$class} me-1'></i>" . $esc($log['message']) . "</td></tr>";
+            $entries[]         = [
+                'date'  => Html::convDateTime((string) $log['date'], null, true),
+                'user'  => $users[$users_id],
+                'step'  => (int) $log['step'],
+                'event' => "<i class='ti {$icon} {$class} me-1'></i>" . $esc($log['message']),
+            ];
         }
-        echo "</tbody></table></div>";
+        echo PluginPrintgestionUi::datatable(
+            ['date' => __('Date', 'printgestion'), 'user' => __('Utilisateur', 'printgestion'), 'step' => __('Étape', 'printgestion'), 'event' => __('Événement', 'printgestion')],
+            $entries,
+            ['step' => 'integer', 'event' => 'raw_html']
+        );
         if ($can_edit) {
             // Confirmation native de GLPI : le même geste que partout ailleurs dans l'interface.
             echo "<form method='post' action='" . $esc(self::getPageURL()) . "' class='text-end mt-2'>" . self::stepField()

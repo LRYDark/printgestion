@@ -1426,9 +1426,13 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         ]) as $row) {
             $ips[(int) $row['mainitems_id']][] = (string) $row['name'];
         }
-        echo "<div class='table-responsive'><table class='table table-sm align-middle mb-0'><thead><tr>"
-            . "<th>" . $esc(_n('Imprimante', 'Imprimantes', 1, 'printgestion')) . "</th><th>" . $esc(Entity::getTypeName(1)) . "</th>"
-            . "<th>" . $esc(__('Adresse IP', 'printgestion')) . "</th><th>" . $esc(__('Dernier inventaire réseau réussi', 'printgestion')) . "</th></tr></thead><tbody>";
+        $columns = [
+            'printer'   => _n('Imprimante', 'Imprimantes', 1, 'printgestion'),
+            'entity'    => Entity::getTypeName(1),
+            'ip'        => __('Adresse IP', 'printgestion'),
+            'inventory' => __('Dernier inventaire réseau réussi', 'printgestion'),
+        ];
+        $entries = [];
         foreach ($DB->request([
             'SELECT' => ['id', 'name', 'entities_id'],
             'FROM'   => Printer::getTable(),
@@ -1437,13 +1441,19 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         ]) as $printer) {
             $printers_id = (int) $printer['id'];
             $snmp        = $dates[$printers_id]['snmp'] ?? null;
-            echo "<tr><td><a href='" . $esc(Printer::getFormURLWithID($printers_id)) . "'>" . $esc($printer['name']) . "</a></td>"
-                . "<td>" . $esc(Dropdown::getDropdownName(Entity::getTable(), (int) $printer['entities_id'])) . "</td>"
-                . "<td class='font-monospace small'>" . $esc(implode(', ', $ips[$printers_id] ?? []) ?: '—') . "</td>"
-                . "<td>" . $esc($snmp !== null ? Html::convDateTime((string) $snmp) : __('aucun connu', 'printgestion'))
-                . ($snmp === null || (string) $snmp < $cutoff((int) $printer['entities_id']) ? " <span class='badge bg-red text-red-fg'>" . $esc(__('Muette', 'printgestion')) . "</span>" : '') . "</td></tr>";
+            $entries[]   = [
+                'itemtype'  => Printer::class,
+                'id'        => $printers_id,
+                'printer'   => "<a href='" . $esc(Printer::getFormURLWithID($printers_id)) . "'>" . $esc($printer['name']) . "</a>",
+                'entity'    => Dropdown::getDropdownName(Entity::getTable(), (int) $printer['entities_id']),
+                'ip'        => "<span class='font-monospace small'>" . $esc(implode(', ', $ips[$printers_id] ?? []) ?: '—') . "</span>",
+                'inventory' => $esc($snmp !== null ? Html::convDateTime((string) $snmp) : __('aucun connu', 'printgestion'))
+                    . ($snmp === null || (string) $snmp < $cutoff((int) $printer['entities_id']) ? " <span class='badge bg-red text-red-fg'>" . $esc(__('Muette', 'printgestion')) . "</span>" : ''),
+            ];
         }
-        echo "</tbody></table></div></div></div>";
+        // Gabarit natif de GLPI (components/datatable.html.twig) : le même rendu que les autres listes du plugin.
+        echo PluginPrintgestionUi::datatable($columns, $entries, ['printer' => 'raw_html', 'ip' => 'raw_html', 'inventory' => 'raw_html']);
+        echo "</div></div>";
     }
 
     /** Page « Sondes » du module, vue d'une sonde : en-tête (PC et statut « PC sonde »), puis le contenu de l'onglet. */
