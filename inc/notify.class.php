@@ -453,7 +453,7 @@ class PluginPrintgestionNotify {
         global $DB;
 
         $cfg = $DB->request(['FROM' => 'glpi_plugin_printgestion_configs', 'WHERE' => ['id' => 1]])->current();
-        if (!is_array($cfg)) {
+        if (!is_array($cfg) || !function_exists('plugin_printgestion_template_definitions')) {
             return;
         }
         $definitions = plugin_printgestion_template_definitions();
