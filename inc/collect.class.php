@@ -156,7 +156,45 @@ class PluginPrintgestionCollect extends CommonGLPI {
             return [];
         }
         $wanted = array_flip(array_map('intval', $printer_ids));
-        $out    = [];
+        // L'imprimante n'est nommée que dans le texte du journal : une ligne d'état de tâche couvre tout un passage
+        // de la sonde. Journal entier lu une fois par requête et gardé ; pour quelques imprimantes (fiche, relevé
+        // manuel), seules les lignes qui les citent sont lues — même résultat, la base filtre au lieu de PHP.
+        if (self::$network_runs !== null && self::$network_runs_at < time() - 60) {
+            self::$network_runs = null; // tâche planifiée longue : relu au-delà d'une minute
+        }
+        if (self::$network_runs === null && count($wanted) > self::FEW_PRINTERS) {
+            self::$network_runs    = self::readNetworkRuns(null);
+            self::$network_runs_at = time();
+        }
+        $runs = self::$network_runs ?? self::readNetworkRuns(array_keys($wanted));
+        return array_intersect_key($runs, $wanted);
+    }
+
+    /** Au-delà, le journal d'inventaire réseau de GLPI Inventory est lu en entier (une fois par requête). */
+    const FEW_PRINTERS = 50;
+
+    /** Journal entier déjà lu pendant la requête : printers_id => ['date', 'agents_id']. */
+    private static ?array $network_runs = null;
+    private static int $network_runs_at = 0;
+
+    /**
+     * Dernier inventaire réseau réussi par imprimante, d'après le journal des tâches de GLPI Inventory.
+     *
+     * @param ?int[] $printer_ids null : toutes les imprimantes citées par le journal
+     */
+    private static function readNetworkRuns(?array $printer_ids): array {
+        global $DB;
+
+        $started = microtime(true);
+        $where   = ['j.method' => 'networkinventory', 'l.comment' => ['LIKE', '%==updatetheitem==%']];
+        if ($printer_ids !== null) {
+            $where[] = ['OR' => array_map(
+                static fn(int $id): array => ['l.comment' => ['LIKE', '%[[Printer::' . $id . ']]%']],
+                $printer_ids
+            )];
+        }
+        $out  = [];
+        $rows = 0;
         foreach ($DB->request([
             'SELECT'     => ['l.date', 'l.comment', 's.agents_id'],
             'FROM'       => 'glpi_plugin_glpiinventory_taskjoblogs AS l',
@@ -164,17 +202,19 @@ class PluginPrintgestionCollect extends CommonGLPI {
                 'glpi_plugin_glpiinventory_taskjobstates AS s' => ['ON' => ['l' => 'plugin_glpiinventory_taskjobstates_id', 's' => 'id']],
                 'glpi_plugin_glpiinventory_taskjobs AS j'      => ['ON' => ['s' => 'plugin_glpiinventory_taskjobs_id', 'j' => 'id']],
             ],
-            'WHERE'      => ['j.method' => 'networkinventory', 'l.comment' => ['LIKE', '%==updatetheitem==%']],
+            'WHERE'      => $where,
             'ORDER'      => ['l.date ASC', 'l.id ASC'],
         ]) as $row) {
+            $rows++;
             if (!preg_match_all('/\[\[Printer::(\d+)\]\]/', (string) $row['comment'], $matches)) {
                 continue;
             }
             foreach ($matches[1] as $id) {
-                if (isset($wanted[(int) $id])) {
-                    $out[(int) $id] = ['date' => (string) $row['date'], 'agents_id' => (int) $row['agents_id']];
-                }
+                $out[(int) $id] = ['date' => (string) $row['date'], 'agents_id' => (int) $row['agents_id']];
             }
+        }
+        if ($printer_ids === null) {
+            PluginPrintgestionLogger::duration('collecte', 'Lecture du journal d\'inventaire réseau de GLPI Inventory', $started, sprintf('%d ligne(s), %d imprimante(s)', $rows, count($out)));
         }
         return $out;
     }

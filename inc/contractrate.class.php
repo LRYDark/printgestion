@@ -84,13 +84,12 @@ class PluginPrintgestionContractrate extends CommonDBTM {
             echo Html::hidden('contracts_id', ['value' => $contracts_id]);
         }
 
-        echo "<table class='table table-sm table-hover align-middle'>";
-        echo "<thead><tr class='noHover'>";
-        echo "<th style='width:25%'>" . __('Type', 'printgestion') . "</th>";
-        echo "<th style='width:35%'>" . __('Tarif (€/page)', 'printgestion') . "</th>";
-        echo "<th style='width:20%'>" . __('Actif', 'printgestion') . "</th>";
-        if ($canedit) echo "<th style='width:20%'>" . __('Action', 'printgestion') . "</th>";
-        echo "</tr></thead><tbody>";
+        $columns = [
+            'type'   => __('Type', 'printgestion'),
+            'rate'   => __('Tarif (€/page)', 'printgestion'),
+            'active' => __('Actif', 'printgestion'),
+        ];
+        if ($canedit) $columns['action'] = __('Action', 'printgestion');
 
         $type_labels = [
             'nb'    => __('N&B', 'printgestion'),
@@ -98,41 +97,54 @@ class PluginPrintgestionContractrate extends CommonDBTM {
             'both'  => __('Les deux', 'printgestion'),
         ];
 
+        // Toutes les cellules en HTML : la ligne de saisie y met ses champs. Texte échappé ici.
+        $entries = [];
         if (empty($rates)) {
-            $col = $canedit ? 4 : 3;
-            echo "<tr><td colspan='{$col}' class='text-muted text-center'>"
-                . __('Aucun tarif défini', 'printgestion') . "</td></tr>";
+            // Ligne « Aucun tarif défini » sur toute la largeur, comme avant : jamais l'état vide du gabarit
+            // (« No results found » sans en-tête, faute de lignes, pour qui ne peut pas éditer).
+            $entries[] = [
+                'type'         => "<div class='text-muted text-center'>" . htmlspecialchars(__('Aucun tarif défini', 'printgestion'), ENT_QUOTES, 'UTF-8') . "</div>",
+                'type_colspan' => count($columns),
+            ];
         }
 
         foreach ($rates as $rate) {
-            $id = (int)$rate['id'];
-            echo "<tr>";
-            echo "<td>" . htmlspecialchars($type_labels[$rate['type_cout']] ?? $rate['type_cout'], ENT_QUOTES, 'UTF-8') . "</td>";
-            echo "<td>" . number_format((float)$rate['rate'], 6, ',', ' ') . " €</td>";
-            echo "<td>" . ((int)$rate['actif'] === 1
-                ? '<span class="badge bg-success">' . __('Oui', 'printgestion') . '</span>'
-                : '<span class="badge bg-secondary">' . __('Non', 'printgestion') . '</span>') . "</td>";
+            $id    = (int)$rate['id'];
+            $entry = [
+                'type'   => htmlspecialchars($type_labels[$rate['type_cout']] ?? $rate['type_cout'], ENT_QUOTES, 'UTF-8'),
+                'rate'   => number_format((float)$rate['rate'], 6, ',', ' ') . " €",
+                'active' => (int)$rate['actif'] === 1
+                    ? '<span class="badge bg-success">' . __('Oui', 'printgestion') . '</span>'
+                    : '<span class="badge bg-secondary">' . __('Non', 'printgestion') . '</span>',
+            ];
             if ($canedit) {
-                echo "<td><button type='submit' class='btn btn-sm btn-outline-danger' name='delete_rate' value='{$id}' "
+                $entry['action'] = "<button type='submit' class='btn btn-sm btn-outline-danger' name='delete_rate' value='{$id}' "
                     . "onclick='return confirm(\"" . __('Confirmer la suppression ?', 'printgestion') . "\")'>"
-                    . _x('button', 'Delete') . "</button></td>";
+                    . _x('button', 'Delete') . "</button>";
             }
-            echo "</tr>";
+            $entries[] = $entry;
         }
 
         if ($canedit) {
-            echo "<tr><td>";
-            Dropdown::showFromArray('type_cout', $type_labels, ['value' => 'both']);
-            echo "</td><td><input type='number' step='0.000001' min='0' name='rate' value='0' class='form-control'></td>";
-            echo "<td>";
-            Dropdown::showYesNo('actif', 1);
-            echo "</td>";
-            echo "<td><button type='submit' class='btn btn-sm btn-primary' name='add_rate' value='1'>"
-                . _x('button', 'Add') . "</button></td>";
-            echo "</tr>";
+            // Ligne de saisie d'un tarif : mêmes champs type_cout, rate, actif et bouton add_rate qu'avant.
+            $entries[] = [
+                'type'   => Dropdown::showFromArray('type_cout', $type_labels, ['value' => 'both', 'display' => false]),
+                'rate'   => "<input type='number' step='0.000001' min='0' name='rate' value='0' class='form-control'>",
+                'active' => Dropdown::showYesNo('actif', 1, -1, ['display' => false]),
+                'action' => "<button type='submit' class='btn btn-sm btn-primary' name='add_rate' value='1'>"
+                    . _x('button', 'Add') . "</button>",
+            ];
         }
 
-        echo "</tbody></table>";
+        // Champs et boutons du formulaire des tarifs, lus par front/contractrate.form.php : $massive à null.
+        // data-pg-noclick : la ligne ne s'ouvre pas d'un clic, comme avant. mb-3 : la marge sous le tableau, que
+        // le gabarit retire (mb-0) — dans le formulaire seulement : sans droit, le tableau était le dernier enfant
+        // de la carte, sans marge (card-body > :last-child de Tabler), et mb-3 (!important) en ajouterait une.
+        echo "<div" . ($canedit ? " class='mb-3'" : '') . " data-pg-noclick='1'>" . PluginPrintgestionUi::datatable(
+            $columns,
+            $entries,
+            array_fill_keys(array_keys($columns), 'raw_html')
+        ) . "</div>";
         if ($canedit) {
             Html::closeForm();
         }

@@ -523,23 +523,31 @@ class PluginPrintgestionSageimport extends CommonDBTM {
             . "<i class='ti ti-file-search me-1'></i>" . $esc(__('Analyser', 'printgestion')) . "</button></div>";
         Html::closeForm();
 
-        echo "<div class='table-responsive'><table class='table table-sm'><thead><tr>"
-            . "<th>" . $esc(__('Référentiel', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Colonnes (obligatoires en gras) et en-têtes acceptés', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Rapprochement GLPI', 'printgestion')) . "</th></tr></thead><tbody>";
         $matching = [
             self::TYPE_DELIVERIES => __('Vérification seulement : l\'export prend le code client dans le nom de l\'entité (ou d\'un parent) et l\'intitulé de livraison dans ses commentaires ; un intitulé absent des adresses de son client donne un avertissement.', 'printgestion'),
             self::TYPE_ARTICLES   => __('Cartouche GLPI dont la référence vaut la référence article ; une référence absente du référentiel bloque la ligne.', 'printgestion'),
         ];
+        // Aide statique, toujours deux lignes : jamais vide, aucun lien, donc aucun clic de ligne.
+        $entries = [];
         foreach (self::getTypeLabels() as $type => $label) {
             $columns = [];
             foreach (self::getColumns($type) as $column) {
                 $name      = $column['required'] ? '<strong>' . $esc($column['label']) . '</strong>' : $esc($column['label']);
                 $columns[] = $name . " <span class='text-muted small'>(" . $esc(implode(', ', $column['aliases'])) . ')</span>';
             }
-            echo "<tr><td>" . $esc($label) . "</td><td>" . implode('<br>', $columns) . "</td><td class='small'>" . $esc($matching[$type]) . "</td></tr>";
+            $entries[] = [
+                'type'     => $label,
+                'columns'  => implode('<br>', $columns),
+                // La petite taille de l'ancienne cellule passe dans un bloc : le gabarit ne pose pas de classe de cellule.
+                'matching' => "<span class='d-block small'>" . $esc($matching[$type]) . "</span>",
+            ];
         }
-        echo "</tbody></table></div>";
+        // Pas de marge basse, comme avant : l'ancien tableau était dans un table-responsive, où Tabler la ramène à zéro.
+        echo PluginPrintgestionUi::datatable([
+            'type'     => __('Référentiel', 'printgestion'),
+            'columns'  => __('Colonnes (obligatoires en gras) et en-têtes acceptés', 'printgestion'),
+            'matching' => __('Rapprochement GLPI', 'printgestion'),
+        ], $entries, ['columns' => 'raw_html', 'matching' => 'raw_html']);
         echo "</div></div>";
     }
 

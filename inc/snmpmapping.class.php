@@ -103,6 +103,11 @@ class PluginPrintgestionSnmpmapping extends CommonDBTM {
     /** Résolutions calculées pendant la requête courante : "printers_id|property" => résultat. */
     private static array $resolved = [];
 
+    /** Oublie les résolutions de la requête : une cartouche vient d'être créée ou liée. */
+    public static function clearResolved(): void {
+        self::$resolved = [];
+    }
+
     /**
      * Résout la cartouche (CartridgeItem) à commander pour une imprimante et une
      * propriété SNMP. Résolution STRICTE : le modèle d'imprimante est obligatoire et

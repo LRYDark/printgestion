@@ -546,3 +546,124 @@ function printgestionHumanDuration(days) {
     var rem   = months % 12;
     return years + (years > 1 ? ' ans' : ' an') + (rem > 0 ? ' ' + rem + ' mois' : '');
 }
+
+// Sous-formulaire « Commander » des alertes toner : aperçu Gesconso recalculé pendant la saisie d'une référence de
+// cartouche, et confirmation à l'envoi quand des cartouches restent impossibles à écrire dans le fichier (elles sont
+// alors retirées de la commande, les autres partent). Appelé par le script du sous-formulaire (Alertview).
+window.pgOrderPreview = function (config) {
+    'use strict';
+    var box    = document.getElementById(config.box);
+    var button = document.getElementById(config.button);
+    var form   = box ? box.closest('form') : null;
+    var csrf   = document.querySelector('meta[property="glpi:csrf_token"]');
+    if (!box || !button || !form) {
+        return;
+    }
+    var state     = { blocked: config.blocked || {}, total: config.total || 0 };
+    var timer     = null;
+    var pending   = null;
+    var seq       = 0;
+    var confirmed = false;
+
+    function refresh() {
+        timer = null;
+        var body = new URLSearchParams();
+        (config.ids || []).forEach(function (id) {
+            body.append('ids[]', id);
+        });
+        new FormData(form).forEach(function (value, name) {
+            if (name.indexOf('pg_newcart[') === 0) {
+                body.append(name, value);
+            }
+        });
+        var mine = ++seq;
+        box.style.opacity = '0.6';
+        pending = fetch(config.url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-Glpi-Csrf-Token': csrf ? csrf.content : ''
+            },
+            body: body.toString()
+        }).then(function (reponse) {
+            return reponse.json();
+        }).then(function (donnees) {
+            // Seule la dernière saisie compte : une réponse plus ancienne arrivée en retard est ignorée.
+            if (mine === seq && donnees && donnees.ok === true) {
+                box.innerHTML = donnees.html;
+                state = { blocked: donnees.blocked || {}, total: donnees.total || 0 };
+            }
+        }).catch(function () {
+            // Aperçu indisponible : l'état précédent reste, le serveur revérifie tout à l'envoi.
+        }).finally(function () {
+            if (mine === seq) {
+                pending = null;
+                box.style.opacity = '';
+            }
+        });
+        return pending;
+    }
+
+    function schedule(event) {
+        var name = event.target && event.target.name ? event.target.name : '';
+        if (name.indexOf('pg_newcart[') !== 0) {
+            return;
+        }
+        confirmed = false;
+        if (timer) {
+            clearTimeout(timer);
+        }
+        timer = setTimeout(refresh, 400);
+    }
+    form.addEventListener('input', schedule);
+    form.addEventListener('change', schedule);
+
+    button.addEventListener('click', function (event) {
+        if (confirmed) {
+            return;
+        }
+        // Saisie pas encore contrôlée : on attend l'aperçu à jour, puis on rejoue le clic.
+        if (timer || pending) {
+            event.preventDefault();
+            if (timer) {
+                clearTimeout(timer);
+                refresh();
+            }
+            (pending || Promise.resolve()).then(function () {
+                button.click();
+            });
+            return;
+        }
+        form.querySelectorAll('input[name="pg_exclude[]"]').forEach(function (champ) {
+            champ.remove();
+        });
+        var keys = Object.keys(state.blocked);
+        if (keys.length === 0) {
+            return;
+        }
+        if (keys.length >= state.total) {
+            event.preventDefault();
+            window.alert(config.messages.none);
+            return;
+        }
+        var lignes = keys.map(function (key) {
+            return '- ' + state.blocked[key];
+        }).join('\n');
+        var question = config.messages.head + '\n' + lignes + '\n\n'
+            + config.messages.confirm.replace('%d', String(state.total - keys.length));
+        if (!window.confirm(question)) {
+            event.preventDefault();
+            return;
+        }
+        keys.forEach(function (key) {
+            var champ = document.createElement('input');
+            champ.type  = 'hidden';
+            champ.name  = 'pg_exclude[]';
+            champ.value = key;
+            form.appendChild(champ);
+        });
+        confirmed = true;
+    });
+};

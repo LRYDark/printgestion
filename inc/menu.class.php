@@ -175,8 +175,11 @@ class PluginPrintgestionMenu extends CommonGLPI {
      *     sous-onglets de CE module (ex. Toner → Alertes toner / Expéditions).
      *
      * @param string $active clé de l'onglet courant ('hub' pour l'accueil).
+     * @param string $info   texte d'information de l'écran (brut, échappé ici) : une icône
+     *                       tout à droite de la barre, le texte dans sa bulle au survol,
+     *                       au lieu d'un bandeau au milieu de la page.
      */
-    static function showTabBar(string $active, bool $with_refresh = false): void {
+    static function showTabBar(string $active, bool $with_refresh = false, string $info = ''): void {
         // Accueil général : pas de barre de sous-onglets.
         if ($active === 'hub') {
             return;
@@ -223,10 +226,22 @@ class PluginPrintgestionMenu extends CommonGLPI {
                 __('Forcer la mise à jour (ignore le cache de 15 min)', 'printgestion'),
                 ENT_QUOTES, 'UTF-8'
             );
-            echo "<button type='button' class='btn btn-sm btn-outline-secondary flex-shrink-0' "
+            echo "<button type='button' class='btn btn-sm btn-outline-secondary flex-shrink-0 align-self-center' "
                 . "id='pc-refresh-cache' title='{$tip}'>"
                 . "<i class='ti ti-refresh me-1'></i>"
                 . __('Rafraîchir', 'printgestion') . "</button>";
+        }
+
+        // Information de l'écran : bulle native de GLPI (Html::showToolTip), qui se place
+        // d'elle-même dans la fenêtre.
+        if ($info !== '') {
+            echo "<span class='flex-shrink-0 align-self-center text-info fs-3' role='note' aria-label='"
+                . htmlspecialchars($info, ENT_QUOTES, 'UTF-8') . "'>"
+                . Html::showToolTip(htmlspecialchars($info, ENT_QUOTES, 'UTF-8'), [
+                    'display'       => false,
+                    'awesome-class' => 'fa-circle-info',
+                ])
+                . "</span>";
         }
 
         echo "</div></div>"; // card-body + card

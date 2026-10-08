@@ -43,18 +43,28 @@ class PluginPrintgestionSnmprule extends CommonDBTM {
 
         $rules = (new self())->find([], ['manufacturers_id', 'property_pattern']);
         if (!empty($rules)) {
-            echo "<div class='table-responsive'><table class='table table-sm'><thead><tr>"
-                . "<th>" . $esc(Manufacturer::getTypeName(1)) . "</th><th>" . $esc(__('Propriété', 'printgestion')) . "</th>"
-                . "<th>" . $esc(__('Action', 'printgestion')) . "</th><th>" . $esc(__('Motif', 'printgestion')) . "</th>"
-                . "<th class='text-center'>" . $esc(__('Supprimer', 'printgestion')) . "</th></tr></thead><tbody>";
+            // Constructeur, action et motif en texte, échappés par le gabarit.
+            $entries = [];
             foreach ($rules as $rule) {
-                echo "<tr><td>" . ((int) $rule['manufacturers_id'] > 0 ? $esc(Dropdown::getDropdownName('glpi_manufacturers', (int) $rule['manufacturers_id'])) : $esc(__('Tous', 'printgestion'))) . "</td>"
-                    . "<td><code>" . $esc($rule['property_pattern']) . "</code></td>"
-                    . "<td>" . $esc(self::getActionLabels()[$rule['action']] ?? $rule['action']) . "</td>"
-                    . "<td>" . $esc($rule['comment']) . "</td>"
-                    . "<td class='text-center'><input type='checkbox' class='form-check-input' name='snmprule_delete[" . (int) $rule['id'] . "]' value='1'></td></tr>";
+                $entries[] = [
+                    'manufacturer' => (int) $rule['manufacturers_id'] > 0 ? (string) Dropdown::getDropdownName('glpi_manufacturers', (int) $rule['manufacturers_id']) : __('Tous', 'printgestion'),
+                    'pattern'      => "<code>" . $esc($rule['property_pattern']) . "</code>",
+                    'action'       => (string) (self::getActionLabels()[$rule['action']] ?? $rule['action']),
+                    'comment'      => (string) $rule['comment'],
+                    'delete'       => "<div class='text-center'><input type='checkbox' class='form-check-input' name='snmprule_delete[" . (int) $rule['id'] . "]' value='1'></div>",
+                ];
             }
-            echo "</tbody></table></div>";
+            // Cases snmprule_delete[id] du formulaire de configuration, lues par saveConfig() : pas des actions massives,
+            // $massive à null (des cases natives posteraient item[PluginPrintgestionSnmprule][id]). data-pg-noclick : la
+            // ligne ne s'ouvre pas d'un clic, comme avant. Pas d'espace ajouté sous le tableau : dans un table-responsive,
+            // Tabler l'avait déjà à 0 (.table-responsive .table), comme le mb-0 du gabarit.
+            echo "<div data-pg-noclick='1'>" . PluginPrintgestionUi::datatable([
+                'manufacturer' => Manufacturer::getTypeName(1),
+                'pattern'      => __('Propriété', 'printgestion'),
+                'action'       => __('Action', 'printgestion'),
+                'comment'      => __('Motif', 'printgestion'),
+                'delete'       => ['label' => "<span class='d-block text-center'>" . $esc(__('Supprimer', 'printgestion')) . "</span>", 'raw_header' => true],
+            ], $entries, ['pattern' => 'raw_html', 'delete' => 'raw_html']) . "</div>";
         }
 
         echo "<div class='row g-2 align-items-end'>";

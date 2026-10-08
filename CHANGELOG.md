@@ -2,6 +2,105 @@
 
 ## Non publié
 
+- **Menu du clic droit toujours visible.** Près du bord droit ou du bas de la fenêtre, il s'ouvre à gauche ou
+  au-dessus du pointeur, au lieu de sortir de l'écran.
+
+- **Demandes d'envoi : information en bulle.** Le bandeau « tâche PrintgestionProposeDemandes désactivée » est
+  remplacé par une icône d'information tout à droite de la barre d'onglets, le texte dans sa bulle au survol
+  (bulle native de GLPI). `PluginPrintgestionMenu::showTabBar()` prend pour cela un 3e paramètre facultatif.
+
+- **Expédition : retour au tableau après « Confirmer expédition ».** La fiche renvoyait sur elle-même, avec un
+  formulaire vide. Elle ramène maintenant au tableau d'où l'on est venu (alertes ou expéditions, avec ses filtres et
+  sa page), comme « Annuler » ; à défaut, à la liste des expéditions. Saisie refusée (transporteur, n° de suivi, BL) :
+  le formulaire est rouvert, sans perdre ce tableau de retour. Le statut « Envoi en cours » de l'écran des alertes
+  suit tout de suite (il attendait le recalcul par tâche et restait « En attente »). Une expédition qui n'est plus en
+  attente n'affiche plus de formulaire vide : sa fiche donne son statut, son transporteur et son n° de suivi ; une
+  confirmation en double dit le statut actuel au lieu de « seul un envoi en attente… ».
+
+- **Plus de calcul long pendant une page.** Recalcul des alertes : « Recalculer maintenant », « Rafraîchir » et la
+  première visite posent une demande, faite par la nouvelle tâche minute `PrintgestionRebuildAlerts` (enregistrée
+  d'elle-même) ; l'écran affiche « Recalcul en cours » et se recharge seul quand il est fini (pas pendant une
+  fenêtre ouverte), ou signale une tâche qui ne passe pas au-delà de 5 min. Un seul recalcul à la fois (verrou de
+  base) ; la table est remplacée dans une transaction, l'écran garde les alertes précédentes pendant le calcul au
+  lieu d'une table vide. L'écran des alertes lit l'état de collecte déjà calculé au lieu de refaire l'analyse de
+  tout le parc. Journal d'inventaire réseau de GLPI Inventory : lu une fois par requête, et filtré par la base pour
+  une fiche imprimante. Couverture des sondes (onglet Agent, page Sondes, onglet Déploiement de l'entité) : en cache
+  10 min, vidé à chaque changement fait par le plugin, recherche des plages IP par dichotomie. Facturation : les
+  lignes ne sont réécrites que si le calcul a changé (plus à chaque tri ou page), tarifs lus une fois par contrat ;
+  l'export Excel reprend le calcul en cache. Relevé manuel : détection des changements de cartouche sur cette
+  imprimante seulement. Installeur d'agent : empreinte gardée tant que le fichier ne change pas. Passage d'une
+  expédition à « livrée » : seules les demandes concernées sont resynchronisées. Durées des traitements longs dans
+  `files/_log/printgestion.log` (INFO, AVERTISSEMENT au-delà de 30 s).
+
+- **Mise à jour de GLPI Inventory surveillée.** Après « Mettre à jour » (ou une installation) de GLPI Inventory,
+  Print Gestion revérifie les tables et colonnes qu'il lui emprunte ; après « Activer », tout, classes et constantes
+  comprises. Message sur la page suivante : rouge avec chaque élément disparu et ce qu'il éteint dans Print
+  Gestion, sinon une confirmation ; le résultat va aussi au journal. Liste des emprunts complétée : états et
+  travaux des tâches (sonde du dernier inventaire réseau), configuration (conservation des journaux), constantes
+  d'état des journaux et des travaux.
+
+- **Sonde installée par le fichier d'installation : « AGENT D'IMPRIMANTE » dans les commentaires de son
+  ordinateur**, en tête, le texte existant conservé (l'ancienne mention « AGENT IMPRIMANTE » est remplacée).
+
+- **Commande de toner : référence de cartouche saisie sur place, envoi partiel confirmé.** Dans la fenêtre
+  « Commander » des alertes toner, un toner sans cartouche liée et compatible propose « Associer une réf cartouche » :
+  référence, nom, fabricant, type. À l'envoi, la cartouche est créée dans l'entité active (récursive), déclarée
+  compatible avec le modèle et liée à la propriété SNMP, puis commandée dans le même fichier Gesconso ; une cartouche
+  qui porte déjà la référence est reprise, pas dupliquée, et une référence absente du référentiel articles Sage est
+  refusée avant toute création. Pendant la saisie, l'aperçu Gesconso se recalcule : les lignes débloquées passent au
+  vert. Une cartouche qui reste impossible à écrire dans le fichier ne bloque plus toute la commande : au clic, une
+  confirmation la nomme, et sur accord les autres partent, elle n'est ni commandée ni enregistrée. Une ligne
+  verrouillée refuse toujours la commande entière. Droits requis pour la saisie : cartouches (création ou
+  modification) et configuration du plugin.
+
+- **Fichier Gesconso téléchargeable.** Case « Télécharger le fichier Gesconso envoyé aux Achats » dans la fenêtre
+  « Commander » : le fichier arrive au retour sur l'écran des alertes. Le message de fin de commande porte aussi le
+  lien. Clic droit « Télécharger le fichier Gesconso » sur une expédition (et sur une alerte dont l'expédition est
+  en cours), commande directe comme export de demandes. C'est toujours le fichier archivé à l'envoi, celui que les
+  Achats ont reçu, jamais un fichier refait. Droits : Expéditions ou Validation, et toutes les expéditions de la
+  commande dans le périmètre de l'utilisateur (le fichier porte les lignes de tous ses clients).
+
+- **Tous les tableaux de données du plugin passent par le gabarit natif de GLPI.** Seize tableaux encore écrits à la
+  main rejoignent `components/datatable.html.twig` : export Gesconso, lignes de demande, règles SNMP, liaisons de
+  cartouches, tarifs de contrat, installeurs et détail du paquet MSI, choix de la sonde, étape 3 et résultats du
+  raccordement, tâches de la carte de santé, aide de l'import Sage, lignes orphelines, récapitulatif d'expédition,
+  onglet « Coût à la page », fenêtre « Associer des BL ». Mêmes textes, mêmes champs, mêmes formulaires : comparé
+  écran par écran en production, le texte visible est identique. Écarts d'allure du gabarit : survol des lignes,
+  largeurs de colonnes non réglables, dernière ligne sans trait. Les lignes qui ne s'ouvrent pas d'un clic gardent
+  le curseur ordinaire. Restent hors gabarit la grille des correspondances SNMP (lignes ajoutées en JavaScript), un
+  tableau de mise en page et les gabarits de mail.
+
+- **Collecte : cadence juste et panne visible.** La date de début des relevés recule d'un demi-contact au lieu d'un
+  contact entier : une cadence de deux jours ne donne plus un relevé par jour (le quotidien ne change pas). Une date
+  future n'est plus effacée quand GLPI Inventory a purgé l'historique des relevés (cadence mensuelle). Nouvelle ligne
+  obligatoire de la carte de santé, « Préparation des inventaires réseau » : rouge quand une tâche de collecte n'a
+  plus de travail préparé, avec la date du dernier et le dernier passage du planificateur de GLPI Inventory — dans
+  l'onglet d'une entité, seules ses tâches comptent. La carte signale les tâches automatiques du plugin absentes de
+  GLPI et les recrée par un bouton « Enregistrer les tâches manquantes » (la tâche de suivi des raccordements
+  manquait en production).
+
+- **Corrigé : les notifications natives des circuits mail n'étaient jamais créées.** Sur un plugin mis à jour par
+  copie des fichiers, la création « à la première utilisation » sautait sans rien dire — `hook.php`, qui porte les
+  gabarits, n'est pas chargé en navigation ordinaire — tout en écrivant « créées » dans le journal. Il est chargé par
+  la fonction native `Plugin::includeHook()`, et le journal dit le nombre réel. En production, les sept
+  notifications et le gabarit « Suivi de colis » sont créés depuis le 02/10.
+
+- **Corrigé : étape 4 du raccordement, « Ramener ici » jamais affiché.** Pour une imprimante arrivée dans une autre
+  entité, le bouton ne s'affichait pas et chaque ligne écrivait un avertissement PHP (droit de modification non
+  transmis).
+
+- **Carte de santé : un cron déclaré n'est plus un cron prouvé, et GLPI Inventory est surveillé.** Le 20/09, le
+  bouton « Déclarer le cron système » a écrit `GLPI_SYSTEM_CRON` alors qu'aucun cron ne tournait sur le serveur ;
+  la carte comptait cette déclaration comme une preuve et restait au vert, pendant que les tâches en mode CLI — celles
+  du plugin et le planificateur de GLPI Inventory, que GLPI Inventory crée toujours en CLI — ne tournaient plus :
+  plus aucun job préparé pour les sondes, onze jours sans inventaire réseau. Désormais seule la tâche témoin prouve
+  le cron ; une déclaration sans passage du témoin est rouge, avec le nombre de tâches CLI de GLPI à l'arrêt, et le
+  bouton de déclaration n'est proposé qu'une fois le cron prouvé. Les boutons « Passer en mode CLI », « Activer » et
+  « Débloquer » couvrent aussi les tâches de GLPI Inventory (planificateur, réveil des agents, nettoyages), qui
+  apparaissent dans le tableau des tâches ; les autres tâches de GLPI restent hors de la carte. Passer en CLI et déclarer
+  le cron ne sont proposés, et acceptés par le serveur, qu'une fois le cron prouvé : en CLI sans cron, les tâches —
+  le planificateur de GLPI Inventory compris — s'arrêteraient.
+
 - **Les mails du plugin sont des notifications natives de GLPI.** Alerte toner, commande aux Achats, cartouches à
   expédier (simple et groupé), courtoisie client, suivi de colis, rappel d'installation : sept notifications
   (Configuration → Notifications), créées à la mise à jour — ou à la première utilisation si le plugin a été mis à
@@ -44,9 +143,9 @@
 - **« Tous les jours » donnait un relevé tous les deux jours.** La tâche d'inventaire réseau devenait due au
   dernier relevé + 24 h, soit quelques minutes après le passage de la sonde (le relevé s'était fait pendant) ;
   la sonde, qui ne vient chercher ses tâches qu'à son rythme (contact de GLPI, 24 h par défaut), repartait sans
-  rien et ne revenait que le lendemain. La tâche est maintenant due un contact avant l'échéance (cadence −
-  intervalle de contact − 1 h de marge) : un relevé à chaque passage pour une cadence quotidienne, et à temps
-  pour les cadences plus longues.
+  rien et ne revenait que le lendemain. La tâche est maintenant due avant le passage de la sonde (cadence −
+  un demi-intervalle de contact, corrigé le 02/10 : l'avance d'un contact entier faisait partir trop tôt les
+  cadences de deux jours et plus) : un relevé à chaque passage pour une cadence quotidienne.
 
 - **Relevé manuel : une imprimante sans sonde se suit à la main.** Certains clients refusent l'agent ; ils
   envoient ou dictent leurs niveaux et leurs compteurs. Un bouton « Saisir un relevé manuel » ouvre une fenêtre —

@@ -40,9 +40,19 @@ class PluginPrintgestionAgentalert extends CommonDBTM {
     const CONF_NOTIFY_AGENTS   = '_printgestion_notify_silent_agents';
     const CONF_NOTIFY_PRINTERS = '_printgestion_notify_silent_printers';
 
-    /** Couverture des sondes gardée en cache pour les cartes du tableau de bord (secondes). */
+    /** Couverture des sondes gardée en cache pour les écrans et les cartes du tableau de bord (secondes). */
     const COVERAGE_CACHE_KEY = 'printgestion_probe_coverage';
     const COVERAGE_CACHE_TTL = 600;
+
+    /**
+     * Génération du cache : changée par invalidateCoverageCache(). Un calcul commencé avant une invalidation
+     * n'écrit pas son résultat, et une entrée d'une autre génération n'est jamais relue.
+     */
+    const COVERAGE_GENERATION_KEY = 'printgestion_probe_coverage_generation';
+
+    /** Verrou du calcul (Logger::lock()), et attente maximale du résultat d'un calcul déjà en cours (secondes). */
+    const COVERAGE_LOCK      = 'probe_coverage';
+    const COVERAGE_LOCK_WAIT = 20;
 
     /** Couverture calculée une fois par requête (la tâche native appelle l'action pour chaque agent). */
     private static ?array $coverage = null;
@@ -68,22 +78,121 @@ class PluginPrintgestionAgentalert extends CommonDBTM {
         return date('Y-m-d H:i:s', time() - PluginPrintgestionCollect::getSilentDays() * DAY_TIMESTAMP);
     }
 
-    /** @param bool $use_cache true : cache GLPI de COVERAGE_CACHE_TTL secondes (cartes du tableau de bord). */
+    /** @param bool $use_cache true : cache GLPI de COVERAGE_CACHE_TTL secondes (écrans, cartes du tableau de bord). */
     private static function getCoverage(bool $use_cache = false): array {
-        global $GLPI_CACHE;
-
         if (self::$coverage !== null) {
             return self::$coverage;
         }
         if ($use_cache) {
-            $cached = $GLPI_CACHE->get(self::COVERAGE_CACHE_KEY);
-            if (is_array($cached)) {
-                return self::$coverage = $cached;
+            return self::$coverage = self::readCoverageCache() ?? self::computeCoverageOnce();
+        }
+        return self::$coverage = self::computeAndStoreCoverage();
+    }
+
+    /**
+     * Couverture des sondes (PluginPrintgestionAgentsetting::getCoverage()) de moins de COVERAGE_CACHE_TTL
+     * secondes : pour un écran. Calculée une fois par requête au plus.
+     *
+     * @return array agents_id => [printers_id => true]
+     */
+    public static function getCachedCoverage(): array {
+        return self::getCoverage(true);
+    }
+
+    /**
+     * Calcul à jour, qui remplace le cache — sauf si celui-ci a été invalidé pendant le calcul. Pour ce qui décide
+     * (tâches automatiques, vue des sondes) : jamais d'attente, un calcul déjà en cours n'empêche pas celui-ci.
+     *
+     * @return array agents_id => [printers_id => true]
+     */
+    public static function computeAndStoreCoverage(): array {
+        $generation = self::getCoverageGeneration();
+        $locked     = PluginPrintgestionLogger::lock(self::COVERAGE_LOCK);
+        try {
+            $coverage = PluginPrintgestionAgentsetting::computeCoverage();
+            self::writeCoverageCache($coverage, $generation);
+        } finally {
+            if ($locked) {
+                PluginPrintgestionLogger::releaseLock(self::COVERAGE_LOCK);
             }
         }
-        self::$coverage = PluginPrintgestionAgentsetting::getCoverage();
-        $GLPI_CACHE->set(self::COVERAGE_CACHE_KEY, self::$coverage, self::COVERAGE_CACHE_TTL);
-        return self::$coverage;
+        return $coverage;
+    }
+
+    /**
+     * Oublie la couverture en cache : à appeler après un changement de ce qui la fait (plages IP, jobs GLPI
+     * Inventory, imprimante rattachée à une autre entité), pour que l'écran suivant la recalcule.
+     */
+    public static function invalidateCoverageCache(): void {
+        global $GLPI_CACHE;
+
+        self::$coverage = null;
+        $GLPI_CACHE->set(self::COVERAGE_GENERATION_KEY, bin2hex(random_bytes(8)));
+        $GLPI_CACHE->delete(self::COVERAGE_CACHE_KEY);
+    }
+
+    private static function getCoverageGeneration(): string {
+        global $GLPI_CACHE;
+
+        return (string) ($GLPI_CACHE->get(self::COVERAGE_GENERATION_KEY) ?? '');
+    }
+
+    /** Couverture en cache, null si absente, périmée, d'une autre génération ou de l'ancien format. */
+    private static function readCoverageCache(): ?array {
+        global $GLPI_CACHE;
+
+        $cached = $GLPI_CACHE->get(self::COVERAGE_CACHE_KEY);
+        if (!is_array($cached) || !isset($cached['coverage']) || !is_array($cached['coverage'])
+            || ($cached['generation'] ?? null) !== self::getCoverageGeneration()) {
+            return null;
+        }
+        return $cached['coverage'];
+    }
+
+    private static function writeCoverageCache(array $coverage, string $generation): void {
+        global $GLPI_CACHE;
+
+        // Invalidé pendant le calcul : ce résultat a pu lire l'état d'avant le changement.
+        if (self::getCoverageGeneration() !== $generation) {
+            return;
+        }
+        $GLPI_CACHE->set(self::COVERAGE_CACHE_KEY, ['generation' => $generation, 'coverage' => $coverage], self::COVERAGE_CACHE_TTL);
+    }
+
+    /**
+     * Cache vide : un seul calcul à la fois (verrou). Une requête qui trouve le calcul en cours attend son
+     * résultat, au plus COVERAGE_LOCK_WAIT secondes, ou reprend le verrou s'il se libère sans résultat ; passé
+     * ce délai, elle calcule elle-même, sans écrire le cache.
+     */
+    private static function computeCoverageOnce(): array {
+        $deadline = microtime(true) + self::COVERAGE_LOCK_WAIT;
+        while (true) {
+            if (PluginPrintgestionLogger::lock(self::COVERAGE_LOCK)) {
+                try {
+                    // Écrit par une autre requête entre la lecture du cache et la prise du verrou.
+                    $cached = self::readCoverageCache();
+                    if ($cached !== null) {
+                        return $cached;
+                    }
+                    $generation = self::getCoverageGeneration();
+                    $coverage   = PluginPrintgestionAgentsetting::computeCoverage();
+                    self::writeCoverageCache($coverage, $generation);
+                    return $coverage;
+                } finally {
+                    PluginPrintgestionLogger::releaseLock(self::COVERAGE_LOCK);
+                }
+            }
+            if (microtime(true) >= $deadline) {
+                break;
+            }
+            usleep(250000);
+            $cached = self::readCoverageCache();
+            if ($cached !== null) {
+                return $cached;
+            }
+        }
+        PluginPrintgestionLogger::info('agentalert', sprintf('Couverture des sondes : calcul en cours ailleurs depuis plus de %d s, calculée ici sans cache.', self::COVERAGE_LOCK_WAIT));
+        return PluginPrintgestionAgentsetting::computeCoverage();
     }
 
     /**

@@ -25,10 +25,11 @@ PluginPrintgestionTracking::syncOnDisplay();
 $page = PluginPrintgestionAlertview::getSearchURL();
 
 if (isset($_POST['recompute_alerts'])) {
-    // Jeton CSRF validé par CheckCsrfListener. Calcul lourd : droit de modification.
+    // Jeton CSRF validé par CheckCsrfListener. Calcul lourd : droit de modification, et jamais dans la page — la
+    // tâche minute PrintgestionRebuildAlerts le fait, l'écran se met à jour tout seul.
     Session::checkRight('plugin_printgestion_dashboard', UPDATE);
-    $count = PluginPrintgestionAlertview::rebuild();
-    Session::addMessageAfterRedirect(sprintf(__('Alertes recalculées : %d toner(s).', 'printgestion'), $count), false, INFO);
+    PluginPrintgestionAlertview::requestRebuild();
+    Session::addMessageAfterRedirect(__('Recalcul des alertes demandé : il tourne en arrière-plan, l\'écran se met à jour tout seul quand il est fini.', 'printgestion'), false, INFO);
     Html::redirect($page);
 }
 
@@ -41,6 +42,9 @@ Html::header(
     'PluginPrintgestionMenu',
     'tn_alerts'
 );
+
+// Retour d'une commande avec « Télécharger le fichier Gesconso » cochée : le fichier part au chargement.
+PluginPrintgestionPurchaseorder::emitQueuedDownload();
 
 $esc   = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 $table = PluginPrintgestionAlertview::getTable();
@@ -69,11 +73,40 @@ $status_url = static function (string $status) use ($page): string {
     ]);
 };
 
-// Collecte : une imprimante muette ne déclenche aucune alerte — à signaler ici aussi.
-$collect = PluginPrintgestionCollect::analyze(true)['counts'];
+// Collecte : une imprimante muette ne déclenche aucune alerte — à signaler ici aussi. Décompte lu dans la vue
+// calculée par la tâche horaire (mêmes états, même périmètre) ; l'analyse complète, longue, seulement si la vue
+// n'a pas été calculée depuis deux heures (module Déploiement désactivé, tâche arrêtée).
+$collect_at = PluginPrintgestionCollectview::getComputedAt();
+$collect    = ($collect_at !== null && strtotime($collect_at) >= time() - 2 * HOUR_TIMESTAMP)
+    ? PluginPrintgestionCollectview::getCounts()
+    : PluginPrintgestionCollect::analyze(true)['counts'];
 $silent  = $collect[PluginPrintgestionCollect::STATE_STALE]
     + $collect[PluginPrintgestionCollect::STATE_NO_LEVEL]
     + $collect[PluginPrintgestionCollect::STATE_NO_INVENTORY];
+
+// Recalcul complet (droit de modification) et date du dernier calcul dessous : à droite de la barre de stats. Un
+// recalcul demandé tourne dans la tâche minute : l'écran l'annonce et se recharge seul quand il est fini.
+$computed         = (string) ($counts['computed'] ?? '');
+$pending          = PluginPrintgestionAlertview::getPendingRequest();
+$waiting          = PluginPrintgestionAlertview::getRequestedAt(); // pas encore pris (ni tâche ni relais)
+$late             = $waiting !== null && strtotime($waiting) < time() - PluginPrintgestionAlertview::REQUEST_LATE_SECONDS;
+$recompute_button = "<div class='d-flex flex-column align-items-end gap-1'>"
+    . (Session::haveRight('plugin_printgestion_dashboard', UPDATE)
+        ? "<form method='post' action='" . $esc($page) . "' class='m-0'>"
+            . "<button type='submit' name='recompute_alerts' value='1' class='btn btn-sm btn-outline-secondary'"
+            . ($pending !== null ? ' disabled' : '') . ">"
+            . "<i class='ti ti-refresh me-1'></i>" . $esc(__('Recalculer maintenant', 'printgestion')) . "</button>"
+            . Html::closeForm(false)
+        : '')
+    . ($pending === null
+        ? "<span class='text-muted small'>" . $esc(sprintf(__('Alertes calculées le %s', 'printgestion'), Html::convDateTime($computed))) . "</span>"
+        : "<span class='small " . ($late ? 'text-danger' : 'text-muted') . "' id='pg-alerts-pending' data-pg-computed='" . $esc($computed) . "'>"
+            . ($late ? "<i class='ti ti-alert-triangle me-1'></i>" : "<span class='spinner-border spinner-border-sm me-1'></span>")
+            . $esc($late
+                ? sprintf(__('Recalcul demandé le %s, toujours en attente : la tâche « PrintgestionRebuildAlerts » ne passe pas (Configuration → Actions automatiques, carte Santé de la configuration).', 'printgestion'), Html::convDateTime($pending))
+                : sprintf(__('Recalcul en cours (demandé le %s)… Alertes du %s affichées.', 'printgestion'), Html::convDateTime($pending), Html::convDateTime($computed)))
+            . "</span>")
+    . "</div>";
 
 PluginPrintgestionUi::statsBar([
     ['count' => (int) ($counts['critical'] ?? 0), 'label' => __('Critiques', 'printgestion'),
@@ -95,29 +128,23 @@ PluginPrintgestionUi::statsBar([
      // Page d'un autre module, à droit distinct : lien seulement pour qui y a accès.
      'url' => PluginPrintgestionMenu::tabAllowed('deploiement', ['plugin_printgestion_deploiement', READ])
         ? PLUGIN_PRINTGESTION_WEBDIR . '/front/collect.php' : ''],
-], 'printgestionAlertsStatsBar');
+], 'printgestionAlertsStatsBar', $recompute_button);
 
-// ── Fraîcheur du calcul ──
-$computed = (string) ($counts['computed'] ?? '');
-$stale    = PluginPrintgestionAlertview::getStaleSince();
-echo "<div class='d-flex flex-wrap align-items-center gap-2 mb-3'>";
-echo "<span class='text-muted small'>" . $esc(sprintf(__('Alertes calculées le %s', 'printgestion'), Html::convDateTime($computed))) . "</span>";
+// ── Fraîcheur du calcul : la date est dans la barre, l'avertissement seulement s'il y a lieu ──
+$stale = PluginPrintgestionAlertview::getStaleSince();
 if ($stale !== null && ($computed === '' || $stale > $computed)) {
-    echo "<span class='badge bg-yellow-lt'>" . $esc(sprintf(
+    echo "<div class='mb-3'><span class='badge bg-yellow-lt'>" . $esc(sprintf(
         __('Actions depuis le %s pas encore reflétées partout (commandes, annulations…) : une commande verrouillée reste refusée côté serveur.', 'printgestion'),
         Html::convDateTime($stale)
-    )) . "</span>";
+    )) . "</span></div>";
 }
-if (Session::haveRight('plugin_printgestion_dashboard', UPDATE)) {
-    echo "<form method='post' action='" . $esc($page) . "' class='ms-auto'>";
-    echo "<button type='submit' name='recompute_alerts' value='1' class='btn btn-sm btn-outline-secondary'>"
-        . "<i class='ti ti-refresh me-1'></i>" . $esc(__('Recalculer maintenant', 'printgestion')) . "</button>";
-    Html::closeForm();
-}
-echo "</div>";
 
 // Rien à montrer : dire par quoi commencer, pas un tableau vide.
-if (countElementsInTable('glpi_plugin_printgestion_alertview') === 0) {
+if (countElementsInTable('glpi_plugin_printgestion_alertview') === 0 && $pending !== null) {
+    echo "<div class='alert alert-info'><div class='w-100'><span class='spinner-border spinner-border-sm me-2'></span>"
+        . $esc(__('Premier calcul des alertes en cours, en arrière-plan : l\'écran se met à jour tout seul quand il est fini.', 'printgestion'))
+        . "</div></div>";
+} elseif (countElementsInTable('glpi_plugin_printgestion_alertview') === 0) {
     echo PluginPrintgestionUi::emptyState(
         __('Aucune alerte pour l\'instant. Les alertes viennent des relevés SNMP des sondes : déployer une sonde chez le client, raccorder ses imprimantes depuis la fiche de l\'entité (onglet Déploiement Agent), puis suivre la remontée. Les premières alertes apparaissent au passage de la tâche horaire, ou avec « Recalculer maintenant ».', 'printgestion'),
         [
@@ -146,4 +173,34 @@ echo "</div>"; // container-fluid
 // Menu clic droit par-dessus le tableau natif, et les fenêtres qu'il peut appeler (expédition en cours).
 PluginPrintgestionDashboardactions::renderSharedAssets('alerts');
 PluginPrintgestionContextmenu::render(PluginPrintgestionAlertview::class);
+
+// Recalcul en arrière-plan : l'écran interroge son état toutes les 15 s et se recharge quand il est fini — sauf
+// fenêtre ouverte (une commande en cours de saisie ne se perd pas : rechargement à sa fermeture).
+if ($pending !== null) {
+    echo "<script>(function () {
+  var url = " . json_encode(PLUGIN_PRINTGESTION_WEBDIR . '/ajax/alerts_status.php', JSON_UNESCAPED_SLASHES) . ";
+  // Relais : sans cron système, la tâche minute ne passe pas. Le calcul est lancé dans une requête à part, sans
+  // attendre sa réponse (verrou côté serveur : jamais deux calculs, tâche ou relais).
+  var csrf = document.querySelector('meta[property=\"glpi:csrf_token\"]');
+  fetch(" . json_encode(PLUGIN_PRINTGESTION_WEBDIR . '/ajax/alerts_rebuild.php', JSON_UNESCAPED_SLASHES) . ", {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-Glpi-Csrf-Token': csrf ? csrf.content : '' }
+  }).catch(function () { /* la tâche minute reste le chemin normal */ });
+  var reloadWhenFree = function () {
+    if (document.querySelector('.modal.show')) {
+      document.addEventListener('hidden.bs.modal', function () { window.location.reload(); }, { once: true });
+      return;
+    }
+    window.location.reload();
+  };
+  var timer = setInterval(function () {
+    fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && data.ok === true && data.pending === null) { clearInterval(timer); reloadWhenFree(); }
+      })
+      .catch(function () { /* état indisponible : nouvel essai au tour suivant */ });
+  }, 15000);
+})();</script>";
+}
 Html::footer();

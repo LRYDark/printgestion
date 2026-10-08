@@ -66,23 +66,38 @@ class PluginPrintgestionBilling extends CommonDBTM {
         // de l'utilisateur connecté, même si le filtre d'entité est vide ou manipulé.
         $criteria['WHERE'][] = getEntitiesRestrictCriteria('p', '', '', true);
 
+        // Tarifs et nom du contrat lus une fois par contrat, pas une fois par imprimante :
+        // un contrat couvre souvent tout un parc (lectures seules, même résultat).
+        $rates_by_contract = [];
+        $names_by_contract = [];
+
         foreach ($DB->request($criteria) as $p) {
             $printers_id  = (int)$p['printers_id'];
             $contracts_id = PluginPrintgestionContractrate::getContractIdForPrinter($printers_id);
-            $rates        = PluginPrintgestionContractrate::getRatesForContract($contracts_id);
+
+            // Imprimante écartée de toute façon (filtre contrat) : inutile de lire ses compteurs.
+            if ($require_contract && $contracts_id === 0) {
+                continue;
+            }
+
+            $rates        = $rates_by_contract[$contracts_id]
+                ??= PluginPrintgestionContractrate::getRatesForContract($contracts_id);
             $counters     = PluginPrintgestionPrinterCostsTab::getCountersForPeriod($printers_id, $start, $end);
 
             $delta_nb    = max(0, $counters['end_nb']    - $counters['start_nb']);
             $delta_color = max(0, $counters['end_color'] - $counters['start_color']);
             $cost        = $delta_nb * $rates['nb'] + $delta_color * $rates['color'];
 
-            $contract_name = '—';
-            if ($contracts_id > 0) {
-                $c = new Contract();
-                if ($c->getFromDB($contracts_id)) {
-                    $contract_name = (string)$c->fields['name'];
+            if (!isset($names_by_contract[$contracts_id])) {
+                $names_by_contract[$contracts_id] = '—';
+                if ($contracts_id > 0) {
+                    $c = new Contract();
+                    if ($c->getFromDB($contracts_id)) {
+                        $names_by_contract[$contracts_id] = (string)$c->fields['name'];
+                    }
                 }
             }
+            $contract_name = $names_by_contract[$contracts_id];
 
             // Filtres configurables côté config plugin (3 toggles, ON par défaut) :
             //   - contract : n'affiche que les imprimantes avec contrat
@@ -138,7 +153,7 @@ class PluginPrintgestionBilling extends CommonDBTM {
             . '_' . (int) (bool) ($filters['activity'] ?? true);
         // v3 = formule universelle total = max(sources), color = max, bw = total - color
         // Version counter pour invalidation manuelle (refresh dashboard)
-        $ver = (int)($GLPI_CACHE->get('plugin_printgestion_billing_ver') ?? 0);
+        $ver = self::cacheVersion();
         // Le périmètre d'entités de l'utilisateur fait partie de la clé : les lignes
         // calculées sont restreintes à ce périmètre.
         $key = 'plugin_printgestion_billing_v3_' . $ver . '_'
@@ -151,11 +166,31 @@ class PluginPrintgestionBilling extends CommonDBTM {
             }
         }
 
-        $rows = self::computeForPeriod($start, $end, $entities_id, $filters);
+        $started = microtime(true);
+        $rows    = self::computeForPeriod($start, $end, $entities_id, $filters);
+        PluginPrintgestionLogger::duration(
+            'facturation',
+            'Calcul du coût à la page',
+            $started,
+            sprintf('%d imprimante(s) retenue(s), du %s au %s', count($rows), $start, $end)
+        );
         if (isset($GLPI_CACHE)) {
             $GLPI_CACHE->set($key, $rows, 600);
         }
         return $rows;
+    }
+
+    /**
+     * Compteur d'invalidation manuelle (bouton « Rafraîchir »), inclus dans la clé du
+     * calcul en cache et dans l'empreinte des lignes matérialisées par utilisateur
+     * (PluginPrintgestionBillingview::rebuildForUser) : l'incrémenter force les deux.
+     */
+    public static function cacheVersion(): int {
+        global $GLPI_CACHE;
+        if (!isset($GLPI_CACHE)) {
+            return 0;
+        }
+        return (int)($GLPI_CACHE->get('plugin_printgestion_billing_ver') ?? 0);
     }
 
     public static function invalidateCache(): void {
@@ -165,7 +200,9 @@ class PluginPrintgestionBilling extends CommonDBTM {
         }
         // PSR-16 ne supporte pas delete-by-pattern : on bump un compteur inclus
         // dans la clé de cache. Toutes les variantes en cache deviennent
-        // orphelines et expirent via leur TTL de 10min.
+        // orphelines et expirent via leur TTL de 10min. Le même compteur entre dans
+        // l'empreinte des lignes matérialisées : chaque utilisateur est reconstruit
+        // à son prochain affichage.
         $ver = (int)($GLPI_CACHE->get('plugin_printgestion_billing_ver') ?? 0);
         $GLPI_CACHE->set('plugin_printgestion_billing_ver', $ver + 1, 86400);
     }

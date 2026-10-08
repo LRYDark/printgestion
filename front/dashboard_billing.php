@@ -95,6 +95,9 @@ if ($has_filter) {
 $_SESSION['plugin_printgestion_billing_view'] = $view;
 
 // ── (Re)matérialise les lignes de l'utilisateur courant ──────────────────────
+// Pagination / tri / colonnes natifs : lignes déjà en place, pas de réécriture
+// (voir rebuildForUser) ; réécrites si les filtres, le calcul en cache ou le
+// compteur d'invalidation (« Rafraîchir ») ont changé.
 $uid = (int) Session::getLoginUserID();
 PluginPrintgestionBillingview::rebuildForUser($uid, $start, $end, $entities_id, $view, $filters);
 

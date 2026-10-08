@@ -43,8 +43,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 
 if ($can_refresh_alerts) {
     PluginPrintgestionAlert::invalidateCache();
-    // Reconstruit la table matérialisée des alertes.
-    PluginPrintgestionAlertview::rebuild();
+    // Table matérialisée des alertes : recalcul demandé, fait par la tâche minute PrintgestionRebuildAlerts, jamais
+    // dans cette requête (l'écran des alertes l'annonce et se recharge seul quand il est fini).
+    PluginPrintgestionAlertview::requestRebuild();
 }
 if ($can_refresh_billing) {
     PluginPrintgestionBilling::invalidateCache();

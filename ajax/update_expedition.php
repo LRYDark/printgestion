@@ -26,6 +26,11 @@ if ($exp === null) {
     throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException();
 }
 
+// Tableau d'où l'on est venu sur la fiche (alertes ou expéditions), validé.
+$return_url = PluginPrintgestionExpedition::getReturnURL((string)($_POST['_return'] ?? ''));
+// Fiche rouverte après une saisie refusée, sans perdre ce tableau de retour.
+$form_url   = PluginPrintgestionExpedition::getFormURLWithID($expedition_id) . '&return=' . rawurlencode($return_url);
+
 if ($action === 'ship') {
     $carrier  = (string)($_POST['carrier']  ?? '');
     $tracking = trim((string)($_POST['tracking'] ?? ''));
@@ -34,29 +39,36 @@ if ($action === 'ship') {
     if (!in_array($carrier, PluginPrintgestionExpedition::CARRIERS_OFFERED, true)) {
         // Jamais « Autre » par défaut : un transporteur non choisi n'est pas un transporteur.
         Session::addMessageAfterRedirect(__('Choisissez le transporteur.', 'printgestion'), true, ERROR);
-        Html::back();
+        Html::redirect($form_url);
     }
     if ($tracking === '') {
         Session::addMessageAfterRedirect(__('Numéro de suivi requis', 'printgestion'), true, ERROR);
-        Html::back();
+        Html::redirect($form_url);
     }
 
     // BL choisi : existant et du même client (entité de l'expédition ou parente, dans le périmètre).
     if ($bl_id !== null && PluginPrintgestionSecurity::getBlForExpedition($bl_id, $exp) === null) {
         Session::addMessageAfterRedirect(__('BL introuvable ou rattaché à un autre client : expédition non modifiée.', 'printgestion'), true, ERROR);
-        Html::back();
+        Html::redirect($form_url);
     }
 
     if (PluginPrintgestionExpedition::markShipped($expedition_id, $carrier, $tracking, $bl_id)) {
         PluginPrintgestionDemande::syncForExpedition($expedition_id);
         Session::addMessageAfterRedirect(__('Expédition marquée comme expédiée', 'printgestion'), true, INFO);
     } else {
+        // Le plus souvent, l'envoi a déjà été confirmé (double clic, second onglet) : dire où il en est.
+        $now = PluginPrintgestionSecurity::getAccessibleExpedition($expedition_id);
         Session::addMessageAfterRedirect(
-            __('Expédition non modifiée : seul un envoi en attente peut être marqué expédié.', 'printgestion'),
+            sprintf(
+                __('Expédition non modifiée : elle n\'est plus en attente (statut actuel : %s).', 'printgestion'),
+                PluginPrintgestionExpedition::getStatusLabel((string)($now['statut'] ?? ''))
+            ),
             true,
-            ERROR
+            WARNING
         );
     }
+    // Retour au tableau : la fiche, elle, n'aurait plus qu'un formulaire vide à montrer.
+    Html::redirect($return_url);
 } elseif ($action === 'cancel') {
     // Suppression définitive désactivée : aucune expédition ne doit disparaître sans
     // trace. L'annulation deviendra un statut avec l'objet « Demande d'envoi » (lot 3).
@@ -73,5 +85,5 @@ if ($action === 'ship') {
     Session::addMessageAfterRedirect(__('Action inconnue', 'printgestion'), true, ERROR);
 }
 
-// Retour sur la fiche de l'expédition, d'où part le formulaire.
-Html::redirect(PluginPrintgestionExpedition::getFormURLWithID($expedition_id));
+// Autres actions : retour sur la fiche de l'expédition, d'où part le formulaire.
+Html::redirect($form_url);

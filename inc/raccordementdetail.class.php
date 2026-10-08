@@ -483,16 +483,18 @@ class PluginPrintgestionRaccordementdetail {
         if ($editable) {
             echo "<form method='post' action='" . $esc(PluginPrintgestionRaccordement::getPageURL()) . "'>" . PluginPrintgestionRaccordement::stepField() . Html::hidden('id', ['value' => (int) $racc->getID()]);
         }
-        echo "<div class='table-responsive'><table class='table table-sm align-middle mb-0'><thead><tr>"
-            . "<th>" . $esc(__('Adresse', 'printgestion')) . "</th><th>" . $esc(__('Imprimante', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Lieu', 'printgestion')) . "</th><th>" . $esc(__('Commentaire', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Contrat', 'printgestion')) . "</th><th>" . $esc(__('État', 'printgestion')) . "</th></tr></thead><tbody>";
+        $entries = [];
         if ($editable) {
-            echo "<tr class='table-light'><td colspan='2' class='small fw-bold'>" . $esc(__('Adresses sans valeur (défaut)', 'printgestion')) . "</td>"
-                . "<td>" . $lieu_select('default[locations_id]', 0, true) . "</td>"
-                . "<td><input class='form-control form-control-sm' name='default[comment]' maxlength='" . self::MAX_COMMENT . "'></td>"
-                . "<td>" . $contrat_select('default[contracts_id]', 0) . "</td>"
-                . "<td class='small text-muted'>" . $esc(__('complète les vides', 'printgestion')) . "</td></tr>";
+            // Ligne des valeurs par défaut : son libellé s'étend sur Adresse et Imprimante, d'où l'absence de la clé item.
+            $entries[] = [
+                'row_class'  => 'table-light',
+                'ip'         => "<span class='small fw-bold'>" . $esc(__('Adresses sans valeur (défaut)', 'printgestion')) . "</span>",
+                'ip_colspan' => 2,
+                'location'   => $lieu_select('default[locations_id]', 0, true),
+                'comment'    => "<input class='form-control form-control-sm' name='default[comment]' maxlength='" . self::MAX_COMMENT . "'>",
+                'contract'   => $contrat_select('default[contracts_id]', 0),
+                'state'      => "<span class='small text-muted'>" . $esc(__('complète les vides', 'printgestion')) . "</span>",
+            ];
         }
         foreach ($shown as $row) {
             $id      = (int) $row['id'];
@@ -500,16 +502,39 @@ class PluginPrintgestionRaccordementdetail {
             $state   = !empty($row['date_applied'])
                 ? "<span class='badge bg-green text-green-fg'>" . $esc(sprintf(__('Appliqué le %s', 'printgestion'), Html::convDateTime((string) $row['date_applied']))) . "</span>"
                 : (self::hasValues($row) ? "<span class='badge bg-secondary text-secondary-fg'>" . $esc(__('En attente', 'printgestion')) . "</span>" : '—');
-            echo "<tr><td class='font-monospace'>" . $esc($row['ip']) . "</td><td>" . self::getItemHtml($row) . "</td>";
-            echo "<td>" . $lieu_select("details[{$id}][locations_id]", (int) $row['locations_id'], false) . "</td>";
-            if ($editable) {
-                echo "<td><input class='form-control form-control-sm' name='details[{$id}][comment]' maxlength='" . self::MAX_COMMENT . "' value='" . $esc($comment) . "'></td>";
-            } else {
-                echo "<td>" . $esc($comment !== '' ? $comment : '—') . "</td>";
-            }
-            echo "<td>" . $contrat_select("details[{$id}][contracts_id]", (int) $row['contracts_id']) . "</td><td>{$state}</td></tr>";
+            $entries[] = [
+                'ip'       => "<span class='font-monospace'>" . $esc($row['ip']) . "</span>",
+                'item'     => self::getItemHtml($row),
+                'location' => $lieu_select("details[{$id}][locations_id]", (int) $row['locations_id'], false),
+                'comment'  => $editable
+                    ? "<input class='form-control form-control-sm' name='details[{$id}][comment]' maxlength='" . self::MAX_COMMENT . "' value='" . $esc($comment) . "'>"
+                    : $esc($comment !== '' ? $comment : '—'),
+                'contract' => $contrat_select("details[{$id}][contracts_id]", (int) $row['contracts_id']),
+                'state'    => $state,
+            ];
         }
-        echo "</tbody></table></div>";
+        // Lecture seule et aucune adresse retenue (au-delà de MAX_ROWS) : pas de tableau, plutôt que le « No results
+        // found » du gabarit ; la phrase qui suit compte les adresses non montrées.
+        if (!empty($entries)) {
+            // data-pg-noclick : comme avant, la ligne ne s'ouvre pas d'un clic. Le sélecteur (span.select2) n'est pas
+            // exclu par printgestion.js : un clic dedans ouvrirait la fiche de l'imprimante et perdrait la saisie.
+            // Dans le formulaire save_details : sans actions massives, le gabarit n'ouvre aucun formulaire.
+            echo "<div data-pg-noclick='1'>" . PluginPrintgestionUi::datatable([
+                'ip'       => __('Adresse', 'printgestion'),
+                'item'     => __('Imprimante', 'printgestion'),
+                'location' => __('Lieu', 'printgestion'),
+                'comment'  => __('Commentaire', 'printgestion'),
+                'contract' => __('Contrat', 'printgestion'),
+                'state'    => __('État', 'printgestion'),
+            ], $entries, [
+                'ip'       => 'raw_html',
+                'item'     => 'raw_html',
+                'location' => 'raw_html',
+                'comment'  => 'raw_html',
+                'contract' => 'raw_html',
+                'state'    => 'raw_html',
+            ]) . "</div>";
+        }
         if (count($shown) < count($rows)) {
             echo "<p class='text-muted small mt-2 mb-0'>" . $esc(sprintf(__('%d autres adresses, sans imprimante trouvée ni valeur : seules les valeurs par défaut les complètent.', 'printgestion'), count($rows) - count($shown))) . "</p>";
         }

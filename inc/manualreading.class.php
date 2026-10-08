@@ -403,7 +403,7 @@ class PluginPrintgestionManualreading extends CommonDBTM {
                 ]);
             }
             // Une cartouche neuve saisie ferme l'envoi en cours : la détection n'attend pas la nuit.
-            PluginPrintgestionCartridgehistory::detectChanges();
+            PluginPrintgestionCartridgehistory::detectChanges([$printers_id]);
         }
 
         // 5. Les alertes de cette imprimante, tout de suite.

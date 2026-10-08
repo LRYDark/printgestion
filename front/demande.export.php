@@ -142,12 +142,8 @@ if (empty($rows)) {
         JSON_UNESCAPED_UNICODE
     );
     echo "<form method='post' action='" . $esc($page) . "'>";
-    echo "<div class='table-responsive'><table class='table table-sm table-vcenter'><thead><tr>"
-        . "<th></th><th>" . $esc(__('Demande', 'printgestion')) . "</th>"
-        . "<th>" . $esc(__('Validée', 'printgestion')) . "</th>"
-        . "<th class='text-end'>" . $esc(__('Lignes', 'printgestion')) . "</th>"
-        . "<th>" . $esc(__('Contrôles avant export', 'printgestion')) . "</th></tr></thead><tbody>";
 
+    $entries = [];
     foreach ($rows as $row) {
         $demande  = $row['demande'];
         $gesconso = $row['export']['gesconso'];
@@ -168,17 +164,28 @@ if (empty($rows)) {
             }
         }
 
-        echo "<tr>"
-            . "<td><input type='checkbox' class='form-check-input' name='demandes[]' value='{$id}'"
-            . ($checked ? ' checked' : '') . ($blocked ? ' disabled' : '') . "></td>"
-            . "<td><a href='" . $esc(PluginPrintgestionDemande::getFormURLWithID($id)) . "'>#{$id} "
-            . $esc($demande->fields['name']) . "</a></td>"
-            . "<td>" . $esc(Html::convDateTime((string) $demande->fields['date_validate'])) . "</td>"
-            . "<td class='text-end'>" . count($row['export']['lines']) . "</td>"
-            . "<td>{$controls}</td>"
-            . "</tr>";
+        // Date déjà formatée par Html::convDateTime : texte, échappé par le gabarit.
+        $entries[] = [
+            'select'    => "<input type='checkbox' class='form-check-input' name='demandes[]' value='{$id}'"
+                . ($checked ? ' checked' : '') . ($blocked ? ' disabled' : '') . ">",
+            'demande'   => "<a href='" . $esc(PluginPrintgestionDemande::getFormURLWithID($id)) . "'>#{$id} "
+                . $esc($demande->fields['name']) . "</a>",
+            'validated' => Html::convDateTime((string) $demande->fields['date_validate']),
+            'lines'     => "<span class='d-block text-end'>" . count($row['export']['lines']) . "</span>",
+            'controls'  => $controls,
+        ];
     }
-    echo "</tbody></table></div>";
+    // Cases demandes[] de ce formulaire, pas des actions massives : $massive à null (des cases natives posteraient
+    // item[PluginPrintgestionDemande][id], que l'export ne lit pas). data-pg-noclick : comme avant, la ligne ne
+    // s'ouvre pas d'un clic (viser à côté d'une case ne quitte pas la page). Pas d'espace ajouté sous le tableau :
+    // dans un table-responsive, Tabler l'avait déjà à 0 (.table-responsive .table), comme le mb-0 du gabarit.
+    echo "<div data-pg-noclick='1'>" . PluginPrintgestionUi::datatable([
+        'select'    => '',
+        'demande'   => __('Demande', 'printgestion'),
+        'validated' => __('Validée', 'printgestion'),
+        'lines'     => ['label' => "<span class='d-block text-end'>" . $esc(__('Lignes', 'printgestion')) . "</span>", 'raw_header' => true],
+        'controls'  => __('Contrôles avant export', 'printgestion'),
+    ], $entries, ['select' => 'raw_html', 'demande' => 'raw_html', 'lines' => 'raw_html', 'controls' => 'raw_html']) . "</div>";
 
     echo PluginPrintgestionGesconso::renderNoticesSummary($notices, 'pg-export-notices');
     echo "<div class='d-flex flex-wrap gap-2 mt-3'>";

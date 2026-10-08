@@ -143,7 +143,8 @@ def scenario_orphelines():
     constat("tâche : lignes orphelines signalées", ok_ko("Lignes orphelines" in message), message[:160])
     onglet = "/ajax/common.tabs.php?_target=%2Ffront%2Fconfig.form.php&_itemtype=Config&_glpi_tab=PluginPrintgestionConfig%241&id=1"
     _, page, _ = WEB.get(onglet, ajax=True)
-    carte = page[page.find("Lignes sans objet de rattachement"):][:3000]
+    # Blancs réduits avant de découper : le gabarit natif des tableaux est très indenté.
+    carte = " ".join(page[page.find("Lignes sans objet de rattachement"):].split())[:3000]
     constat("configuration du plugin (administrateur) : expédition orpheline listée par son identifiant",
             ok_ko("glpi_plugin_printgestion_expeditions" in carte and f"#{orpheline}" in carte), "")
     constat("ligne dont l'entité est connue (imprimante purgée, entité Client test A) : non listée", ok_ko(f"#{connue}" not in carte))

@@ -198,6 +198,75 @@ class PluginPrintgestionPurchaseorder extends CommonDBTM {
         return $out;
     }
 
+    // ── Téléchargement du fichier Gesconso ────────────────────────────────────
+
+    /** Clé de session : commande dont le fichier se télécharge au prochain affichage de l'écran des alertes. */
+    const SESSION_DOWNLOAD = 'plugin_printgestion_gesconso_download';
+
+    /**
+     * Fichier téléchargé = le fichier archivé, celui que les Achats ont reçu, jamais un fichier refait : une
+     * référence, une adresse ou un lieu modifié depuis donnerait un autre fichier que celui de la commande.
+     */
+    public static function getDownloadURL(int $orders_id): string {
+        return PLUGIN_PRINTGESTION_WEBDIR . '/front/gesconso.download.php?id=' . $orders_id;
+    }
+
+    /** Commandes avec fichier archivé, par lot d'expéditions : group_id => id de la commande. */
+    public static function getIdsForGroups(array $group_ids): array {
+        global $DB;
+
+        $group_ids = array_values(array_unique(array_filter(array_map('strval', $group_ids), static fn(string $g) => $g !== '')));
+        if (empty($group_ids)) {
+            return [];
+        }
+        $out = [];
+        foreach ($DB->request([
+            'SELECT' => ['id', 'group_id'],
+            'FROM'   => self::getTable(),
+            'WHERE'  => ['group_id' => $group_ids, 'documents_id' => ['>', 0]],
+        ]) as $row) {
+            $out[(string) $row['group_id']] = (int) $row['id'];
+        }
+        return $out;
+    }
+
+    /**
+     * Le fichier porte les lignes de tous les clients de la commande : téléchargeable avec le droit Expéditions ou
+     * Validation, et seulement si toutes ses expéditions sont dans le périmètre de l'utilisateur (même règle que la
+     * carte des commandes non transmises).
+     */
+    public static function canDownload(self $order): bool {
+        global $DB;
+
+        if (!Session::haveRight('plugin_printgestion_expedition', READ) && !Session::haveRight(self::$rightname, READ)) {
+            return false;
+        }
+        $expeditions = iterator_to_array($DB->request([
+            'SELECT' => ['entities_id', 'is_recursive'],
+            'FROM'   => PluginPrintgestionExpedition::getTable(),
+            'WHERE'  => ['group_id' => (string) $order->fields['group_id']],
+        ]), false);
+        return !empty($expeditions)
+            && count(array_filter($expeditions, [PluginPrintgestionSecurity::class, 'canAccessRow'])) === count($expeditions);
+    }
+
+    /** Case « Télécharger le fichier Gesconso » cochée : le téléchargement part au retour sur l'écran des alertes. */
+    public static function queueDownload(int $orders_id): void {
+        $_SESSION[self::SESSION_DOWNLOAD] = $orders_id;
+    }
+
+    /** Lance le téléchargement mis en attente, une seule fois (la page reste affichée, le fichier arrive à côté). */
+    public static function emitQueuedDownload(): void {
+        $orders_id = (int) ($_SESSION[self::SESSION_DOWNLOAD] ?? 0);
+        unset($_SESSION[self::SESSION_DOWNLOAD]);
+        if ($orders_id <= 0) {
+            return;
+        }
+        echo "<script>window.addEventListener('load', function () { window.location.href = "
+            . json_encode(self::getDownloadURL($orders_id), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES)
+            . "; });</script>";
+    }
+
     /** Carte « Commandes non transmises aux Achats » : rien s'il n'y en a pas. */
     public static function showNotSentCard(): void {
         if (!Session::haveRight(self::$rightname, READ)) {

@@ -46,8 +46,9 @@ if (!isset($assets[$asset]) || !is_array($assets[$asset])) {
     throw new \Glpi\Exception\Http\NotFoundHttpException();
 }
 
-// Le fichier est revérifié ici, empreinte recalculée : la clé ouvre la version qu'elle nommait, pas ce qui se trouve
-// dans le cache. Si l'installeur servi a changé depuis, le fichier unique ne saurait pas quoi vérifier.
+// Le fichier est revérifié ici, empreinte comparée (recalculée si le fichier a changé sur le disque depuis le dernier
+// calcul, voir getCachedInstaller) : la clé ouvre la version qu'elle nommait, pas ce qui se trouve dans le cache. Si
+// l'installeur servi a changé depuis, le fichier unique ne saurait pas quoi vérifier.
 $installer = PluginPrintgestionAgentdeploy::getCachedInstaller(true, $asset);
 if ($installer === null
     || (string) $installer['version'] !== (string) $assets[$asset]['version']

@@ -77,6 +77,10 @@
 .pg-datatable tbody tr:has(a[href]) {
     cursor: pointer;
 }
+/* Tableau dont les lignes ne s'ouvrent pas (champs, formulaires, plusieurs liens) : curseur ordinaire. */
+[data-pg-noclick] .pg-datatable tbody tr:has(a[href]) {
+    cursor: auto;
+}
 
 /* Carte native « Informations d'inventaire » d'un objet (card m-n2 dans inventory_info.html.twig) : GLPI trace le
    trait entre deux blocs sur toute la largeur du bloc, qui déborde de la carte par les marges négatives de la

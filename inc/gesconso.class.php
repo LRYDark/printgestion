@@ -82,6 +82,8 @@ class PluginPrintgestionGesconso {
      *     'label'             => string (libellé des messages, ex. « Imprimante — Toner »),
      *     'printers_id'       => int,
      *     'cartridgeitems_id' => int,
+     *     'cartridge'         => ['ref', 'name'] (facultatif, aperçu seulement : cartouche pas encore créée,
+     *                            saisie dans la commande ; remplace cartridgeitems_id),
      *     'quantity'          => int,
      *     'unit_price'        => null|string|float (ignoré sous contrat),
      *     'under_contract'    => bool,
@@ -129,7 +131,7 @@ class PluginPrintgestionGesconso {
         if (empty($summary)) {
             return '';
         }
-        $html = "<div class='alert alert-warning py-2 mb-3' data-pg-notices='1'><div class='fw-bold mb-1'>"
+        $html = "<div class='alert alert-warning py-2 mb-3' data-pg-notices='1'><div class='w-100'><div class='fw-bold mb-1'>"
             . $esc(__('À voir avant l\'envoi (n\'empêche pas la commande) :', 'printgestion')) . "</div>";
         foreach ($summary as $entry) {
             $target = $esc($id . '-' . $entry['kind']);
@@ -142,7 +144,7 @@ class PluginPrintgestionGesconso {
             }
             $html .= "</ul></div>";
         }
-        return $html . "</div>";
+        return $html . "</div></div>";
     }
 
     public static function prepare(array $lines): array {
@@ -191,14 +193,16 @@ class PluginPrintgestionGesconso {
             // Référence article.
             $ref            = '';
             $cartridge_name = '';
-            $cartridge      = (int) $line['cartridgeitems_id'] > 0
+            $cartridge      = isset($line['cartridge'])
+                ? $line['cartridge']
+                : ((int) $line['cartridgeitems_id'] > 0
                 ? $DB->request([
                     'SELECT' => ['name', 'ref'],
                     'FROM'   => 'glpi_cartridgeitems',
                     'WHERE'  => ['id' => (int) $line['cartridgeitems_id'], 'is_deleted' => 0],
                     'LIMIT'  => 1,
                 ])->current()
-                : null;
+                : null);
             if (!is_array($cartridge)) {
                 $errors[] = __('référence article absente : cartouche non résolue.', 'printgestion');
             } else {

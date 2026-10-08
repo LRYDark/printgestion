@@ -150,12 +150,18 @@ class PluginPrintgestionNotify {
             if (countElementsInTable('glpi_notifications', ['comment' => self::COMMENT, 'event' => array_keys(self::getCircuits())]) > 0) {
                 return;
             }
+            // hook.php (gabarits et leurs définitions) n'est pas chargé en navigation ordinaire : sans lui, la création
+            // sautait sans rien dire. Chargement natif, include_once (Plugin::includeHook).
+            Plugin::includeHook('printgestion');
             self::ensureSchema();
-            if (function_exists('plugin_printgestion_create_templates')) {
-                plugin_printgestion_create_templates();
-            }
+            plugin_printgestion_create_templates();
             self::install();
-            PluginPrintgestionLogger::info('notifications', 'Notifications natives des circuits mail créées à la première utilisation (plugin mis à jour sans « Mettre à jour »).');
+            $created = countElementsInTable('glpi_notifications', ['comment' => self::COMMENT, 'event' => array_keys(self::getCircuits())]);
+            if ($created > 0) {
+                PluginPrintgestionLogger::info('notifications', sprintf('Notifications natives des circuits mail créées à la première utilisation (plugin mis à jour sans « Mettre à jour ») : %d.', $created));
+            } else {
+                PluginPrintgestionLogger::warning('notifications', 'Notifications natives des circuits mail NON créées (voir les avertissements précédents) : relancer « Mettre à jour » du plugin.');
+            }
         } catch (Throwable $e) {
             PluginPrintgestionLogger::error('notifications', 'Notifications natives des circuits mail non créées.', $e);
         }

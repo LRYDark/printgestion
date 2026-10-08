@@ -261,7 +261,8 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
 
     /**
      * Fichier officiel vérifié de la version servie ($asset : clé de getAssets()), ou null. $verify : empreinte
-     * recalculée (avant de servir un paquet) ; sinon contrôle de la taille seulement (affichage).
+     * comparée à celle de la vérification (avant de servir un paquet), recalculée si le fichier a changé sur le
+     * disque depuis le dernier calcul (getInstallerHash) ; sinon contrôle de la taille seulement (affichage).
      *
      * @return ?array ['path', 'file', 'version', 'size', 'sha256', 'source', 'date', 'users_id']
      */
@@ -277,11 +278,74 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             || (int) ($meta['size'] ?? -1) !== (int) filesize($path)) {
             return null;
         }
-        if ($verify && !hash_equals((string) ($meta['sha256'] ?? ''), (string) hash_file('sha256', $path))) {
+        if ($verify && !hash_equals((string) ($meta['sha256'] ?? ''), self::getInstallerHash($path, $spec['meta']))) {
             PluginPrintgestionLogger::error('agentdeploy', sprintf('Installeur %s modifié depuis sa vérification : refusé.', $path));
             return null;
         }
         return $meta + ['path' => $path];
+    }
+
+    /** Fichier qui mémorise l'empreinte calculée d'un fichier servi, à côté de sa description. */
+    private static function getHashCacheFile(string $meta_file): string {
+        return self::getCacheDir() . '/' . $meta_file . '.sha256';
+    }
+
+    /**
+     * Empreinte SHA-256 d'un fichier servi, recalculée seulement si le fichier a changé sur le disque depuis le
+     * dernier calcul : chemin, taille, date de modification et date de changement (ctime) sont mémorisés avec elle
+     * (fichier <description>.sha256), et le moindre écart relance hash_file().
+     *
+     * Pourquoi l'empreinte avant de servir : un fichier abîmé sur le disque, ou remplacé dans le dossier depuis sa
+     * vérification (dépôt à la main, copie maladroite, altération), ne doit jamais partir chez un client. Le recalcul
+     * complet relisait pourtant des dizaines de Mo (MSI, deux paquets macOS) à chaque paquet et à chaque récupération
+     * par clé. Le compromis : toute réécriture, copie ou remplacement change la taille ou les dates — et sous Linux le
+     * ctime ne se remet pas à la main, touch ne le peut pas —, l'empreinte est alors recalculée et comparée comme
+     * avant. Ce qui échappe désormais jusqu'au prochain changement : une corruption silencieuse du disque qui ne
+     * touche pas aux métadonnées. Qui peut réécrire le fichier en maquillant ses dates peut aussi réécrire sa
+     * description, empreinte comprise : le recalcul systématique ne protégeait pas davantage contre lui. Les
+     * contrôles forts restent entiers : installCandidate() recalcule toujours au dépôt, et le fichier unique vérifie
+     * l'empreinte attendue sur le poste après téléchargement.
+     *
+     * Chaîne vide si le fichier est illisible : refusée par l'appelant, comme avant.
+     */
+    private static function getInstallerHash(string $path, string $meta_file): string {
+        $state = static function () use ($path): ?array {
+            clearstatcache(true, $path);
+            $stat = @stat($path);
+            return $stat === false ? null : [
+                'path'  => $path,
+                'size'  => (int) $stat['size'],
+                'mtime' => (int) $stat['mtime'],
+                'ctime' => (int) $stat['ctime'],
+            ];
+        };
+        $before = $state();
+        if ($before === null) {
+            return '';
+        }
+        $file   = self::getHashCacheFile($meta_file);
+        $cached = is_file($file) ? json_decode((string) file_get_contents($file), true) : null;
+        if (is_array($cached) && preg_match('/^[0-9a-f]{64}$/', (string) ($cached['sha256'] ?? ''))
+            && ($cached['path'] ?? null) === $before['path'] && ($cached['size'] ?? null) === $before['size']
+            && ($cached['mtime'] ?? null) === $before['mtime'] && ($cached['ctime'] ?? null) === $before['ctime']) {
+            return (string) $cached['sha256'];
+        }
+
+        $started = microtime(true);
+        $hash    = (string) hash_file('sha256', $path);
+        PluginPrintgestionLogger::duration('agentdeploy', 'Empreinte SHA-256 recalculée', $started, sprintf('%s, %d octets', basename($path), $before['size']));
+        // Mémorisée seulement si le fichier n'a pas bougé pendant le calcul ; écrite à part puis renommée, pour
+        // qu'une lecture simultanée ne voie jamais un fichier à moitié écrit (elle recalculerait, sans plus).
+        if ($hash !== '' && $state() === $before) {
+            $tmp = $file . '.' . bin2hex(random_bytes(4)) . '.tmp';
+            if (file_put_contents($tmp, json_encode($before + ['sha256' => $hash], JSON_UNESCAPED_SLASHES)) === false || !rename($tmp, $file)) {
+                if (is_file($tmp)) {
+                    unlink($tmp);
+                }
+                PluginPrintgestionLogger::warning('agentdeploy', sprintf('Empreinte de %s non mémorisée dans %s : recalculée au prochain paquet.', $path, $file));
+            }
+        }
+        return $hash;
     }
 
     private static function readMetadata(string $meta_file): ?array {
@@ -416,6 +480,12 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         if ($path !== $final && !rename($path, $final)) {
             PluginPrintgestionLogger::error('agentdeploy', sprintf('Installeur %s non déplacé vers %s.', $path, $final));
             return $refuse(__('Installeur vérifié mais non enregistré sur le serveur (détail dans le journal printgestion).', 'printgestion'));
+        }
+        // Empreinte mémorisée d'un fichier précédent oubliée : le premier paquet servi la recalcule sur ce fichier-ci.
+        // Par prudence seulement, la taille et les dates suffiraient à la périmer.
+        $hash_cache = self::getHashCacheFile($spec['meta']);
+        if (is_file($hash_cache)) {
+            @unlink($hash_cache);
         }
         $meta = [
             'file'     => $spec['file'],
@@ -1014,6 +1084,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
      * @return array ['ok' => bool, 'errors' => string[], 'path', 'filename', 'version', 'tag']
      */
     public static function buildWindowsPackage(Entity $entity): array {
+        $started  = microtime(true);
         $blockers = self::getPackageBlockers($entity);
         if (!empty($blockers)) {
             return ['ok' => false, 'errors' => $blockers];
@@ -1173,6 +1244,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             PluginPrintgestionLogger::error('agentdeploy', sprintf('Paquet %s non finalisé.', $path));
             return ['ok' => false, 'errors' => [__('Paquet non généré (détail dans le journal printgestion).', 'printgestion')]];
         }
+        PluginPrintgestionLogger::duration('agentdeploy', 'Paquet Windows (ZIP) produit', $started, sprintf('TAG %s, %d octets', $tag, (int) filesize($path)));
 
         return [
             'ok'       => true,
@@ -4829,6 +4901,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
      * @return array ['ok' => bool, 'errors' => string[], 'path', 'filename', 'version', 'tag']
      */
     public static function buildLinuxPackage(Entity $entity): array {
+        $started  = microtime(true);
         $blockers = self::getPackageBlockers($entity, 'linux');
         if (!empty($blockers)) {
             return ['ok' => false, 'errors' => $blockers];
@@ -4895,6 +4968,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         if (is_file($base . '.tar')) {
             unlink($base . '.tar');
         }
+        PluginPrintgestionLogger::duration('agentdeploy', 'Paquet Linux (.tar.gz) produit', $started, sprintf('TAG %s, %d octets', $tag, (int) filesize($base . '.tar.gz')));
         return ['ok' => true, 'errors' => [], 'path' => $base . '.tar.gz', 'filename' => $folder . '.tar.gz', 'version' => $version, 'tag' => $tag];
     }
 
@@ -4934,6 +5008,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
      * @return array ['ok' => bool, 'errors' => string[], 'path', 'filename', 'version', 'tag']
      */
     public static function buildMacosPackage(Entity $entity): array {
+        $started  = microtime(true);
         $blockers = self::getPackageBlockers($entity, 'macos');
         if (!empty($blockers)) {
             return ['ok' => false, 'errors' => $blockers];
@@ -4986,6 +5061,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             PluginPrintgestionLogger::error('agentdeploy', sprintf('Paquet macOS %s non finalisé.', $path));
             return ['ok' => false, 'errors' => [__('Paquet non généré (détail dans le journal printgestion).', 'printgestion')]];
         }
+        PluginPrintgestionLogger::duration('agentdeploy', 'Paquet macOS (ZIP) produit', $started, sprintf('TAG %s, %d octets', $tag, (int) filesize($path)));
         return ['ok' => true, 'errors' => [], 'path' => $path, 'filename' => self::getMacosFolder($version, $tag) . '.zip', 'version' => $version, 'tag' => $tag];
     }
 
@@ -5424,8 +5500,33 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
 
         // Ce qui empêche toute remontée sans bloquer le déploiement (réparable après coup, à distance) : le
         // technicien voit l'état, l'administrateur ce qui manque et où le corriger. Jamais vert quand rien ne remontera.
-        $environment = array_filter(PluginPrintgestionConfighealth::getChecks(), static fn(array $c) => $c['group'] === 'required'
-            && $c['state'] === PluginPrintgestionConfighealth::STATE_ERROR && !in_array($c['key'], ['tag_rule', 'app_url'], true));
+        // La préparation des inventaires réseau se juge sur les tâches de CETTE entité : une tâche en retard ailleurs
+        // ne dit pas que rien ne remontera ici. Le reste est global (cron, inventaire, GLPI Inventory…).
+        $checks      = PluginPrintgestionConfighealth::getChecks();
+        $environment = array_filter($checks, static fn(array $c) => $c['group'] === 'required'
+            && $c['state'] === PluginPrintgestionConfighealth::STATE_ERROR && !in_array($c['key'], ['tag_rule', 'app_url', 'collect_prep'], true));
+        foreach ($checks as $check) {
+            if ($check['key'] !== 'collect_prep' || $check['state'] !== PluginPrintgestionConfighealth::STATE_ERROR) {
+                continue;
+            }
+            try {
+                $prep = PluginPrintgestionCollectfrequency::getPreparationStatus();
+            } catch (RuntimeException $e) {
+                // Colonne de GLPI Inventory absente : la ligne globale dit déjà pourquoi, elle vaut pour toutes les entités.
+                $environment[] = $check;
+                break;
+            }
+            $late = array_values(array_filter($prep['tasks'], static fn(array $t) => $t['late'] && (int) $t['entities_id'] === (int) $id));
+            if (!empty($late)) {
+                $last           = array_filter(array_column($late, 'last_prepared'));
+                $check['status'] = sprintf(
+                    _n('%1$d tâche de collecte de cette entité sans travail préparé à temps (dernier : %2$s).', '%1$d tâches de collecte de cette entité sans travail préparé à temps (dernier : %2$s).', count($late), 'printgestion'),
+                    count($late),
+                    empty($last) ? __('jamais', 'printgestion') : Html::convDateTime((string) max($last))
+                );
+                $environment[] = $check;
+            }
+        }
         if (!empty($environment)) {
             $items = '';
             foreach ($environment as $check) {
@@ -5514,12 +5615,23 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'QUICKINSTALL' => __('Installation directe, sans les écrans de configuration détaillée (l\'installation est muette de toute façon : /qn).', 'printgestion'),
         ];
         $html .= "<div class='fw-bold mt-3 mb-1'>" . $esc(sprintf(__('Windows : commande lancée par %s', 'printgestion'), self::WINDOWS_INSTALL_BAT)) . "</div>"
-            . "<pre class='mb-2' style='white-space:pre-wrap'>" . $esc(self::buildWindowsCommand(self::getMsiName($version), $tag)) . "</pre>"
-            . "<div class='table-responsive'><table class='table table-sm'><thead><tr><th>" . $esc(__('Propriété', 'printgestion')) . "</th><th>" . $esc(__('Valeur', 'printgestion')) . "</th><th>" . $esc(__('Pourquoi', 'printgestion')) . "</th></tr></thead><tbody>";
+            . "<pre class='mb-2' style='white-space:pre-wrap'>" . $esc(self::buildWindowsCommand(self::getMsiName($version), $tag)) . "</pre>";
+        // Propriétés du MSI : toujours les mêmes clés, jamais vide ; aucun lien, donc aucun clic de ligne. La petite
+        // taille de l'ancienne cellule « Pourquoi » passe dans un bloc. Pas de marge basse, comme avant (table-responsive :
+        // Tabler la ramène à zéro) : l'écart avec le titre Linux reste son mt-3.
+        $entries = [];
         foreach (self::getWindowsProperties($tag) as $name => $value) {
-            $html .= "<tr><td><code>" . $esc($name) . "</code></td><td><code>" . $esc($value !== '' ? $value : '—') . "</code></td><td class='small'>" . $esc($reasons[$name] ?? '') . "</td></tr>";
+            $entries[] = [
+                'name'  => "<code>" . $esc($name) . "</code>",
+                'value' => "<code>" . $esc($value !== '' ? $value : '—') . "</code>",
+                'why'   => "<span class='d-block small'>" . $esc($reasons[$name] ?? '') . "</span>",
+            ];
         }
-        $html .= "</tbody></table></div>"
+        $html .= PluginPrintgestionUi::datatable([
+            'name'  => __('Propriété', 'printgestion'),
+            'value' => __('Valeur', 'printgestion'),
+            'why'   => __('Pourquoi', 'printgestion'),
+        ], $entries, ['name' => 'raw_html', 'value' => 'raw_html', 'why' => 'raw_html'])
             . "<div class='fw-bold mt-3 mb-1'>" . $esc(__('Linux : commande lancée par installer-glpi-agent.sh, en root', 'printgestion')) . "</div>"
             . "<pre class='mb-1' style='white-space:pre-wrap'>" . $esc(self::buildLinuxCommand(self::getAssets($version)['linux']['file'], $tag)) . "</pre>"
             . "<p class='small'>" . $esc(__('Avant la commande, le script pose /etc/glpi-agent/conf.d/90-printgestion.cfg (snmp-retries = 2) ; après, la tâche cron mensuelle de mise à jour si elle est activée.', 'printgestion')) . "</p>"
@@ -5546,32 +5658,49 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         // Installeurs servis : détail de l'administrateur.
         ob_start();
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(sprintf(__('Installeurs servis : GLPI Agent %s', 'printgestion'), $version)) . "</h3></div><div class='card-body'>";
-        echo "<div class='table-responsive'><table class='table table-sm align-middle'><thead><tr>"
-            . "<th>" . $esc(__('Fichier officiel', 'printgestion')) . "</th><th>" . $esc(__('Nom', 'printgestion')) . "</th><th>" . $esc(__('État', 'printgestion')) . "</th>"
-            . ($can_edit ? "<th></th>" : '') . "</tr></thead><tbody>";
+        // Colonne d'action seulement avec le droit de configuration : sans lui, elle n'existe pas (comme avant).
+        $columns = [
+            'label' => __('Fichier officiel', 'printgestion'),
+            'file'  => __('Nom', 'printgestion'),
+            'state' => __('État', 'printgestion'),
+        ];
+        if ($can_edit) {
+            $columns['action'] = '';
+        }
+        // Liste fixe des fichiers officiels : jamais vide.
+        $entries = [];
         foreach (self::getAssets($version) as $asset => $spec) {
             $installer = self::getCachedInstaller(false, $asset);
-            echo "<tr><td>" . $esc($spec['label']) . "</td><td><code>" . $esc($spec['file']) . "</code></td><td>";
-            if ($installer !== null) {
-                echo "<span class='badge bg-green text-green-fg'>" . $esc(__('Vérifié', 'printgestion')) . "</span> <span class='small text-muted'>" . $esc(sprintf(
-                    __('%1$s octets, SHA-256 %2$s, %3$s le %4$s', 'printgestion'),
-                    number_format((int) $installer['size'], 0, ',', ' '),
-                    $installer['sha256'],
-                    $installer['source'] === 'github' ? __('récupéré sur GitHub', 'printgestion') : __('déposé à la main', 'printgestion'),
-                    Html::convDateTime((string) $installer['date'])
-                )) . "</span>";
-            } else {
-                echo "<span class='badge bg-orange text-orange-fg'>" . $esc(__('Pas encore sur ce serveur', 'printgestion')) . "</span>";
-            }
-            echo "</td>";
+            $entry     = [
+                'label' => $spec['label'],
+                'file'  => "<code>" . $esc($spec['file']) . "</code>",
+                'state' => $installer !== null
+                    ? "<span class='badge bg-green text-green-fg'>" . $esc(__('Vérifié', 'printgestion')) . "</span> <span class='small text-muted'>" . $esc(sprintf(
+                        __('%1$s octets, SHA-256 %2$s, %3$s le %4$s', 'printgestion'),
+                        number_format((int) $installer['size'], 0, ',', ' '),
+                        $installer['sha256'],
+                        $installer['source'] === 'github' ? __('récupéré sur GitHub', 'printgestion') : __('déposé à la main', 'printgestion'),
+                        Html::convDateTime((string) $installer['date'])
+                    )) . "</span>"
+                    : "<span class='badge bg-orange text-orange-fg'>" . $esc(__('Pas encore sur ce serveur', 'printgestion')) . "</span>",
+            ];
             if ($can_edit) {
-                echo "<td class='text-end'><form method='post' action='" . $esc($page) . "' class='d-inline'>"
+                // Un formulaire autonome par ligne (jeton CSRF de Html::closeForm), tel qu'avant ; l'alignement à
+                // droite de l'ancienne cellule passe dans un bloc.
+                $entry['action'] = "<div class='text-end'><form method='post' action='" . $esc($page) . "' class='d-inline'>"
                     . "<button type='submit' data-pg-submit-once='1' name='fetch_github' value='" . $esc($asset) . "' class='btn btn-sm btn-outline-primary'><i class='ti ti-cloud-download me-1'></i>" . $esc(__('Récupérer depuis GitHub', 'printgestion')) . "</button>"
-                    . Html::closeForm(false) . "</td>";
+                    . Html::closeForm(false) . "</div>";
             }
-            echo "</tr>";
+            $entries[] = $entry;
         }
-        echo "</tbody></table></div>";
+        // data-pg-noclick : la ligne porte un formulaire, elle ne réagit pas au clic (comme avant). Pas de marge basse
+        // avant le paragraphe qui suit, comme avant : l'ancien tableau était dans un table-responsive, où Tabler la
+        // ramène à zéro.
+        echo "<div data-pg-noclick='1'>" . PluginPrintgestionUi::datatable($columns, $entries, [
+            'file'   => 'raw_html',
+            'state'  => 'raw_html',
+            'action' => 'raw_html',
+        ]) . "</div>";
         echo "<p class='text-muted small'>" . $esc(__('Paquet de l\'entité disponible dès que ses fichiers sont vérifiés : le MSI pour Windows, l\'installeur Perl pour Linux, les deux paquets (Apple Silicon et Intel) pour macOS. Empreinte comparée à celle que GitHub publie pour chaque fichier.', 'printgestion')) . "</p>";
         if ($can_edit) {
             echo "<p class='small mb-1'>" . $esc(sprintf(

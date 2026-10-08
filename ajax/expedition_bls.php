@@ -4,7 +4,9 @@
  *
  * GET attendu : expedition_id
  *
- * Retourne : { ok: true, bls: [{ id, bl, signed, date_creation, entity_name }] }
+ * Retourne : { ok: true, bls: [{ id, bl, signed, date_creation, entity_name }], html }
+ * bls pré-remplit le sélecteur de la fenêtre « Associer des BL » ; html est son tableau « Détail des BL associés »,
+ * rendu par le gabarit natif (vide sans BL).
  * Inclut la relation N:N via glpi_plugin_printgestion_expedition_bls ET
  * le bl_surveys_id "principal" stocké sur expeditions (rétro-compat).
  */
@@ -101,4 +103,39 @@ foreach ($DB->request([
     ];
 }
 
-echo json_encode(['ok' => true, 'bls' => $bls]);
+// Tableau « Détail des BL associés » : rendu ici par le gabarit natif (components/datatable.html.twig), la fenêtre
+// l'injecte tel quel. Mêmes colonnes, mêmes valeurs et même échappement que les lignes que son script assemblait :
+// « — » pour un numéro, une entité ou une source vide, date coupée à 10 caractères, badge « signé ». Sans BL, pas de
+// tableau : la fenêtre n'affiche pas le bloc (le gabarit écrirait « No results found »).
+$html = '';
+if (!empty($bls)) {
+    $esc     = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+    $muted   = static fn(string $text) => "<span class='text-muted small'>" . $esc($text) . "</span>";
+    $entries = [];
+    foreach ($bls as $b) {
+        $entries[] = [
+            'bl'     => $esc($b['bl'] !== '' ? $b['bl'] : '—')
+                . ($b['signed'] ? " <span class='badge bg-success ms-1'>" . $esc(__('signé', 'printgestion')) . "</span>" : ''),
+            'date'   => $muted(substr($b['date_creation'], 0, 10)),
+            'entity' => $muted($b['entity_name'] !== '' ? $b['entity_name'] : '—'),
+            'source' => $muted($b['save'] !== '' ? $b['save'] : '—'),
+        ];
+    }
+    try {
+        $html = PluginPrintgestionUi::datatable(
+            [
+                'bl'     => __('BL', 'printgestion'),
+                'date'   => __('Date', 'printgestion'),
+                'entity' => __('Entité', 'printgestion'),
+                'source' => __('Source', 'printgestion'),
+            ],
+            $entries,
+            ['bl' => 'raw_html', 'date' => 'raw_html', 'entity' => 'raw_html', 'source' => 'raw_html']
+        );
+    } catch (Throwable $e) {
+        // Le sélecteur reste pré-rempli par bls : seul le tableau de détail manque, la cause est tracée.
+        PluginPrintgestionLogger::error('expedition_bls', sprintf('Tableau « Détail des BL associés » de l\'expédition %d non rendu : seul le détail manque à la fenêtre.', $expedition_id), $e);
+    }
+}
+
+echo json_encode(['ok' => true, 'bls' => $bls, 'html' => $html]);

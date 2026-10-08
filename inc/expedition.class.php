@@ -100,6 +100,24 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     }
 
     /**
+     * Tableau où revenir après la fiche d'expédition (confirmation ou « Annuler ») :
+     * celui d'où l'on vient — alertes toner ou expéditions —, avec ses filtres et sa
+     * page. Seules ces deux pages du plugin sont acceptées : l'adresse vient du
+     * navigateur (Referer, champ caché), elle ne doit mener nulle part ailleurs.
+     * À défaut, la liste des expéditions.
+     */
+    static function getReturnURL(string $candidate): string {
+        $path = (string) (parse_url($candidate, PHP_URL_PATH) ?? '');
+        foreach (['dashboard_alerts.php', 'dashboard_expeditions.php'] as $page) {
+            if ($path === PLUGIN_PRINTGESTION_WEBDIR . '/front/' . $page) {
+                $query = (string) (parse_url($candidate, PHP_URL_QUERY) ?? '');
+                return $path . ($query !== '' ? '?' . $query : '');
+            }
+        }
+        return self::getSearchURL();
+    }
+
+    /**
      * Options de recherche pour le moteur Search natif. Permet recherche / tri /
      * filtres / choix de colonnes / export sur les expéditions.
      */
@@ -222,6 +240,19 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         return $tab;
     }
 
+    /** Libellé d'un statut d'expédition : celui des badges, de la fiche et des messages. */
+    static function getStatusLabel(string $statut): string {
+        $labels = [
+            self::STATUS_PENDING   => __('En attente', 'printgestion'),
+            self::STATUS_SHIPPED   => __('Expédiée', 'printgestion'),
+            self::STATUS_TRANSIT   => __('En transit', 'printgestion'),
+            self::STATUS_DELIVERED => __('Livrée (non posée)', 'printgestion'),
+            self::STATUS_INSTALLED => __('Posée', 'printgestion'),
+            self::STATUS_CANCELLED => __('Annulée', 'printgestion'),
+        ];
+        return $labels[$statut] ?? ($statut !== '' ? $statut : '—');
+    }
+
     /**
      * Rendu HTML spécifique des colonnes du tableau natif (badges « comme avant »).
      * - statut          → badge coloré + pont caché (data-expid) pour le menu clic droit.
@@ -235,14 +266,15 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             case 'statut':
                 $v   = (string) ($values[$field] ?? '');
                 $map = [
-                    'pending'     => ['bg-secondary', __('En attente', 'printgestion')],
-                    'shipped'     => ['bg-primary',   __('Expédiée', 'printgestion')],
-                    'transit'     => ['bg-info',      __('En transit', 'printgestion')],
-                    'delivered'   => ['bg-success',   __('Livrée (non posée)', 'printgestion')],
-                    'installed'   => ['bg-teal',      __('Posée', 'printgestion')],
-                    'cancelled'   => ['bg-light text-muted border', __('Annulée', 'printgestion')],
+                    'pending'     => 'bg-secondary text-secondary-fg',
+                    'shipped'     => 'bg-primary text-primary-fg',
+                    'transit'     => 'bg-info text-info-fg',
+                    'delivered'   => 'bg-success text-success-fg',
+                    'installed'   => 'bg-teal text-teal-fg',
+                    'cancelled'   => 'bg-light text-muted border',
                 ];
-                [$cls, $label] = $map[$v] ?? ['bg-light text-dark border', ($v !== '' ? $v : '—')];
+                $cls   = $map[$v] ?? 'bg-light text-dark border';
+                $label = self::getStatusLabel($v);
                 $out = "<span class='badge {$cls}'>" . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . "</span>";
 
                 // Marqueur du menu clic droit : l'identité de la ligne quand la case native manque.
@@ -343,15 +375,19 @@ class PluginPrintgestionExpedition extends CommonDBTM {
      * (référence non résolue, ligne en erreur) et ce qui mérite d'être vu avant l'envoi (notices). Affiché dans le
      * sous-formulaire « Commander » avant le clic.
      *
-     * @param array $items [['printers_id', 'property']]
-     * @return array ['errors' => string[], 'notices' => notices de Gesconso::prepare()]
+     * @param array $items      [['printers_id', 'property']]
+     * @param array $cartridges « printers_id|property » => ['ref', 'name'] : cartouche saisie dans la commande, pas
+     *                          encore créée, contrôlée comme si elle existait (Cartridgesnmp::renderQuickLink())
+     * @return array ['errors' => string[], 'line_errors' => clé => string[] (lignes bloquées),
+     *                'labels' => clé => libellé, 'notices' => notices de Gesconso::prepare()]
      */
-    public static function previewPurchaseOrder(array $items): array {
+    public static function previewPurchaseOrder(array $items, array $cartridges = []): array {
         global $DB;
 
-        $errors = [];
-        $lines  = [];
-        $names  = [];
+        $line_errors = [];
+        $labels      = [];
+        $lines       = [];
+        $names       = [];
         $ids    = array_values(array_unique(array_map(static fn(array $i) => (int) $i['printers_id'], $items)));
         if (!empty($ids)) {
             foreach ($DB->request(['SELECT' => ['id', 'name'], 'FROM' => 'glpi_printers', 'WHERE' => ['id' => $ids]]) as $printer) {
@@ -361,15 +397,17 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         foreach ($items as $item) {
             $printers_id = (int) $item['printers_id'];
             $property    = (string) $item['property'];
+            $key         = $printers_id . '|' . $property;
             $label       = sprintf('%s — %s', $names[$printers_id] ?? ('#' . $printers_id), $property);
             $ref         = PluginPrintgestionSnmpmapping::resolveCartridge($printers_id, $property);
-            if ($ref['cartridgeitems_id'] <= 0) {
-                $errors[] = $label . ' : ' . $ref['message'];
+            $labels[$key] = $label;
+            if ($ref['cartridgeitems_id'] <= 0 && !isset($cartridges[$key])) {
+                $line_errors[$key] = [$label . ' : ' . $ref['message']];
                 continue;
             }
-            $row     = self::buildPurchaseRowData($printers_id, $property, (int) $ref['cartridgeitems_id']);
-            $lines[] = [
-                'key'               => $printers_id . '|' . $property,
+            $row  = self::buildPurchaseRowData($printers_id, $property, (int) $ref['cartridgeitems_id']);
+            $line = [
+                'key'               => $key,
                 'label'             => $label,
                 'printers_id'       => $printers_id,
                 'cartridgeitems_id' => (int) $ref['cartridgeitems_id'],
@@ -379,12 +417,19 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 'date'              => date('Y-m-d'),
                 'complement'        => $row['complement'],
             ];
+            if ($ref['cartridgeitems_id'] <= 0) {
+                $line['cartridge'] = ['ref' => (string) $cartridges[$key]['ref'], 'name' => (string) $cartridges[$key]['name']];
+            }
+            $lines[] = $line;
         }
         $gesconso = empty($lines) ? ['errors' => [], 'notices' => PluginPrintgestionGesconso::emptyNotices()] : PluginPrintgestionGesconso::prepare($lines);
-        foreach ($gesconso['errors'] as $messages) {
-            $errors = array_merge($errors, $messages);
-        }
-        return ['errors' => $errors, 'notices' => $gesconso['notices']];
+        $line_errors += $gesconso['errors'];
+        return [
+            'errors'      => empty($line_errors) ? [] : array_merge(...array_values($line_errors)),
+            'line_errors' => $line_errors,
+            'labels'      => $labels,
+            'notices'     => $gesconso['notices'],
+        ];
     }
 
     public static function buildPurchaseRowData(int $printers_id, string $property, int $cartridgeitems_id): array {
@@ -677,7 +722,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                     : __('Commande non passée : erreur technique pendant l\'enregistrement (détail dans le journal d\'erreurs GLPI). Aucune expédition n\'a été enregistrée, rien n\'a été envoyé aux Achats.', 'printgestion'));
                 return $result;
             }
-            $result['ok'] = true;
+            $result['ok']       = true;
+            $result['order_id'] = $order_id; // fichier archivé téléchargeable (Purchaseorder::getDownloadURL())
 
             // Commande enregistrée : mail aux Achats. En cas d'échec, elle reste enregistrée et verrouillée,
             // « non transmise », à renvoyer (jamais annulée ni renvoyée automatiquement).
@@ -943,9 +989,35 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             'statut' => self::STATUS_PENDING,
         ]) && $DB->affectedRows() > 0;
         if ($ok) {
+            self::syncAlertView($expedition_id);
             self::notifyShippedToCommercial($expedition_id);
         }
         return $ok;
+    }
+
+    /**
+     * Écran des alertes : sa table est recalculée par une tâche automatique, et la colonne
+     * « Envoi en cours » y gardait « En attente » jusqu'au recalcul suivant — juste après
+     * « Confirmer expédition », on croyait l'envoi non enregistré. Le statut de l'imprimante
+     * et du toner de cette expédition y est reporté tout de suite ; le recalcul refait le reste.
+     */
+    protected static function syncAlertView(int $expedition_id): void {
+        global $DB;
+
+        $exp = $DB->request([
+            'SELECT' => ['printers_id', 'toner_property', 'statut'],
+            'FROM'   => self::getTable(),
+            'WHERE'  => ['id' => $expedition_id],
+            'LIMIT'  => 1,
+        ])->current();
+        if (!$exp) {
+            return;
+        }
+        $DB->update(PluginPrintgestionAlertview::getTable(), ['expedition_statut' => (string) $exp['statut']], [
+            'printers_id'    => (int) $exp['printers_id'],
+            'toner_property' => (string) $exp['toner_property'],
+            'has_expedition' => 1,
+        ]);
     }
 
     /** Expédition partie : notification native « Suivi de colis » au rôle Commercial (transporteur, numéro). */

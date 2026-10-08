@@ -89,7 +89,9 @@ function plugin_printgestion_uninstall() {
     // Cache : jeton GLS, couverture des sondes, marqueurs de vues.
     global $GLPI_CACHE;
     if (isset($GLPI_CACHE)) {
-        foreach (['printgestion_gls_token', 'printgestion_probe_coverage', 'plugin_printgestion_alertview_stale', 'plugin_printgestion_billing_ver'] as $key) {
+        foreach (['printgestion_gls_token', 'printgestion_probe_coverage', 'printgestion_probe_coverage_generation',
+                  'plugin_printgestion_alertview_stale', 'plugin_printgestion_alertview_request', 'plugin_printgestion_alertview_running',
+                  'plugin_printgestion_billing_ver', 'plugin_printgestion_dependencies_pending'] as $key) {
             $GLPI_CACHE->delete($key);
         }
     }

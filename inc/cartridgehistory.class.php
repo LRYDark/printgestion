@@ -33,20 +33,24 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
      * Boucle sur toutes les imprimantes × propriétés et détecte les changements.
      * À appeler juste après PluginPrintgestionTonerreading::snapshotAllPrinters().
      *
+     * @param ?int[] $printer_ids null : tout le parc (tâche quotidienne) ; sinon ces imprimantes seulement (relevé
+     *                            manuel : la même détection, sans reparcourir tout le parc pendant la page).
      * @return int Nombre de changements détectés.
      */
-    public static function detectChanges(): int {
+    public static function detectChanges(?array $printer_ids = null): int {
         global $DB;
 
         $config         = PluginPrintgestionConfig::getInstance();
         $delta_threshold = max(1, min(100, (int)($config->fields['detection_delta'] ?? 20)));
 
         $detected = 0;
+        $started  = microtime(true);
 
         // Récupère les couples (printer, property) ayant au moins 2 relevés
         $pairs = $DB->request([
             'SELECT'   => ['printers_id', 'property_name'],
             'FROM'     => 'glpi_plugin_printgestion_toner_readings',
+            'WHERE'    => $printer_ids === null ? [] : ['printers_id' => array_map('intval', $printer_ids)],
             'GROUPBY'  => ['printers_id', 'property_name'],
         ]);
 
@@ -205,6 +209,9 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
             self::resolveWrongPrinterAlertsForIntended($printers_id, $property);
         }
 
+        if ($printer_ids === null) {
+            PluginPrintgestionLogger::duration('cartouches', 'Détection des changements de cartouche (tout le parc)', $started, sprintf('%d changement(s)', $detected));
+        }
         return $detected;
     }
 

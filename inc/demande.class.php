@@ -923,10 +923,43 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
      * Écritures par update() : historique natif. Appelée par les tâches automatiques, après une
      * action sur une expédition (syncForExpedition()) et depuis la fiche, par un POST : jamais en GET.
      *
-     * @param ?array $demandes_ids Restreindre à ces demandes (null : toutes).
+     * Seules les lignes dont le statut diffère de celui de leur expédition sont écrites (getLinesBehindExpeditions) :
+     * une ligne déjà à jour ne coûte qu'une lecture.
+     *
+     * $expeditions_ids restreint aux demandes qui ont au moins une ligne sur ces expéditions — toutes leurs lignes,
+     * pas seulement celles de ces expéditions : l'en-tête d'une demande se calcule sur l'ensemble de ses lignes, et
+     * doit sortir ici tel que le donnerait le passage complet. Les autres demandes attendent la tâche automatique,
+     * qui passe sur tout.
+     *
+     * @param ?array $demandes_ids    Restreindre à ces demandes (null : toutes).
+     * @param ?array $expeditions_ids Restreindre aux demandes rattachées à ces expéditions (null : pas de filtre).
      * @return int Nombre de lignes mises à jour.
      */
-    public static function syncFromExpeditions(?array $demandes_ids = null): int {
+    public static function syncFromExpeditions(?array $demandes_ids = null, ?array $expeditions_ids = null): int {
+        global $DB;
+
+        $full    = $demandes_ids === null && $expeditions_ids === null;
+        $started = microtime(true);
+        if ($expeditions_ids !== null) {
+            $expeditions_ids = array_values(array_filter(array_map('intval', $expeditions_ids)));
+            if (empty($expeditions_ids)) {
+                return 0;
+            }
+            $linked = [];
+            foreach ($DB->request([
+                'SELECT'   => ['plugin_printgestion_demandes_id'],
+                'DISTINCT' => true,
+                'FROM'     => PluginPrintgestionDemandeline::getTable(),
+                'WHERE'    => ['expeditions_id' => $expeditions_ids],
+            ]) as $row) {
+                $linked[] = (int) $row['plugin_printgestion_demandes_id'];
+            }
+            $demandes_ids = $demandes_ids === null ? $linked : array_values(array_intersect(array_map('intval', $demandes_ids), $linked));
+            if (empty($demandes_ids)) {
+                return 0;
+            }
+        }
+
         $updated  = 0;
         $touched  = [];
         $line     = new PluginPrintgestionDemandeline();
@@ -944,6 +977,13 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             if ($demande->getFromDB($demandes_id)) {
                 $demande->refreshStatusFromLines();
             }
+        }
+        if ($full) {
+            PluginPrintgestionLogger::duration('demandes', 'Suivi des demandes d\'après les expéditions (passage complet)', $started, sprintf(
+                '%d ligne(s) mise(s) à jour, %d demande(s) touchée(s)',
+                $updated,
+                count($touched)
+            ));
         }
         return $updated;
     }
@@ -988,7 +1028,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         if ($demandes_ids !== null) {
             $ids = array_values(array_filter(array_map('intval', $demandes_ids)));
             if (empty($ids)) {
-                return 0;
+                return []; // aucune demande : aucune ligne (le type de retour l'impose)
             }
             $criteria['WHERE']['l.plugin_printgestion_demandes_id'] = $ids;
         }
@@ -1878,20 +1918,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             return;
         }
 
-        echo "<div class='table-responsive'><table class='table table-sm table-vcenter card-table'>";
-        echo "<thead><tr>"
-            . "<th>" . $esc(_n('Imprimante', 'Imprimantes', 1, 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Toner', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Cartouche', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('À la proposition', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Contrat', 'printgestion')) . "</th>"
-            . "<th class='text-end'>" . $esc(__('Quantité', 'printgestion')) . "</th>"
-            . "<th class='text-end'>" . $esc(__('Prix unitaire', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Statut', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Contrôles', 'printgestion')) . "</th>"
-            . ($editable ? "<th class='text-center'>" . $esc(__('Annuler', 'printgestion')) . "</th>" : '')
-            . "</tr></thead><tbody>";
-
+        $entries = [];
         foreach ($lines as $line_id => $line) {
             $check = $checks[$line_id] ?? null;
 
@@ -1964,21 +1991,52 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 }
             }
 
-            echo "<tr>"
-                . "<td>{$printer}</td>"
-                . "<td>" . $esc($line['toner_property']) . "</td>"
-                . "<td>{$cartridge}</td>"
-                . "<td>{$proposal}</td>"
-                . "<td>{$contract}</td>"
-                . "<td class='text-end'>{$quantity}</td>"
-                . "<td class='text-end'>{$price}</td>"
-                . "<td>" . self::getStatusBadge((string) $line['statut']) . "</td>"
-                . "<td style='min-width:16rem'>{$controls}</td>"
-                . ($editable ? "<td class='text-center'>{$cancel}</td>" : '')
-                . "</tr>";
+            // Alignements et largeur minimale de cellule portés par le contenu : le gabarit ne pose pas de classe sur
+            // le td. Propriété du toner en texte, échappée par le gabarit.
+            $entries[] = [
+                'printer'        => $printer,
+                'toner_property' => (string) $line['toner_property'],
+                'cartridge'      => $cartridge,
+                'proposal'       => $proposal,
+                'contract'       => $contract,
+                'quantity'       => "<div class='text-end'>{$quantity}</div>",
+                'price'          => "<div class='text-end'>{$price}</div>",
+                'status'         => self::getStatusBadge((string) $line['statut']),
+                'controls'       => "<div style='min-width:16rem'>{$controls}</div>",
+                'cancel'         => "<div class='text-center'>{$cancel}</div>",
+            ];
         }
 
-        echo "</tbody></table></div></div>";
+        $columns = [
+            'printer'        => _n('Imprimante', 'Imprimantes', 1, 'printgestion'),
+            'toner_property' => __('Toner', 'printgestion'),
+            'cartridge'      => __('Cartouche', 'printgestion'),
+            'proposal'       => __('À la proposition', 'printgestion'),
+            'contract'       => __('Contrat', 'printgestion'),
+            'quantity'       => ['label' => "<span class='d-block text-end'>" . $esc(__('Quantité', 'printgestion')) . "</span>", 'raw_header' => true],
+            'price'          => ['label' => "<span class='d-block text-end'>" . $esc(__('Prix unitaire', 'printgestion')) . "</span>", 'raw_header' => true],
+            'status'         => __('Statut', 'printgestion'),
+            'controls'       => __('Contrôles', 'printgestion'),
+        ];
+        // Colonne « Annuler » seulement sur une demande modifiable : sans colonne, le gabarit ignore la cellule.
+        if ($editable) {
+            $columns['cancel'] = ['label' => "<span class='d-block text-center'>" . $esc(__('Annuler', 'printgestion')) . "</span>", 'raw_header' => true];
+        }
+        // Champs quantity[], unit_price[] et cases cancel_line[] du formulaire de la demande, pas des actions massives :
+        // $massive à null. data-pg-noclick : comme avant, la ligne ne s'ouvre pas d'un clic — viser à côté d'un champ
+        // ouvrirait la fiche de l'imprimante et ferait perdre la saisie non enregistrée.
+        echo "<div data-pg-noclick='1'>" . PluginPrintgestionUi::datatable($columns, $entries, [
+            'printer'   => 'raw_html',
+            'cartridge' => 'raw_html',
+            'proposal'  => 'raw_html',
+            'contract'  => 'raw_html',
+            'quantity'  => 'raw_html',
+            'price'     => 'raw_html',
+            'status'    => 'raw_html',
+            'controls'  => 'raw_html',
+            'cancel'    => 'raw_html',
+        ], null, false, ['table_class' => 'card-table']) . "</div>";
+        echo "</div>";
     }
 
     // ── Installation ──────────────────────────────────────────────────────────

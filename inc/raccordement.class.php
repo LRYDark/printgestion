@@ -532,6 +532,30 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         return 0;
     }
 
+    /** Mention portée dans les commentaires de l'ordinateur d'une sonde installée par le fichier d'installation. */
+    const PROBE_COMMENT = 'AGENT D\'IMPRIMANTE';
+
+    /**
+     * Commentaires de l'ordinateur de la sonde : la mention PROBE_COMMENT en tête, le reste du texte conservé. Une
+     * mention déjà là n'est pas répétée ; l'ancienne mention saisie à la main (« AGENT IMPRIMANTE ») est remplacée.
+     */
+    private static function markProbeComputer(int $agents_id): void {
+        $agent    = new Agent();
+        $computer = new Computer();
+        if (!$agent->getFromDB($agents_id) || $agent->fields['itemtype'] !== Computer::class
+            || !$computer->getFromDB((int) $agent->fields['items_id'])) {
+            return;
+        }
+        $comment = trim((string) ($computer->fields['comment'] ?? ''));
+        if (mb_stripos($comment, self::PROBE_COMMENT) !== false) {
+            return;
+        }
+        $comment = trim((string) preg_replace('/^AGENT IMPRIMANTE\s*/iu', '', $comment));
+        if (!$computer->update(['id' => $computer->getID(), 'comment' => trim(self::PROBE_COMMENT . "\n" . $comment)])) {
+            PluginPrintgestionLogger::warning('raccordement', sprintf('Commentaire « %s » non écrit sur l\'ordinateur #%d de la sonde.', self::PROBE_COMMENT, $computer->getID()));
+        }
+    }
+
     public static function createFromInstaller(int $entities_id, string $computer, string $ips_text, string $community): array {
         global $DB;
 
@@ -548,6 +572,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         if ($agents_id === 0) {
             return ['ok' => false, 'id' => 0, 'messages' => [sprintf('Aucune sonde nommée « %s » dans cette entité : le raccordement reste à créer à la main.', $nom)]];
         }
+        self::markProbeComputer($agents_id);
 
         $parsed = self::parseIps($ips_text);
         if (!empty($parsed['errors']) || empty($parsed['ips'])) {
@@ -711,8 +736,11 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 $racc->addLog(4, $niveau, $message);
             }
             $faits++;
-            if ($task instanceof CronTask && $racc->getResultCounts() !== $avant) {
-                $task->log(sprintf('Raccordement %d : état mis à jour.', (int) $ligne['id']));
+            if ($racc->getResultCounts() !== $avant) {
+                PluginPrintgestionAgentalert::invalidateCoverageCache();
+                if ($task instanceof CronTask) {
+                    $task->log(sprintf('Raccordement %d : état mis à jour.', (int) $ligne['id']));
+                }
             }
         }
         if ($task instanceof CronTask) {
@@ -893,6 +921,8 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 $flash('error', __('GLPI a refusé de ramener cette imprimante : voir le journal Print Gestion.', 'printgestion'));
                 return $back;
             }
+            // Entité de l'imprimante changée : elle entre dans la couverture de la sonde (cache périmé).
+            PluginPrintgestionAgentalert::invalidateCoverageCache();
             $racc->addLog(4, 'success', sprintf(
                 __('Imprimante « %1$s » ramenée ici depuis « %2$s »%3$s.', 'printgestion'),
                 $nom,
@@ -939,6 +969,9 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             if ($after != $before) {
                 $level = !empty($after['wrong_entity']) ? 'error' : (($after['found'] ?? 0) === array_sum($after) ? 'success' : 'info');
                 $racc->addLog(4, $level, $summary);
+                // Imprimantes trouvées ou changées : couverture en cache périmée (pas à chaque vérification
+                // automatique sans changement, qui la viderait toutes les 60 s pendant une installation).
+                PluginPrintgestionAgentalert::invalidateCoverageCache();
             }
             if (empty($post['auto'])) {
                 $flash('info', $summary);
@@ -1005,7 +1038,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         echo "<h2 class='mb-0'>" . $esc($racc !== null ? sprintf(__('Raccordement n° %d', 'printgestion'), (int) $racc->getID()) : __('Nouveau raccordement', 'printgestion')) . "</h2>";
         echo "<span class='fs-3'>" . $esc($entity->fields['completename'] ?? $entity->fields['name']) . "</span>";
         if ($racc !== null) {
-            [$label, $class] = self::getStatusLabels()[$racc->fields['status']] ?? [$racc->fields['status'], 'bg-secondary'];
+            [$label, $class] = self::getStatusLabels()[$racc->fields['status']] ?? [$racc->fields['status'], 'bg-secondary text-secondary-fg'];
             echo "<span class='badge {$class}'>" . $esc($label) . "</span>";
             echo "<span class='text-muted small'>" . $esc(sprintf(__('Créé le %1$s par %2$s', 'printgestion'), Html::convDateTime((string) $racc->fields['date_creation']), getUserName((int) $racc->fields['users_id']))) . "</span>";
         }
@@ -1206,44 +1239,70 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             'old'    => ['bg-orange text-orange-fg', __('Pas dans l\'heure', 'printgestion')],
             'recent' => ['bg-green text-green-fg', __('Récent', 'printgestion')],
         ];
-        echo "<div class='table-responsive'><table class='table table-sm align-middle mb-0'><thead><tr>"
-            . "<th>" . $esc(__('Sonde', 'printgestion')) . "</th><th>" . $esc(__('Poste', 'printgestion')) . "</th>"
-            . ($admin ? "<th data-pg-admin='1'>" . $esc(__('Version', 'printgestion')) . "</th>" : '') . "<th>" . $esc(__('Dernier contact', 'printgestion')) . "</th>"
-            . ($admin ? "<th data-pg-admin='1'>" . $esc(__('TAG', 'printgestion')) . "</th>" : '') . "<th>" . $esc(__('Conditions', 'printgestion')) . "</th><th></th></tr></thead><tbody>";
+        // Colonnes de l'administrateur : absentes de la page d'un technicien, pas cachées. L'en-tête et les cellules
+        // gardent le marqueur data-pg-admin, que le harnais cherche sur la page d'un technicien.
+        $columns = ['probe' => __('Sonde', 'printgestion'), 'host' => __('Poste', 'printgestion')];
+        if ($admin) {
+            $columns['version'] = ['label' => "<span data-pg-admin='1'>" . $esc(__('Version', 'printgestion')) . "</span>", 'raw_header' => true];
+        }
+        $columns['contact'] = __('Dernier contact', 'printgestion');
+        if ($admin) {
+            $columns['tag'] = ['label' => "<span data-pg-admin='1'>" . $esc(__('TAG', 'printgestion')) . "</span>", 'raw_header' => true];
+        }
+        $columns += ['conditions' => __('Conditions', 'printgestion'), 'actions' => ''];
+        $entries = [];
         foreach ($agents as $agent) {
             $check           = self::checkAgent($entity, $agent);
             [$class, $label] = $contact[$check['contact']];
             $agent_tag       = trim((string) ($agent['tag'] ?? ''));
-            echo "<tr><td><a href='" . $esc(Agent::getFormURLWithID((int) $agent['id'])) . "'>" . $esc($agent['name']) . "</a></td>"
-                . "<td>" . self::getHostHtml($agent) . "</td>"
-                . ($admin ? "<td data-pg-admin='1'>" . $esc(self::getAgentVersion($agent) ?: '—') . "</td>" : '')
-                . "<td class='text-nowrap'>" . $esc(empty($agent['last_contact']) ? '—' : Html::convDateTime((string) $agent['last_contact'])) . " <span class='badge {$class}'>" . $esc($label) . "</span></td>"
-                . ($admin ? "<td data-pg-admin='1'>" . ($agent_tag !== '' ? "<code>" . $esc($agent_tag) . "</code>" : '—') . "</td>" : '') . "<td class='small'>";
+            $conditions      = '';
             if (empty($check['blocking']) && empty($check['warnings'])) {
-                echo "<span class='text-success'><i class='ti ti-circle-check me-1'></i>" . $esc(__('Prête', 'printgestion')) . "</span>";
+                $conditions .= "<span class='text-success'><i class='ti ti-circle-check me-1'></i>" . $esc(__('Prête', 'printgestion')) . "</span>";
             }
             foreach ($check['blocking'] as $message) {
-                echo "<div class='text-danger'><i class='ti ti-alert-octagon me-1'></i>" . $esc($message) . "</div>";
+                $conditions .= "<div class='text-danger'><i class='ti ti-alert-octagon me-1'></i>" . $esc($message) . "</div>";
             }
             foreach ($check['warnings'] as $message) {
-                echo "<div class='text-warning'><i class='ti ti-alert-triangle me-1'></i>" . $esc($message) . "</div>";
+                $conditions .= "<div class='text-warning'><i class='ti ti-alert-triangle me-1'></i>" . $esc($message) . "</div>";
             }
-            echo "</td><td class='text-end text-nowrap'>";
+            // Un formulaire par ligne, comme avant : « Demander le statut » et « Raccorder avec cette sonde ».
+            $actions = '';
             if ($can_edit) {
-                echo "<form method='post' action='" . $esc(self::getPageURL()) . "' class='d-inline-flex gap-1'>";
-                echo $racc !== null
-                    ? self::stepField() . Html::hidden('id', ['value' => (int) $racc->getID()])
-                    : Html::hidden('entities_id', ['value' => (int) $entity->getID()]) . Html::hidden('agents_id', ['value' => (int) $agent['id']]);
-                echo "<button type='submit' name='request_status' value='1' class='btn btn-sm btn-outline-secondary'><i class='ti ti-refresh me-1'></i>" . $esc(__('Demander le statut', 'printgestion')) . "</button>";
+                $actions = "<form method='post' action='" . $esc(self::getPageURL()) . "' class='d-inline-flex gap-1'>"
+                    . ($racc !== null
+                        ? self::stepField() . Html::hidden('id', ['value' => (int) $racc->getID()])
+                        : Html::hidden('entities_id', ['value' => (int) $entity->getID()]) . Html::hidden('agents_id', ['value' => (int) $agent['id']]))
+                    . "<button type='submit' name='request_status' value='1' class='btn btn-sm btn-outline-secondary'><i class='ti ti-refresh me-1'></i>" . $esc(__('Demander le statut', 'printgestion')) . "</button>";
                 if ($racc === null) {
-                    $ready = $can_start && empty($check['blocking']);
-                    echo "<button type='submit' name='start' value='1' class='btn btn-sm btn-primary'" . ($ready ? '' : ' disabled') . "><i class='ti ti-player-play me-1'></i>" . $esc(__('Raccorder avec cette sonde', 'printgestion')) . "</button>";
+                    $ready    = $can_start && empty($check['blocking']);
+                    $actions .= "<button type='submit' name='start' value='1' class='btn btn-sm btn-primary'" . ($ready ? '' : ' disabled') . "><i class='ti ti-player-play me-1'></i>" . $esc(__('Raccorder avec cette sonde', 'printgestion')) . "</button>";
                 }
-                echo Html::closeForm(false);
+                $actions .= Html::closeForm(false);
             }
-            echo "</td></tr>";
+            $entry = [
+                'probe'      => "<a href='" . $esc(Agent::getFormURLWithID((int) $agent['id'])) . "'>" . $esc($agent['name']) . "</a>",
+                'host'       => self::getHostHtml($agent),
+                'contact'    => "<span class='text-nowrap'>" . $esc(empty($agent['last_contact']) ? '—' : Html::convDateTime((string) $agent['last_contact'])) . " <span class='badge {$class}'>" . $esc($label) . "</span></span>",
+                'conditions' => "<div class='small'>" . $conditions . "</div>",
+                'actions'    => "<span class='d-block text-end text-nowrap'>" . $actions . "</span>",
+            ];
+            if ($admin) {
+                $entry['version'] = "<span data-pg-admin='1'>" . $esc(self::getAgentVersion($agent) ?: '—') . "</span>";
+                $entry['tag']     = "<span data-pg-admin='1'>" . ($agent_tag !== '' ? "<code>" . $esc($agent_tag) . "</code>" : '—') . "</span>";
+            }
+            $entries[] = $entry;
         }
-        echo "</tbody></table></div>";
+        // data-pg-noclick : comme avant, la ligne ne s'ouvre pas d'un clic (le premier lien, la fiche Agent, ferait
+        // quitter l'assistant). Ni cases ni menu contextuel : pas d'itemtype ni d'id sur les lignes.
+        echo "<div data-pg-noclick='1'>" . PluginPrintgestionUi::datatable($columns, $entries, [
+            'probe'      => 'raw_html',
+            'host'       => 'raw_html',
+            'version'    => 'raw_html',
+            'contact'    => 'raw_html',
+            'tag'        => 'raw_html',
+            'conditions' => 'raw_html',
+            'actions'    => 'raw_html',
+        ]) . "</div>";
     }
 
     private function showStep2(bool $can_edit): void {
@@ -1475,7 +1534,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             echo PluginPrintgestionUi::foldedNote(__('Gagner l\'attente, si vous êtes devant le PC sonde', 'printgestion'), $note);
         }
         if (!empty($this->fields['date_triggered'])) {
-            $this->showResults();
+            $this->showResults($can_edit);
         }
         // Au-delà de la limite, plus de relance : un résultat franc et ce qu'il faut faire, plutôt qu'une attente sans fin.
         $timed_out = $status === self::STATUS_TRIGGERED && $waiting && !empty($this->fields['date_triggered'])
@@ -1547,7 +1606,7 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
     }
 
     /** Résultat adresse par adresse ; alerte appuyée si une imprimante est arrivée dans une autre entité. */
-    private function showResults(): void {
+    private function showResults(bool $can_edit = false): void {
         $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $ips    = $this->getIps();
         $labels = self::getResultLabels();
@@ -1568,12 +1627,9 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                 . "</div>";
         }
 
-        $silent = array_filter($ips, static fn(array $row): bool => $row['result'] === 'no_snmp' && empty($row['itemtype']));
-        $group  = count($silent) > self::GROUP_NO_RESPONSE;
-        echo "<div class='table-responsive'><table class='table table-sm align-middle mb-0'><thead><tr>"
-            . "<th>" . $esc(__('Adresse', 'printgestion')) . "</th><th>" . $esc(__('Résultat', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Équipement', 'printgestion')) . "</th><th>" . $esc(__('Entité', 'printgestion')) . "</th>"
-            . "<th>" . $esc(__('Niveaux', 'printgestion')) . "</th><th>" . $esc(__('Détail', 'printgestion')) . "</th></tr></thead><tbody>";
+        $silent  = array_filter($ips, static fn(array $row): bool => $row['result'] === 'no_snmp' && empty($row['itemtype']));
+        $group   = count($silent) > self::GROUP_NO_RESPONSE;
+        $entries = [];
         foreach ($ips as $row) {
             if ($group && $row['result'] === 'no_snmp' && empty($row['itemtype'])) {
                 continue;
@@ -1598,19 +1654,43 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
                     . Html::hidden('printers_id', ['value' => $items_id])
                     . "<button type='submit' name='adopt_printer' value='1' class='btn btn-sm btn-outline-primary'>"
                     . "<i class='ti ti-arrow-back-up me-1'></i>" . $esc(__('Ramener ici', 'printgestion')) . "</button>"
-                    . Html::closeForm(false) . "</form>";
+                    . Html::closeForm(false);
             }
-            echo "<tr" . ($row['result'] === 'wrong_entity' ? " class='table-danger'" : '') . ">"
-                . "<td class='font-monospace'>" . $esc($row['ip']) . "</td><td><span class='badge {$class}'>" . $esc($label) . "</span></td>"
-                . "<td>{$item}</td><td>{$entity}</td><td>" . $esc($levels) . "</td><td class='small'>" . $esc(self::getResultDetail($row)) . "</td></tr>";
+            $entries[] = [
+                'row_class' => $row['result'] === 'wrong_entity' ? 'table-danger' : '',
+                'ip'        => "<span class='font-monospace'>" . $esc($row['ip']) . "</span>",
+                'result'    => "<span class='badge {$class}'>" . $esc($label) . "</span>",
+                'item'      => $item,
+                'entity'    => $entity,
+                'levels'    => $levels,
+                'detail'    => "<span class='small'>" . $esc(self::getResultDetail($row)) . "</span>",
+            ];
         }
+        // Adresses muettes regroupées : la cellule Équipement s'étend sur les quatre dernières colonnes ; Entité,
+        // Niveaux et Détail ne sont donc pas dans la ligne.
         if ($group) {
             [$label, $class] = $labels['no_snmp'];
-            echo "<tr><td class='font-monospace small'>" . $esc(self::summarizeIps(array_map(static fn(array $row): int => (int) $row['ip_num'], $silent))) . "</td>"
-                . "<td><span class='badge {$class}'>" . $esc($label) . "</span></td><td colspan='4' class='small'>"
-                . $esc(sprintf(__('%d adresses sans aucune réponse : éteintes, inutilisées, SNMP désactivé ou autre communauté.', 'printgestion'), count($silent))) . "</td></tr>";
+            $entries[] = [
+                'ip'           => "<span class='font-monospace small'>" . $esc(self::summarizeIps(array_map(static fn(array $row): int => (int) $row['ip_num'], $silent))) . "</span>",
+                'result'       => "<span class='badge {$class}'>" . $esc($label) . "</span>",
+                'item'         => "<span class='small'>" . $esc(sprintf(__('%d adresses sans aucune réponse : éteintes, inutilisées, SNMP désactivé ou autre communauté.', 'printgestion'), count($silent))) . "</span>",
+                'item_colspan' => 4,
+            ];
         }
-        echo "</tbody></table></div>";
+        // Aucune adresse : pas de tableau, plutôt que le « No results found » du gabarit.
+        if (empty($entries)) {
+            return;
+        }
+        // data-pg-noclick : comme avant, la ligne ne s'ouvre pas d'un clic (le lien de l'équipement ferait quitter
+        // l'assistant) ; le formulaire « Ramener ici » reste dans sa cellule.
+        echo "<div data-pg-noclick='1'>" . PluginPrintgestionUi::datatable([
+            'ip'     => __('Adresse', 'printgestion'),
+            'result' => __('Résultat', 'printgestion'),
+            'item'   => __('Équipement', 'printgestion'),
+            'entity' => __('Entité', 'printgestion'),
+            'levels' => __('Niveaux', 'printgestion'),
+            'detail' => __('Détail', 'printgestion'),
+        ], $entries, ['ip' => 'raw_html', 'result' => 'raw_html', 'item' => 'raw_html', 'entity' => 'raw_html', 'detail' => 'raw_html']) . "</div>";
     }
 
     private static function getResultDetail(array $row): string {
@@ -1784,7 +1864,9 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
         $silent   = PluginPrintgestionCollect::getSilentDays();
         $last     = self::getLastByAgent($id);
         $counts   = self::getResultCountsFor(array_map(static fn(array $row): int => (int) $row['id'], $last));
-        $coverage = PluginPrintgestionAgentsetting::getCoverage();
+        // Couverture en cache (10 min au plus, vidé à chaque changement fait par le plugin) : calcul global, jamais
+        // refait à chaque affichage de l'onglet.
+        $coverage = PluginPrintgestionAgentsetting::getCoverage(true);
         $statuses = self::getStatusLabels();
         $versions = [
             'old'     => ['bg-red text-red-fg', __('Trop ancienne', 'printgestion')],

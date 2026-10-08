@@ -143,6 +143,33 @@ class PluginPrintgestionDependencies {
                 'sert'     => __('Dater les passages réels des tâches de relevé, et montrer ce qu\'elles ont répondu.', 'printgestion'),
             ],
             [
+                'table'    => 'glpi_plugin_glpiinventory_taskjobstates',
+                'colonnes' => ['id', 'plugin_glpiinventory_taskjobs_id', 'agents_id'],
+                'sert'     => __('Savoir quelle sonde a fait le dernier inventaire réseau d\'une imprimante (alertes, imprimantes muettes, couverture des sondes).', 'printgestion'),
+            ],
+            [
+                'table'    => 'glpi_plugin_glpiinventory_taskjobs',
+                'colonnes' => ['id', 'method'],
+                'sert'     => __('Reconnaître les travaux d\'inventaire réseau parmi les tâches de GLPI Inventory.', 'printgestion'),
+            ],
+            [
+                'table'    => 'glpi_plugin_glpiinventory_configs',
+                'colonnes' => ['type', 'value'],
+                'sert'     => __('Lire la durée de conservation des journaux de tâches, pour régler la fréquence de relevé.', 'printgestion'),
+            ],
+            [
+                'classe'     => 'PluginGlpiinventoryTaskjoblog',
+                'methodes'   => ['getTable'],
+                'constantes' => ['TASK_OK', 'TASK_ERROR', 'TASK_PREPARED'],
+                'sert'       => __('Lire le résultat des passages de tâche : relevé réussi, en erreur, en attente.', 'printgestion'),
+            ],
+            [
+                'classe'     => 'PluginGlpiinventoryTaskjobstate',
+                'methodes'   => ['getTable'],
+                'constantes' => ['PREPARED', 'SERVER_HAS_SENT_DATA', 'AGENT_HAS_SENT_DATA', 'FINISHED', 'IN_ERROR'],
+                'sert'       => __('Suivre l\'avancement d\'un relevé pendant une installation de sonde.', 'printgestion'),
+            ],
+            [
                 'classe'   => 'PluginGlpiinventoryTask',
                 'methodes' => ['getTable'],
                 'sert'     => __('Créer et piloter les tâches de découverte et d\'inventaire réseau d\'un raccordement.', 'printgestion'),
@@ -175,12 +202,15 @@ class PluginPrintgestionDependencies {
      *
      * @return array ['manquants' => [['quoi', 'sert']], 'verifies' => int, 'voisin' => bool (GLPI Inventory actif)]
      */
-    public static function check(): array {
+    public static function check(bool $neighbour_tables = false): array {
         global $DB;
 
         $manquants = [];
         $verifies  = 0;
         $voisin    = Plugin::isPluginActive('glpiinventory');
+        // GLPI Inventory installé ou mis à jour mais pas encore activé : ses tables sont là (et c'est elles qu'une
+        // mise à jour change), ses classes pas encore chargeables. Les tables seules, sans faux « disparu ».
+        $tables_seules = !$voisin && $neighbour_tables;
 
         foreach (self::tables() as $attendu) {
             $verifies++;
@@ -200,6 +230,8 @@ class PluginPrintgestionDependencies {
         $liste = self::classes();
         if ($voisin) {
             $liste = array_merge($liste, self::inventoryPlugin());
+        } elseif ($tables_seules) {
+            $liste = array_merge($liste, array_filter(self::inventoryPlugin(), static fn(array $a) => isset($a['table'])));
         }
         foreach ($liste as $attendu) {
             if (isset($attendu['table'])) {
@@ -253,6 +285,102 @@ class PluginPrintgestionDependencies {
             count($etat['manquants']),
             (int) $etat['verifies']
         );
+    }
+
+    /** Session : plugin voisin activé dans la requête précédente, contrôle à faire au chargement suivant. */
+    const SESSION_PENDING = 'plugin_printgestion_dependencies_pending';
+
+    /** Plugins voisins dont la mise à jour peut changer ce que Print Gestion lit. */
+    const WATCHED_PLUGINS = ['glpiinventory'];
+
+    /**
+     * Hooks post_plugin_install (installation ou « Mettre à jour » : les tables changent ici) et post_plugin_enable
+     * (activation). Le contrôle n'est pas fait dans cette requête : les classes d'un plugin tout juste installé ou
+     * activé n'y sont pas encore chargeables et passeraient pour disparues. Il est noté pour la page suivante
+     * (afterNeighbourChange()), qui est celle où GLPI affiche son propre message.
+     */
+    public static function onPluginInstall($directory): void {
+        self::markPending((string) $directory, 'install');
+    }
+
+    public static function onPluginEnable($directory): void {
+        self::markPending((string) $directory, 'enable');
+    }
+
+    private static function markPending(string $directory, string $step): void {
+        global $GLPI_CACHE;
+
+        if (!in_array($directory, self::WATCHED_PLUGINS, true)) {
+            return;
+        }
+        $pending = ['directory' => $directory, 'step' => $step];
+        $_SESSION[self::SESSION_PENDING] = $pending;
+        // Aussi dans le cache GLPI : une mise à jour en ligne de commande (bin/console plugin:install) n'a pas de
+        // session de navigateur ; le contrôle est alors fait par la requête suivante, page d'un administrateur ou cron.
+        if (isset($GLPI_CACHE)) {
+            $GLPI_CACHE->set(self::SESSION_PENDING, $pending, 7 * DAY_TIMESTAMP);
+        }
+    }
+
+    /**
+     * Page suivant l'installation, la mise à jour ou l'activation d'un plugin voisin (appelé à l'initialisation du
+     * plugin) : message à l'administrateur — rouge avec la liste de ce qui a changé, ou la confirmation que tout est
+     * en place. Après « Mettre à jour », les tables seules ; après « Activer », tout.
+     */
+    public static function afterNeighbourChange(): void {
+        global $GLPI_CACHE;
+
+        $pending = $_SESSION[self::SESSION_PENDING] ?? null;
+        if (!is_array($pending) && isset($GLPI_CACHE)) {
+            // Marque laissée par une mise à jour en ligne de commande : faite par un administrateur (message à
+            // l'écran) ou par le cron (journal seul). Une page d'un simple utilisateur la laisse en place.
+            $cached = $GLPI_CACHE->get(self::SESSION_PENDING);
+            if (is_array($cached) && (PHP_SAPI === 'cli' || Session::haveRight('config', UPDATE))) {
+                $pending = $cached;
+            }
+        }
+        if (!is_array($pending)) {
+            return;
+        }
+        unset($_SESSION[self::SESSION_PENDING]);
+        if (isset($GLPI_CACHE)) {
+            $GLPI_CACHE->delete(self::SESSION_PENDING);
+        }
+        $directory = (string) ($pending['directory'] ?? '');
+        $active    = Plugin::isPluginActive($directory);
+        $name      = $directory === 'glpiinventory' ? 'GLPI Inventory' : $directory;
+        $etat      = self::check(true);
+        $step      = $active
+            ? sprintf(__('après la mise à jour ou l\'activation de %s', 'printgestion'), $name)
+            : sprintf(__('après l\'installation ou la mise à jour de %s (tables ; le reste sera vérifié à son activation)', 'printgestion'), $name);
+
+        if (empty($etat['manquants'])) {
+            PluginPrintgestionLogger::info('dependencies', sprintf('Contrôle %s : %s', $step, self::summary($etat)));
+            Session::addMessageAfterRedirect(htmlspecialchars(sprintf(
+                __('Print Gestion a vérifié ce qu\'il utilise %1$s : %2$s', 'printgestion'),
+                $step,
+                self::summary($etat)
+            ), ENT_QUOTES, 'UTF-8'), false, INFO);
+            return;
+        }
+        self::reportMissing($etat, sprintf(__('Print Gestion : attention %s', 'printgestion'), $step));
+    }
+
+    /** Message rouge et journal : ce qui manque, et ce que chaque manque éteint. */
+    private static function reportMissing(array $etat, string $title): void {
+        $detail = [];
+        foreach ($etat['manquants'] as $manque) {
+            $detail[] = $manque['quoi'] . ' — ' . $manque['sert'];
+        }
+        PluginPrintgestionLogger::error('dependencies', $title . ' — ' . self::summary($etat) . ' ' . implode(' | ', $detail));
+        $message = '<strong>' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8')
+            . '</strong> — ' . htmlspecialchars(self::summary($etat), ENT_QUOTES, 'UTF-8')
+            . ' ' . htmlspecialchars(__('Ce qui en dépend dans Print Gestion ne fonctionnera plus :', 'printgestion'), ENT_QUOTES, 'UTF-8')
+            . '<ul><li>' . implode('</li><li>', array_map(
+                static fn(array $m) => htmlspecialchars($m['quoi'] . ' — ' . $m['sert'], ENT_QUOTES, 'UTF-8'),
+                $etat['manquants']
+            )) . '</li></ul>';
+        Session::addMessageAfterRedirect($message, false, ERROR);
     }
 
     /**

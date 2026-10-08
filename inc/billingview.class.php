@@ -70,11 +70,21 @@ class PluginPrintgestionBillingview extends CommonDBTM {
         return true;
     }
 
+    /** Durée de vie de l'empreinte des lignes matérialisées d'un utilisateur ($GLPI_CACHE). */
+    const MARKER_TTL = 86400;
+
     /**
      * Recalcule (cache 10 min) puis matérialise les lignes de billing pour
      * l'utilisateur courant, selon période / entité / vue. Remplace TOUTES les
      * lignes de cet utilisateur (les deux vues confondues), puis insère la vue
      * demandée — addDefaultWhere filtre ensuite sur view_mode.
+     *
+     * Appelée à chaque affichage du dashboard, pagination / tri / colonnes natifs
+     * compris : l'effacement + réinsertion n'a lieu que si les lignes à écrire
+     * diffèrent de celles déjà en place. L'empreinte de ce qui a été écrit
+     * (lignes calculées, vue, période, compteur d'invalidation) est gardée dans
+     * $GLPI_CACHE par utilisateur ; identique et même nombre de lignes en table,
+     * seule la date de calcul est remise à l'heure, comme le faisait la réécriture.
      *
      * @return int Nombre de lignes matérialisées.
      */
@@ -86,8 +96,9 @@ class PluginPrintgestionBillingview extends CommonDBTM {
         string $view,
         array $filters = []
     ): int {
-        global $DB;
+        global $DB, $GLPI_CACHE;
 
+        $started = microtime(true);
         if (!in_array($view, ['printer', 'client'], true)) {
             $view = 'printer';
         }
@@ -96,12 +107,96 @@ class PluginPrintgestionBillingview extends CommonDBTM {
 
         // Calcul (lourd, mais mis en cache par computeForPeriodCached).
         $rows = PluginPrintgestionBilling::computeForPeriodCached($start, $end, $entities_id, $filters);
+        if ($view === 'client') {
+            $rows = PluginPrintgestionBilling::groupByClient($rows);
+        }
+
+        // Empreinte de ce que la réécriture produirait (hors date de calcul). Le
+        // compteur d'invalidation y entre : « Rafraîchir » force la reconstruction.
+        $signature  = md5(serialize([PluginPrintgestionBilling::cacheVersion(), $view, $start, $end, $rows]));
+        $marker_key = 'plugin_printgestion_billingview_u' . $users_id;
+        if (isset($GLPI_CACHE)) {
+            $marker = $GLPI_CACHE->get($marker_key);
+            if (is_array($marker)
+                && ($marker['signature'] ?? '') === $signature
+                && (int) ($marker['count'] ?? -1) === count($rows)
+                && self::countRowsForUser($users_id) === count($rows)) {
+                if (count($rows) > 0) {
+                    $DB->update($table, ['date_compute' => $now], ['users_id' => $users_id]);
+                }
+                return count($rows);
+            }
+            // Réécriture : l'empreinte n'est reposée qu'après succès complet.
+            $GLPI_CACHE->delete($marker_key);
+        }
+
+        // Une seule réécriture à la fois par utilisateur (deux onglets, double clic) :
+        // dans une transaction, un seul commit au lieu d'un par ligne. Verrou déjà pris :
+        // réécriture comme avant, sans transaction ni empreinte (prochain affichage = reconstruction).
+        $lock = 'billingview_' . $users_id;
+        if (PluginPrintgestionLogger::lock($lock)) {
+            try {
+                $DB->beginTransaction();
+                try {
+                    self::writeRows($table, $users_id, $view, $rows, $start, $end, $now);
+                    $DB->commit();
+                } catch (Throwable $e) {
+                    $DB->rollBack();
+                    throw $e;
+                }
+                if (isset($GLPI_CACHE)) {
+                    $GLPI_CACHE->set($marker_key, ['signature' => $signature, 'count' => count($rows)], self::MARKER_TTL);
+                }
+            } finally {
+                PluginPrintgestionLogger::releaseLock($lock);
+            }
+        } else {
+            self::writeRows($table, $users_id, $view, $rows, $start, $end, $now);
+            if (isset($GLPI_CACHE)) {
+                $GLPI_CACHE->delete($marker_key);
+            }
+        }
+
+        PluginPrintgestionLogger::duration(
+            'facturation',
+            'Matérialisation du coût à la page',
+            $started,
+            sprintf('%d ligne(s), vue %s, du %s au %s, utilisateur %d', count($rows), $view, $start, $end, $users_id)
+        );
+
+        return count($rows);
+    }
+
+    /** Nombre de lignes matérialisées de l'utilisateur, toutes vues confondues. */
+    private static function countRowsForUser(int $users_id): int {
+        global $DB;
+        $row = $DB->request([
+            'COUNT' => 'cpt',
+            'FROM'  => self::getTable(),
+            'WHERE' => ['users_id' => $users_id],
+        ])->current();
+        return (int) ($row['cpt'] ?? 0);
+    }
+
+    /**
+     * Efface les lignes de l'utilisateur puis insère celles de la vue demandée
+     * ($rows déjà regroupées par client pour la vue client).
+     */
+    private static function writeRows(
+        string $table,
+        int $users_id,
+        string $view,
+        array $rows,
+        string $start,
+        string $end,
+        string $now
+    ): void {
+        global $DB;
 
         // On efface uniquement les lignes de cet utilisateur (isolation par session).
         $DB->delete($table, ['users_id' => $users_id]);
 
         if ($view === 'client') {
-            $rows = PluginPrintgestionBilling::groupByClient($rows);
             foreach ($rows as $r) {
                 $DB->insert($table, [
                     'users_id'       => $users_id,
@@ -146,8 +241,6 @@ class PluginPrintgestionBillingview extends CommonDBTM {
                 ]);
             }
         }
-
-        return count($rows);
     }
 
     /**

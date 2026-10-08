@@ -10,9 +10,10 @@
  *
  * Fonctionnement : la fréquence d'une entité (héritée de l'entité parente, sinon quotidienne) s'applique aux tâches
  * GLPI Inventory créées ou reprises par l'assistant de raccordement (découverte et inventaire réseau). Après chaque
- * relevé terminé, la date de début de la tâche est repoussée à « fin du relevé + fréquence » : GLPI Inventory ne
- * prépare aucun job avant cette date et annule ceux qu'un agent demanderait plus tôt. Une fois la date passée, le
- * job part au premier contact de la sonde : jamais plus souvent que la fréquence d'inventaire globale de GLPI.
+ * relevé terminé, la date de début de la tâche est repoussée à « fin du relevé + fréquence − un demi-contact » :
+ * GLPI Inventory ne prépare aucun job avant cette date et annule ceux qu'un agent demanderait plus tôt. Une fois la
+ * date passée, le job part au premier contact de la sonde : jamais plus souvent que la fréquence d'inventaire
+ * globale de GLPI.
  * La date de début est écrite directement dans la table de GLPI Inventory : il refuse toute modification d'une tâche
  * active, et la désactiver annule ses jobs préparés. Une tâche avec une date de fin (plage réglée à la main dans GLPI
  * Inventory) n'est pas touchée. Sans la tâche automatique, les tâches restent sans date de début : relevé à chaque
@@ -276,7 +277,7 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
      * Tâches GLPI Inventory créées ou reprises par l'assistant (tous raccordements), avec leurs jobs.
      *
      * @param ?int[] $entities_ids seulement les tâches de ces entités ; null : toutes
-     * @return array tasks_id => ['id', 'name', 'entities_id', 'datetime_start', 'datetime_end', 'jobs' => int[]]
+     * @return array tasks_id => ['id', 'name', 'entities_id', 'is_active', 'datetime_start', 'datetime_end', 'jobs' => int[]]
      */
     /**
      * Garde-fou. Ce code écrit directement dans la table des tâches de GLPI Inventory (colonne `datetime_start`,
@@ -337,7 +338,7 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
         }
         $tasks = [];
         foreach ($DB->request([
-            'SELECT' => ['id', 'name', 'entities_id', 'datetime_start', 'datetime_end'],
+            'SELECT' => ['id', 'name', 'entities_id', 'is_active', 'datetime_start', 'datetime_end'],
             'FROM'   => PluginGlpiinventoryTask::getTable(),
             'WHERE'  => $where,
             'ORDER'  => ['name'],
@@ -358,8 +359,9 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
 
     /**
      * Applique la fréquence de chaque entité à ses tâches : date de début repoussée à « fin du dernier relevé +
-     * fréquence », effacée quand le relevé est dû. Une tâche en cours d'exécution ou avec une date de fin n'est pas
-     * touchée.
+     * fréquence − un demi-contact », effacée quand le relevé est dû. Une tâche en cours d'exécution ou avec une date
+     * de fin n'est pas touchée. Dernier relevé introuvable (journaux des travaux purgés par GLPI Inventory) : une date
+     * de début déjà posée dans le futur est gardée telle quelle.
      *
      * @param ?int[] $entities_ids seulement les tâches de ces entités ; null : toutes
      * @return array ['tasks', 'deferred' (date posée), 'released' (date effacée), 'running', 'manual']
@@ -398,17 +400,27 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
 
             $desired = null;
             if (!empty($last['last_end'])) {
-                // Due AVANT le prochain passage de la sonde : elle ne vient chercher ses tâches qu'à son rythme (le
-                // contact réglé par GLPI, 24 h par défaut). « Dernier relevé + cadence » tombait juste après son
-                // passage — le relevé s'était fait pendant —, et « tous les jours » donnait un relevé tous les deux
-                // jours. Une heure de marge pour un passage un peu en avance.
-                $lead = (self::getContactHours() + 1) * HOUR_TIMESTAMP;
+                // Due AVANT le passage de la sonde qui tombe à l'échéance : elle ne vient chercher ses tâches qu'à son
+                // rythme (le contact réglé par GLPI, 24 h par défaut). « Dernier relevé + cadence » tombait juste après
+                // son passage — le relevé s'était fait pendant —, et « tous les jours » donnait un relevé tous les deux
+                // jours. Une avance d'un contact entier faisait l'inverse dès deux contacts de cadence : « tous les
+                // 2 jours » donnait un relevé quotidien. Un demi-contact place la date à mi-chemin entre deux passages :
+                // le relevé part au passage le plus proche de l'échéance, avec une demi-période de marge pour un passage
+                // en avance ou en retard (cadence 24 h, contact 24 h : à chaque contact ; cadence 48 h : un contact sur
+                // deux ; cadence 3 h, contact 1 h : toutes les 3 h).
+                $lead = (int) round(self::getContactHours() * HOUR_TIMESTAMP / 2);
                 $next = strtotime((string) $last['last_end']) + self::getForEntity((int) $task['entities_id'])['hours'] * HOUR_TIMESTAMP - $lead;
                 if ($next > time()) {
                     $desired = date('Y-m-d H:i:s', $next);
                 }
             }
             $current = $task['datetime_start'] !== null ? (string) $task['datetime_start'] : null;
+            // Dernier relevé introuvable : GLPI Inventory efface les journaux des travaux au bout de delete_task jours
+            // (tâche cleantaskjob, 20 jours par défaut), avant l'échéance d'une cadence plus longue. Une date de début
+            // déjà posée dans le futur reste telle quelle : l'effacer ferait partir le relevé avant sa date.
+            if (empty($last['last_end']) && $current !== null && strtotime($current) > time()) {
+                continue;
+            }
             if ($desired === null && ($current === null || strtotime($current) <= time())) {
                 continue;
             }
@@ -433,6 +445,108 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
         }
         self::assertInventoryTaskColumns();
         $DB->update(PluginGlpiinventoryTask::getTable(), ['datetime_start' => null], ['id' => $tasks_ids, 'datetime_end' => null]);
+    }
+
+    /**
+     * Préparation des relevés par GLPI Inventory, pour la carte de santé : tâches actives gérées par le plugin (sans
+     * date de fin passée), dernière préparation de jobs de chacune, et tâche automatique « taskscheduler » qui les
+     * prépare.
+     *
+     * Une tâche est en retard quand aucun job n'a été préparé depuis max(cadence, contact) + contact + 2 h ; jamais
+     * préparée, elle ne l'est que si le planificateur ne tourne pas (rien à préparer sinon). Jamais en
+     * retard : une tâche dont la date de début est dans le futur (relevé volontairement repoussé), ou dont la cadence
+     * dépasse la durée de conservation des journaux de GLPI Inventory (delete_task jours) — l'historique est purgé
+     * avant l'échéance, on ne conclut pas.
+     *
+     * @return array ['managed' => int, 'late' => int, 'scheduler' => ?array ['lastrun' => ?string, 'mode' => ?int,
+     *               'state' => ?int] (null : tâche absente), 'tasks' => [['tasks_id' => int, 'name' => string,
+     *               'entities_id' => int, 'cadence_hours' => int, 'last_prepared' => ?string 'Y-m-d H:i:s',
+     *               'expected_hours' => int, 'late' => bool], …]]
+     * @throws RuntimeException colonnes attendues absentes (voir assertInventoryTaskColumns)
+     */
+    public static function getPreparationStatus(): array {
+        global $DB;
+
+        $status = ['managed' => 0, 'late' => 0, 'scheduler' => null, 'tasks' => []];
+        if (!Plugin::isPluginActive('glpiinventory')) {
+            return $status;
+        }
+        $cron = $DB->request([
+            'SELECT' => ['lastrun', 'mode', 'state'],
+            'FROM'   => CronTask::getTable(),
+            'WHERE'  => ['itemtype' => 'PluginGlpiinventoryTask', 'name' => 'taskscheduler'],
+            'LIMIT'  => 1,
+        ])->current();
+        if (is_array($cron)) {
+            $status['scheduler'] = [
+                'lastrun' => $cron['lastrun'] !== null ? (string) $cron['lastrun'] : null,
+                'mode'    => $cron['mode'] !== null ? (int) $cron['mode'] : null,
+                'state'   => $cron['state'] !== null ? (int) $cron['state'] : null,
+            ];
+        }
+
+        $now   = time();
+        // Planificateur arrêté : absent, jamais passé, ou pas depuis 2 h (il tourne chaque minute).
+        $scheduler_down = $status['scheduler'] === null || $status['scheduler']['lastrun'] === null
+            || (int) strtotime($status['scheduler']['lastrun']) < $now - 2 * HOUR_TIMESTAMP;
+        $tasks = [];
+        foreach (self::getManagedTasks() as $tasks_id => $task) {
+            if ((int) $task['is_active'] === 1 && ($task['datetime_end'] === null || strtotime((string) $task['datetime_end']) > $now)) {
+                $tasks[$tasks_id] = $task;
+            }
+        }
+        if (empty($tasks)) {
+            return $status;
+        }
+        // Durée de conservation des journaux des travaux (configuration de GLPI Inventory, en jours ; 20 par défaut) :
+        // la tâche cleantaskjob efface au-delà.
+        $config    = $DB->request([
+            'SELECT' => ['value'],
+            'FROM'   => 'glpi_plugin_glpiinventory_configs',
+            'WHERE'  => ['type' => 'delete_task'],
+            'LIMIT'  => 1,
+        ])->current();
+        $retention = is_array($config) && is_numeric($config['value']) ? max(0, (int) $config['value']) : 20;
+        $contact   = self::getContactHours();
+
+        foreach ($tasks as $tasks_id => $task) {
+            $last = null;
+            if (!empty($task['jobs'])) {
+                $row  = $DB->request([
+                    'SELECT'     => [new QueryExpression('MAX(' . $DB->quoteName('l.date') . ') AS ' . $DB->quoteName('last_prepared'))],
+                    'FROM'       => PluginGlpiinventoryTaskjoblog::getTable() . ' AS l',
+                    'INNER JOIN' => [PluginGlpiinventoryTaskjobstate::getTable() . ' AS s' => ['ON' => ['l' => 'plugin_glpiinventory_taskjobstates_id', 's' => 'id']]],
+                    'WHERE'      => [
+                        's.plugin_glpiinventory_taskjobs_id' => $task['jobs'],
+                        'l.state'                            => PluginGlpiinventoryTaskjoblog::TASK_PREPARED,
+                    ],
+                ])->current();
+                $last = !empty($row['last_prepared']) ? (string) $row['last_prepared'] : null;
+            }
+            $cadence  = (int) self::getForEntity((int) $task['entities_id'])['hours'];
+            $expected = max($cadence, $contact) + $contact + 2;
+            $start    = $task['datetime_start'] !== null ? strtotime((string) $task['datetime_start']) : null;
+            // Jamais préparée : en retard seulement si le planificateur ne tourne pas. Une plage encore sans
+            // équipement découvert, ou un raccordement qui vient d'être lancé, n'a rien à préparer : pas une panne.
+            $late     = ($last === null ? $scheduler_down : (int) strtotime($last) < $now - $expected * HOUR_TIMESTAMP)
+                && !($start !== null && $start > $now)
+                && $cadence <= $retention * 24;
+
+            $status['tasks'][] = [
+                'tasks_id'       => (int) $tasks_id,
+                'name'           => (string) $task['name'],
+                'entities_id'    => (int) $task['entities_id'],
+                'cadence_hours'  => $cadence,
+                'last_prepared'  => $last,
+                'expected_hours' => $expected,
+                'late'           => $late,
+            ];
+            $status['managed']++;
+            if ($late) {
+                $status['late']++;
+            }
+        }
+        return $status;
     }
 
     public static function cronInfo($name) {

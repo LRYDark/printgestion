@@ -58,6 +58,14 @@ function plugin_init_printgestion() {
             'Printer' => [PluginPrintgestionCleanup::class, 'forPrinter'],
         ];
 
+        // GLPI Inventory installé, mis à jour ou activé : ce que Print Gestion lui emprunte (tables, colonnes,
+        // classes) est revérifié, message à l'administrateur sur la page suivante — rouge si quelque chose a bougé.
+        $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::POST_PLUGIN_INSTALL]['printgestion'] = [PluginPrintgestionDependencies::class, 'onPluginInstall'];
+        $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::POST_PLUGIN_ENABLE]['printgestion']  = [PluginPrintgestionDependencies::class, 'onPluginEnable'];
+        // Après l'initialisation de TOUS les plugins : GLPI ne rend les classes d'un plugin chargeables qu'à son
+        // initialisation, et GLPI Inventory peut passer après Print Gestion (ses classes paraîtraient disparues).
+        $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::POST_INIT]['printgestion'] = [PluginPrintgestionDependencies::class, 'afterNeighbourChange'];
+
         // Schéma versionné (inc/schema.class.php) : les migrations sont jouées par
         // plugin_printgestion_install(), lors de l'installation ou du « Mettre à
         // jour » que GLPI propose dès que PLUGIN_PRINTGESTION_VERSION change.
@@ -123,7 +131,7 @@ function plugin_init_printgestion() {
             $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::POST_SHOW_TAB]['printgestion'] = 'plugin_printgestion_post_show_tab';
 
             // Jeton anti-cache (beta) : à incrémenter à chaque modif de public/css|js.
-            $cb = '?b=10';
+            $cb = '?b=12';
             $PLUGIN_HOOKS['add_css']['printgestion']        = ['public/css/printgestion.css' . $cb];
             $PLUGIN_HOOKS['add_javascript']['printgestion'] = ['public/js/printgestion.js' . $cb];
         }

@@ -864,14 +864,20 @@ HTML;
             echo "<p class='text-muted small'>"
                 . __('Imprimante, expédition, demande ou contrat purgé et entité impossible à retrouver : ces lignes restent à l\'entité racine, invisibles des comptes clients. À trancher par un administrateur (voir la documentation de maintenance, « Lignes sans objet de rattachement »).', 'printgestion')
                 . "</p>";
-            echo "<table class='table table-sm mb-0'><thead><tr><th>" . __('Table', 'printgestion') . "</th><th>"
-                . __('Lignes', 'printgestion') . "</th><th>" . __('Identifiants', 'printgestion') . "</th></tr></thead><tbody>";
+            // Texte brut : le gabarit échappe lui-même. Le nombre reste en texte, sans séparateur de milliers (comme avant).
+            $entries = [];
             foreach ($orphans as $table => $orphan) {
-                echo '<tr><td>' . htmlspecialchars($table, ENT_QUOTES, 'UTF-8') . '</td><td>' . (int) $orphan['count'] . '</td><td>'
-                    . htmlspecialchars('#' . implode(', #', $orphan['ids']) . ($orphan['count'] > count($orphan['ids']) ? '…' : ''), ENT_QUOTES, 'UTF-8')
-                    . '</td></tr>';
+                $entries[] = [
+                    'table' => $table,
+                    'count' => (string) (int) $orphan['count'],
+                    'ids'   => '#' . implode(', #', $orphan['ids']) . ($orphan['count'] > count($orphan['ids']) ? '…' : ''),
+                ];
             }
-            echo '</tbody></table>';
+            echo PluginPrintgestionUi::datatable([
+                'table' => __('Table', 'printgestion'),
+                'count' => __('Lignes', 'printgestion'),
+                'ids'   => __('Identifiants', 'printgestion'),
+            ], $entries);
         }
         echo "</div></div>";
     }

@@ -84,20 +84,26 @@ class PluginPrintgestionUi {
      * @param array       $formatters clé => formateur du gabarit (raw_html pour du HTML déjà échappé par l'appelant)
      * @param string|null $massive    itemtype des actions massives ; null : pas de cases
      * @param bool        $can_edit   droit de modification sur cet itemtype
+     * @param array       $options    options natives du gabarit, transmises telles quelles : datatable_id (id du
+     *                                <table>, pour un script qui le retrouve), no_header (pas de ligne d'en-tête),
+     *                                super_header, row_class (classe de toutes les lignes), datatable_aria_label ;
+     *                                table_class : classes ajoutées au <table> (ex. card-table dans une carte).
+     *                                Par ligne, le gabarit lit aussi entry['row_class'] et entry['<colonne>_colspan'].
      */
-    public static function datatable(array $columns, array $entries, array $formatters = [], ?string $massive = null, bool $can_edit = false): string {
+    public static function datatable(array $columns, array $entries, array $formatters = [], ?string $massive = null, bool $can_edit = false, array $options = []): string {
         $massive_on = $massive !== null && $can_edit && !empty($entries);
         if ($massive_on) {
             // getMassiveActionCheckBox() et le menu relisent cette sélection de session : gardée d'une page à
             // l'autre, elle proposait des actions sur des lignes qu'on n'avait pas cochées ici.
             unset($_SESSION['glpimassiveactionselected'][$massive]);
         }
-        return \Glpi\Application\View\TemplateRenderer::getInstance()->render('components/datatable.html.twig', [
+        $allowed = array_intersect_key($options, array_flip(['datatable_id', 'no_header', 'super_header', 'row_class', 'datatable_aria_label']));
+        return \Glpi\Application\View\TemplateRenderer::getInstance()->render('components/datatable.html.twig', $allowed + [
             'is_tab'              => true,
             'nofilter'            => true,
             'nosort'              => true,
             'container_class'     => 'pg-datatable',
-            'table_class_style'   => 'table-sm table-hover align-middle mb-0',
+            'table_class_style'   => trim('table-sm table-hover align-middle mb-0 ' . (string) ($options['table_class'] ?? '')),
             'columns'             => $columns,
             'formatters'          => $formatters,
             'entries'             => $entries,
@@ -201,9 +207,11 @@ class PluginPrintgestionUi {
      *   - url         string      cible du lien ; vignette inerte si absente
      *   - tooltip     string      phrase complète quand le libellé est abrégé
      *   - count_attrs array       attributs du compteur (valeur peuplée en JS)
-     * @param string $id Id du conteneur (facultatif, pour le ciblage JS).
+     * @param string $id      Id du conteneur (facultatif, pour le ciblage JS).
+     * @param string $actions HTML déjà échappé des boutons de l'écran (petits, btn-sm), posés à droite de la barre et
+     *                        centrés sur sa hauteur (facultatif).
      */
-    public static function statsBar(array $cards, string $id = ''): void {
+    public static function statsBar(array $cards, string $id = '', string $actions = ''): void {
         if (empty($cards)) {
             return;
         }
@@ -250,6 +258,10 @@ class PluginPrintgestionUi {
                 . htmlspecialchars((string) ($c['label'] ?? ''), ENT_QUOTES, 'UTF-8')
                 . "</span>"
                 . "</span></{$tag}>";
+        }
+
+        if ($actions !== '') {
+            echo "<div class='ms-auto ps-3 py-1 d-flex align-items-center gap-2 flex-shrink-0'>{$actions}</div>";
         }
 
         echo "</div></div>";

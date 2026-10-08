@@ -523,11 +523,28 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
      * adresse IPv4 de l'imprimante, l'imprimante étant dans l'entité de la plage ou une de ses sous-entités ;
      * ou imprimante ciblée), et celles dont elle a fait le dernier inventaire réseau.
      *
+     * Calcul global (toutes les imprimantes, tous les jobs, toutes les plages) : un écran passe par le cache
+     * ($use_cache), un traitement qui décide (alertes, vue des sondes) par le calcul. Le calcul met le cache à jour.
+     *
+     * @param bool $use_cache true : résultat de moins de Agentalert::COVERAGE_CACHE_TTL secondes (écrans)
      * @return array agents_id => [printers_id => true]
      */
-    public static function getCoverage(): array {
+    public static function getCoverage(bool $use_cache = false): array {
+        return $use_cache
+            ? PluginPrintgestionAgentalert::getCachedCoverage()
+            : PluginPrintgestionAgentalert::computeAndStoreCoverage();
+    }
+
+    /**
+     * Le calcul lui-même, sans cache : à n'appeler que par PluginPrintgestionAgentalert, qui tient le cache, son
+     * verrou et son invalidation.
+     *
+     * @return array agents_id => [printers_id => true]
+     */
+    public static function computeCoverage(): array {
         global $DB;
 
+        $started  = microtime(true);
         $printers = [];
         foreach ($DB->request([
             'SELECT' => ['id', 'entities_id'],
@@ -587,6 +604,23 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
                 }
             }
             if (!empty($ranges)) {
+                // Plages triées par début, avec la plus grande fin atteinte jusque-là : chaque adresse cherche ses
+                // plages par dichotomie au lieu de les parcourir toutes. Les plages trouvées sont reprises dans leur
+                // ordre de lecture : la couverture est construite dans le même ordre qu'avant (l'ordre des sondes
+                // d'une imprimante décide de la sonde d'une alerte, Agentalert::findSilentPrinters()).
+                $sorted  = [];
+                $ordinal = 0;
+                foreach ($ranges as $range_id => $range) {
+                    $sorted[] = ['start' => $range['start'], 'end' => $range['end'], 'id' => $range_id, 'ordinal' => $ordinal++];
+                }
+                usort($sorted, static fn(array $a, array $b): int => $a['start'] <=> $b['start']);
+                $max_end = [];
+                $max     = PHP_INT_MIN;
+                foreach ($sorted as $index => $range) {
+                    $max             = max($max, $range['end']);
+                    $max_end[$index] = $max;
+                }
+                $last_index = count($sorted) - 1;
                 foreach ($DB->request([
                     'SELECT'   => ['name', 'mainitems_id'],
                     'DISTINCT' => true,
@@ -598,11 +632,31 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
                     if (!isset($printers[$printers_id]) || $long === false) {
                         continue;
                     }
-                    foreach ($ranges as $range_id => $range) {
-                        if ($range['start'] <= $long && $long <= $range['end'] && isset($range['entities'][$printers[$printers_id]])) {
-                            foreach (array_keys($range_agents[$range_id]) as $agents_id) {
-                                $coverage[$agents_id][$printers_id] = true;
-                            }
+                    // Dernière plage qui commence au plus tard à cette adresse.
+                    $low   = 0;
+                    $high  = $last_index;
+                    $found = -1;
+                    while ($low <= $high) {
+                        $middle = ($low + $high) >> 1;
+                        if ($sorted[$middle]['start'] <= $long) {
+                            $found = $middle;
+                            $low   = $middle + 1;
+                        } else {
+                            $high = $middle - 1;
+                        }
+                    }
+                    // En remontant : on s'arrête dès qu'aucune plage précédente ne va jusqu'à l'adresse.
+                    $matched = [];
+                    for ($index = $found; $index >= 0 && $max_end[$index] >= $long; $index--) {
+                        $range = $sorted[$index];
+                        if ($long <= $range['end'] && isset($ranges[$range['id']]['entities'][$printers[$printers_id]])) {
+                            $matched[$range['ordinal']] = $range['id'];
+                        }
+                    }
+                    ksort($matched);
+                    foreach ($matched as $range_id) {
+                        foreach (array_keys($range_agents[$range_id]) as $agents_id) {
+                            $coverage[$agents_id][$printers_id] = true;
                         }
                     }
                 }
@@ -613,6 +667,12 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
                 $coverage[(int) $dates['agents_id']][$printers_id] = true;
             }
         }
+        PluginPrintgestionLogger::duration('agentsetting', 'Couverture des sondes calculée', $started, sprintf(
+            '%d sonde(s), %d imprimante(s), %d plage(s) IP',
+            count($coverage),
+            count($printers),
+            count($ranges ?? [])
+        ));
         return $coverage;
     }
 
@@ -1408,7 +1468,20 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         }
         echo "</div></div>";
 
-        $coverage = array_keys(self::getCoverage()[$agents_id] ?? []);
+        // Couverture en cache : le calcul est global (toutes les sondes), un affichage n'a pas à le payer. Les
+        // imprimantes mises à la corbeille depuis le calcul sont écartées, comme le calcul l'aurait fait.
+        $coverage = array_keys(self::getCoverage(true)[$agents_id] ?? []);
+        if (!empty($coverage)) {
+            $kept = [];
+            foreach ($DB->request([
+                'SELECT' => ['id'],
+                'FROM'   => Printer::getTable(),
+                'WHERE'  => ['id' => $coverage, 'is_deleted' => 0, 'is_template' => 0],
+            ]) as $row) {
+                $kept[] = (int) $row['id'];
+            }
+            $coverage = $kept;
+        }
         echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>" . $esc(sprintf(__('Imprimantes collectées par cette sonde (%d)', 'printgestion'), count($coverage))) . "</h3></div><div class='card-body'>";
         if (empty($coverage)) {
             echo "<p class='text-muted mb-0'>" . $esc(__('Aucune imprimante collectée par cette sonde pour l\'instant.', 'printgestion')) . "</p></div></div>";

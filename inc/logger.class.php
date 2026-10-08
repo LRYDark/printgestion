@@ -40,6 +40,41 @@ class PluginPrintgestionLogger {
         self::write('INFO', $context, $message, null);
     }
 
+    /** Au-delà, un traitement long est journalisé en avertissement : c'est lui qu'on cherche quand GLPI rame. */
+    const SLOW_SECONDS = 30;
+
+    /**
+     * Durée d'un traitement long (recalcul, analyse, export) : une ligne INFO par passage, AVERTISSEMENT au-delà de
+     * SLOW_SECONDS. Seule exception à la règle « le plugin n'écrit que ses échecs » : sans elle, rien ne dit après
+     * coup quel traitement a occupé le serveur, ni combien de temps.
+     *
+     * @param float  $started microtime(true) au début du traitement
+     * @param string $detail  volume et origine (« 412 toners, demandé par Joris »)
+     */
+    public static function duration(string $context, string $what, float $started, string $detail = ''): void {
+        $seconds = microtime(true) - $started;
+        $message = sprintf('%s : %.1f s%s', $what, $seconds, $detail !== '' ? ' — ' . $detail : '');
+        if ($seconds >= self::SLOW_SECONDS) {
+            self::warning($context, $message . sprintf(' (plus de %d s)', self::SLOW_SECONDS));
+            return;
+        }
+        self::info($context, $message);
+    }
+
+    /**
+     * Verrou de base de données (GET_LOCK, sans attente) : un traitement lourd ne tourne jamais deux fois en même
+     * temps (tâche horaire et demande manuelle, deux onglets). Libéré par releaseLock(), ou à la fin de la connexion.
+     */
+    public static function lock(string $name): bool {
+        global $DB;
+        return (bool) $DB->getLock('printgestion_' . $name);
+    }
+
+    public static function releaseLock(string $name): void {
+        global $DB;
+        $DB->releaseLock('printgestion_' . $name);
+    }
+
     /** Chemin du fichier journal. */
     public static function getPath(): string {
         return GLPI_LOG_DIR . '/' . self::LOG_NAME . '.log';

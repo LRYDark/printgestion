@@ -34,6 +34,8 @@ class PluginPrintgestionReminder extends CommonGLPI {
                 return ['description' => __('Print Gestion - Proposition des demandes d\'envoi à partir des alertes toner', 'printgestion')];
             case 'PrintgestionTemoinCron':
                 return ['description' => __('Print Gestion - Témoin du cron système : ne fait rien d\'autre que dater son passage (mode CLI seulement)', 'printgestion')];
+            case 'PrintgestionRebuildAlerts':
+                return ['description' => __('Print Gestion - Recalcul des alertes toner demandé depuis l\'écran (ne fait rien sans demande)', 'printgestion')];
         }
         return [];
     }
@@ -113,6 +115,25 @@ class PluginPrintgestionReminder extends CommonGLPI {
         }
 
         return ($alerts_sent > 0 || $reminders_sent > 0) ? 1 : 0;
+    }
+
+    /**
+     * Recalcul des alertes demandé depuis l'écran : la demande est posée par la page (Alertview::requestRebuild()),
+     * le calcul se fait ici, hors de toute page. Sans demande, la tâche ne lit qu'une clé de cache.
+     */
+    static function cronPrintgestionRebuildAlerts(?CronTask $task = null) {
+        if (!PluginPrintgestionConfig::isFeatureEnabled('toner')) {
+            return 0;
+        }
+        $done = PluginPrintgestionAlertview::processRequest();
+        if ($done === null) {
+            return 0;
+        }
+        if ($task !== null) {
+            $task->addVolume($done);
+            $task->log(sprintf('Alertes recalculées à la demande : %d toner(s).', $done));
+        }
+        return 1;
     }
 
     /**
@@ -212,79 +233,129 @@ class PluginPrintgestionReminder extends CommonGLPI {
     }
 
     /**
-     * Enregistre les crons à l'installation du plugin.
+     * Tâches automatiques que le plugin enregistre dans GLPI, dans l'ordre de l'installation. Une seule liste, pour
+     * install() et pour la carte « Santé de la configuration » : une version qui ajoute une tâche ne la crée qu'à
+     * « Mettre à jour » du plugin, et la carte signale celle qui manque (vécu : PrintgestionRaccordements, jamais
+     * créée en production), puis l'enregistre sur demande (registerMissing()).
+     *
+     * @return array[] ['itemtype' => string, 'name' => string, 'frequency' => int, 'options' => array (options de
+     *                 CronTask::Register)]
+     */
+    public static function getCronTaskDefinitions(): array {
+        return [
+            [
+                'itemtype'  => self::class,
+                'name'      => 'PrintgestionSnapshotReadings',
+                'frequency' => DAY_TIMESTAMP,
+                'options'   => ['state' => CronTask::STATE_WAITING],
+            ],
+            [
+                'itemtype'  => self::class,
+                'name'      => 'PrintgestionCheckAlerts',
+                'frequency' => HOUR_TIMESTAMP,
+                'options'   => ['state' => CronTask::STATE_WAITING],
+            ],
+            [
+                'itemtype'  => self::class,
+                'name'      => 'PrintgestionTrackingUpdate',
+                // Valeur initiale seulement, ensuite réglée dans GLPI : deux passages par jour suffisent aux deux suivis
+                // (GLS et MBE), et le quota MBE de 500 appels par jour ne supporterait pas un passage horaire.
+                'frequency' => 12 * HOUR_TIMESTAMP,
+                'options'   => ['state' => CronTask::STATE_WAITING],
+            ],
+            // Recalcul des alertes demandé depuis l'écran (« Recalculer maintenant », « Rafraîchir », première
+            // visite) : chaque minute, ne fait rien sans demande. Le calcul ne tourne jamais pendant une page.
+            [
+                'itemtype'  => self::class,
+                'name'      => 'PrintgestionRebuildAlerts',
+                'frequency' => MINUTE_TIMESTAMP,
+                'options'   => ['state' => CronTask::STATE_WAITING],
+            ],
+            // Témoin du cron système : CLI seulement (aucune bascule possible), chaque minute.
+            [
+                'itemtype'  => self::class,
+                'name'      => 'PrintgestionTemoinCron',
+                'frequency' => MINUTE_TIMESTAMP,
+                'options'   => ['state' => CronTask::STATE_WAITING, 'mode' => CronTask::MODE_EXTERNAL, 'allowmode' => CronTask::MODE_EXTERNAL],
+            ],
+            // Horaire, enregistrée DÉSACTIVÉE (voir cronPrintgestionProposeDemandes).
+            // Register() ne modifie pas une tâche existante : l'état choisi par
+            // l'administrateur est conservé aux mises à jour.
+            [
+                'itemtype'  => self::class,
+                'name'      => 'PrintgestionProposeDemandes',
+                'frequency' => HOUR_TIMESTAMP,
+                'options'   => ['state' => CronTask::STATE_DISABLE],
+            ],
+            // Déploiement Agent : dernière version de GLPI Agent publiée sur GitHub.
+            [
+                'itemtype'  => 'PluginPrintgestionAgentsetting',
+                'name'      => 'PrintgestionCheckAgentVersion',
+                'frequency' => WEEK_TIMESTAMP,
+                'options'   => ['state' => CronTask::STATE_WAITING],
+            ],
+            // Déploiement Agent : sondes sans contact et imprimantes qui ne remontent plus.
+            [
+                'itemtype'  => 'PluginPrintgestionAgentalert',
+                'name'      => 'PrintgestionSilentProbes',
+                'frequency' => DAY_TIMESTAMP,
+                'options'   => ['state' => CronTask::STATE_WAITING],
+            ],
+            // Déploiement Agent : fréquence des relevés d'imprimantes par entité (tâches GLPI Inventory).
+            [
+                'itemtype'  => 'PluginPrintgestionCollectfrequency',
+                'name'      => 'PrintgestionCollectSchedule',
+                'frequency' => 15 * MINUTE_TIMESTAMP,
+                'options'   => ['state' => CronTask::STATE_WAITING],
+            ],
+            // Déploiement Agent : raccordements lancés — découverte terminée, relevé des niveaux à préparer.
+            // Sans elle, cette suite n'arrivait que si quelqu'un ouvrait l'écran du raccordement.
+            [
+                'itemtype'  => 'PluginPrintgestionRaccordement',
+                'name'      => 'PrintgestionRaccordements',
+                'frequency' => 10 * MINUTE_TIMESTAMP,
+                'options'   => ['state' => CronTask::STATE_WAITING],
+            ],
+            // Contrôle de l'entité des données techniques : enregistrée aussi par Entityscope::install() — mêmes
+            // réglages, CronTask::Register ne crée jamais deux fois la même tâche. Listée ici pour que la carte de
+            // santé la signale et la recrée si elle manque.
+            [
+                'itemtype'  => 'PluginPrintgestionEntityscope',
+                'name'      => 'PrintgestionEntityScope',
+                'frequency' => DAY_TIMESTAMP,
+                'options'   => ['state' => CronTask::STATE_WAITING],
+            ],
+        ];
+    }
+
+    /**
+     * Enregistre dans GLPI celles de getCronTaskDefinitions() qui n'y sont pas, avec les réglages de l'installation.
+     * Une tâche déjà présente n'est jamais touchée — ni son état, ni son mode, ni sa fréquence : CronTask::Register
+     * s'arrête sur une tâche existante et renvoie faux. Le mode d'une tâche créée est celui que GLPI donne à toute
+     * nouvelle tâche (CLI si GLPI_SYSTEM_CRON est déclaré, Interne sinon), sauf le témoin, né en CLI.
+     *
+     * @return int nombre de tâches enregistrées
+     */
+    public static function registerMissing(): int {
+        $done = 0;
+        foreach (self::getCronTaskDefinitions() as $task) {
+            if (CronTask::Register($task['itemtype'], $task['name'], $task['frequency'], $task['options'])) {
+                $done++;
+            }
+        }
+        return $done;
+    }
+
+    /**
+     * Enregistre les crons à l'installation du plugin : la même liste que la carte de santé (getCronTaskDefinitions()).
      */
     static function install(Migration $migration) {
-        CronTask::Register(
-            self::class,
-            'PrintgestionSnapshotReadings',
-            DAY_TIMESTAMP,
-            ['state' => CronTask::STATE_WAITING]
-        );
-        CronTask::Register(
-            self::class,
-            'PrintgestionCheckAlerts',
-            HOUR_TIMESTAMP,
-            ['state' => CronTask::STATE_WAITING]
-        );
-        CronTask::Register(
-            self::class,
-            'PrintgestionTrackingUpdate',
-            // Valeur initiale seulement, ensuite réglée dans GLPI : deux passages par jour suffisent aux deux suivis
-            // (GLS et MBE), et le quota MBE de 500 appels par jour ne supporterait pas un passage horaire.
-            12 * HOUR_TIMESTAMP,
-            ['state' => CronTask::STATE_WAITING]
-        );
-        // Horaire, enregistrée DÉSACTIVÉE (voir cronPrintgestionProposeDemandes).
-        // Témoin du cron système : CLI seulement (aucune bascule possible), chaque minute.
-        CronTask::Register(
-            self::class,
-            'PrintgestionTemoinCron',
-            MINUTE_TIMESTAMP,
-            ['state' => CronTask::STATE_WAITING, 'mode' => CronTask::MODE_EXTERNAL, 'allowmode' => CronTask::MODE_EXTERNAL]
-        );
-        // Register() ne modifie pas une tâche existante : l'état choisi par
-        // l'administrateur est conservé aux mises à jour.
-        CronTask::Register(
-            self::class,
-            'PrintgestionProposeDemandes',
-            HOUR_TIMESTAMP,
-            ['state' => CronTask::STATE_DISABLE]
-        );
-        // Déploiement Agent : dernière version de GLPI Agent publiée sur GitHub.
-        CronTask::Register(
-            'PluginPrintgestionAgentsetting',
-            'PrintgestionCheckAgentVersion',
-            WEEK_TIMESTAMP,
-            ['state' => CronTask::STATE_WAITING]
-        );
-        // Déploiement Agent : sondes sans contact et imprimantes qui ne remontent plus.
-        CronTask::Register(
-            'PluginPrintgestionAgentalert',
-            'PrintgestionSilentProbes',
-            DAY_TIMESTAMP,
-            ['state' => CronTask::STATE_WAITING]
-        );
-        // Déploiement Agent : fréquence des relevés d'imprimantes par entité (tâches GLPI Inventory).
-        CronTask::Register(
-            'PluginPrintgestionCollectfrequency',
-            'PrintgestionCollectSchedule',
-            15 * MINUTE_TIMESTAMP,
-            ['state' => CronTask::STATE_WAITING]
-        );
-        // Déploiement Agent : raccordements lancés — découverte terminée, relevé des niveaux à préparer.
-        // Sans elle, cette suite n'arrivait que si quelqu'un ouvrait l'écran du raccordement.
-        CronTask::Register(
-            'PluginPrintgestionRaccordement',
-            'PrintgestionRaccordements',
-            10 * MINUTE_TIMESTAMP,
-            ['state' => CronTask::STATE_WAITING]
-        );
+        self::registerMissing();
         return true;
     }
 
     static function uninstall(Migration $migration) {
-        foreach (['PrintgestionSnapshotReadings', 'PrintgestionCheckAlerts', 'PrintgestionTrackingUpdate', 'PrintgestionProposeDemandes'] as $cron) {
+        foreach (['PrintgestionSnapshotReadings', 'PrintgestionCheckAlerts', 'PrintgestionTrackingUpdate', 'PrintgestionProposeDemandes', 'PrintgestionRebuildAlerts'] as $cron) {
             $task = new CronTask();
             if ($task->getFromDBbyName(self::class, $cron)) {
                 $task->delete(['id' => $task->getID()]);

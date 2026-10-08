@@ -11,7 +11,9 @@
  * Actions de masse :
  *   - Commander (droit de validation) : Expedition::createPurchaseOrder(), transactionnelle,
  *     verrous et références revérifiés côté serveur — une ligne verrouillée fait refuser
- *     toute la commande ;
+ *     toute la commande ; une ligne que Gesconso ne peut pas recevoir est retirée sur
+ *     confirmation au clic (pg_exclude), une référence manquante se saisit dans la fenêtre
+ *     (Cartridgesnmp::renderQuickLink(), aperçu en direct par ajax/order_preview.php) ;
  *   - Ne plus alerter / Réactiver les alertes (modification des alertes).
  */
 
@@ -104,20 +106,52 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
      *
      * @param ?array $printer_ids null : tout (vidage puis reconstruction) ; sinon seulement
      *                            ces imprimantes (après une action de masse).
-     * @return int Nombre de lignes matérialisées.
+     * Un seul calcul à la fois (verrou LOCK_NAME) : un recalcul complet déjà en cours fait sauter un autre complet ;
+     * un recalcul partiel qui le croise devient une demande, traitée par la tâche dans la minute.
+     *
+     * @return int Nombre de lignes matérialisées (0 si le calcul a été reporté).
      */
     public static function rebuild(?array $printer_ids = null): int {
-        global $DB, $GLPI_CACHE;
-
-        $started = date('Y-m-d H:i:s');
-        $table   = self::getTable();
-        $ids     = null;
+        $ids = null;
         if ($printer_ids !== null) {
             $ids = array_values(array_unique(array_filter(array_map('intval', $printer_ids))));
             if (empty($ids)) {
                 return 0;
             }
         }
+        self::$last_skipped = !PluginPrintgestionLogger::lock(self::LOCK_NAME);
+        if (self::$last_skipped) {
+            if ($ids === null) {
+                PluginPrintgestionLogger::info('alertes', 'Recalcul complet des alertes sauté : un autre est déjà en cours.');
+            } else {
+                // Le recalcul complet en cours a pu lire l'état d'avant l'action : un autre est demandé.
+                self::requestRebuild();
+            }
+            return 0;
+        }
+        $timer = microtime(true);
+        try {
+            $count = self::doRebuild($ids);
+        } finally {
+            PluginPrintgestionLogger::releaseLock(self::LOCK_NAME);
+        }
+        PluginPrintgestionLogger::duration(
+            'alertes',
+            $ids === null ? 'Recalcul complet des alertes' : sprintf('Recalcul des alertes de %d imprimante(s)', count($ids)),
+            $timer,
+            sprintf('%d toner(s)', $count)
+        );
+        return $count;
+    }
+
+    /** Verrou du calcul (Logger::lock()). */
+    const LOCK_NAME = 'alertview';
+
+    private static function doRebuild(?array $ids): int {
+        global $DB, $GLPI_CACHE;
+
+        $started = date('Y-m-d H:i:s');
+        $table   = self::getTable();
 
         // Un inventaire reçu après un relevé manuel rend ce relevé caduc : la sonde a raison.
         PluginPrintgestionManualreading::supersedeByInventory();
@@ -126,12 +160,36 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
         $rows = PluginPrintgestionAlert::listAll(null, false, $ids);
         $now  = $_SESSION['glpi_currenttime'] ?? $started;
 
-        if ($ids === null) {
-            $DB->truncate($table);
-        } else {
-            $DB->delete($table, ['printers_id' => $ids]);
+        $records = self::buildRecords($rows, $now);
+
+        // Remplacement dans une transaction courte (lignes déjà prêtes) : pendant le calcul, l'écran montre les
+        // alertes d'avant, jamais une table vide (ce que faisait le vidage TRUNCATE, hors transaction par nature).
+        $DB->beginTransaction();
+        try {
+            $DB->delete($table, $ids === null ? [1] : ['printers_id' => $ids]);
+            foreach ($records as $record) {
+                $DB->insert($table, $record);
+            }
+            $DB->commit();
+        } catch (Throwable $e) {
+            $DB->rollBack();
+            PluginPrintgestionLogger::error('alertes', 'Recalcul des alertes annulé : la table garde le calcul précédent.', $e);
+            throw $e;
         }
 
+        // Recalcul complet postérieur à la dernière action : la vue n'est plus périmée.
+        if ($ids === null && isset($GLPI_CACHE)) {
+            $stale = self::getStaleSince();
+            if ($stale !== null && $stale <= $started) {
+                $GLPI_CACHE->delete(self::STALE_KEY);
+            }
+        }
+        return count($rows);
+    }
+
+    /** Lignes de la table, prêtes à insérer : référence de cartouche résolue pour les toners en alerte. */
+    private static function buildRecords(array $rows, string $now): array {
+        $records = [];
         foreach ($rows as $r) {
             // Référence : résolue pour les toners en alerte (ceux qu'on commande). Aucun stock :
             // il est dans Sage.
@@ -142,7 +200,7 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
             }
             $lock = $r['lock'] ?? null;
 
-            $DB->insert($table, [
+            $records[] = [
                 'printers_id'       => (int) $r['printers_id'],
                 'entities_id'       => (int) $r['entities_id'],
                 'toner_property'    => $r['property'] ?? null,
@@ -161,32 +219,117 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
                 'lock_message'      => $lock['message'] ?? null,
                 'ref_error'         => $ref_error,
                 'date_compute'      => $now,
-            ]);
+            ];
         }
+        return $records;
+    }
 
-        // Recalcul complet postérieur à la dernière action : la vue n'est plus périmée.
-        if ($ids === null && isset($GLPI_CACHE)) {
-            $stale = self::getStaleSince();
-            if ($stale !== null && $stale <= $started) {
-                $GLPI_CACHE->delete(self::STALE_KEY);
+    // ── Recalcul demandé depuis l'écran, fait par la tâche PrintgestionRebuildAlerts ──
+
+    /** Cache GLPI : date de la demande de recalcul complet en attente. */
+    const REQUEST_KEY = 'plugin_printgestion_alertview_request';
+
+    /** Demande en attente depuis plus longtemps : la tâche ne passe pas (affiché à l'écran). */
+    const REQUEST_LATE_SECONDS = 300;
+
+    /**
+     * Demande un recalcul complet, fait hors de la page par la tâche minute PrintgestionRebuildAlerts. Une demande
+     * déjà en attente garde sa date. La tâche est enregistrée si elle manque (plugin mis à jour par copie).
+     */
+    public static function requestRebuild(): void {
+        global $GLPI_CACHE;
+
+        if (!isset($GLPI_CACHE)) {
+            return;
+        }
+        if (self::getRequestedAt() === null) {
+            $GLPI_CACHE->set(self::REQUEST_KEY, date('Y-m-d H:i:s'), DAY_TIMESTAMP);
+        }
+        // Cette tâche seulement : une autre tâche absente l'a peut-être été voulue (carte Santé pour celles-là).
+        $task = new CronTask();
+        if (!$task->getFromDBbyName(PluginPrintgestionReminder::class, 'PrintgestionRebuildAlerts')) {
+            foreach (PluginPrintgestionReminder::getCronTaskDefinitions() as $definition) {
+                if ($definition['name'] === 'PrintgestionRebuildAlerts') {
+                    CronTask::register($definition['itemtype'], $definition['name'], $definition['frequency'], $definition['options']);
+                }
             }
         }
-        return count($rows);
     }
 
-    /** Reconstruit si la table est vide (1ʳᵉ visite avant le passage du cron). */
+    /** Cache GLPI : date de la demande en cours de traitement par la tâche (l'écran attend la fin du calcul). */
+    const RUNNING_KEY = 'plugin_printgestion_alertview_running';
+
+    /** Date de la demande pas encore prise par la tâche, sinon null. */
+    public static function getRequestedAt(): ?string {
+        global $GLPI_CACHE;
+
+        $value = isset($GLPI_CACHE) ? $GLPI_CACHE->get(self::REQUEST_KEY) : null;
+        return (is_string($value) && $value !== '') ? $value : null;
+    }
+
+    /** Date de la demande de recalcul en attente ou en cours de calcul, sinon null (affichage, état AJAX). */
+    public static function getPendingRequest(): ?string {
+        global $GLPI_CACHE;
+
+        $requested = self::getRequestedAt();
+        if ($requested !== null || !isset($GLPI_CACHE)) {
+            return $requested;
+        }
+        $value = $GLPI_CACHE->get(self::RUNNING_KEY);
+        return (is_string($value) && $value !== '') ? $value : null;
+    }
+
+    /** Dernier appel de rebuild() reporté (verrou déjà pris). */
+    private static bool $last_skipped = false;
+
+    /**
+     * Tâche minute : traite la demande en attente, ou une table vide (première installation). La demande est retirée
+     * avant le calcul : une demande posée pendant le calcul (action non prise en compte) attend le passage suivant ;
+     * un calcul reporté remet la demande, avec sa date d'origine.
+     *
+     * @return ?int toners recalculés, null s'il n'y avait rien à faire
+     */
+    public static function processRequest(): ?int {
+        global $GLPI_CACHE;
+
+        $requested = self::getRequestedAt();
+        if ($requested === null && (int) countElementsInTable(self::getTable()) > 0) {
+            return null;
+        }
+        if ($requested !== null && isset($GLPI_CACHE)) {
+            $GLPI_CACHE->set(self::RUNNING_KEY, $requested, HOUR_TIMESTAMP);
+            $GLPI_CACHE->delete(self::REQUEST_KEY);
+        }
+        try {
+            $count = self::rebuild();
+        } finally {
+            if (isset($GLPI_CACHE)) {
+                $GLPI_CACHE->delete(self::RUNNING_KEY);
+            }
+        }
+        if (self::$last_skipped && $requested !== null && isset($GLPI_CACHE) && self::getRequestedAt() === null) {
+            $GLPI_CACHE->set(self::REQUEST_KEY, $requested, DAY_TIMESTAMP);
+        }
+        return $count;
+    }
+
+    /** Table vide (1ʳᵉ visite avant le passage de la tâche horaire) : calcul demandé, jamais fait dans la page. */
     public static function rebuildIfEmpty(): void {
         if ((int) countElementsInTable(self::getTable()) === 0) {
-            self::rebuild();
+            self::requestRebuild();
         }
     }
 
-    /** Signale une action qui rend la vue périmée (commande, annulation, seuils…). */
+    /**
+     * Signale une action qui rend la vue périmée (commande, annulation, seuils…), et demande le recalcul complet qui
+     * la remet à jour en arrière-plan : le bandeau « pas encore reflétées » tombe dans la minute, pas à l'heure.
+     */
     public static function markStale(): void {
         global $GLPI_CACHE;
         if (isset($GLPI_CACHE)) {
             $GLPI_CACHE->set(self::STALE_KEY, date('Y-m-d H:i:s'), 7 * DAY_TIMESTAMP);
         }
+        self::requestRebuild();
     }
 
     /** Date de la dernière action non encore reflétée par un recalcul complet, sinon null. */
@@ -219,32 +362,44 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
         $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         switch ($ma->getAction()) {
             case 'pg_order':
-                // Avant le clic : ce qui ferait refuser la commande, et ce qui mérite d'être vu (décompte, liste).
-                $items = [];
-                foreach (($ma->getItems()[self::class] ?? []) as $id) {
-                    $row = new self();
-                    if ($row->getFromDB((int) $id) && PluginPrintgestionSecurity::canAccessPrinter((int) $row->fields['printers_id'])) {
-                        $items[] = ['printers_id' => (int) $row->fields['printers_id'], 'property' => (string) $row->fields['toner_property']];
-                    }
+                // Avant le clic : ce qui ne pourra pas être commandé, et ce qui mérite d'être vu (décompte, liste).
+                $ids     = array_map('intval', array_values($ma->getItems()[self::class] ?? []));
+                $items   = self::getOrderItems($ids);
+                $preview = self::renderOrderPreview($items, []);
+                $rand    = mt_rand();
+                $flags   = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE;
+                // Bloc recalculé en direct pendant la saisie d'une référence (ajax/order_preview.php).
+                // Fenêtre native centrée (classe « center ») : le contenu de la commande se lit aligné à gauche.
+                echo "<div class='text-start'>";
+                echo "<div id='pg-order-preview-{$rand}'>" . $preview['html'] . "</div>";
+                // Toner sans cartouche liée : sa référence se saisit ici, la cartouche est créée à l'envoi.
+                echo PluginPrintgestionCartridgesnmp::renderQuickLink(PluginPrintgestionCartridgesnmp::getMissingReferences($items));
+                echo "<p class='text-muted small'>" . $esc(__('Une commande pour les toners cochés : fichier Gesconso envoyé aux Achats, une expédition par toner. Une cartouche sans référence, code client ou adresse de livraison est retirée de la commande, après confirmation à l\'envoi. Refusée en entier si une ligne est verrouillée (envoi ou demande en cours, garde, ticket) : rien n\'est alors enregistré.', 'printgestion')) . "</p>";
+                // Options de l'envoi, regroupées : chaque case à côté de son libellé.
+                echo "<div class='border rounded px-3 py-2 mb-3'>";
+                foreach ([
+                    'send_planif'       => ['pg-ma-planif', 'ti ti-truck', __('Prévenir la planification (logistique)', 'printgestion')],
+                    'send_courtesy'     => ['pg-ma-courtesy', 'ti ti-mail', __('Mail de courtoisie au client (usager renseigné sur la fiche imprimante uniquement)', 'printgestion')],
+                    'download_gesconso' => ['pg-ma-download', 'ti ti-file-spreadsheet', __('Télécharger le fichier Gesconso envoyé aux Achats', 'printgestion')],
+                ] as $name => [$id, $icon, $label]) {
+                    echo "<div class='form-check my-1'><input type='checkbox' class='form-check-input' name='{$name}' value='1' id='{$id}'>"
+                        . "<label class='form-check-label' for='{$id}'><i class='{$icon} me-1'></i>" . $esc($label) . "</label></div>";
                 }
-                $preview = PluginPrintgestionExpedition::previewPurchaseOrder($items);
-                if (!empty($preview['errors'])) {
-                    echo "<div class='alert alert-danger py-2'><div class='fw-bold'>" . $esc(sprintf(
-                        _n('%d cartouche ne peut pas être écrite dans le fichier Gesconso : la commande sera refusée.', '%d cartouches ne peuvent pas être écrites dans le fichier Gesconso : la commande sera refusée.', count($preview['errors']), 'printgestion'),
-                        count($preview['errors'])
-                    )) . "</div><ul class='small mb-0'>";
-                    foreach (array_slice($preview['errors'], 0, 20) as $message) {
-                        echo '<li>' . $esc($message) . '</li>';
-                    }
-                    echo "</ul></div>";
-                }
-                echo PluginPrintgestionGesconso::renderNoticesSummary($preview['notices'], 'pg-order-notices');
-                echo "<p class='text-muted small'>" . $esc(__('Une commande pour les toners cochés : fichier Gesconso envoyé aux Achats, une expédition par toner. Refusée en entier si une ligne est verrouillée (envoi ou demande en cours, garde, ticket) ou sans référence, code client ou adresse de livraison : rien n\'est alors enregistré.', 'printgestion')) . "</p>";
-                echo "<div class='form-check'><input type='checkbox' class='form-check-input' name='send_planif' value='1' id='pg-ma-planif'>"
-                    . "<label class='form-check-label' for='pg-ma-planif'>" . $esc(__('Prévenir la planification (logistique)', 'printgestion')) . "</label></div>";
-                echo "<div class='form-check mb-2'><input type='checkbox' class='form-check-input' name='send_courtesy' value='1' id='pg-ma-courtesy'>"
-                    . "<label class='form-check-label' for='pg-ma-courtesy'>" . $esc(__('Mail de courtoisie au client (usager renseigné sur la fiche imprimante uniquement)', 'printgestion')) . "</label></div>";
-                echo Html::submit(__('Envoyer la commande', 'printgestion'), ['name' => 'massiveaction', 'class' => 'btn btn-primary']);
+                echo "</div></div>";
+                echo Html::submit(__('Envoyer la commande', 'printgestion'), ['name' => 'massiveaction', 'class' => 'btn btn-primary', 'id' => "pg-order-submit-{$rand}"]);
+                echo "<script>window.pgOrderPreview && window.pgOrderPreview(" . json_encode([
+                    'box'      => "pg-order-preview-{$rand}",
+                    'button'   => "pg-order-submit-{$rand}",
+                    'url'      => PLUGIN_PRINTGESTION_WEBDIR . '/ajax/order_preview.php',
+                    'ids'      => $ids,
+                    'blocked'  => (object) $preview['blocked'],
+                    'total'    => $preview['total'],
+                    'messages' => [
+                        'none'    => __('Aucune cartouche ne peut être commandée : corrigez les lignes en rouge avant d\'envoyer.', 'printgestion'),
+                        'head'    => __('Ces cartouches ne peuvent pas être écrites dans le fichier Gesconso et ne seront PAS commandées :', 'printgestion'),
+                        'confirm' => __('Envoyer quand même la commande des %d autre(s) cartouche(s) ?', 'printgestion'),
+                    ],
+                ], $flags) . ");</script>";
                 return true;
 
             case 'pg_snooze':
@@ -258,6 +413,72 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
                 return true;
         }
         return parent::showMassiveActionsSubForm($ma);
+    }
+
+    /** Lignes cochées à commander, réduites au périmètre de l'utilisateur : [['printers_id', 'property']]. */
+    public static function getOrderItems(array $ids): array {
+        $items = [];
+        foreach ($ids as $id) {
+            $row = new self();
+            if ($row->getFromDB((int) $id) && PluginPrintgestionSecurity::canAccessPrinter((int) $row->fields['printers_id'])) {
+                $items[] = ['printers_id' => (int) $row->fields['printers_id'], 'property' => (string) $row->fields['toner_property']];
+            }
+        }
+        return $items;
+    }
+
+    /**
+     * Aperçu de la commande, avec les références saisies (pg_newcart) contrôlées comme si les cartouches existaient :
+     * en rouge ce qui ne pourra pas être écrit dans le fichier Gesconso, en vert ce que la saisie débloque.
+     *
+     * @return array ['html' => string, 'blocked' => « printers_id|property » => motif, 'total' => int]
+     */
+    public static function renderOrderPreview(array $items, $newcart): array {
+        $esc     = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $quick   = PluginPrintgestionCartridgesnmp::previewQuickLink(PluginPrintgestionCartridgesnmp::getMissingReferences($items), $newcart);
+        $preview = PluginPrintgestionExpedition::previewPurchaseOrder($items, $quick['cartridges']);
+        $blocked = $preview['line_errors'];
+        // Saisie refusée (référence inconnue de Sage, doublon…) : son motif remplace « aucune cartouche liée ».
+        foreach ($quick['errors'] as $key => $message) {
+            if (isset($blocked[$key])) {
+                $blocked[$key] = [($preview['labels'][$key] ?? $key) . ' : ' . $message];
+            }
+        }
+        $ready = array_diff_key($quick['notes'], $blocked);
+        $total = count($preview['labels']);
+        $html  = '';
+
+        if (!empty($blocked)) {
+            $html .= "<div class='alert alert-danger py-2'><div class='w-100'><div class='fw-bold'><i class='ti ti-alert-circle me-1'></i>" . $esc(sprintf(
+                _n('%d cartouche ne peut pas être écrite dans le fichier Gesconso : elle ne sera pas commandée.', '%d cartouches ne peuvent pas être écrites dans le fichier Gesconso : elles ne seront pas commandées.', count($blocked), 'printgestion'),
+                count($blocked)
+            )) . "</div><ul class='small mb-1'>";
+            foreach (array_slice(array_merge(...array_values($blocked)), 0, 20) as $message) {
+                $html .= '<li>' . $esc($message) . '</li>';
+            }
+            $html .= "</ul><div class='small'>" . $esc($total > count($blocked)
+                ? sprintf(__('Les %d autre(s) partent normalement, après confirmation à l\'envoi.', 'printgestion'), $total - count($blocked))
+                : __('Aucune cartouche commandable en l\'état.', 'printgestion')) . "</div></div></div>";
+        }
+        if ((empty($blocked) && $total > 0) || !empty($ready)) {
+            $html .= "<div class='alert alert-success py-2'><div class='w-100'><div class='fw-bold'><i class='ti ti-circle-check me-1'></i>" . $esc(empty($blocked)
+                ? sprintf(_n('%d cartouche pourra être écrite dans le fichier Gesconso.', 'Les %d cartouches pourront être écrites dans le fichier Gesconso.', $total, 'printgestion'), $total)
+                : __('Débloquées par votre saisie :', 'printgestion')) . "</div>";
+            if (!empty($ready)) {
+                $html .= "<ul class='small mb-0'>";
+                foreach ($ready as $key => $note) {
+                    $html .= '<li>' . $esc(($preview['labels'][$key] ?? $key) . ' : ' . $note) . '</li>';
+                }
+                $html .= '</ul>';
+            }
+            $html .= '</div></div>';
+        }
+
+        return [
+            'html'    => $html . PluginPrintgestionGesconso::renderNoticesSummary($preview['notices'], 'pg-order-notices'),
+            'blocked' => array_map(static fn(array $messages) => (string) reset($messages), $blocked),
+            'total'   => $total,
+        ];
     }
 
     static function processMassiveActionsForOneItemtype(MassiveAction $ma, CommonDBTM $item, array $ids) {
@@ -308,12 +529,20 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
         $items       = [];
         $ordered_ids = [];
         $printer_ids = [];
+        // Lignes que Gesconso ne pouvait pas recevoir, retirées sur confirmation au clic : ni commandées ni enregistrées.
+        $exclude  = array_flip(array_map('strval', (array) ($input['pg_exclude'] ?? [])));
+        $excluded = [];
 
         foreach ($ids as $id) {
             if (!Session::haveRight('plugin_printgestion_validation', UPDATE)
                 || !$item->getFromDB($id)
                 || !PluginPrintgestionSecurity::canAccessPrinter((int) $item->fields['printers_id'])) {
                 $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_NORIGHT);
+                continue;
+            }
+            if (isset($exclude[(int) $item->fields['printers_id'] . '|' . (string) $item->fields['toner_property']])) {
+                $excluded[] = Dropdown::getDropdownName('glpi_printers', (int) $item->fields['printers_id']) . ' — ' . $item->fields['toner_property'];
+                $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_KO);
                 continue;
             }
             $items[] = [
@@ -325,8 +554,36 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
             $ordered_ids[] = $id;
             $printer_ids[(int) $item->fields['printers_id']] = (int) $item->fields['printers_id'];
         }
+        if (!empty($excluded)) {
+            $ma->addMessage(htmlspecialchars(sprintf(
+                __('Non commandée(s), retirée(s) de la commande à votre demande : %s.', 'printgestion'),
+                implode(', ', $excluded)
+            ), ENT_QUOTES, 'UTF-8'));
+        }
         if (empty($items)) {
             return;
+        }
+
+        // Références saisies dans le sous-formulaire : cartouches créées ou liées avant la commande, qui les résout.
+        if (!empty($input['pg_newcart'])) {
+            $quick = PluginPrintgestionCartridgesnmp::applyQuickLink(
+                PluginPrintgestionCartridgesnmp::getMissingReferences($items),
+                $input['pg_newcart']
+            );
+            foreach ($quick['messages'] as $message) {
+                $ma->addMessage(htmlspecialchars($message, ENT_QUOTES, 'UTF-8'));
+            }
+            if (!$quick['ok']) {
+                $ma->addMessage(htmlspecialchars(__('Commande non envoyée : aucune cartouche n\'a été créée.', 'printgestion'), ENT_QUOTES, 'UTF-8'));
+                foreach ($ordered_ids as $id) {
+                    $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_KO);
+                }
+                return;
+            }
+            if ($quick['done']) {
+                // Colonne « référence » des lignes à jour même si la commande est refusée ensuite.
+                self::rebuild(array_values($printer_ids));
+            }
         }
 
         $result = PluginPrintgestionExpedition::createPurchaseOrder(
@@ -352,6 +609,20 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
 
         if ($result['ok']) {
             self::rebuild(array_values($printer_ids));
+        }
+
+        // Fichier archivé de la commande : lien dans le message de fin, et téléchargement direct si la case est cochée.
+        $orders_id = (int) ($result['order_id'] ?? 0);
+        if ($result['ok'] && $orders_id > 0) {
+            Session::addMessageAfterRedirect(
+                "<i class='ti ti-file-spreadsheet me-1'></i><a href='" . htmlspecialchars(PluginPrintgestionPurchaseorder::getDownloadURL($orders_id), ENT_QUOTES, 'UTF-8') . "'>"
+                    . htmlspecialchars(__('Télécharger le fichier Gesconso de cette commande', 'printgestion'), ENT_QUOTES, 'UTF-8') . '</a>',
+                false,
+                INFO
+            );
+            if (!empty($input['download_gesconso'])) {
+                PluginPrintgestionPurchaseorder::queueDownload($orders_id);
+            }
         }
     }
 

@@ -33,7 +33,11 @@ $filters = [
     'counter'  => (string) ($_GET['counter']  ?? '1') === '1',
     'activity' => (string) ($_GET['activity'] ?? '1') === '1',
 ];
-$rows           = PluginPrintgestionBilling::computeForPeriod($start, $end, $entities_id, $filters);
+// Même calcul en cache que l'écran (clé : période, client, critères, périmètre
+// d'entités de la session) : l'export reprend les chiffres affichés sans tout
+// recalculer ; recalcul seulement si le cache a expiré ou a été invalidé.
+$started        = microtime(true);
+$rows           = PluginPrintgestionBilling::computeForPeriodCached($start, $end, $entities_id, $filters);
 $rows_by_client = PluginPrintgestionBilling::groupByClient($rows);
 
 $spreadsheet = new Spreadsheet();
@@ -151,4 +155,11 @@ header('Cache-Control: max-age=0');
 
 $writer = new Xlsx($spreadsheet);
 $writer->save('php://output');
+
+PluginPrintgestionLogger::duration(
+    'facturation',
+    'Export Excel du coût à la page',
+    $started,
+    sprintf('%d imprimante(s), vue %s, du %s au %s', count($rows), $view, $start, $end)
+);
 exit;

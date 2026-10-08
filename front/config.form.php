@@ -36,28 +36,44 @@ if (isset($_POST['activate_contract_alerts'])) {
     // « J'ai vérifié » la sauvegarde de glpicrypt.key : date et auteur mémorisés, la ligne se repliera six mois.
     PluginPrintgestionConfighealth::acknowledgeKeyBackup();
     Session::addMessageAfterRedirect(__('Sauvegarde de glpicrypt.key : vérification enregistrée. La ligne reviendra d\'elle-même dans six mois.', 'printgestion'), false, INFO);
+} elseif (isset($_POST['cron_register_tasks'])) {
+    // « Enregistrer les tâches manquantes » de la carte de santé : seules les tâches du plugin absentes de GLPI sont
+    // créées, avec les réglages de l'installation ; une tâche présente n'est pas touchée (droit du plugin vérifié en
+    // tête de ce fichier). Leur mode et leur état restent ensuite des décisions à part, chacune son bouton.
+    $done = PluginPrintgestionReminder::registerMissing();
+    Session::addMessageAfterRedirect(htmlspecialchars($done > 0
+        ? sprintf(_n('%d tâche du plugin enregistrée dans GLPI, avec les réglages de l\'installation.', '%d tâches du plugin enregistrées dans GLPI, avec les réglages de l\'installation.', $done, 'printgestion'), $done)
+        : __('Aucune tâche du plugin à enregistrer : elles sont toutes présentes dans GLPI.', 'printgestion'), ENT_QUOTES, 'UTF-8'),
+        false, $done > 0 ? INFO : WARNING);
 } elseif (isset($_POST['cron_switch_cli'])) {
     // « Passer en mode CLI » de la carte de santé : le mode d'exécution seulement, jamais l'état des tâches — passer
-    // en CLI et activer sont deux décisions, chacune son bouton. Jamais les tâches de GLPI ni d'un autre plugin.
-    $done = PluginPrintgestionConfighealth::switchTasksToCli();
-    Session::addMessageAfterRedirect($done > 0
-        ? sprintf(_n('%d tâche de Print Gestion passée en mode CLI. Son état n\'a pas changé.', '%d tâches de Print Gestion passées en mode CLI. Leur état n\'a pas changé.', $done, 'printgestion'), $done)
-        : __('Les tâches de Print Gestion qui acceptent le mode CLI y sont déjà toutes.', 'printgestion'),
-        false, $done > 0 ? INFO : WARNING);
+    // en CLI et activer sont deux décisions, chacune son bouton. Tâches du plugin et de GLPI Inventory (la collecte
+    // en dépend) ; jamais celles de GLPI ni d'un autre plugin.
+    $proven = PluginPrintgestionConfighealth::isCronProven();
+    $done   = PluginPrintgestionConfighealth::switchTasksToCli();
+    $scope  = PluginPrintgestionConfighealth::getTaskScopeLabel();
+    Session::addMessageAfterRedirect(htmlspecialchars(!$proven
+        ? __('Aucun cron système n\'est prouvé (la tâche témoin n\'a pas tourné) : rien n\'est passé en CLI, les tâches s\'y arrêteraient. Installer d\'abord le cron du serveur.', 'printgestion')
+        : ($done > 0
+            ? sprintf(_n('%1$d tâche de %2$s passée en mode CLI. Son état n\'a pas changé.', '%1$d tâches de %2$s passées en mode CLI. Leur état n\'a pas changé.', $done, 'printgestion'), $done, $scope)
+            : sprintf(__('Les tâches de %s qui acceptent le mode CLI y sont déjà toutes.', 'printgestion'), $scope)), ENT_QUOTES, 'UTF-8'),
+        false, !$proven ? ERROR : ($done > 0 ? INFO : WARNING));
 } elseif (isset($_POST['cron_enable_tasks'])) {
     // « Activer » : l'état seulement, jamais le mode. PrintgestionProposeDemandes garde son propre bouton : elle ne
     // doit être activée qu'après validation métier du flux d'export.
-    $done = PluginPrintgestionConfighealth::enableTasks();
-    Session::addMessageAfterRedirect($done > 0
-        ? sprintf(_n('%d tâche de Print Gestion réactivée. Son mode d\'exécution n\'a pas changé.', '%d tâches de Print Gestion réactivées. Leur mode d\'exécution n\'a pas changé.', $done, 'printgestion'), $done)
-        : __('Aucune tâche de Print Gestion à réactiver : la proposition automatique de demandes d\'envoi a son propre bouton.', 'printgestion'),
+    $done  = PluginPrintgestionConfighealth::enableTasks();
+    $scope = PluginPrintgestionConfighealth::getTaskScopeLabel();
+    Session::addMessageAfterRedirect(htmlspecialchars($done > 0
+        ? sprintf(_n('%1$d tâche de %2$s réactivée. Son mode d\'exécution n\'a pas changé.', '%1$d tâches de %2$s réactivées. Leur mode d\'exécution n\'a pas changé.', $done, 'printgestion'), $done, $scope)
+        : sprintf(__('Aucune tâche de %s à réactiver : la proposition automatique de demandes d\'envoi a son propre bouton.', 'printgestion'), $scope), ENT_QUOTES, 'UTF-8'),
         false, $done > 0 ? INFO : WARNING);
 } elseif (isset($_POST['cron_unblock_tasks'])) {
     // « Débloquer » : les seules tâches du plugin coincées « en cours d'exécution » repassent en attente.
-    $done = PluginPrintgestionConfighealth::unblockTasks();
-    Session::addMessageAfterRedirect($done > 0
-        ? sprintf(_n('%d tâche de Print Gestion débloquée : elle repartira au prochain passage du cron.', '%d tâches de Print Gestion débloquées : elles repartiront au prochain passage du cron.', $done, 'printgestion'), $done)
-        : __('Aucune tâche de Print Gestion coincée « en cours d\'exécution ».', 'printgestion'),
+    $done  = PluginPrintgestionConfighealth::unblockTasks();
+    $scope = PluginPrintgestionConfighealth::getTaskScopeLabel();
+    Session::addMessageAfterRedirect(htmlspecialchars($done > 0
+        ? sprintf(_n('%1$d tâche de %2$s débloquée : elle repartira au prochain passage du cron.', '%1$d tâches de %2$s débloquées : elles repartiront au prochain passage du cron.', $done, 'printgestion'), $done, $scope)
+        : sprintf(__('Aucune tâche de %s coincée « en cours d\'exécution ».', 'printgestion'), $scope), ENT_QUOTES, 'UTF-8'),
         false, $done > 0 ? INFO : WARNING);
 } elseif (isset($_POST['cron_declare_system'])) {
     // Déclaration du cron système : constante native de GLPI écrite dans config/local_define.php, donc droit GLPI de

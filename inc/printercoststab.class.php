@@ -131,30 +131,40 @@ class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
             . _sx('button', 'Search') . "</button></div>";
         echo "</form>";
 
-        echo "<table class='table table-sm table-hover align-middle' id='{$uid}-table'>";
-        echo "<tr><th style='width:40%'>" . __('Contrat lié', 'printgestion')
-            . "</th><td data-pc-field='contract_name'>"
-            . htmlspecialchars($contract_name, ENT_QUOTES, 'UTF-8') . "</td></tr>";
-        echo "<tr><th>" . __('Tarif N&B', 'printgestion')
-            . "</th><td data-pc-field='rate_nb'>"
-            . number_format($rates['nb'], 6, ',', ' ') . " €/page</td></tr>";
-        echo "<tr><th>" . __('Tarif Couleur', 'printgestion')
-            . "</th><td data-pc-field='rate_color'>"
-            . number_format($rates['color'], 6, ',', ' ') . " €/page</td></tr>";
-        echo "<tr><th>" . __('Compteur N&B début → fin', 'printgestion')
-            . "</th><td data-pc-field='counter_nb'>"
-            . number_format($counters['start_nb'], 0, '', ' ') . " → "
-            . number_format($counters['end_nb'], 0, '', ' ')
-            . " <strong>(+" . number_format($delta_nb, 0, '', ' ') . ")</strong></td></tr>";
-        echo "<tr><th>" . __('Compteur Couleur début → fin', 'printgestion')
-            . "</th><td data-pc-field='counter_color'>"
-            . number_format($counters['start_color'], 0, '', ' ') . " → "
-            . number_format($counters['end_color'], 0, '', ' ')
-            . " <strong>(+" . number_format($delta_color, 0, '', ' ') . ")</strong></td></tr>";
-        echo "<tr class='tab_bg_2'><th>" . __('Coût total sur la période', 'printgestion')
-            . "</th><td data-pc-field='cost'><strong style='font-size:1.3em;color:#1F4E79'>"
-            . number_format($cost, 2, ',', ' ') . " €</strong></td></tr>";
-        echo "</table>";
+        // Fiche de valeurs rendue par le gabarit natif (components/datatable.html.twig) : deux colonnes, sans ligne
+        // d'en-tête. Le script ci-dessous retrouve le tableau par son id ({$uid}-table) et réécrit chaque valeur par
+        // son data-pc-field : le gabarit ne pose aucun attribut sur les cellules, l'attribut est donc porté par un
+        // <span> qui enveloppe la valeur. Le libellé, ancien <th> de tête de ligne, reste en gras. Aucun lien : la
+        // ligne ne s'ouvre pas d'un clic (comme avant).
+        $esc  = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $line = static fn(string $label, string $field, string $html) => [
+            'label' => "<span class='fw-bold'>" . $esc($label) . "</span>",
+            'value' => "<span data-pc-field='{$field}'>{$html}</span>",
+        ];
+        $entries = [
+            $line(__('Contrat lié', 'printgestion'), 'contract_name', $esc($contract_name)),
+            $line(__('Tarif N&B', 'printgestion'), 'rate_nb', number_format($rates['nb'], 6, ',', ' ') . " €/page"),
+            $line(__('Tarif Couleur', 'printgestion'), 'rate_color', number_format($rates['color'], 6, ',', ' ') . " €/page"),
+            $line(__('Compteur N&B début → fin', 'printgestion'), 'counter_nb',
+                number_format($counters['start_nb'], 0, '', ' ') . " → "
+                . number_format($counters['end_nb'], 0, '', ' ')
+                . " <strong>(+" . number_format($delta_nb, 0, '', ' ') . ")</strong>"),
+            $line(__('Compteur Couleur début → fin', 'printgestion'), 'counter_color',
+                number_format($counters['start_color'], 0, '', ' ') . " → "
+                . number_format($counters['end_color'], 0, '', ' ')
+                . " <strong>(+" . number_format($delta_color, 0, '', ' ') . ")</strong>"),
+            $line(__('Coût total sur la période', 'printgestion'), 'cost',
+                "<strong style='font-size:1.3em;color:#1F4E79'>" . number_format($cost, 2, ',', ' ') . " €</strong>")
+                + ['row_class' => 'tab_bg_2'],
+        ];
+        echo PluginPrintgestionUi::datatable(
+            ['label' => '', 'value' => ''],
+            $entries,
+            ['label' => 'raw_html', 'value' => 'raw_html'],
+            null,
+            false,
+            ['datatable_id' => "{$uid}-table", 'no_header' => true]
+        );
         echo "</div></div>";
 
         // JS : toggle dates selon période + submit AJAX + restauration sessionStorage
@@ -216,6 +226,7 @@ class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
   function fmtRate(n) { return Number(n || 0).toLocaleString('fr-FR', {minimumFractionDigits: 6, maximumFractionDigits: 6}) + ' €/page'; }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+  // La valeur est le <span data-pc-field> posé dans sa cellule par showCostTab (gabarit natif).
   function setField(name, html) {
     const el = table.querySelector('[data-pc-field="' + name + '"]');
     if (el) el.innerHTML = html;

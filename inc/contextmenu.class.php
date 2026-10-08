@@ -66,6 +66,23 @@ class PluginPrintgestionContextmenu {
         return false;
     }
 
+    /** Fichier Gesconso d'une commande : mêmes droits que son téléchargement (Purchaseorder::canDownload()). */
+    private static function canDownloadGesconso(): bool {
+        return Session::haveRight('plugin_printgestion_expedition', READ)
+            || Session::haveRight('plugin_printgestion_validation', READ);
+    }
+
+    /** Adresse de téléchargement du fichier Gesconso, par lot d'expéditions : group_id => URL. */
+    private static function getGesconsoUrls(array $group_ids): array {
+        if (!self::canDownloadGesconso()) {
+            return [];
+        }
+        return array_map(
+            [PluginPrintgestionPurchaseorder::class, 'getDownloadURL'],
+            PluginPrintgestionPurchaseorder::getIdsForGroups($group_ids)
+        );
+    }
+
     /** Liaison BL du plugin Gestion : déduite de son état, jamais réglée ; une erreur la désactive pour l'écran. */
     private static function isBlEnabled(): bool {
         try {
@@ -119,6 +136,10 @@ class PluginPrintgestionContextmenu {
                     $items[] = ['key' => 'open-expedition', 'icon' => 'ti ti-truck', 'label' => __('Ouvrir l\'expédition en cours', 'printgestion'),
                                 'kind' => 'link', 'field' => 'expedition_url', 'require' => 'has_expedition'];
                 }
+                if (self::canDownloadGesconso()) {
+                    $items[] = ['key' => 'download-gesconso', 'icon' => 'ti ti-file-spreadsheet', 'label' => __('Télécharger le fichier Gesconso', 'printgestion'),
+                                'kind' => 'link', 'field' => 'gesconso_url', 'require' => 'has_gesconso'];
+                }
                 if (Session::haveRight('plugin_printgestion_expedition', UPDATE)) {
                     $items[] = ['key' => 'edit-expedition', 'icon' => 'ti ti-pencil', 'label' => __('Modifier l\'expédition en cours…', 'printgestion'),
                                 'kind' => 'plugin', 'event' => 'edit-expedition', 'require' => 'has_expedition'];
@@ -143,6 +164,10 @@ class PluginPrintgestionContextmenu {
             case 'PluginPrintgestionExpedition':
                 $items[] = ['key' => 'open-expedition', 'icon' => 'ti ti-truck', 'label' => __('Ouvrir l\'expédition', 'printgestion'),
                             'kind' => 'link', 'field' => 'expedition_url', 'require' => ''];
+                if (self::canDownloadGesconso()) {
+                    $items[] = ['key' => 'download-gesconso', 'icon' => 'ti ti-file-spreadsheet', 'label' => __('Télécharger le fichier Gesconso', 'printgestion'),
+                                'kind' => 'link', 'field' => 'gesconso_url', 'require' => 'has_gesconso'];
+                }
                 if (Session::haveRight('plugin_printgestion_expedition', UPDATE)) {
                     $items[] = ['key' => 'edit-expedition', 'icon' => 'ti ti-pencil', 'label' => __('Modifier expédition…', 'printgestion'),
                                 'kind' => 'plugin', 'event' => 'edit-expedition', 'require' => ''];
@@ -328,9 +353,18 @@ class PluginPrintgestionContextmenu {
     }
     var empty = menu.querySelector('[data-pc-empty]');
     if (empty) { empty.style.display = shown ? 'none' : 'block'; }
-    menu.style.left = e.pageX + 'px';
-    menu.style.top  = e.pageY + 'px';
+    // Affiché d'abord pour connaître sa taille, puis placé dans la fenêtre : à gauche du pointeur s'il dépasserait
+    // le bord droit, au-dessus s'il dépasserait le bas, et jamais au-delà du bord gauche ou du haut.
+    menu.style.visibility = 'hidden';
     menu.style.display = 'block';
+    var w = menu.offsetWidth, h = menu.offsetHeight, margin = 4;
+    var x = e.clientX + w > window.innerWidth - margin ? e.clientX - w : e.clientX;
+    var y = e.clientY + h > window.innerHeight - margin ? e.clientY - h : e.clientY;
+    x = Math.max(margin, Math.min(x, window.innerWidth - w - margin));
+    y = Math.max(margin, Math.min(y, window.innerHeight - h - margin));
+    menu.style.left = (x + window.scrollX) + 'px';
+    menu.style.top  = (y + window.scrollY) + 'px';
+    menu.style.visibility = '';
   }
 
   // Un seul jeu d'écouteurs sur le document, même quand un onglet AJAX recharge ce script : ils appellent la
@@ -362,19 +396,27 @@ class PluginPrintgestionContextmenu {
     box.dispatchEvent(new Event('change', { bubbles: true }));
     var btn = document.querySelector('.massiveactions-control a[role="button"]');
     if (!btn) { return; }
+    // GLPI réutilise la fenêtre et recharge son contenu à chaque ouverture : l'ancien menu déroulant reste affiché
+    // le temps du chargement. Marqué ici, il n'est jamais pris pour le nouveau (le choix serait aussitôt écrasé).
+    var olds = document.querySelectorAll('select[name="massiveaction"]');
+    for (var o = 0; o < olds.length; o++) { olds[o].setAttribute('data-pg-old', '1'); }
     btn.click();
-    // La fenêtre charge son formulaire en AJAX : on attend le menu déroulant des actions, puis on choisit.
+    // La fenêtre charge son formulaire en AJAX : on attend le nouveau menu déroulant des actions, puis on choisit.
     var tries = 0;
     var timer = setInterval(function () {
-      var sel = document.querySelector('.modal.show select[name="massiveaction"]');
+      var sel = document.querySelector('.modal.show select[name="massiveaction"]:not([data-pg-old])');
       if (sel) {
         clearInterval(timer);
         var found = false;
         for (var k = 0; k < sel.options.length; k++) { if (sel.options[k].value === actionKey) { found = true; break; } }
         if (!found) { return; }
-        sel.value = actionKey;
-        if (window.jQuery) { window.jQuery(sel).trigger('change'); } else { sel.dispatchEvent(new Event('change', { bubbles: true })); }
-      } else if (++tries > 50) {
+        // GLPI branche son écouteur (chargement du sous-formulaire) au « document prêt », juste après l'insertion :
+        // on lui laisse ce temps avant de choisir.
+        setTimeout(function () {
+          sel.value = actionKey;
+          if (window.jQuery) { window.jQuery(sel).trigger('change'); } else { sel.dispatchEvent(new Event('change', { bubbles: true })); }
+        }, 150);
+      } else if (++tries > 100) {
         clearInterval(timer);
       }
     }, 100);
@@ -553,7 +595,7 @@ JS;
         }
         $open = [];
         foreach ($DB->request([
-            'SELECT' => ['id', 'printers_id', 'toner_property', 'statut', 'transport_carrier', 'transport_number'],
+            'SELECT' => ['id', 'printers_id', 'toner_property', 'statut', 'transport_carrier', 'transport_number', 'group_id'],
             'FROM'   => PluginPrintgestionExpedition::getTable(),
             'WHERE'  => ['printers_id' => $printer_ids, 'active_lock' => 1],
         ]) as $row) {
@@ -589,6 +631,7 @@ JS;
             ),
         ]), false);
         $open          = self::getOpenExpeditions(array_values(array_unique(array_map(static fn(array $r): int => (int) $r['printers_id'], $rows))));
+        $gesconso      = self::getGesconsoUrls(array_column($open, 'group_id'));
         $can_cartridge = CartridgeItem::canView();
         $out           = [];
         foreach ($rows as $row) {
@@ -622,6 +665,9 @@ JS;
                 'can_unsnooze'   => !empty($row['is_snoozed']),
                 'has_expedition' => $exp !== null,
                 'has_cartridge'  => $cartridge_id > 0,
+                // Fichier de la commande en cours pour ce toner (expédition ouverte).
+                'gesconso_url'   => $exp !== null ? ($gesconso[(string) $exp['group_id']] ?? '') : '',
+                'has_gesconso'   => $exp !== null && isset($gesconso[(string) $exp['group_id']]),
             ];
         }
         return $out;
@@ -661,6 +707,7 @@ JS;
                 $table . '.statut AS statut',
                 $table . '.transport_carrier AS carrier',
                 $table . '.transport_number AS tracking',
+                $table . '.group_id AS group_id',
                 'glpi_printers.name AS printer_name',
                 'glpi_entities.completename AS entity_name',
             ],
@@ -683,11 +730,13 @@ JS;
                 $demandes[(int) $line['expeditions_id']] = (int) $line['plugin_printgestion_demandes_id'];
             }
         }
-        $out = [];
+        $gesconso = self::getGesconsoUrls(array_column($rows, 'group_id'));
+        $out      = [];
         foreach ($rows as $row) {
             $id          = (int) $row['id'];
             $printers_id = (int) $row['printers_id'];
             $demande     = $demandes[$id] ?? 0;
+            $file_url    = $gesconso[(string) ($row['group_id'] ?? '')] ?? '';
             $out[$id]    = [
                 'printers_id'    => $printers_id,
                 'printer_name'   => (string) $row['printer_name'],
@@ -701,6 +750,8 @@ JS;
                 'exp_tracking'   => (string) ($row['tracking'] ?? ''),
                 'demande_url'    => $demande > 0 ? PluginPrintgestionDemande::getFormURLWithID($demande) : '',
                 'has_demande'    => $demande > 0,
+                'gesconso_url'   => $file_url,
+                'has_gesconso'   => $file_url !== '',
             ];
         }
         return $out;

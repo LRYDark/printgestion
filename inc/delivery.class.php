@@ -122,7 +122,8 @@ class PluginPrintgestionDelivery {
      * @return int nombre d'expéditions passées « livrée »
      */
     public static function markDeliveredBatch(array $constats): int {
-        $done = 0;
+        $done      = 0;
+        $delivered = [];
         foreach ($constats as $constat) {
             if (self::markDelivered(
                 (int) ($constat['id'] ?? 0),
@@ -131,11 +132,14 @@ class PluginPrintgestionDelivery {
                 (string) ($constat['detail'] ?? '')
             )) {
                 $done++;
+                $delivered[] = (int) $constat['id'];
             }
         }
         if ($done > 0) {
-            // Avancement des lignes de demande d'envoi : exporté → expédié → livré.
-            PluginPrintgestionDemande::syncFromExpeditions();
+            // Avancement des lignes de demande d'envoi : exporté → expédié → livré. Seulement les demandes des
+            // expéditions qui viennent de passer « livrée » : ce chemin est aussi pris à l'affichage (tableau de
+            // bord, rapprochement des BL), et le passage complet sur toutes les demandes reste à la tâche automatique.
+            PluginPrintgestionDemande::syncFromExpeditions(null, $delivered);
             // L'écran des alertes lit une table matérialisée qui garde le motif de verrou de chaque cartouche. Le
             // statut de l'expédition vient de changer : ce qu'elle affiche ne reflète plus l'état, et elle doit le
             // dire (bandeau « recalculer ») plutôt que montrer un verrou d'avant la livraison.

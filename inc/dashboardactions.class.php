@@ -184,20 +184,10 @@ HTML;
             <label class="form-label" id="pc-linkbl-label"></label>
             <select name="bls[]" id="pc-linkbl-select" multiple="multiple" style="width:100%;"></select>
           </div>
-          <!-- Tableau détaillé des BL associés (date + entité) -->
+          <!-- Tableau détaillé des BL associés (date + entité) : gabarit natif rendu par ajax/expedition_bls.php -->
           <div id="pc-linkbl-details-wrap" class="mt-3" style="display:none;">
             <label class="form-label small text-muted">Détail des BL associés</label>
-            <table class="table table-sm table-bordered mb-0">
-              <thead class="table-light">
-                <tr>
-                  <th>BL</th>
-                  <th>Date</th>
-                  <th>Entité</th>
-                  <th>Source</th>
-                </tr>
-              </thead>
-              <tbody id="pc-linkbl-details-tbody"></tbody>
-            </table>
+            <div id="pc-linkbl-details"></div>
           </div>
         </div>
         <div class="modal-footer">
@@ -505,9 +495,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const msgWrap = document.getElementById('pc-linkbl-messages');
     if (msgWrap) msgWrap.style.display = 'none';
     const detailsWrap = document.getElementById('pc-linkbl-details-wrap');
-    const detailsBody = document.getElementById('pc-linkbl-details-tbody');
+    const detailsBox  = document.getElementById('pc-linkbl-details');
     if (detailsWrap) detailsWrap.style.display = 'none';
-    if (detailsBody) detailsBody.innerHTML = '';
+    if (detailsBox) detailsBox.innerHTML = '';
 
     // Pré-remplit le select2 avec les BL déjà associés à cette expédition
     fetch(AJAX_BASE + '/expedition_bls.php?expedition_id=' + encodeURIComponent(d.expedition_id || 0), {
@@ -531,20 +521,10 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         $s.val(ids).trigger('change');
 
-        // Tableau détaillé
-        if (detailsWrap && detailsBody) {
-          detailsBody.innerHTML = '';
-          data.bls.forEach(function(b) {
-            const tr = document.createElement('tr');
-            const signedBadge = b.signed
-              ? ' <span class="badge bg-success ms-1">signé</span>'
-              : '';
-            tr.innerHTML = '<td>' + escapeHtml(b.bl || '—') + signedBadge + '</td>'
-              + '<td class="text-muted small">' + escapeHtml((b.date_creation || '').substring(0, 10)) + '</td>'
-              + '<td class="text-muted small">' + escapeHtml(b.entity_name || '—') + '</td>'
-              + '<td class="text-muted small">' + escapeHtml(b.save || '—') + '</td>';
-            detailsBody.appendChild(tr);
-          });
+        // Tableau détaillé : rendu par le gabarit natif dans expedition_bls.php (champ html, valeurs déjà
+        // échappées côté serveur), injecté tel quel.
+        if (detailsWrap && detailsBox && data.html) {
+          detailsBox.innerHTML = data.html;
           detailsWrap.style.display = 'block';
         }
       })

@@ -197,6 +197,10 @@ class PluginPrintgestionCollectsetup {
                 ));
             }
         }
+        if ($supprimes > 0) {
+            // Plages IP et tâches supprimées : la couverture des sondes en cache est périmée.
+            PluginPrintgestionAgentalert::invalidateCoverageCache();
+        }
         PluginPrintgestionLogger::info('collectsetup', sprintf(
             'Raccordement %1$d : %2$d objet(s) de collecte supprimé(s) — ce que l\'assistant avait créé.',
             (int) $racc->getID(),
@@ -930,6 +934,8 @@ class PluginPrintgestionCollectsetup {
             }
             return ['ok' => false, 'events' => [['error', sprintf(__('Configuration annulée, rien n\'a été gardé : %s.', 'printgestion'), $reason)]]];
         }
+        // Plages IP et tâches créées : la couverture des sondes en cache (écrans Agent, Sondes) est périmée.
+        PluginPrintgestionAgentalert::invalidateCoverageCache();
         return ['ok' => true, 'events' => $events];
     }
 

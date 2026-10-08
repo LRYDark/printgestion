@@ -534,7 +534,7 @@ def main():
                 ok_ko("function rawSearchOptions" in sources["raccordement.class.php"]))
         source_ui = io.open(os.path.join(config.GLPI_DIR, "plugins", "printgestion", "inc", "ui.class.php"), encoding="utf-8").read()
         constat("la sélection mémorisée par GLPI est oubliée à chaque rendu de liste",
-                ok_ko("unset($_SESSION['glpimassiveactionselected'][$itemtype]);" in source_ui))
+                ok_ko("unset($_SESSION['glpimassiveactionselected'][$massive]);" in source_ui))
         constat("sondes : plus de rangée de cartes fabriquée à la main",
                 ok_ko("row row-cards" not in page_sondes))
         constat("le réglage « Statut GLPI des PC sondes » a quitté l'écran de consultation",

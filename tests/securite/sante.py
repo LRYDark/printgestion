@@ -2,9 +2,11 @@
 
 Chaque contrôle obligatoire est mis en défaut puis rétabli : ligne rouge, bannière impossible à manquer, page non
 bloquée (le formulaire reste là). Actions automatiques : vert seulement sans action active en mode GLPI ET avec une
-action en mode CLI lancée dans l'heure ; chaque correction a son bouton et n'agit que sur elle (passer en mode CLI
-sans toucher à l'état, activer sans toucher au mode, débloquer, déclarer le cron système, activer la proposition
-automatique des demandes), et le cron du serveur reste le seul point qu'aucun bouton ne corrige. Sauvegarde de glpicrypt.key : ligne « non vérifiable automatiquement »,
+action en mode CLI lancée dans l'heure ; chaque correction a son bouton et n'agit que sur elle (enregistrer les tâches
+du plugin absentes de GLPI, passer en mode CLI sans toucher à l'état, activer sans toucher au mode, débloquer, déclarer
+le cron système, activer la proposition automatique des demandes), et le cron du serveur reste le seul point qu'aucun
+bouton ne corrige. Préparation des inventaires réseau : pour information tant qu'aucune tâche de collecte n'est gérée.
+Sauvegarde de glpicrypt.key : ligne « non vérifiable automatiquement »,
 jamais une case à cocher. Tout vert : une ligne « Configuration : complète », détail replié. Profils : lecture seule
 du droit de configuration → carte sans bouton ; sans ce droit → pas de carte.
 """
@@ -22,6 +24,10 @@ from lib import WEB, constat, ok_ko, section, sql, valeur
 LOCAL_DEFINE = os.path.join(config.GLPI_DIR, "config", "local_define.php")
 LOCAL_DEFINE_AVANT = None
 LIAISON_GESTION_AVANT = None
+# Tâche du plugin retirée de glpi_crontasks le temps d'un contrôle (celle qui manquait en production), et sa ligne
+# d'origine (colonnes, valeurs) pour la remettre telle quelle : même identifiant, mêmes réglages.
+TACHE_ABSENTE = "itemtype = 'PluginPrintgestionRaccordement' AND name = 'PrintgestionRaccordements'"
+TACHE_RETIREE = None
 ONGLET = "/ajax/common.tabs.php?_target=%2Ffront%2Fconfig.form.php&_itemtype=Config&_glpi_tab=PluginPrintgestionConfig%241&id=1"
 CTX = lib.Contexte()
 
@@ -63,9 +69,21 @@ def restaurer_local_define():
         os.remove(copie)
 
 
+def remettre_tache():
+    """Remet la tâche retirée de glpi_crontasks dans son état d'avant : celle que le bouton a recréée est effacée, la
+    ligne d'origine réinsérée avec son identifiant (son journal d'exécution s'y rattache de nouveau)."""
+    global TACHE_RETIREE
+    if TACHE_RETIREE is None:
+        return
+    colonnes, valeurs = TACHE_RETIREE
+    sql(f"DELETE FROM glpi_crontasks WHERE {TACHE_ABSENTE}; "
+        f"INSERT INTO glpi_crontasks ({', '.join(f'`{c}`' for c in colonnes)}) VALUES ({', '.join(lib.q(v) for v in valeurs)});")
+    TACHE_RETIREE = None
+
+
 def main():
     d.verifier_instance()
-    global LOCAL_DEFINE_AVANT, LIAISON_GESTION_AVANT
+    global LOCAL_DEFINE_AVANT, LIAISON_GESTION_AVANT, TACHE_RETIREE
     LOCAL_DEFINE_AVANT = lire_local_define() if os.path.exists(LOCAL_DEFINE) else None
     liaison = valeur("SELECT value FROM glpi_configs WHERE context = 'plugin:printgestion' AND name = 'gestion_link_enabled'")
     LIAISON_GESTION_AVANT = liaison if liaison != "" else None
@@ -84,8 +102,11 @@ def main():
         section("1. Position et contenu")
         page, etats = carte()
         constat("carte « Santé de la configuration » en tête, avant les modules", ok_ko(0 <= page.find("Santé de la configuration") < page.find("Activation des modules")))
-        constat("11 contrôles : 7 obligatoires, 4 recommandés (GLS, MBE, journal, clé), l'URL de l'application en tête",
-                ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "dependances", "cron", "xlsx", "notifications", "tag_rule", "glpicrypt", "gls", "mbe", "log"]), str(etats))
+        constat("13 contrôles : 9 obligatoires, 4 recommandés (GLS, MBE, journal, clé), l'URL de l'application en tête, la préparation des inventaires réseau juste après les actions automatiques",
+                ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "dependances", "cron", "collect_prep", "xlsx", "notifications", "tag_rule", "glpicrypt", "gls", "mbe", "log"]), str(etats))
+        # Déploiement et GLPI Inventory actifs sur l'instance de test, mais aucun raccordement piloté : rien à préparer.
+        constat("préparation des inventaires réseau sans tâche de collecte : « Aucune tâche de collecte », pour information",
+                ok_ko(etats.get("collect_prep") == "info" and "Aucune tâche de collecte." in page), str(etats.get("collect_prep")))
         constat("détail replié par défaut : bannière, puis une ligne « N points à voir : … à corriger, … à acquitter », le reste derrière le chevron",
                 ok_ko("points à voir" in page and "à corriger" in page and "à acquitter" in page
                       and page.find("points à voir") < page.find("class='collapse'", page.find("points à voir")) < page.find("data-pg-health=")))
@@ -127,21 +148,34 @@ def main():
         constat("un test inconnu est refusé, sans appeler personne",
                 ok_ko('"ok":false' in reponse.replace(" ", "")), reponse.strip()[:120])
 
-        section("2. Actions automatiques : témoin du cron système, périmètre du plugin, un bouton par correction")
+        section("2. Actions automatiques : témoin du cron système, périmètre du plugin et de GLPI Inventory, un bouton par correction")
         maintenant = lib.php_glpi("echo date('Y-m-d H:i:s');").strip()
-        autres = lambda: lib.lignes("SELECT name, mode, state FROM glpi_crontasks WHERE itemtype NOT LIKE 'PluginPrintgestion%' ORDER BY name")  # noqa: E731
-        etats_plugin = lambda: lib.lignes("SELECT name, state FROM glpi_crontasks WHERE itemtype LIKE 'PluginPrintgestion%' ORDER BY name")  # noqa: E731
-        modes_plugin = lambda: lib.lignes("SELECT name, mode FROM glpi_crontasks WHERE itemtype LIKE 'PluginPrintgestion%' ORDER BY name")  # noqa: E731
+        # Périmètre de la carte : les tâches du plugin et celles de GLPI Inventory (la collecte en dépend).
+        perimetre = "(itemtype LIKE 'PluginPrintgestion%' OR itemtype LIKE 'PluginGlpiinventory%')"
+        autres = lambda: lib.lignes(f"SELECT name, mode, state FROM glpi_crontasks WHERE NOT {perimetre} ORDER BY name")  # noqa: E731
+        etats_plugin = lambda: lib.lignes(f"SELECT name, state FROM glpi_crontasks WHERE {perimetre} ORDER BY name")  # noqa: E731
+        modes_plugin = lambda: lib.lignes(f"SELECT name, mode FROM glpi_crontasks WHERE {perimetre} ORDER BY name")  # noqa: E731
         sql("UPDATE glpi_crontasks SET lastrun = NULL WHERE name = 'PrintgestionTemoinCron';")
         sql("UPDATE glpi_crontasks SET mode = 1, state = 1 WHERE itemtype LIKE 'PluginPrintgestion%' AND name NOT IN ('PrintgestionTemoinCron', 'PrintgestionProposeDemandes');")
         sql("UPDATE glpi_crontasks SET mode = 1, state = 0 WHERE name = 'PrintgestionProposeDemandes';")
+        sql("UPDATE glpi_crontasks SET mode = 1, state = 1 WHERE itemtype LIKE 'PluginGlpiinventory%';")
         page, etats = carte()
-        constat("témoin jamais passé : rouge « Aucun cron système détecté », bouton « Passer en mode CLI » dont la confirmation prévient que rien ne tournera sans cron",
-                ok_ko(etats.get("cron") == "error" and "Aucun cron système détecté" in page and "cron_switch_cli" in page
-                      and "ne tourneront plus du tout tant que le cron du serveur" in page and bandeau(page)))
-        constat("détail : GLPI_SYSTEM_CRON, les 8 tâches du plugin et le témoin avec leur fiche, queuednotification en lecture seule, la ligne de cron à installer sur le serveur",
-                ok_ko("GLPI_SYSTEM_CRON" in page and page.count("Configurer dans GLPI") >= 10 and "queuednotification" in page
-                      and "Témoin du cron" in page and "front/cron.php</code>" in page))
+        constat("témoin jamais passé : rouge « Aucun cron système détecté », PAS de bouton « Passer en mode CLI » (en CLI sans cron, tout s'arrêterait), l'ordre des gestes dit en clair",
+                ok_ko(etats.get("cron") == "error" and "Aucun cron système détecté" in page and "cron_switch_cli" not in page
+                      and "le passage en CLI n" in page and bandeau(page)))
+        avant_modes_sans_cron = modes_plugin()
+        WEB.post(config.FRONT + "/config.form.php", [("cron_switch_cli", "1")])
+        constat("POST « Passer en mode CLI » sans le bouton et sans cron prouvé : refusé côté serveur, aucun mode changé",
+                ok_ko(modes_plugin() == avant_modes_sans_cron), WEB.messages()[:160])
+        local_define_sans_cron = lire_local_define()
+        WEB.post(config.FRONT + "/config.form.php", [("cron_declare_system", "1")])
+        constat("POST « Déclarer le cron système » sans cron prouvé : refusé côté serveur, config/local_define.php inchangé",
+                ok_ko(lire_local_define() == local_define_sans_cron), WEB.messages()[:160])
+        constat("détail : GLPI_SYSTEM_CRON, les tâches du plugin, celles de GLPI Inventory et le témoin avec leur fiche, queuednotification en lecture seule, la ligne de cron à installer sur le serveur",
+                ok_ko("GLPI_SYSTEM_CRON" in page and page.count("Configurer dans GLPI") >= 14 and "queuednotification" in page
+                      and "GLPI Inventory — " in page and "Témoin du cron" in page and "front/cron.php</code>" in page))
+        constat("témoin jamais passé : pas de bouton « Déclarer le cron système » — on ne déclare pas un cron qui ne tourne pas",
+                ok_ko("cron_declare_system" not in page))
         sql(f"UPDATE glpi_crontasks SET lastrun = '{maintenant}' WHERE name = 'PrintgestionTemoinCron';")
         page, etats = carte()
         constat("tâches du plugin en Interne : « Mode Interne — rien ne partira de façon fiable », un bouton par correction, jamais un bouton qui groupe tout",
@@ -149,20 +183,21 @@ def main():
                       and "cron_switch_cli" in page and "confirm(" in page and "switch_plugin_tasks_cli" not in page))
         avant_autres, avant_etats = autres(), etats_plugin()
         WEB.post(config.FRONT + "/config.form.php", [("cron_switch_cli", "1")])
-        constat("« Passer en mode CLI » : le mode seulement — tâches du plugin en CLI, leur état inchangé, tâches de GLPI et des autres plugins intactes",
-                ok_ko(valeur("SELECT COUNT(*) FROM glpi_crontasks WHERE itemtype LIKE 'PluginPrintgestion%' AND mode = 1") == "0"
+        constat("« Passer en mode CLI » : le mode seulement — tâches du plugin ET de GLPI Inventory en CLI, leur état inchangé, tâches de GLPI et des autres plugins intactes",
+                ok_ko(valeur(f"SELECT COUNT(*) FROM glpi_crontasks WHERE {perimetre} AND mode = 1") == "0"
                       and etats_plugin() == avant_etats and autres() == avant_autres),
                 WEB.messages()[:120])
 
-        sql("UPDATE glpi_crontasks SET state = 0 WHERE name IN ('PrintgestionSnapshotReadings', 'PrintgestionCheckAlerts');")
+        sql("UPDATE glpi_crontasks SET state = 0 WHERE name IN ('PrintgestionSnapshotReadings', 'PrintgestionCheckAlerts', 'taskscheduler');")
         page, etats = carte()
-        constat("tâches désactivées : rouge, bouton « Activer les 2 tâches désactivées », la proposition automatique jamais comptée dedans",
-                ok_ko(etats.get("cron") == "error" and "cron_enable_tasks" in page and "2 tâches désactivées" in page
+        constat("tâches désactivées, dont le planificateur de GLPI Inventory : rouge, bouton « Activer les 3 tâches désactivées », la proposition automatique jamais comptée dedans",
+                ok_ko(etats.get("cron") == "error" and "cron_enable_tasks" in page and "3 tâches désactivées" in page
                       and "doivent être réactivées" in page))
         avant_modes = modes_plugin()
         WEB.post(config.FRONT + "/config.form.php", [("cron_enable_tasks", "1")])
-        constat("« Activer » : l'état seulement — les deux tâches réactivées, les modes inchangés, la proposition automatique toujours désactivée",
-                ok_ko(valeur("SELECT COUNT(*) FROM glpi_crontasks WHERE itemtype LIKE 'PluginPrintgestion%' AND state = 0") == "1"
+        constat("« Activer » : l'état seulement — les trois tâches réactivées (planificateur de GLPI Inventory compris), les modes inchangés, la proposition automatique toujours désactivée",
+                ok_ko(valeur(f"SELECT COUNT(*) FROM glpi_crontasks WHERE {perimetre} AND state = 0") == "1"
+                      and valeur("SELECT state FROM glpi_crontasks WHERE name = 'taskscheduler'") == "1"
                       and valeur("SELECT state FROM glpi_crontasks WHERE name = 'PrintgestionProposeDemandes'") == "0"
                       and modes_plugin() == avant_modes),
                 WEB.messages()[:120])
@@ -225,27 +260,35 @@ def main():
         sql("UPDATE glpi_crontasks SET lastrun = NULL WHERE name = 'PrintgestionTemoinCron';")
         page, etats = carte()
         constat("tout réglé ici mais cron du serveur absent : la ligne dit qu'aucun bouton de la carte ne la fera passer au vert, et n'en propose plus aucun sur les tâches",
-                ok_ko(etats.get("cron") == "error" and "plus aucune tâche active du plugin en mode Interne" in page
+                ok_ko(etats.get("cron") == "error" and "en mode Interne, plus aucune désactivée ni bloquée" in page
                       and "ne manque que le cron du serveur" in page and "cron_switch_cli" not in page
-                      and "cron_enable_tasks" not in page and "cron_unblock_tasks" not in page))
+                      and "cron_enable_tasks" not in page and "cron_unblock_tasks" not in page
+                      and "cron_declare_system" not in page))
 
         # Seule action de la carte qui écrit hors de la base : GLPI_SYSTEM_CRON dans config/local_define.php. Le
-        # bouton n'est proposé que si le serveur web peut écrire ce fichier — sinon le contrôle est non concluant, pas
-        # en échec, et le détail donne la ligne à ajouter à la main. Le fichier est remis dans son état d'avant juste
-        # après (et de nouveau dans le finally), pour que l'instance ne reste pas avec un cron système déclaré à tort.
+        # bouton n'est proposé qu'une fois le cron PROUVÉ par le témoin, et si le serveur web peut écrire ce fichier —
+        # sinon le contrôle est non concluant, pas en échec, et le détail donne la ligne à ajouter à la main. Le
+        # fichier est remis dans son état d'avant juste après (et de nouveau dans le finally).
+        sql(f"UPDATE glpi_crontasks SET lastrun = '{maintenant}' WHERE name = 'PrintgestionTemoinCron';")
+        page, etats = carte()
         if "cron_declare_system" in page:
-            constat("cron du serveur absent et fichier inscriptible : bouton « Déclarer le cron système (GLPI_SYSTEM_CRON) »",
-                    ok_ko("Déclarer le cron système" in page and "confirm(" in page))
+            constat("cron du serveur prouvé par le témoin et fichier inscriptible : bouton « Déclarer le cron système (GLPI_SYSTEM_CRON) »",
+                    ok_ko("Déclarer le cron système" in page and "confirm(" in page and "prouvé par la tâche témoin" in page))
             WEB.post(config.FRONT + "/config.form.php", [("cron_declare_system", "1")])
             constat("« Déclarer le cron système » : la ligne écrite dans config/local_define.php, sans réécrire le fichier",
                     ok_ko(os.path.exists(LOCAL_DEFINE) and "GLPI_SYSTEM_CRON" in lire_local_define()),
                     WEB.messages()[:160])
             page, etats = carte()
-            constat("déclaré alors que le témoin n'a jamais passé : vert « déclaré par GLPI_SYSTEM_CRON », et la ligne de crontab toujours affichée",
-                    ok_ko(etats.get("cron") == "ok" and "déclaré par GLPI_SYSTEM_CRON" in page and "front/cron.php</code>" in page))
+            constat("déclaré et témoin passé : vert « Cron système actif (témoin passé le … »",
+                    ok_ko(etats.get("cron") == "ok" and "Cron système actif (témoin passé le" in page))
+            sql("UPDATE glpi_crontasks SET lastrun = NULL WHERE name = 'PrintgestionTemoinCron';")
+            page, etats = carte()
+            constat("déclaré mais le témoin n'a jamais tourné : ROUGE « déclaré, mais aucun cron système ne tourne », les tâches CLI à l'arrêt comptées, la ligne de crontab affichée",
+                    ok_ko(etats.get("cron") == "error" and "GLPI_SYSTEM_CRON est déclaré, mais aucun cron système ne tourne" in page
+                          and "actives de GLPI et de ses plugins" in page and "front/cron.php</code>" in page and "cron_declare_system" not in page))
             restaurer_local_define()
             page, etats = carte()
-            constat("déclaration retirée : le contrôle redevient rouge, rien n'est resté en base",
+            constat("déclaration retirée : toujours rouge « Aucun cron système détecté », rien n'est resté en base",
                     ok_ko(etats.get("cron") == "error" and "Aucun cron système détecté" in page))
         else:
             constat("« Déclarer le cron système » : bouton non proposé, config/local_define.php non inscriptible par le serveur web",
@@ -253,6 +296,38 @@ def main():
         sql(f"UPDATE glpi_crontasks SET lastrun = '{maintenant}' WHERE name = 'PrintgestionTemoinCron';")
         constat("le témoin n'accepte que le mode CLI (allowmode) : jamais de bascule à faire sur lui",
                 ok_ko(valeur("SELECT CONCAT(mode, '/', allowmode) FROM glpi_crontasks WHERE name = 'PrintgestionTemoinCron'") == "2/2"))
+
+        section("2 ter. Tâche du plugin absente de GLPI : un bouton pour l'enregistrer, et rien d'autre")
+        # Vécu en production : la tâche des raccordements, ajoutée par une version du plugin, n'existe qu'après
+        # « Mettre à jour ». Sa ligne est retirée de la base le temps du contrôle, puis remise telle qu'elle était
+        # (même identifiant, mêmes réglages), ici et de nouveau dans le finally.
+        page, etats = carte()
+        constat("toutes les tâches du plugin enregistrées : ni « absente de GLPI », ni bouton « Enregistrer »",
+                ok_ko("du plugin absente" not in page and "cron_register_tasks" not in page))
+        colonnes = [c[0] for c in lib.lignes("SHOW COLUMNS FROM glpi_crontasks")]
+        TACHE_RETIREE = (colonnes, lib.lignes(f"SELECT * FROM glpi_crontasks WHERE {TACHE_ABSENTE}")[0])
+        sql(f"DELETE FROM glpi_crontasks WHERE {TACHE_ABSENTE};")
+        page, etats = carte()
+        bouton = page[page.find("cron_register_tasks"):page.find("</button>", page.find("cron_register_tasks"))]
+        constat("tâche des raccordements absente de glpi_crontasks : rouge « 1 tâche du plugin absente de GLPI », bouton « Enregistrer la tâche manquante » confirmé, qui la nomme",
+                ok_ko(etats.get("cron") == "error" and "1 tâche du plugin absente de GLPI." in page and bandeau(page)
+                      and "Enregistrer la tâche manquante" in bouton and "confirm(" in bouton and "fait avancer les raccordements" in bouton))
+        avant_autres, avant_plugin = autres(), etats_plugin()
+        WEB.post(config.FRONT + "/config.form.php", [("cron_register_tasks", "1")])
+        constat("« Enregistrer » : la tâche revient avec les réglages de l'installation (10 minutes, active), les autres tâches du plugin, de GLPI Inventory et de GLPI ne bougent pas",
+                ok_ko(valeur(f"SELECT CONCAT(frequency, '/', state) FROM glpi_crontasks WHERE {TACHE_ABSENTE}") == "600/1"
+                      and [t for t in etats_plugin() if t[0] != "PrintgestionRaccordements"] == avant_plugin
+                      and autres() == avant_autres),
+                WEB.messages()[:120])
+        page, etats = carte()
+        constat("tâche revenue : plus de phrase « absente de GLPI », plus de bouton « Enregistrer »",
+                ok_ko("du plugin absente" not in page and "cron_register_tasks" not in page))
+        WEB.post(config.FRONT + "/config.form.php", [("cron_register_tasks", "1")])
+        message = WEB.messages()
+        constat("POST « Enregistrer » sans tâche manquante : rien n'est créé en double, le message le dit",
+                ok_ko(valeur(f"SELECT COUNT(*) FROM glpi_crontasks WHERE {TACHE_ABSENTE}") == "1"
+                      and "toutes présentes" in message), message[:120])
+        remettre_tache()
 
         section("3. Autres contrôles obligatoires, un par un")
         sql("UPDATE glpi_configs SET value = '0' WHERE context = 'inventory' AND name = 'enabled_inventory';")
@@ -328,7 +403,10 @@ def main():
         page, etats = carte()
         constat("« J'ai vérifié » : « Vérifié le … par glpi », ligne verte, plus de bouton",
                 ok_ko(etats.get("glpicrypt") == "ok" and "Vérifié le" in page and "par glpi" in page and "ack_glpicrypt" not in page))
-        constat("état complet", ok_ko(all(e == "ok" for e in etats.values())), str(etats))
+        # La préparation des inventaires réseau reste « pour information » sur l'instance de test (aucune tâche de
+        # collecte) : ni bonne ni mauvaise, elle ne compte pas contre « complète ».
+        constat("état complet", ok_ko(all(e == "ok" for k, e in etats.items() if k != "collect_prep")
+                                      and etats.get("collect_prep") in ("ok", "info")), str(etats))
         constat("« Configuration : complète », détail replié derrière un chevron, aucune bannière",
                 ok_ko("Configuration : complète" in page and not bandeau(page)
                       and page.find("Configuration : complète") < page.find("class='collapse'") < page.find("data-pg-health=")))
@@ -552,6 +630,8 @@ def main():
         else:
             sql(f"UPDATE glpi_configs SET value = {lib.q(LIAISON_GESTION_AVANT)} WHERE context = 'plugin:printgestion' AND name = 'gestion_link_enabled';")
         restaurer_local_define()
+        # Avant les tâches : la ligne retirée doit avoir retrouvé son identifiant pour que son état d'origine lui revienne.
+        remettre_tache()
         for ident, mode, state, lastrun in cron:
             sql(f"UPDATE glpi_crontasks SET mode = {mode}, state = {state}, lastrun = {'NULL' if lastrun == 'NULL' else lib.q(lastrun)} WHERE id = {ident};")
         sql(f"UPDATE glpi_configs SET value = {lib.q(inventaire)} WHERE context = 'inventory' AND name = 'enabled_inventory';")
