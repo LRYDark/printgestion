@@ -2,6 +2,56 @@
 
 ## Non publié
 
+- **Changer la version de GLPI Agent : le plugin vérifie d'abord qu'elle ne casse pas les installeurs.** Dans la page
+  « Installeur », enregistrer une autre version que celle servie lance un contrôle sur GitHub, comparé à la dernière
+  version validée (1.20 au départ) :
+  - les quatre fichiers servis (MSI, installeur Linux, paquets macOS) existent sous le nom attendu, avec leur empreinte ;
+  - la version est dans winget (mise à jour automatique Windows) ;
+  - les fichiers sources dont dépendent les installeurs n'ont pas changé : propriétés du MSI, installeur Linux et
+    service, paquet macOS, interface locale de l'agent (/now, /status), ToolBox, configuration, `glpi-agent --version`
+    — la communication avec GLPI (client HTTP, protocole, service) et le relevé SNMP des imprimantes sont signalés
+    « à surveiller » : ils se jugent sur le terrain.
+
+  Compatible : la version est servie et le message le dit. Un point à vérifier : **rien n'est enregistré**, la nouvelle
+  carte « Compatibilité de GLPI Agent avec les installeurs » liste les fichiers modifiés avec le lien vers la
+  différence, et un bouton à part permet de « Servir quand même » (journalisé). Un fichier absent : refusé. Le même
+  contrôle joue à la demande (bouton « Vérifier la compatibilité ») et chaque semaine pour la dernière version publiée ;
+  la carte « Santé de la configuration » a une ligne « Versions de GLPI Agent ». Les scripts d'installation, eux, ne
+  changent pas d'un octet. GLPI Agent 1.21 (8 octobre 2026), contrôlée : compatible — seule la version d'OpenSSL du
+  paquet macOS change ; à surveiller : un correctif OAuth du client HTTP (non utilisé par les sondes), deux correctifs
+  de robustesse du service, et un module SNMP des téléphones GrandStream.
+
+- **Sondes suivies après leur mise à jour.** Le plugin retient la version de GLPI Agent de chaque sonde. Quand elle
+  change, il attend un relevé réussi : venu, la version est confirmée et validée ; absent au-delà du délai (deux
+  passages attendus, un jour au moins), la sonde est signalée — journal, ligne rouge de la carte de santé, section
+  « Sur le terrain » de la carte de compatibilité — avec la version d'avant, la date du changement et le dernier
+  relevé. Nouvelle table `glpi_plugin_printgestion_agentversions`, créée d'elle-même.
+
+- **Corrigé : fausse alerte rouge après la mise à jour de GLPI Inventory.** Le 06/10/2026 (GLPI Inventory 1.6.12),
+  Print Gestion a annoncé « 7 éléments sur 86 ont changé ou disparu » alors que tout était en place : la page qui a
+  fait le contrôle avait démarré juste avant l'activation, GLPI Inventory y était actif en base mais ses classes pas
+  encore chargées. Le contrôle attend désormais une page où GLPI l'a chargé (cinq pages au plus) avant de conclure.
+
+- **Accueil : chacun range ses cartes.** Sur l'accueil de Print Gestion, les cartes « Modules » se déplacent par
+  glisser-déposer, par la poignée en haut à droite de chaque carte ; l'ordre est propre à chaque utilisateur et
+  enregistré dès le dépôt. « Ordre par défaut » remet l'ordre d'origine. Une carte que l'utilisateur ne voit pas
+  (module coupé, droit absent) garde sa place ; un module ajouté plus tard se range après les autres. Glisser-déposer
+  de GLPI (celui du tri des recherches enregistrées), nouvelle table `glpi_plugin_printgestion_hubprefs` créée
+  d'elle-même, effacée à la désinstallation et, pour sa ligne, à la suppression de l'utilisateur.
+
+- **« Créer Print » devient le module « Mise en service », avec son droit.** Mettre une imprimante sous contrat
+  (contrat nouveau ou existant, imprimante nouvelle ou existante) a son entrée dans le menu, son interrupteur dans
+  les réglages « Modules » et son droit GLPI, « Mise en service — Mettre une imprimante sous contrat », séparé de
+  « Contrats », qui garde la consultation et « Éditer les tarifs ». Les profils qui pouvaient « Créer print »
+  reçoivent le nouveau droit une fois, et le module est allumé comme l'était la gestion contractuelle. L'ancienne
+  adresse `front/print.form.php` mène à la même page. **Droits natifs de GLPI respectés** : jusqu'ici, la page ne
+  contrôlait que l'entité ; elle exige désormais le droit de créer un contrat ou une imprimante quand elle les crée,
+  celui de modifier le contrat ou l'imprimante pour les relier (la condition des onglets natifs), puis la règle native
+  du lien (entités compatibles, nombre maximal d'éléments du contrat) — rien n'est créé sinon. Un profil qui avait
+  « Créer print » sans ces droits natifs ne peut donc plus créer de contrat ou d'imprimante par cette page : c'est
+  voulu (en production, seul Super-Admin avait ce droit, avec tous les droits natifs). Deux contrats et imprimantes
+  déjà liés : dit tel quel, rien n'est modifié.
+
 - **Menu du clic droit toujours visible.** Près du bord droit ou du bas de la fenêtre, il s'ouvre à gauche ou
   au-dessus du pointeur, au lieu de sortir de l'écran.
 

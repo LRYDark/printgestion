@@ -33,6 +33,8 @@ function plugin_printgestion_install() {
     PluginPrintgestionProfile::initProfile();
     // Nouveau niveau « Retirer une sonde » : donné une fois aux profils qui pouvaient déjà supprimer une sonde.
     PluginPrintgestionProfile::grantRemovalRightOnce();
+    // Droit du module « Mise en service », accordé une fois aux profils qui pouvaient « Créer print ».
+    PluginPrintgestionProfile::ensureMiseEnServiceRight();
     if (isset($_SESSION['glpiactiveprofile']['id'])) {
         PluginPrintgestionProfile::createFirstAccess($_SESSION['glpiactiveprofile']['id']);
     }

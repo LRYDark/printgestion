@@ -407,6 +407,17 @@ class PluginPrintgestionConfighealth {
             'detail' => implode('<br>', array_map($esc, $mbe_lines)),
         ];
 
+        // Versions de GLPI Agent : compatibilité avec les installeurs et sondes suivies après leur mise à jour
+        // (rapports gardés seulement, jamais d'appel à GitHub ici). Une erreur n'efface pas les autres lignes.
+        try {
+            $agent_compat = PluginPrintgestionAgentcompat::getHealthCheck();
+            if ($agent_compat !== null) {
+                $checks[] = $agent_compat;
+            }
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::error('agentcompat', 'Ligne « Versions de GLPI Agent » de la carte de santé non calculée.', $e);
+        }
+
         $checks[] = [
             'key'    => 'log',
             'group'  => 'recommended',

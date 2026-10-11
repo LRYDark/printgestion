@@ -68,13 +68,25 @@ class PluginPrintgestionDashboard extends CommonGLPI {
     //  Onglet Dashboard : tuiles + graphiques
     // ══════════════════════════════════════════════════════════════════════════
 
+    /** Bouton vers le module « Mise en service », seulement s'il est allumé et que le profil en a le droit. */
+    private static function getMiseEnServiceAction(): array {
+        if (!PluginPrintgestionConfig::isFeatureEnabled('miseenservice') || !Session::haveRight(PluginPrintgestionProfile::RIGHT_MISEENSERVICE, CREATE)) {
+            return [];
+        }
+        return [__('Mettre une imprimante sous contrat', 'printgestion') => PLUGIN_PRINTGESTION_WEBDIR . '/front/miseenservice.php'];
+    }
+
     public static function showCards(): void {
         $s = self::computeStats();
         // Rien à montrer : dire par quoi commencer, pas des compteurs à zéro.
         if ((int) $s['total'] === 0) {
+            $action = self::getMiseEnServiceAction();
             echo PluginPrintgestionUi::emptyState(
-                __('Aucun contrat d\'impression pour l\'instant. Commencez par « Créer Print » : un contrat et son imprimante en un seul formulaire. Un contrat GLPI existant compte dès qu\'il est d\'un type « consommables inclus » (Configuration → Print Gestion, section Commandes).', 'printgestion'),
-                [__('Créer Print', 'printgestion') => PLUGIN_PRINTGESTION_WEBDIR . '/front/print.form.php']
+                ($action !== []
+                    ? __('Aucun contrat d\'impression pour l\'instant. Commencez par « Mettre une imprimante sous contrat » (module Mise en service) : un contrat et son imprimante en un seul formulaire.', 'printgestion')
+                    : __('Aucun contrat d\'impression pour l\'instant.', 'printgestion'))
+                . ' ' . __('Un contrat GLPI existant compte dès qu\'il est d\'un type « consommables inclus » (Configuration → Print Gestion, section Commandes).', 'printgestion'),
+                $action
             );
         }
 
@@ -327,9 +339,12 @@ class PluginPrintgestionDashboard extends CommonGLPI {
         );
         echo "<div class='col search-container' data-glpi-search-container>";
         if ((int) self::computeStats()['total'] === 0) {
+            $action = self::getMiseEnServiceAction();
             echo PluginPrintgestionUi::emptyState(
-                __('Aucun contrat d\'impression pour l\'instant. Commencez par « Créer Print » : un contrat et son imprimante en un seul formulaire.', 'printgestion'),
-                [__('Créer Print', 'printgestion') => PLUGIN_PRINTGESTION_WEBDIR . '/front/print.form.php']
+                $action !== []
+                    ? __('Aucun contrat d\'impression pour l\'instant. Commencez par « Mettre une imprimante sous contrat » (module Mise en service) : un contrat et son imprimante en un seul formulaire.', 'printgestion')
+                    : __('Aucun contrat d\'impression pour l\'instant.', 'printgestion'),
+                $action
             );
         }
         Search::showList($itemtype, $params, $forced_display);

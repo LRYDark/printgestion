@@ -14,7 +14,7 @@
 class PluginPrintgestionCleanup
 {
     /**
-     * Une sonde supprimée : ses réglages, ses alertes, et ses raccordements — avec leurs adresses et leur journal,
+     * Une sonde supprimée : ses réglages, ses alertes, le suivi de sa version, et ses raccordements — avec leurs adresses et leur journal,
      * par `Raccordement::cleanDBonPurge()`, puisqu'on passe par la classe et non par la table.
      */
     public static function forAgent(CommonDBTM $agent): void
@@ -28,6 +28,9 @@ class PluginPrintgestionCleanup
         try {
             $DB->delete(PluginPrintgestionAgentsetting::getTable(), ['agents_id' => $id]);
             $DB->delete(PluginPrintgestionAgentalert::getTable(), ['agents_id' => $id]);
+            if ($DB->tableExists(PluginPrintgestionAgentversion::TABLE)) {
+                $DB->delete(PluginPrintgestionAgentversion::TABLE, ['agents_id' => $id]);
+            }
             $racc = new PluginPrintgestionRaccordement();
             foreach ($racc->find(['agents_id' => $id]) as $row) {
                 $racc->delete(['id' => (int) $row['id']], true);
@@ -76,5 +79,23 @@ class PluginPrintgestionCleanup
             }
         }
         return $efface;
+    }
+
+    /** Un utilisateur supprimé : l'ordre de ses cartes d'accueil. Les traces de ce qu'il a fait (relevés, demandes) restent. */
+    public static function forUser(CommonDBTM $user): void
+    {
+        global $DB;
+
+        $id = (int) $user->getID();
+        if ($id <= 0) {
+            return;
+        }
+        try {
+            if ($DB->tableExists(PluginPrintgestionHubpref::TABLE)) {
+                $DB->delete(PluginPrintgestionHubpref::TABLE, ['users_id' => $id]);
+            }
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::error('cleanup', sprintf('Utilisateur %d supprimé : l\'ordre de ses cartes d\'accueil n\'a pas été effacé.', $id), $e);
+        }
     }
 }

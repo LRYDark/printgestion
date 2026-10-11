@@ -23,13 +23,26 @@ class PluginPrintgestionProfile extends Profile {
     /** Réglage qui retient que le niveau « Retirer une sonde » a été accordé une fois, à la mise à jour. */
     const CONFIG_REMOVAL_GRANTED = 'retrait_right_granted';
 
+    /** Droit du module « Mise en service » (mettre une imprimante sous contrat). */
+    const RIGHT_MISEENSERVICE = 'plugin_printgestion_miseenservice';
+    /** Réglage qui retient que ce droit a été accordé une fois aux profils qui avaient « Créer print ». */
+    const CONFIG_MISEENSERVICE_GRANTED = 'miseenservice_right_granted';
+
     static function getAllRights($all = false) {
         return [
             [
                 'itemtype' => 'PluginPrintgestionMenu',
                 'label'    => __('Contrats — dashboard & liste', 'printgestion'),
                 'field'    => 'plugin_printgestion_contrats',
-                'rights'   => [READ => __('Voir', 'printgestion'), UPDATE => __('Créer print / éditer tarifs', 'printgestion')],
+                'rights'   => [READ => __('Voir', 'printgestion'), UPDATE => __('Éditer les tarifs', 'printgestion')],
+            ],
+            [
+                // Module à part : mettre une imprimante sous contrat crée et relie des objets de GLPI (contrat,
+                // imprimante) ; les droits natifs sur eux sont contrôlés en plus (PluginPrintgestionPrint::processForm).
+                'itemtype' => 'PluginPrintgestionPrint',
+                'label'    => __('Mise en service', 'printgestion'),
+                'field'    => self::RIGHT_MISEENSERVICE,
+                'rights'   => [CREATE => __('Mettre une imprimante sous contrat', 'printgestion')],
             ],
             [
                 'itemtype' => 'PluginPrintgestionMenu',
@@ -111,6 +124,7 @@ class PluginPrintgestionProfile extends Profile {
             $prof = new self();
             self::addDefaultProfileInfos($ID, [
                 'plugin_printgestion_contrats'   => 0,
+                self::RIGHT_MISEENSERVICE        => 0,
                 'plugin_printgestion_config'     => 0,
                 'plugin_printgestion_dashboard'  => 0,
                 'plugin_printgestion_billing'    => 0,
@@ -240,9 +254,59 @@ class PluginPrintgestionProfile extends Profile {
         ));
     }
 
+    /**
+     * Droit « Mise en service », sans « Mettre à jour » du plugin (version inchangée) : la ligne de droit existe pour
+     * chaque profil (ProfileRight::addProfileRights), les profils qui avaient « Créer print » (contrats, UPDATE) la
+     * reçoivent UNE fois, et la session courante la connaît. Ceux qui n'ont pas les droits natifs de GLPI de créer un
+     * contrat ou une imprimante ne le peuvent plus par cette page : c'est voulu (PluginPrintgestionPrint::processForm). Appelée par l'installation,
+     * et par plugin_init une fois par session tant que la session ignore ce droit.
+     */
+    public static function ensureMiseEnServiceRight(): void {
+        global $DB;
+
+        $field = self::RIGHT_MISEENSERVICE;
+        if (countElementsInTable('glpi_profilerights', ['name' => $field]) === 0) {
+            try {
+                ProfileRight::addProfileRights([$field]);
+            } catch (Throwable $e) {
+                // Une autre session (ou initProfile) vient de créer les lignes : clé unique profils × droit.
+                if (countElementsInTable('glpi_profilerights', ['name' => $field]) === 0) {
+                    throw $e;
+                }
+            }
+        }
+        $fait = Config::getConfigurationValues(PluginPrintgestionSchema::CONFIG_CONTEXT, [self::CONFIG_MISEENSERVICE_GRANTED]);
+        if (empty($fait[self::CONFIG_MISEENSERVICE_GRANTED])) {
+            $accordes = 0;
+            foreach ($DB->request(['SELECT' => ['id'], 'FROM' => Profile::getTable()]) as $row) {
+                $profiles_id = (int) $row['id'];
+                $droits      = ProfileRight::getProfileRights($profiles_id, ['plugin_printgestion_contrats', $field]);
+                $actuel      = (int) ($droits[$field] ?? 0);
+                if (((int) ($droits['plugin_printgestion_contrats'] ?? 0) & UPDATE) !== UPDATE || ($actuel & CREATE) === CREATE) {
+                    continue;
+                }
+                ProfileRight::updateProfileRights($profiles_id, [$field => $actuel | CREATE]);
+                $accordes++;
+            }
+            Config::setConfigurationValues(PluginPrintgestionSchema::CONFIG_CONTEXT, [self::CONFIG_MISEENSERVICE_GRANTED => 1]);
+            PluginPrintgestionLogger::info('profile', sprintf(
+                'Droit « Mise en service » accordé à %d profil(s) : ceux qui pouvaient déjà « Créer print ».',
+                $accordes
+            ));
+        }
+        if (isset($_SESSION['glpiactiveprofile']['id'])) {
+            $droits = ProfileRight::getProfileRights((int) $_SESSION['glpiactiveprofile']['id'], [$field]);
+            $_SESSION['glpiactiveprofile'][$field] = (int) ($droits[$field] ?? 0);
+            // Menu gardé en session : GLPI ne le reconstruit que s'il est absent (Html::generateMenuSession) — retiré
+            // en entier, comme le fait le cœur au changement de profil, il revient au prochain affichage avec le module.
+            unset($_SESSION['glpimenu']);
+        }
+    }
+
     static function createFirstAccess($profiles_id) {
         self::addDefaultProfileInfos($profiles_id, [
             'plugin_printgestion_contrats'   => ALLSTANDARDRIGHT,
+            self::RIGHT_MISEENSERVICE        => CREATE,
             'plugin_printgestion_config'     => ALLSTANDARDRIGHT,
             'plugin_printgestion_dashboard'  => ALLSTANDARDRIGHT,
             'plugin_printgestion_billing'    => ALLSTANDARDRIGHT,

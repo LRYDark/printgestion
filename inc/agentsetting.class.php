@@ -313,6 +313,18 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         if ($task instanceof CronTask) {
             $task->log($result['message']);
         }
+        // Nouvelle version publiée : sa compatibilité avec les installeurs, contrôlée tout de suite (journal du plugin,
+        // carte « Santé de la configuration », page « Installeur »). Rien n'est servi pour autant.
+        if ($result['ok']) {
+            try {
+                $compat = PluginPrintgestionAgentcompat::checkLatest(true);
+                if ($compat !== '' && $task instanceof CronTask) {
+                    $task->log($compat);
+                }
+            } catch (Throwable $e) {
+                PluginPrintgestionLogger::error('agentcompat', 'Contrôle de compatibilité de la dernière version de GLPI Agent non fait.', $e);
+            }
+        }
         return $result['ok'] ? 1 : -1;
     }
 

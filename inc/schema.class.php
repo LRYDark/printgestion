@@ -190,6 +190,30 @@ class PluginPrintgestionSchema {
             KEY `reading_date` (`reading_date`),
             KEY `entities_id` (`entities_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
+        // Ordre des cartes de l'accueil, une ligne par utilisateur qui les a rangées (créée à la première lecture).
+        'glpi_plugin_printgestion_hubprefs' => 'CREATE TABLE `glpi_plugin_printgestion_hubprefs` (
+            `id` int __KEY_SIGN__ NOT NULL AUTO_INCREMENT,
+            `users_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `card_order` text NULL DEFAULT NULL,
+            `date_mod` timestamp NULL DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `users_id` (`users_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
+        // Version de GLPI Agent de chaque sonde et son dernier changement, pour vérifier qu'elle relève encore après
+        // une mise à jour (Agentversion::track(), créée au premier calcul de la vue des sondes).
+        'glpi_plugin_printgestion_agentversions' => 'CREATE TABLE `glpi_plugin_printgestion_agentversions` (
+            `id` int __KEY_SIGN__ NOT NULL AUTO_INCREMENT,
+            `agents_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `version` varchar(20) NULL DEFAULT NULL,
+            `previous_version` varchar(20) NULL DEFAULT NULL,
+            `date_change` timestamp NULL DEFAULT NULL,
+            `inventory_before` timestamp NULL DEFAULT NULL,
+            `date_confirmed` timestamp NULL DEFAULT NULL,
+            `date_warned` timestamp NULL DEFAULT NULL,
+            `date_mod` timestamp NULL DEFAULT NULL,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `agents_id` (`agents_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
         'glpi_plugin_printgestion_billing' => 'CREATE TABLE `glpi_plugin_printgestion_billing` (
             `id` int __KEY_SIGN__ NOT NULL AUTO_INCREMENT,
             `printers_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
@@ -329,6 +353,7 @@ class PluginPrintgestionSchema {
             `mbe_username` varchar(255) NULL DEFAULT NULL,
             `mbe_passphrase` varchar(255) NULL DEFAULT NULL,
             `mbe_secret_date` timestamp NULL DEFAULT NULL,
+            `enable_miseenservice` tinyint NOT NULL DEFAULT 1,
             PRIMARY KEY (`id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
         'glpi_plugin_printgestion_contractrates' => 'CREATE TABLE `glpi_plugin_printgestion_contractrates` (

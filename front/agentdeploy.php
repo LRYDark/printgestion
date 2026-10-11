@@ -52,6 +52,33 @@ if (isset($_POST['save_probe_state'])) {
     Html::redirect($page);
 }
 
+// Compatibilité de GLPI Agent avec les installeurs : un bouton par action, droit de configuration du plugin.
+if (isset($_POST['compat_check']) || isset($_POST['compat_serve'])) {
+    Session::checkRight('plugin_printgestion_config', UPDATE);
+    if (isset($_POST['compat_check'])) {
+        $version = trim((string) $_POST['compat_check']);
+        if (PluginPrintgestionAgentsetting::isValidVersion($version)) {
+            $_SESSION[PluginPrintgestionAgentcompat::SESSION_CANDIDATE] = $version;
+            $report = PluginPrintgestionAgentcompat::check($version, true);
+            Session::addMessageAfterRedirect(
+                htmlspecialchars(PluginPrintgestionAgentcompat::summary($report), ENT_QUOTES, 'UTF-8'),
+                false,
+                match ($report['verdict']) {
+                    PluginPrintgestionAgentcompat::VERDICT_OK      => INFO,
+                    PluginPrintgestionAgentcompat::VERDICT_WARNING => WARNING,
+                    default                                        => ERROR,
+                }
+            );
+        } else {
+            Session::addMessageAfterRedirect(__('Version invalide (exemple : 1.20).', 'printgestion'), false, ERROR);
+        }
+    } else {
+        $result = PluginPrintgestionAgentcompat::serveAnyway((string) $_POST['compat_serve']);
+        Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? WARNING : ERROR);
+    }
+    Html::redirect($page);
+}
+
 if (isset($_POST['fetch_github']) || isset($_POST['verify_deposit']) || isset($_POST['save_settings'])
     || isset($_POST['check_latest'])) {
     // Jeton CSRF déjà validé par CheckCsrfListener avant ce fichier.
@@ -60,8 +87,28 @@ if (isset($_POST['fetch_github']) || isset($_POST['verify_deposit']) || isset($_
     if (isset($_POST['check_latest'])) {
         $result = PluginPrintgestionAgentsetting::checkLatestFromGitHub();
         Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : ERROR);
+        // La dernière version, si elle est nouvelle pour ce serveur : son contrôle de compatibilité, refait.
+        $compat = $result['ok'] ? PluginPrintgestionAgentcompat::checkLatest(true) : '';
+        if ($compat !== '') {
+            Session::addMessageAfterRedirect(htmlspecialchars($compat, ENT_QUOTES, 'UTF-8'), false, INFO);
+        }
     } elseif (isset($_POST['save_settings'])) {
+        // Une autre version que celle servie, pas encore validée : contrôlée avant d'être servie. Points à vérifier
+        // ou fichier absent : rien n'est enregistré, la carte de compatibilité dit pourquoi.
+        $wanted = trim((string) ($_POST['agent_version'] ?? ''));
+        $wanted = $wanted !== '' ? $wanted : PluginPrintgestionAgentdeploy::DEFAULT_VERSION;
+        $gate   = ['allowed' => true, 'message' => '', 'level' => INFO];
+        if (PluginPrintgestionAgentsetting::isValidVersion($wanted) && $wanted !== PluginPrintgestionAgentdeploy::getServedVersion()) {
+            $gate = PluginPrintgestionAgentcompat::gate($wanted);
+        }
+        if (!$gate['allowed']) {
+            Session::addMessageAfterRedirect(htmlspecialchars($gate['message'], ENT_QUOTES, 'UTF-8'), false, $gate['level']);
+            Html::redirect($page);
+        }
         $errors = PluginPrintgestionAgentdeploy::saveSettings($_POST);
+        if (empty($errors) && $gate['message'] !== '') {
+            Session::addMessageAfterRedirect(htmlspecialchars($gate['message'], ENT_QUOTES, 'UTF-8'), false, INFO);
+        }
         if (empty($errors)) {
             Session::addMessageAfterRedirect(__('Paramètres de l\'installeur enregistrés.', 'printgestion'), false, INFO);
         } else {
@@ -82,6 +129,8 @@ if (isset($_POST['fetch_github']) || isset($_POST['verify_deposit']) || isset($_
             false,
             $result['ok'] ? INFO : ERROR
         );
+        // Ces deux boutons sont dans le détail « Installeurs servis » : il reste déplié au retour, pour enchaîner.
+        $_SESSION[PluginPrintgestionAgentdeploy::SESSION_INSTALLERS_OPEN] = true;
     }
     Html::redirect($page);
 }

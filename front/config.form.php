@@ -174,6 +174,7 @@ if (isset($_POST['activate_contract_alerts'])) {
         'gesconso_designation_max' => max(10, min(255, (int)($_POST['gesconso_designation_max'] ?? PluginPrintgestionGesconso::DEFAULT_DESIGNATION_MAX))),
         // Interrupteurs de modules
         'enable_contrats'        => ((int)($_POST['enable_contrats'] ?? 0) === 1) ? 1 : 0,
+        'enable_miseenservice'   => ((int)($_POST['enable_miseenservice'] ?? 0) === 1) ? 1 : 0,
         'enable_toner'           => ((int)($_POST['enable_toner']    ?? 0) === 1) ? 1 : 0,
         'enable_cout'            => ((int)($_POST['enable_cout']     ?? 0) === 1) ? 1 : 0,
         'enable_deploiement'     => ((int)($_POST['enable_deploiement'] ?? 0) === 1) ? 1 : 0,

@@ -4,7 +4,8 @@
  * + barre d'onglets unifiée.
  *
  * Organisation par CATÉGORIES (cf. config : interrupteurs de modules) :
- *   - Gestion contractuelle  (feature 'contrats') : Dashboard / Liste / Créer Print
+ *   - Gestion contractuelle  (feature 'contrats') : Dashboard / Liste
+ *   - Mise en service        (feature 'miseenservice') : Mettre une imprimante sous contrat (ancien « Créer Print »)
  *   - Gestion toner & expéd. (feature 'toner')    : Alertes toner / Demandes / Expéditions
  *   - Coût à la page          (feature 'cout')      : Facturation
  *   - Collecte SNMP / Déploiement Agent (feature 'deploiement') : Installeur GLPI Agent / Raccordements / Contrôle de la remontée
@@ -48,7 +49,15 @@ class PluginPrintgestionMenu extends CommonGLPI {
                 'tabs'    => [
                     ['key' => 'ct_dash', 'label' => __('Dashboard', 'printgestion'),     'icon' => 'ti ti-gauge', 'path' => '/front/dashboard.php',  'right' => ['plugin_printgestion_contrats', READ]],
                     ['key' => 'ct_list', 'label' => __('Liste contrats', 'printgestion'), 'icon' => 'ti ti-list-details', 'path' => '/front/list.php',       'right' => ['plugin_printgestion_contrats', READ]],
-                    ['key' => 'ct_new',  'label' => __('Créer Print', 'printgestion'),    'icon' => 'ti ti-plus',       'path' => '/front/print.form.php', 'right' => ['plugin_printgestion_contrats', UPDATE]],
+                ],
+            ],
+            // Module à part : mettre une imprimante sous contrat (ancien « Créer Print »), son droit et son interrupteur.
+            'miseenservice' => [
+                'label'   => __('Mise en service', 'printgestion'),
+                'icon'    => 'ti ti-circle-plus',
+                'feature' => 'miseenservice',
+                'tabs'    => [
+                    ['key' => 'ms_new', 'label' => __('Mettre une imprimante sous contrat', 'printgestion'), 'icon' => 'ti ti-plus', 'path' => '/front/miseenservice.php', 'right' => [PluginPrintgestionProfile::RIGHT_MISEENSERVICE, CREATE]],
                 ],
             ],
             'toner' => [
@@ -250,6 +259,7 @@ class PluginPrintgestionMenu extends CommonGLPI {
     static function removeRightsFromSession() {
         foreach ([
             'plugin_printgestion_contrats',
+            PluginPrintgestionProfile::RIGHT_MISEENSERVICE,
             'plugin_printgestion_config',
             'plugin_printgestion_dashboard',
             'plugin_printgestion_billing',

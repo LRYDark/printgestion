@@ -200,17 +200,27 @@ class PluginPrintgestionDependencies {
     /**
      * Passe tout en revue.
      *
-     * @return array ['manquants' => [['quoi', 'sert']], 'verifies' => int, 'voisin' => bool (GLPI Inventory actif)]
+     * $ignore_loading : juger les classes de GLPI Inventory même s'il n'est pas chargé dans cette requête (dernier
+     * essai d'afterNeighbourChange() : s'il ne l'est toujours pas, ses classes manquent bel et bien au plugin).
+     *
+     * @return array ['manquants' => [['quoi', 'sert']], 'verifies' => int, 'voisin' => bool (GLPI Inventory actif),
+     *                'differe' => bool (actif mais pas chargé dans cette requête : classes non jugées)]
      */
-    public static function check(bool $neighbour_tables = false): array {
+    public static function check(bool $neighbour_tables = false, bool $ignore_loading = false): array {
         global $DB;
 
         $manquants = [];
         $verifies  = 0;
         $voisin    = Plugin::isPluginActive('glpiinventory');
+        // Actif en base mais pas chargé dans CETTE requête : GLPI ne rend les classes d'un plugin chargeables que
+        // s'il l'a chargé au démarrage de la requête (autoloader « legacy », Plugin::isPluginLoaded()). Une page
+        // partie juste avant l'activation le voit actif (pendant l'initialisation, isPluginActive() lit la base)
+        // sans ses classes : elles passaient pour disparues (fausse alerte rouge du 06/10/2026, GLPI Inventory
+        // 1.6.12). Ses tables seules, et le reste plus tard.
+        $differe = $voisin && !$ignore_loading && !Plugin::isPluginLoaded('glpiinventory');
         // GLPI Inventory installé ou mis à jour mais pas encore activé : ses tables sont là (et c'est elles qu'une
         // mise à jour change), ses classes pas encore chargeables. Les tables seules, sans faux « disparu ».
-        $tables_seules = !$voisin && $neighbour_tables;
+        $tables_seules = (!$voisin && $neighbour_tables) || $differe;
 
         foreach (self::tables() as $attendu) {
             $verifies++;
@@ -228,7 +238,7 @@ class PluginPrintgestionDependencies {
         }
 
         $liste = self::classes();
-        if ($voisin) {
+        if ($voisin && !$differe) {
             $liste = array_merge($liste, self::inventoryPlugin());
         } elseif ($tables_seules) {
             $liste = array_merge($liste, array_filter(self::inventoryPlugin(), static fn(array $a) => isset($a['table'])));
@@ -268,7 +278,7 @@ class PluginPrintgestionDependencies {
             }
         }
 
-        return ['manquants' => $manquants, 'verifies' => $verifies, 'voisin' => $voisin];
+        return ['manquants' => $manquants, 'verifies' => $verifies, 'voisin' => $voisin, 'differe' => $differe];
     }
 
     /** Une phrase pour l'état, avec le compte : c'est elle que lit l'administrateur pressé. */
@@ -292,6 +302,9 @@ class PluginPrintgestionDependencies {
 
     /** Plugins voisins dont la mise à jour peut changer ce que Print Gestion lit. */
     const WATCHED_PLUGINS = ['glpiinventory'];
+
+    /** Pages sur lesquelles le contrôle d'un voisin pas encore chargé est remis à la suivante, avant de conclure. */
+    const MAX_DEFERRALS = 5;
 
     /**
      * Hooks post_plugin_install (installation ou « Mettre à jour » : les tables changent ici) et post_plugin_enable
@@ -350,6 +363,21 @@ class PluginPrintgestionDependencies {
         $active    = Plugin::isPluginActive($directory);
         $name      = $directory === 'glpiinventory' ? 'GLPI Inventory' : $directory;
         $etat      = self::check(true);
+        if (!empty($etat['differe'])) {
+            $tries = (int) ($pending['tries'] ?? 0) + 1;
+            if ($tries < self::MAX_DEFERRALS) {
+                // Page partie avant l'activation : GLPI Inventory n'y est pas chargé. La suivante le sera, c'est
+                // elle qui jugera ses classes ; rien n'est dit d'ici, ni vert ni rouge.
+                $pending['tries']                = $tries;
+                $_SESSION[self::SESSION_PENDING] = $pending;
+                if (isset($GLPI_CACHE)) {
+                    $GLPI_CACHE->set(self::SESSION_PENDING, $pending, 7 * DAY_TIMESTAMP);
+                }
+                return;
+            }
+            // Toujours pas chargé après plusieurs pages : GLPI ne l'initialise pas, ses classes manquent pour de vrai.
+            $etat = self::check(true, true);
+        }
         $step      = $active
             ? sprintf(__('après la mise à jour ou l\'activation de %s', 'printgestion'), $name)
             : sprintf(__('après l\'installation ou la mise à jour de %s (tables ; le reste sera vérifié à son activation)', 'printgestion'), $name);

@@ -117,7 +117,11 @@ class PluginPrintgestionUi {
         ]);
     }
 
-    public static function statusLine(string $level, string $text, string $details_html = ''): string {
+    /**
+     * Ligne d'état, avec son détail replié pour l'administrateur. $open : détail déjà déplié (retour d'une action
+     * faite dans ce détail, pour ne pas le rouvrir à chaque fois).
+     */
+    public static function statusLine(string $level, string $text, string $details_html = '', bool $open = false): string {
         $styles = [
             'ok'      => ['ti-circle-check', 'text-success'],
             'warning' => ['ti-alert-triangle', 'text-warning'],
@@ -130,11 +134,11 @@ class PluginPrintgestionUi {
         $out     = "<div class='d-flex align-items-center gap-2 py-1'><i class='ti {$icon} {$color} fs-2'></i>"
             . "<span class='fw-bold'>" . htmlspecialchars($text, ENT_QUOTES, 'UTF-8') . "</span>";
         if ($details) {
-            $out .= self::chevron($id);
+            $out .= self::chevron($id, $open);
         }
         $out .= "</div>";
         if ($details) {
-            $out .= "<div class='collapse' id='{$id}' data-pg-admin='1'><div class='border rounded p-3 my-2'>{$details_html}</div></div>";
+            $out .= "<div class='collapse" . ($open ? ' show' : '') . "' id='{$id}' data-pg-admin='1'><div class='border rounded p-3 my-2'>{$details_html}</div></div>";
         }
         return $out;
     }
@@ -189,10 +193,11 @@ class PluginPrintgestionUi {
             . "<div class='collapse' id='{$id}'><div class='card-body'>{$html}</div></div></div>";
     }
 
-    private static function chevron(string $target): string {
+    private static function chevron(string $target, bool $expanded = false): string {
         $label = htmlspecialchars(__('Détail', 'printgestion'), ENT_QUOTES, 'UTF-8');
-        // pg-chevron : pivote à l'ouverture (aria-expanded posé par Bootstrap, printgestion.css).
-        return "<button type='button' class='btn btn-sm btn-ghost-secondary pg-chevron' data-pg-admin='1' data-bs-toggle='collapse' data-bs-target='#{$target}' aria-expanded='false' aria-controls='{$target}' title='{$label}' aria-label='{$label}'>"
+        // pg-chevron : pivote à l'ouverture (aria-expanded posé par Bootstrap, printgestion.css). Déplié d'entrée :
+        // « true » dès le rendu, sinon la flèche pointerait à l'envers jusqu'au premier clic.
+        return "<button type='button' class='btn btn-sm btn-ghost-secondary pg-chevron' data-pg-admin='1' data-bs-toggle='collapse' data-bs-target='#{$target}' aria-expanded='" . ($expanded ? 'true' : 'false') . "' aria-controls='{$target}' title='{$label}' aria-label='{$label}'>"
             . "<i class='ti ti-chevron-down'></i></button>";
     }
 

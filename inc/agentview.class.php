@@ -71,8 +71,9 @@ class PluginPrintgestionAgentview extends CommonDBTM {
             }
         }
 
-        $now   = date('Y-m-d H:i:s');
-        $count = 0;
+        $now      = date('Y-m-d H:i:s');
+        $count    = 0;
+        $versions = [];
         $DB->truncate(self::getTable());
         foreach ($DB->request([
             'SELECT' => ['id', 'entities_id', 'last_contact', 'version', 'itemtype', 'items_id'],
@@ -101,7 +102,19 @@ class PluginPrintgestionAgentview extends CommonDBTM {
                 'last_network_inventory' => $last_inventory[$agents_id] ?? null,
                 'date_compute'           => $now,
             ]);
+            $versions[$agents_id] = [
+                'version'        => $version,
+                'is_probe'       => $probe !== null,
+                'entities_id'    => (int) $agent['entities_id'],
+                'last_inventory' => $last_inventory[$agents_id] ?? null,
+            ];
             $count++;
+        }
+        // Sondes passées à une autre version de GLPI Agent : relèvent-elles encore ? Jamais bloquant pour la vue.
+        try {
+            PluginPrintgestionAgentversion::track($versions);
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::error('agentversion', 'Suivi des versions des sondes non mis à jour.', $e);
         }
         return $count;
     }

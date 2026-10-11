@@ -101,7 +101,31 @@ class PluginPrintgestionConfig extends CommonDBTM {
         // l'ouvre jamais en silence. Les colonnes existent avec la valeur 1 dès l'installation (schéma de référence).
         $cfg = self::getInstance();
         $col = 'enable_' . $feature;
+        if ($feature === 'miseenservice' && !array_key_exists($col, $cfg->fields) && !self::$miseenservice_column_failed) {
+            self::ensureMiseEnServiceColumn($cfg);
+        }
         return (int) ($cfg->fields[$col] ?? 0) === 1;
+    }
+
+    /**
+     * Interrupteur du module « Mise en service », sur une base installée avant lui (version du plugin inchangée,
+     * pas de « Mettre à jour ») : colonne ajoutée une fois, allumée comme l'était « Gestion contractuelle », dont la
+     * page faisait partie — rien ne change pour l'utilisateur.
+     */
+    /** Ajout de la colonne déjà tenté sans succès dans cette requête : on ne réessaie pas à chaque appel. */
+    private static bool $miseenservice_column_failed = false;
+
+    private static function ensureMiseEnServiceColumn(self $cfg): void {
+        global $DB;
+
+        try {
+            PluginPrintgestionSchema::ensureColumn(self::getTable(), 'enable_miseenservice', 'tinyint NOT NULL DEFAULT 1');
+            $DB->update(self::getTable(), ['enable_miseenservice' => (int) ($cfg->fields['enable_contrats'] ?? 1) === 1 ? 1 : 0], ['id' => (int) $cfg->getID()]);
+            $cfg->getFromDB((int) $cfg->getID());
+        } catch (Throwable $e) {
+            self::$miseenservice_column_failed = true;
+            PluginPrintgestionLogger::error('config', 'Interrupteur du module « Mise en service » non créé.', $e);
+        }
     }
 
     /**
@@ -229,6 +253,7 @@ class PluginPrintgestionConfig extends CommonDBTM {
             echo "</div></div>";
         };
         $feature_toggle('contrats', __('Gestion contractuelle', 'printgestion'));
+        $feature_toggle('miseenservice', __('Mise en service', 'printgestion'));
         $feature_toggle('toner', __('Gestion toner & expéditions', 'printgestion'));
         $feature_toggle('cout', __('Coût à la page', 'printgestion'));
         $feature_toggle('deploiement', __('Collecte SNMP / Déploiement Agent', 'printgestion'));

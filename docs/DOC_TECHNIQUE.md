@@ -15,7 +15,8 @@ Chaque point d'entrée de `front/` et `ajax/` vérifie **plugin actif ET module 
 
 | Module (feature) | Contenu |
 |---|---|
-| `contrats` | Dashboard contrats d'impression, liste avec moteur de recherche natif, création/association imprimante ↔ contrat (« Créer Print »), tarifs €/page par contrat |
+| `contrats` | Dashboard contrats d'impression, liste avec moteur de recherche natif, tarifs €/page par contrat |
+| `miseenservice` | Module « Mise en service » : mettre une imprimante sous contrat (contrat nouveau ou existant × imprimante nouvelle ou existante, ancien « Créer Print »), `front/miseenservice.php` (l'ancienne adresse `front/print.form.php` charge la même page) ; interrupteur `enable_miseenservice`, ajouté une fois sur une base existante par `Config::isFeatureEnabled()`, allumé comme `enable_contrats` |
 | `toner` | Relevés SNMP des niveaux toner, calcul d'alertes intelligent, cycle d'expédition des cartouches, commandes achats (Excel), notifications mail, suivi transporteurs |
 | `cout` | Coût à la page par imprimante / par client sur une période (compteurs `glpi_printerlogs` × tarifs contrat) |
 | `deploiement` | Collecte SNMP / Déploiement Agent (techniciens) : contrôle de la remontée, déploiement de GLPI Agent par entité client |
@@ -54,6 +55,7 @@ printgestion/
 |---|---|
 | `Config` | Singleton de configuration (ligne id=1), **crée toutes les tables à l'install** (les mails passent par `Notify`, §6) ; droit de configuration en lecture seule : formulaire mis en tampon, chaque champ, liste, zone de texte et bouton d'envoi ressort `disabled`, pas de bouton Sauvegarder (les boutons `type=button` restent) |
 | `Menu` | Entrée de menu + hub à catégories + barre d'onglets unifiée |
+| `Hubpref` | Ordre des cartes du hub propre à chaque utilisateur : glisser-déposer par la poignée de la carte avec html5sortable (livré et chargé par GLPI, comme le tri des recherches enregistrées), enregistré par `ajax/hub_order.php` (POST, jeton CSRF en en-tête, seule la ligne de l'utilisateur connecté) ; une carte cachée (module coupé, droit absent) garde sa place quand on range les autres, une carte nouvelle se range après ; bouton « Ordre par défaut » dès qu'un ordre est enregistré |
 | `Profile` | Droits du plugin (8 droits, voir §8) |
 | `Dashboard` | Dashboard contrats (tuiles, camemberts ECharts, liste Search native) |
 | `Contract` | Itemtype « virtuel » sur `glpi_contracts` pour borner la recherche aux contrats liés à ≥1 imprimante |
@@ -93,6 +95,8 @@ printgestion/
 | `Raccordementdetail` | Lieu, commentaire et contrat des imprimantes d'un raccordement : saisie en attente avec les sélecteurs natifs de GLPI (étape 3), application aux imprimantes remontées avec verrou natif (étape 5) |
 | `Printeragent` | Fiche imprimante : sonde responsable (plage et tâche GLPI Inventory), version, dernier contact, dernier inventaire réseau réussi ; dans la carte native « Informations d'inventaire », sinon sous le formulaire |
 | `Agentsetting` | Sondes : dernière version connue de GLPI Agent (GitHub, saisie), conformité, réglages de mise à jour par sonde, paquet de consigne, imprimantes collectées, statut du PC sonde ; onglet de la fiche Agent et page « Sondes » |
+| `Agentcompat` | Compatibilité d'une version de GLPI Agent avec les installeurs, avant de la servir : fichiers publiés et empreintes, winget, fichiers sources de chaque point comparés sur GitHub à la dernière version validée ; refus à l'enregistrement si un point est à vérifier (« Servir quand même » à part) ou absent ; carte de la page « Installeur », ligne de la carte de santé |
+| `Agentversion` | Version de chaque sonde et son dernier changement : relevé réussi après la mise à jour (version validée) ou avertissement passé le délai |
 | `Agentalert` | Alertes « sonde sans contact » et « imprimante qui ne remonte plus » (tâche quotidienne), réglages et action dans « Agent cleanup », cartes du tableau de bord |
 | `NotificationTargetAgentalert` | Notifications natives des alertes de sondes (sonde sans contact, imprimantes qui ne remontent plus) |
 | `Collectfrequency` | Fréquence des relevés d'imprimantes par entité (héritée, quotidienne par défaut) : décision commerciale, réglée par l'administrateur du plugin seulement (chevron « Fréquence des relevés » sous les installeurs, droit de configuration en modification ; le technicien n'en voit ni texte, ni champ, ni bouton), planification des tâches GLPI Inventory des raccordements, seuil « muette » des imprimantes ; **écrit directement `datetime_start` dans la table des tâches de GLPI Inventory** (le plugin voisin refuse de modifier une tâche active) — garde-fou `assertInventoryTaskColumns()` : colonnes `datetime_start`/`datetime_end` vérifiées, sinon exception (tâche automatique en erreur, journal du plugin, ligne rouge dans l'onglet de l'entité, message dans l'assistant) ; à reprendre par une voie du plugin voisin quand elle existera (`tests/securite/prerequis.py`, section 2) |
@@ -143,8 +147,10 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_raccordementips` | Adresses déclarées d'un raccordement et leur résultat (équipement trouvé, son entité) ; lieu, commentaire et contrat en attente, imprimante et date de leur application |
 | `glpi_plugin_printgestion_raccordementlogs` | Journal horodaté d'un raccordement : étape, niveau, auteur, message |
 | `glpi_plugin_printgestion_agentsettings` | Réglages de mise à jour par sonde : agent (unique), mise à jour automatique, version cible, auteur, dates |
+| `glpi_plugin_printgestion_agentversions` | Suivi des versions de GLPI Agent par sonde : agent (unique), version, version d'avant, date du changement, dernier relevé réussi à cet instant, dates de confirmation et d'avertissement. Créée au premier calcul de la vue des sondes, effacée avec l'agent |
 | `glpi_plugin_printgestion_agentalerts` | Alertes de sondes : type (sonde sans contact, imprimante qui ne remonte plus), entité, sonde, imprimante, motif, début, notification, fin ; une seule alerte ouverte par sonde ou par imprimante (colonne générée `open_lock`) |
 | `glpi_plugin_printgestion_collectfrequencies` | Fréquence des relevés d'imprimantes par entité : entité (unique), unité (`hourly`, `daily`), nombre, auteur, dates ; sans ligne, l'entité hérite de sa parente, sinon quotidienne |
+| `glpi_plugin_printgestion_hubprefs` | Ordre des cartes « Modules » de l'accueil, par utilisateur : utilisateur (unique), clés des catégories en JSON (`card_order`), date ; sans ligne, l'ordre par défaut. Créée à la première lecture (`Schema::createIfMissing()`), effacée avec l'utilisateur (`item_purge` → `Cleanup::forUser()`) |
 | `glpi_plugin_printgestion_table_prefs` | Préférences d'affichage des tableaux par utilisateur |
 
 **Entité des données client.** `entities_id` et `is_recursive` sont portés par les tables
@@ -1251,6 +1257,74 @@ Emplacement : hook `AUTOINVENTORY_INFORMATION` (Printer), dans la carte native, 
 Inventaire en lecture, imprimante dynamique) ; sinon hook `POST_ITEM_FORM`, sous le formulaire : le profil Technicien
 n'a pas le droit Inventaire par défaut. Aucun champ de saisie, le bloc étant rendu dans le formulaire de l'imprimante.
 
+### Compatibilité des versions de GLPI Agent avec les installeurs (`inc/agentcompat.class.php`, `inc/agentversion.class.php`)
+
+Les installeurs Windows, Linux et macOS et les scripts posés sur les sondes s'appuient sur des points précis de
+l'agent. Une version qui en change un ne casse rien ici : elle échoue sur le poste du client. Le contrôle le dit
+**avant de servir la version**, sans jamais toucher aux scripts d'installation (seule la version servie est retenue
+ou non).
+
+**Ce qui est comparé** (`Agentcompat::check()`, API GitHub, proxy de GLPI, codes HTTP rendus et jamais levés) :
+- les quatre fichiers servis (`getAssets()` : MSI, installeur Linux, paquets macOS arm64 et x86_64), publiés sous le
+  nom attendu avec leur empreinte SHA-256 — absent : **rouge**, la version ne peut pas être servie ;
+- la version dans winget (`microsoft/winget-pkgs`, `manifests/g/GLPI-Project/GLPI-Agent/<version>`) — absente :
+  **bleu**, seule la mise à jour automatique Windows attend ;
+- les fichiers sources de chaque point, entre la dernière version **validée** et la version visée
+  (`/compare/<basse>...<haute>`) : propriétés du MSI (`contrib/windows/packaging/MSI_main-v2.wxs.tt`,
+  `Variables-v2.wxi.tt`, `MSI_strings.wxl.tt`, `CustomActionDllBuildJob.pm`, `contrib/windows/glpi-agent-packaging.pl`),
+  installeur Linux et service (`contrib/unix/installer/`, `glpi-agent-linux-installer.pl`, `make-linux-installer.sh`,
+  `glpi-agent.service`), paquet macOS (`contrib/macosx/`), interface locale (`lib/GLPI/Agent/HTTP/Server.pm`,
+  `Server/Plugin.pm`), ToolBox (`Server/ToolBox*`, `etc/toolbox-plugin.cfg`), configuration (`Config.pm`,
+  `etc/agent.cfg`), sortie de `--version` (`bin/glpi-agent`) ; en **à surveiller** seulement, parce qu'ils se jugent
+  sur le terrain : la communication avec GLPI (`lib/GLPI/Agent.pm`, `HTTP/Client*`, `HTTP/Session.pm`,
+  `HTTP/Protocol/`, `Protocol/`, `Target*`, `Daemon*` — contact, tâches reçues, relevés remis, service qui planifie
+  les contacts) et le relevé SNMP (`Task/NetDiscovery*`, `Task/NetInventory*`, `SNMP/`, `Tools/Hardware*`,
+  `Tools/SNMP*`). Les fichiers `*/Version.pm` (numéro de version, changé à chaque release) ne comptent jamais. Un
+  rapport gardé auquel manque un point ajouté depuis est refait.
+
+**Verdict par point** : inchangé (vert) ; dépendances seules (vert : `isDependencyOnlyPatch()`, différence limitée à
+des lignes `: ${XXX_VERSION:=…}` ou `XXX_SHA256=…` d'un script de construction — OpenSSL de la 1.21) ; à surveiller
+(bleu) ; modifié (orange, avec la liste des fichiers et le lien vers la différence) ; non vérifiable (orange : GitHub
+injoignable, ou 300 fichiers et plus, limite de l'API de comparaison) ; absent (rouge). Verdict global : rouge si un
+point est absent, orange si un point est modifié ou non vérifiable, vert sinon. Rapports gardés un jour dans
+`glpi_configs` (contexte `plugin:printgestion`, clé `agent_compat_reports`, six versions au plus, le dernier fait
+toujours gardé).
+
+**Version validée** (`agent_validated_versions`, même contexte) : `DEFAULT_VERSION` du plugin (installeurs éprouvés),
+puis toute version qu'une sonde a installée avant de réussir un relevé (ci-dessous). La comparaison part de la plus
+récente version validée qui ne dépasse pas la version visée (retour arrière : la plus proche au-dessus).
+
+**Quand il joue** :
+- **Enregistrer** une autre version dans « Version des agents » (`front/agentdeploy.php`, `Agentcompat::gate()`) :
+  une version validée passe sans contrôle ; sinon contrôle frais — vert : servie, le message dit le résultat ; orange :
+  **rien n'est enregistré**, la carte propose « Servir GLPI Agent X quand même » (bouton à part,
+  `serveAnyway()`, journalisé en avertissement avec l'utilisateur) ; rouge : rien n'est enregistré, pas de bouton.
+- Bouton « Vérifier la compatibilité de GLPI Agent X » de la carte (contrôle refait).
+- « Vérifier sur GitHub maintenant » et la tâche hebdomadaire `PrintgestionCheckAgentVersion` : la dernière version,
+  si elle est plus récente que la version servie et pas validée (`checkLatest()`), journal et rapport.
+
+La carte « Compatibilité de GLPI Agent avec les installeurs » (page « Installeur », administrateur) et la ligne
+« Versions de GLPI Agent : compatibilité et sondes mises à jour » de la carte « Santé de la configuration » ne
+joignent jamais GitHub : elles lisent les rapports gardés.
+
+**Sur le terrain** (`Agentversion`, table `glpi_plugin_printgestion_agentversions`) : une ligne par sonde, mise à
+jour à chaque calcul de la vue des sondes (`Agentview::rebuild()`, toutes les heures avec `PrintgestionCheckAlerts`,
+et à l'ouverture des pages « Sondes » et « Collecte » si la vue est périmée). Première vue : point de départ. Version
+changée : version d'avant, date, dernier relevé réussi à cet instant. Relevé réussi plus récent ensuite : confirmé, et
+la version est **validée**. Délai dépassé sans relevé (deux passages attendus — fréquence de l'entité ou intervalle
+de contact, le plus long —, un jour au moins), alors que la sonde relevait avant : avertissement au journal (une fois
+par changement), ligne rouge dans la carte de santé, « Aucun relevé depuis » dans la carte. Une sonde jamais relevée
+avant sa mise à jour n'a rien à comparer : ni confirmée par défaut ni signalée. Les alertes natives des sondes
+(`Agentalert`, notifiées par mail) jouent à côté ; ce suivi ajoute la cause probable, plus tôt. Ligne effacée avec
+l'agent (`Cleanup::forAgent()`).
+
+**Contrôle des éléments de GLPI Inventory** (`Dependencies::check()`) : GLPI ne rend les classes d'un plugin
+chargeables que s'il l'a chargé au démarrage de la requête (`Plugin::isPluginLoaded()`), alors que pendant
+l'initialisation `Plugin::isPluginActive()` lit la base. Une page partie juste avant l'activation voyait donc GLPI
+Inventory actif sans ses classes, et les annonçait disparues (fausse alerte rouge du 06/10/2026, 1.6.12). Désormais :
+actif mais pas chargé → ses tables seules, et `afterNeighbourChange()` remet le contrôle à la page suivante, cinq
+fois au plus (`MAX_DEFERRALS`) ; au-delà, GLPI ne le charge vraiment pas et ses classes sont signalées manquantes.
+
 ### Déploiement Agent — phase 5 : conformité, mise à jour automatique, sondes muettes (`inc/agentsetting.class.php`, `inc/agentalert.class.php`, `inc/notificationtargetagentalert.class.php`)
 
 **Dernière version connue** : vérifiée chaque semaine sur GitHub (`releases/latest`, ni brouillon ni préversion ;
@@ -1860,7 +1934,7 @@ tentatives, dernière erreur, URL).
 | `PrintgestionCheckAlerts` | horaire | Calcul alertes + **digest mail commercial** + **digest rappels installation** + rebuild `alertview` |
 | `PrintgestionTrackingUpdate` | **toutes les 12 heures** (valeur initiale, réglée ensuite dans GLPI ; deux passages par jour suffisent aux deux suivis) | Dans l'ordre : rattrapage des BL signés du plugin Gestion (le cas normal part de la signature elle-même), puis `Glstracking::poll()` qui range ce que GLS publie et constate les remises, puis `Mbetracking::poll()` qui apparie ce qui ne l'est pas et **recoupe son statut avec celui que GLS vient d'écrire**. Rien sans clés, de part et d'autre |
 | `PrintgestionProposeDemandes` | horaire, **enregistrée désactivée** | Demandes d'envoi proposées à partir des alertes, regroupées par client et site (`Demande::proposeFromAlerts()`) |
-| `PrintgestionCheckAgentVersion` (classe `Agentsetting`) | hebdomadaire | Dernière version publiée de GLPI Agent sur GitHub (une saisie à la main est gardée) |
+| `PrintgestionCheckAgentVersion` (classe `Agentsetting`) | hebdomadaire | Dernière version publiée de GLPI Agent sur GitHub (une saisie à la main est gardée) ; si elle est plus récente que la version servie et pas validée, son contrôle de compatibilité avec les installeurs (`Agentcompat::checkLatest()`) — rien n'est servi pour autant |
 | `PrintgestionSilentProbes` (classe `Agentalert`) | quotidienne | Alertes « sonde sans contact » et « imprimante qui ne remonte plus » : ouverture, fermeture, notifications |
 | `PrintgestionCollectSchedule` (classe `Collectfrequency`) | 15 minutes | Fréquence des relevés de chaque entité appliquée aux tâches GLPI Inventory des raccordements (date de début) |
 | `PrintgestionEntityScope` (classe `Entityscope`) | quotidienne | Entité des données techniques recalée sur celle de l'imprimante ou du contrat, chaque écart corrigé journalisé en erreur ; lignes orphelines signalées ; données commerciales jamais lues |
@@ -1881,7 +1955,8 @@ demandes validées est en service. Une mise à jour du plugin ne change pas l'é
 
 | Droit | Protège |
 |---|---|
-| `plugin_printgestion_contrats` | Dashboard contrats / Liste / Créer Print (UPDATE pour créer ; entité cible, contrat, imprimante et lieu choisis toujours dans le périmètre du compte, contrôlés avant toute écriture) ; onglet « Tarifs Print Gestion » des contrats : READ voir, UPDATE ajouter ou supprimer un tarif, toujours avec le droit natif sur le contrat |
+| `plugin_printgestion_contrats` | Dashboard contrats / Liste (READ) ; onglet « Tarifs Print Gestion » des contrats : READ voir, UPDATE ajouter ou supprimer un tarif (« Éditer les tarifs »), toujours avec le droit natif sur le contrat |
+| `plugin_printgestion_miseenservice` | Module « Mise en service » : CREATE pour mettre une imprimante sous contrat, PLUS les droits natifs de GLPI — créer un contrat (`Contract::canCreate()`) ou une imprimante (`Printer::canCreate()`) quand le formulaire les crée, modifier le contrat ou l'imprimante pour les relier (`canAddItem()`, la condition des onglets natifs « Éléments » et « Contrats »), puis la règle native du lien (`Contract_Item::can(-1, CREATE, …)` dans la transaction : entités compatibles, nombre maximal d'éléments du contrat ; refus journalisé en avertissement) ; sans droit de création, le mode « existant » est présélectionné ; contrat et imprimante déjà liés : dit tel quel, rien n'est écrit ; entité cible, contrat, imprimante et lieu toujours dans le périmètre du compte, contrôlés avant toute écriture. Accordé une fois (`Profile::ensureMiseEnServiceRight()`, réglage `miseenservice_right_granted`) aux profils qui avaient contrats UPDATE ; préparé par l'installation et, sans « Mettre à jour », une fois par session par `plugin_init` (drapeau posé après succès, trois essais au plus ; menu de session retiré en entier pour être reconstruit avec le module) |
 | `plugin_printgestion_dashboard` | Alertes toner (dashboard + actions) ; onglet « Seuils d'alerte » des imprimantes (UPDATE pour enregistrer) |
 | `plugin_printgestion_expedition` | Expéditions (UPDATE pour agir) |
 | `plugin_printgestion_validation` | Demandes d'envoi : READ voir, UPDATE modifier / valider / annuler (file aussi visible avec `dashboard` READ, sans agir) |

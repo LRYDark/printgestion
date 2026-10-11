@@ -56,6 +56,7 @@ function plugin_init_printgestion() {
         $PLUGIN_HOOKS['item_purge']['printgestion'] = [
             'Agent'   => [PluginPrintgestionCleanup::class, 'forAgent'],
             'Printer' => [PluginPrintgestionCleanup::class, 'forPrinter'],
+            'User'    => [PluginPrintgestionCleanup::class, 'forUser'],
         ];
 
         // GLPI Inventory installé, mis à jour ou activé : ce que Print Gestion lui emprunte (tables, colonnes,
@@ -94,12 +95,29 @@ function plugin_init_printgestion() {
         // archivé rattaché en document ; alertes toner : notification native (information commerciale).
         Plugin::registerClass('PluginPrintgestionPurchaseorder', ['document_types' => true, 'notificationtemplates_types' => true]);
         Plugin::registerClass('PluginPrintgestionAlert', ['notificationtemplates_types' => true]);
+        // Interrupteur du module « Mise en service » : colonne créée dès la première requête (et pas seulement quand
+        // le menu se construit), pour que la configuration l'affiche et l'enregistre à sa vraie valeur.
+        PluginPrintgestionConfig::isFeatureEnabled('miseenservice');
         if (PluginPrintgestionConfig::isFeatureEnabled('deploiement')) {
             $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::STALE_AGENT_CONFIG]['printgestion'] = PluginPrintgestionAgentalert::getStaleAgentHook();
             $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::DASHBOARD_CARDS]['printgestion']    = [PluginPrintgestionAgentalert::class, 'getDashboardCards'];
         }
 
         if (Session::getLoginUserID()) {
+            // Droit « Mise en service » : ligne créée et accordée une fois, rechargé dans la session — une fois par
+            // session. Pas « si la session l'ignore » : à la connexion, initProfile (change_profile) crée la ligne à 0
+            // et la met en session avant tout, l'attribution ne serait jamais faite.
+            // Drapeau posé après le succès ; trois essais au plus par session, pour ne pas réessayer à chaque page.
+            if (empty($_SESSION['plugin_printgestion_miseenservice_checked'])
+                && (int) ($_SESSION['plugin_printgestion_miseenservice_tries'] ?? 0) < 3) {
+                $_SESSION['plugin_printgestion_miseenservice_tries'] = (int) ($_SESSION['plugin_printgestion_miseenservice_tries'] ?? 0) + 1;
+                try {
+                    PluginPrintgestionProfile::ensureMiseEnServiceRight();
+                    $_SESSION['plugin_printgestion_miseenservice_checked'] = true;
+                } catch (Throwable $e) {
+                    PluginPrintgestionLogger::error('profile', 'Droit « Mise en service » non préparé.', $e);
+                }
+            }
             // Onglets toujours présents (admin).
             Plugin::registerClass('PluginPrintgestionProfile', ['addtabon' => 'Profile']);
             Plugin::registerClass('PluginPrintgestionConfig',  ['addtabon' => 'Config']);

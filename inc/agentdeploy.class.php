@@ -5643,6 +5643,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             . "<div class='small fw-bold'>local.cfg</div><pre class='mb-0' style='white-space:pre-wrap'>" . $esc(self::buildAgentConfig($tag, true)) . "</pre>";
     }
 
+    /** Marque de session : le détail « Installeurs servis » est rouvert déplié à la page suivante. */
+    const SESSION_INSTALLERS_OPEN = 'plugin_printgestion_installers_open';
+
     /** Page « Installeur GLPI Agent » : installeur servi, adresses, prérequis ; actions avec le droit de configuration. */
     public static function showPage(): void {
         global $CFG_GLPI;
@@ -5805,17 +5808,24 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $latest = PluginPrintgestionAgentsetting::getLatestVersion();
         echo "<div class='card mb-3'><div class='card-header d-flex align-items-center'><h3 class='card-title mb-0'>" . $esc(__('Installeur GLPI Agent', 'printgestion')) . "</h3>"
             . "<div class='ms-auto'>" . PluginPrintgestionUi::infoButton(__('Installeur GLPI Agent', 'printgestion'), $admin ? $intro_html : '') . "</div></div><div class='card-body'>";
+        // Retour de « Récupérer depuis GitHub » ou « Vérifier le fichier déposé » : le détail où l'on vient de cliquer
+        // reste déplié, une fois (marque posée par front/agentdeploy.php). Sinon replié, comme toujours.
+        $installers_open = !empty($_SESSION[self::SESSION_INSTALLERS_OPEN]);
+        unset($_SESSION[self::SESSION_INSTALLERS_OPEN]);
         echo PluginPrintgestionUi::statusLine(
             $ready ? 'ok' : 'error',
             $ready
                 ? ($admin ? sprintf(__('Installeur prêt : GLPI Agent %s', 'printgestion'), $version) : __('Installeur prêt', 'printgestion'))
                 : __('Installeur incomplet — contactez l\'administrateur', 'printgestion'),
-            $installers_html
+            $installers_html,
+            $installers_open
         );
         if ($admin && version_compare($version, $latest['version'], '<')) {
             echo "<div data-pg-admin='1'>" . PluginPrintgestionUi::statusLine('warning', sprintf(__('Nouvelle version de GLPI Agent disponible : %1$s (servie : %2$s)', 'printgestion'), $latest['version'], $version)) . "</div>";
         }
         echo "</div></div>";
+        // Compatibilité des versions de GLPI Agent avec les installeurs, et sondes suivies après leur mise à jour.
+        echo PluginPrintgestionUi::adminCard(__('Compatibilité de GLPI Agent avec les installeurs', 'printgestion'), PluginPrintgestionAgentcompat::renderCard($version, (string) $latest['version'], $can_edit), false);
         // Toujours dépliée : ce sont des réglages qu'on vient changer, pas un détail qu'on consulte.
         echo PluginPrintgestionUi::adminCard(__('Réglages des sondes — transmis par le fichier d\'installation', 'printgestion'), $params_html, false);
 

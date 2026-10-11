@@ -1,14 +1,16 @@
 <?php
 /**
- * PluginPrintgestionPrint — sous-onglet 2 : création/association souple
- * imprimante ↔ contrat.
+ * PluginPrintgestionPrint — module « Mise en service » : mettre une imprimante sous contrat, création/association
+ * souple imprimante ↔ contrat.
  *
  * Couvre les 4 scénarios (contrat nouveau/existant × imprimante nouvelle/existante)
  * avec les classes NATIVES GLPI (Contract, Printer, Contract_Item, Location…),
  * en transaction, avec cohérence d'entité et anti-doublon de liaison.
  *
- * L'autorisation est portée par le bit CREATE du droit du plugin (vérifié côté
- * affichage ET côté traitement dans front/print.form.php).
+ * Autorisation : droit du module (plugin_printgestion_miseenservice, CREATE, vérifié côté affichage ET traitement
+ * dans front/miseenservice.php), PLUS les droits natifs de GLPI : créer un contrat, créer une imprimante, modifier le
+ * contrat ou l'imprimante pour les relier (canAddItem, la condition des onglets natifs « Éléments » et « Contrats »),
+ * puis la règle native du lien (Contract_Item::can : entités compatibles, nombre maximal d'éléments du contrat).
  */
 
 if (!defined('GLPI_ROOT')) {
@@ -17,10 +19,10 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionPrint extends CommonGLPI {
 
-    static $rightname = 'plugin_printgestion_contrats';
+    static $rightname = 'plugin_printgestion_miseenservice';
 
     static function getTypeName($nb = 0) {
-        return __('Créer Print', 'printgestion');
+        return __('Mise en service', 'printgestion');
     }
 
     // ── Helpers de rendu ──────────────────────────────────────────────────────
@@ -34,14 +36,15 @@ class PluginPrintgestionPrint extends CommonGLPI {
     }
 
     /**
-     * Rend le formulaire dynamique « Créer Print ».
+     * Rend le formulaire du module « Mise en service ». Sans droit natif de créer un contrat ou une imprimante, le
+     * mode « existant » est présélectionné : l'utilisateur ne remplit pas un formulaire qui sera refusé.
      */
     public static function showForm(): void {
         $active_entity   = $_SESSION['glpiactive_entity'] ?? 0;
         $active_entities = $_SESSION['glpiactiveentities'] ?? [$active_entity];
 
         echo "<form method='post' id='printgestion-create-form' action='"
-            . htmlspecialchars(PLUGIN_PRINTGESTION_WEBDIR . '/front/print.form.php', ENT_QUOTES, 'UTF-8')
+            . htmlspecialchars(PLUGIN_PRINTGESTION_WEBDIR . '/front/miseenservice.php', ENT_QUOTES, 'UTF-8')
             . "'>";
 
         // ── Card MODES ───────────────────────────────────────────────────────
@@ -51,7 +54,7 @@ class PluginPrintgestionPrint extends CommonGLPI {
 
         echo "<div class='col-md-6'>";
         echo self::label(__('Contrat', 'printgestion'));
-        self::renderModeRadios('contract_mode', 'new', [
+        self::renderModeRadios('contract_mode', Contract::canCreate() ? 'new' : 'existing', [
             'new'      => __('Nouveau contrat', 'printgestion'),
             'existing' => __('Contrat existant', 'printgestion'),
         ]);
@@ -59,7 +62,7 @@ class PluginPrintgestionPrint extends CommonGLPI {
 
         echo "<div class='col-md-6'>";
         echo self::label(__('Imprimante', 'printgestion'));
-        self::renderModeRadios('printer_mode', 'new', [
+        self::renderModeRadios('printer_mode', Printer::canCreate() ? 'new' : 'existing', [
             'new'      => __('Nouvelle imprimante', 'printgestion'),
             'existing' => __('Imprimante existante', 'printgestion'),
         ]);
@@ -245,6 +248,17 @@ class PluginPrintgestionPrint extends CommonGLPI {
             return false;
         }
 
+        // Droits natifs de GLPI, en plus du droit du module : le formulaire crée des objets de GLPI. Sans eux,
+        // le droit du plugin aurait suffi à créer un contrat ou une imprimante que GLPI refuse à ce profil.
+        if ($contract_mode === 'new' && !Contract::canCreate()) {
+            Session::addMessageAfterRedirect(__('Droit GLPI manquant : créer un contrat. Rien n\'a été créé.', 'printgestion'), false, ERROR);
+            return false;
+        }
+        if ($printer_mode === 'new' && !Printer::canCreate()) {
+            Session::addMessageAfterRedirect(__('Droit GLPI manquant : créer une imprimante. Rien n\'a été créé.', 'printgestion'), false, ERROR);
+            return false;
+        }
+
         // ── 1) Résoudre les éléments existants + leur entité (avant transaction) ──
         $contract        = new Contract();
         $printer         = new Printer();
@@ -319,6 +333,19 @@ class PluginPrintgestionPrint extends CommonGLPI {
             return false;
         }
 
+        // Relier : droit de modification sur le contrat ou sur l'imprimante, la condition des onglets natifs « Éléments »
+        // du contrat et « Contrats » de l'imprimante (canAddItem). Un objet créé ici l'est par qui peut le créer.
+        $link_allowed = ($contract_mode === 'new' ? Contract::canUpdate() : $contract->canAddItem(Printer::class))
+            || ($printer_mode === 'new' ? Printer::canUpdate() : $printer->canAddItem(Contract::class));
+        if (!$link_allowed) {
+            Session::addMessageAfterRedirect(
+                __('Droit GLPI manquant pour relier ce contrat et cette imprimante : modifier le contrat ou l\'imprimante. Rien n\'a été créé.', 'printgestion'),
+                false,
+                ERROR
+            );
+            return false;
+        }
+
         // ── 2) Transaction : créations puis liaison (toujours en dernier) ───────
         $DB->beginTransaction();
         try {
@@ -370,11 +397,17 @@ class PluginPrintgestionPrint extends CommonGLPI {
 
             if (!$already) {
                 $contract_item = new Contract_Item();
-                $link_id = $contract_item->add([
+                $link_input    = [
                     'contracts_id' => $contracts_id,
                     'itemtype'     => 'Printer',
                     'items_id'     => $printers_id,
-                ]);
+                ];
+                // Règle native du lien contrat ↔ élément (entités compatibles, nombre maximal d'éléments du contrat) :
+                // refusé, tout est annulé.
+                if (!$contract_item->can(-1, CREATE, $link_input)) {
+                    throw new RuntimeException('link_refused');
+                }
+                $link_id = $contract_item->add($link_input);
                 if (!$link_id) {
                     // Échec typique : incompatibilité d'entité contrat/imprimante.
                     throw new RuntimeException('link_failed');
@@ -384,13 +417,20 @@ class PluginPrintgestionPrint extends CommonGLPI {
             $DB->commit();
         } catch (Throwable $e) {
             $DB->rollBack();
-            PluginPrintgestionLogger::error(
-                'Print::processForm',
-                sprintf('Création / liaison contrat ↔ imprimante annulée (modes : contrat %s, imprimante %s).', $contract_mode, $printer_mode),
-                $e
-            );
+            if ($e->getMessage() === 'link_refused') {
+                // Refus de la règle native, pas une panne : une ligne d'avertissement, sans trace.
+                PluginPrintgestionLogger::warning('Print::processForm', sprintf('Liaison contrat ↔ imprimante refusée par GLPI (entités ou nombre maximal d\'éléments du contrat), modes : contrat %s, imprimante %s. Rien n\'a été créé.', $contract_mode, $printer_mode));
+            } else {
+                PluginPrintgestionLogger::error(
+                    'Print::processForm',
+                    sprintf('Création / liaison contrat ↔ imprimante annulée (modes : contrat %s, imprimante %s).', $contract_mode, $printer_mode),
+                    $e
+                );
+            }
             $msg = __("Échec de l'enregistrement.", 'printgestion');
-            if ($e->getMessage() === 'link_failed') {
+            if ($e->getMessage() === 'link_refused') {
+                $msg = __('GLPI refuse de relier ce contrat et cette imprimante : entités incompatibles, ou nombre maximal d\'éléments du contrat atteint. Rien n\'a été créé.', 'printgestion');
+            } elseif ($e->getMessage() === 'link_failed') {
                 $msg = __("Échec de la liaison contrat ↔ imprimante (entités incompatibles ?).", 'printgestion');
             } elseif ($e->getMessage() === 'contract_add_failed') {
                 $msg = __('Échec de la création du contrat.', 'printgestion');
@@ -402,6 +442,10 @@ class PluginPrintgestionPrint extends CommonGLPI {
         }
 
         // ── 3) Succès : message + redirection vers la fiche contrat ─────────────
+        if ($already) {
+            Session::addMessageAfterRedirect(__('Ce contrat et cette imprimante étaient déjà liés : rien n\'a été modifié.', 'printgestion'), false, INFO);
+            return Contract::getFormURLWithID($contracts_id);
+        }
         $detail = self::successDetail($contract_mode, $printer_mode);
         Session::addMessageAfterRedirect(
             __('Imprimante et contrat liés.', 'printgestion') . ' ' . $detail,

@@ -32,7 +32,7 @@ MAIL_NOM = 'Imprimante <b>gras</b> & "guillemets"'
 MAIL_SUIVI = "<img src=x onerror=alert(3)>"
 CLE_TEST = "CLE-API-INVENTEE-0001"
 EXP = "glpi_plugin_printgestion_expeditions"
-DROITS_PLUGIN = ("plugin_printgestion_expedition", "plugin_printgestion_dashboard", "plugin_printgestion_contrats", "plugin_printgestion_billing",
+DROITS_PLUGIN = ("plugin_printgestion_expedition", "plugin_printgestion_dashboard", "plugin_printgestion_contrats", "plugin_printgestion_miseenservice", "plugin_printgestion_billing",
                  "plugin_printgestion_validation", "plugin_printgestion_deploiement", "plugin_printgestion_sage", "plugin_printgestion_config")
 PROFIL_SELF_SERVICE, PROFIL_SUPER_ADMIN, PROFIL_ADMIN = 1, 4, 6
 
@@ -57,7 +57,10 @@ def mise_en_place():
     IDS["AL1"] = CTX.alerte_mauvaise_imprimante(d.IMP_A2, d.IMP_A1, IDS["EA"])
     IDS["ALB"] = CTX.alerte_mauvaise_imprimante(d.IMP_B, d.IMP_B, IDS["EB"])
     droits_a = dict.fromkeys(DROITS_PLUGIN, 0)
-    droits_a.update({"plugin_printgestion_expedition": 3, "plugin_printgestion_dashboard": 3, "plugin_printgestion_contrats": 7,
+    # Droits natifs de GLPI sur les contrats et les imprimantes : le module « Mise en service » les exige en plus du
+    # sien (le profil 6 est Technicien, qui n'a ni lecture ni création de contrat).
+    droits_a.update({"contract": 31, "printer": 31})
+    droits_a.update({"plugin_printgestion_expedition": 3, "plugin_printgestion_dashboard": 3, "plugin_printgestion_contrats": 7, "plugin_printgestion_miseenservice": 4,
                      "plugin_printgestion_billing": 5, "plugin_printgestion_validation": 3, "plugin_printgestion_deploiement": 3,
                      "plugin_printgestion_sage": 3})
     profil_a = CTX.profil(PROFIL_ADMIN, "Profil test client A (droits du plugin)", droits_a)
@@ -173,14 +176,14 @@ def scenario_cloisonnement():
                    "UNION ALL SELECT 'imprimante', id, entities_id FROM glpi_printers WHERE name = 'TST-IMPRIMANTE-HORS-PERIMETRE'")
     for genre, ident, _ in crees:
         CTX.crees["contrats" if genre == "contrat" else "imprimantes"].append(int(ident))
-    constat("« Créer Print » : entities_id posté = Client test B, rien créé", ok_ko(not crees), f"créés : {crees}" if crees else "")
+    constat("« Mise en service » : entities_id posté = Client test B, rien créé", ok_ko(not crees), f"créés : {crees}" if crees else "")
     WEB.post(config.FRONT + "/print.form.php", [("add", "1"), ("contract_mode", "new"), ("printer_mode", "existing"), ("printers_id", str(pb)),
                                                ("c_name", "TST-CONTRAT-LIAISON"), ("c_duration", "12")])
     lies = lignes("SELECT id, entities_id FROM glpi_contracts WHERE name = 'TST-CONTRAT-LIAISON'")
     for ident, _ in lies:
         CTX.crees["contrats"].append(int(ident))
     liaisons = valeur(f"SELECT COUNT(*) FROM glpi_contracts_items ci JOIN glpi_contracts c ON c.id = ci.contracts_id WHERE c.name = 'TST-CONTRAT-LIAISON' AND ci.items_id = {pb}")
-    constat("« Créer Print » : imprimante de Client test B (printers_id posté) jamais liée", ok_ko(liaisons == "0"),
+    constat("« Mise en service » : imprimante de Client test B (printers_id posté) jamais liée", ok_ko(liaisons == "0"),
             f"contrat créé {lies}, liaisons {liaisons}" if lies else "")
     sql(f"INSERT INTO glpi_locations (entities_id, name, completename, level, locations_id, date_creation, date_mod) VALUES ({b}, 'Lieu test B', 'Lieu test B', 1, 0, NOW(), NOW());")
     lieu_b = valeur("SELECT MAX(id) FROM glpi_locations WHERE name = 'Lieu test B'")
@@ -189,15 +192,27 @@ def scenario_cloisonnement():
     crees = lignes("SELECT 'contrat', id FROM glpi_contracts WHERE name = 'TST-CONTRAT-LIEU-B' UNION ALL SELECT 'imprimante', id FROM glpi_printers WHERE name = 'TST-IMPRIMANTE-LIEU-B'")
     for genre, ident in crees:
         CTX.crees["contrats" if genre == "contrat" else "imprimantes"].append(int(ident))
-    constat("« Créer Print » : lieu de Client test B refusé, rien créé", ok_ko(not crees), f"créés : {crees}" if crees else "")
-    WEB.post(config.FRONT + "/print.form.php", [("add", "1"), ("contract_mode", "new"), ("printer_mode", "new"), ("entities_id", str(d.SITE_A1)),
-                                               ("c_name", "TST-CONTRAT-TEMOIN"), ("c_duration", "12"), ("p_name", "TST-IMPRIMANTE-TEMOIN")])
+    constat("« Mise en service » : lieu de Client test B refusé, rien créé", ok_ko(not crees), f"créés : {crees}" if crees else "")
+    # Témoin par la nouvelle adresse du module (les refus ci-dessus passent par l'ancienne, qui charge la même page).
+    WEB.post(config.FRONT + "/miseenservice.php", [("add", "1"), ("contract_mode", "new"), ("printer_mode", "new"), ("entities_id", str(d.SITE_A1)),
+                                                 ("c_name", "TST-CONTRAT-TEMOIN"), ("c_duration", "12"), ("p_name", "TST-IMPRIMANTE-TEMOIN")])
     crees = lignes("SELECT 'contrat', id, entities_id FROM glpi_contracts WHERE name = 'TST-CONTRAT-TEMOIN' "
                    "UNION ALL SELECT 'imprimante', id, entities_id FROM glpi_printers WHERE name = 'TST-IMPRIMANTE-TEMOIN'")
     for genre, ident, _ in crees:
         CTX.crees["contrats" if genre == "contrat" else "imprimantes"].append(int(ident))
-    constat("témoin « Créer Print » : contrat et imprimante créés et liés dans une sous-entité du compte (Site test A1)",
+    constat("témoin « Mise en service » : contrat et imprimante créés et liés dans une sous-entité du compte (Site test A1)",
             ok_ko(sorted(r[2] for r in crees) == [str(d.SITE_A1)] * 2), str(crees))
+    # Droits natifs : le droit du module ne suffit pas à créer un contrat que GLPI refuse au profil.
+    sans_natif = CTX.profil(PROFIL_ADMIN, "Profil test mise en service sans droit natif", {"plugin_printgestion_miseenservice": 4, "contract": 1, "printer": 31})
+    CTX.utilisateur("test-mes-sans-natif", sans_natif, d.CLIENT_A)
+    CTX.connecter("test-mes-sans-natif")
+    WEB.post(config.FRONT + "/miseenservice.php", [("add", "1"), ("contract_mode", "new"), ("printer_mode", "new"), ("entities_id", str(d.SITE_A1)),
+                                                 ("c_name", "TST-CONTRAT-SANS-NATIF"), ("c_duration", "12"), ("p_name", "TST-IMPRIMANTE-SANS-NATIF")])
+    crees = lignes("SELECT 'contrat', id FROM glpi_contracts WHERE name = 'TST-CONTRAT-SANS-NATIF' UNION ALL SELECT 'imprimante', id FROM glpi_printers WHERE name = 'TST-IMPRIMANTE-SANS-NATIF'")
+    for genre, ident in crees:
+        CTX.crees["contrats" if genre == "contrat" else "imprimantes"].append(int(ident))
+    constat("« Mise en service » sans droit natif de créer un contrat : refusé, rien créé (ni contrat ni imprimante)", ok_ko(not crees), f"créés : {crees}" if crees else "")
+    CTX.connecter("test-client-a")
     sql(f"DELETE FROM glpi_locations WHERE id = {lieu_b};")
 
     # Import des adresses Sage (compte de Client test A avec le droit « Référentiel Sage ») : le rapport d'écarts ne nomme

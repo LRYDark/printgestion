@@ -75,7 +75,7 @@ def main():
                     lib.ok_ko("data-pg-empty" in html and marqueur in html and "btn btn-sm btn-outline-primary" in html[html.find("data-pg-empty"):]))
 
         section("2. Technicien, base vide, accès direct par l'URL")
-        droits = {"plugin_printgestion_contrats": 1, "plugin_printgestion_dashboard": 1, "plugin_printgestion_expedition": 1, "plugin_printgestion_validation": 1,
+        droits = {"plugin_printgestion_contrats": 1, "plugin_printgestion_miseenservice": 0, "plugin_printgestion_dashboard": 1, "plugin_printgestion_expedition": 1, "plugin_printgestion_validation": 1,
                   "plugin_printgestion_deploiement": 1, "plugin_printgestion_sage": 1, "plugin_printgestion_billing": 1, "plugin_printgestion_config": 0}
         profil = CTX.profil(6, "Profil test recette (lecture)", droits)
         CTX.utilisateur("test-recette", profil, d.RACINE)

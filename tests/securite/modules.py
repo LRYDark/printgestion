@@ -13,7 +13,8 @@ import lib
 from lib import WEB, constat, ok_ko, section, sql
 
 MODULES = {
-    "contrats": ["front/dashboard.php", "front/list.php", "front/print.form.php", "front/contractrate.form.php"],
+    "contrats": ["front/dashboard.php", "front/list.php", "front/contractrate.form.php"],
+    "miseenservice": ["front/miseenservice.php", "front/print.form.php"],
     "toner": ["front/dashboard_alerts.php", "front/dashboard_expeditions.php", "front/demande.php", "front/demande.form.php",
               "front/demande.export.php", "front/expedition.form.php", "front/purchaseorder.form.php", "front/cartridgesnmp.form.php",
               "ajax/edit_expedition.php", "ajax/expedition_bls.php", "ajax/link_bls.php", "ajax/reassign_expedition.php",
@@ -58,7 +59,7 @@ def main():
         ok, det = ferme("front/dashboard_alerts.php")
         constat("modules rétablis : les écrans répondent de nouveau", ok_ko(not ok), det)
     finally:
-        sql(f"UPDATE {TABLE} SET enable_contrats = 1, enable_toner = 1, enable_cout = 1, enable_deploiement = 1, enable_sage = 1 WHERE id = 1;")
+        sql(f"UPDATE {TABLE} SET enable_contrats = 1, enable_toner = 1, enable_cout = 1, enable_deploiement = 1, enable_sage = 1, enable_miseenservice = 1 WHERE id = 1;")
     return lib.bilan()
 
 

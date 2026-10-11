@@ -10,13 +10,14 @@ avec notifications regroupées, commandes fournisseur avec export Excel, et coû
 
 ## Fonctionnalités
 
-Trois modules indépendants, activables par interrupteur dans la configuration :
+Trois modules indépendants, activables par interrupteur dans la configuration. Sur l'accueil du plugin, chaque
+utilisateur range les cartes des modules dans l'ordre qu'il veut (glisser-déposer) :
 
 ### Gestion contractuelle
 - Dashboard des contrats d'impression : tuiles de synthèse, graphiques (statuts, échéances),
   liste avec le moteur de recherche natif GLPI (tri, filtres, colonnes, export).
 - Périmètre automatique : seuls les contrats liés à au moins une imprimante sont affichés.
-- « Créer Print » : création/association imprimante ↔ contrat en un écran
+- Module « Mise en service » : mettre une imprimante sous contrat en un écran (création ou association), droit GLPI à part, droits natifs de GLPI respectés
   (contrat neuf ou existant × imprimante neuve ou existante).
 - Tarifs €/page N&B et Couleur par contrat (onglet sur la fiche contrat).
 
@@ -58,7 +59,8 @@ Trois modules indépendants, activables par interrupteur dans la configuration :
 |---|---|
 | GLPI | 11.0.x (testé 11.0.8 ; la série 11.1 n'est pas testée, `setup.php` la refuse) |
 | PHP | 8.2 ou plus récent (testé 8.3), extensions zip, mbstring, intl |
-| GLPI Inventory | 1.6.0 ou plus récent (testé 1.6.10) : indispensable au module de collecte, sans effet sur les autres |
+| GLPI Inventory | 1.6.0 ou plus récent, série 1.6 (testé 1.6.12) : indispensable au module de collecte, sans effet sur les autres. La 1.7 est réservée à GLPI 12 |
+| GLPI Agent | 1.20 validée (1.21 contrôlée compatible) ; toute autre version est contrôlée avant d'être servie (page « Installeur ») |
 | Optionnel | Plugin Gestion (BL signés → expédition livrée), identifiant et secret GLS (suivi des colis), identifiant et passphrase MBE (intermédiaire de transport, test de connexion seulement pour l'instant) |
 
 ---
