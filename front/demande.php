@@ -4,7 +4,6 @@
  * Par défaut : les demandes proposées, à valider. Visible avec le droit de validation ou
  * la lecture des alertes toner ; seul le droit de validation permet d'agir.
  */
-include('../../../inc/includes.php');
 
 global $DB; // fichier front chargé hors portée globale (LegacyFileLoadController)
 
@@ -46,8 +45,8 @@ PluginPrintgestionPurchaseorder::showNotSentCard();
 $table = PluginPrintgestionDemande::getTable();
 $crow  = $DB->request([
     'SELECT' => [
-        new QueryExpression("COALESCE(SUM(`statut` = 'proposed'), 0) AS `proposed`"),
-        new QueryExpression("COALESCE(SUM(`statut` = 'validated'), 0) AS `validated`"),
+        new \Glpi\DBAL\QueryExpression("COALESCE(SUM(`statut` = 'proposed'), 0) AS `proposed`"),
+        new \Glpi\DBAL\QueryExpression("COALESCE(SUM(`statut` = 'validated'), 0) AS `validated`"),
     ],
     'FROM'   => $table,
     'WHERE'  => getEntitiesRestrictCriteria($table, '', '', false),

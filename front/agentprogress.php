@@ -16,7 +16,6 @@
  *
  * Réponses possibles, une ligne chacune : `ATTENTE`, `AUCUNE`, ou `TROUVE <n>` suivi d'un nom par ligne.
  */
-include('../../../inc/includes.php');
 
 // GLPI 11 charge les fichiers front DANS une fonction (LegacyFileLoadController) : rien n'est global ici de
 // lui-même. Sans cette ligne, $DB est simplement absent, et le premier appel meurt en « Call to a member function

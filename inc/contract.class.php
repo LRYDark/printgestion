@@ -24,7 +24,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionContract extends Contract {
 
-    static $rightname = 'plugin_printgestion_contrats';
+    static string $rightname = 'plugin_printgestion_contrats';
 
     /**
      * Réutilise la table native des contrats (sinon GLPI déduirait

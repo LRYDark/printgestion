@@ -23,9 +23,9 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\DefaultSearchRequestInterface {
 
-    static $rightname = 'plugin_printgestion_validation';
+    static string $rightname = 'plugin_printgestion_validation';
 
-    public $dohistory = true;
+    public bool $dohistory = true;
 
     const STATUS_PROPOSED  = 'proposed';
     const STATUS_VALIDATED = 'validated';
@@ -1493,7 +1493,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
 
         $cancelled = [];
         foreach ($DB->request([
-            'SELECT'  => ['printers_id', 'toner_property', new \QueryExpression('MAX(`date_mod`) AS `last_date`')],
+            'SELECT'  => ['printers_id', 'toner_property', new \Glpi\DBAL\QueryExpression('MAX(`date_mod`) AS `last_date`')],
             'FROM'    => PluginPrintgestionDemandeline::getTable(),
             'WHERE'   => [
                 'printers_id' => $all_ids,
@@ -1516,7 +1516,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             [PluginPrintgestionExpedition::getTable(), 'date_installed', ['statut' => PluginPrintgestionExpedition::STATUS_INSTALLED]],
         ] as [$table, $field, $criteria]) {
             foreach ($DB->request([
-                'SELECT'  => ['printers_id', 'toner_property', new \QueryExpression("MAX(`{$field}`) AS `last_date`")],
+                'SELECT'  => ['printers_id', 'toner_property', new \Glpi\DBAL\QueryExpression("MAX(`{$field}`) AS `last_date`")],
                 'FROM'    => $table,
                 'WHERE'   => $criteria + ['printers_id' => $all_ids, $field => ['>=', $cutoff]],
                 'GROUPBY' => ['printers_id', 'toner_property'],

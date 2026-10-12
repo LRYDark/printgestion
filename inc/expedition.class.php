@@ -15,7 +15,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionExpedition extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_expedition';
+    static string $rightname = 'plugin_printgestion_expedition';
 
     const STATUS_PENDING     = 'pending';
     const STATUS_SHIPPED     = 'shipped';
@@ -987,7 +987,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         $ok = $DB->update(self::getTable(), $data, [
             'id'     => $expedition_id,
             'statut' => self::STATUS_PENDING,
-        ]) && $DB->affectedRows() > 0;
+        ]) && $DB->getAffectedRows() > 0;
         if ($ok) {
             self::syncAlertView($expedition_id);
             self::notifyShippedToCommercial($expedition_id);

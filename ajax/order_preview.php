@@ -3,12 +3,10 @@
  * Aperçu en direct du sous-formulaire « Commander » (alertes toner) : appelé pendant la saisie d'une référence de
  * cartouche, il refait les contrôles du fichier Gesconso avec cette référence et rend le bloc rouge / vert.
  *
- * Lecture seule : rien n'est créé ici, la cartouche ne l'est qu'à l'envoi de la commande. En AJAX, GLPI vérifie le
- * jeton CSRF de l'en-tête `X-Glpi-Csrf-Token` et le conserve : la saisie peut relancer l'aperçu autant de fois
- * qu'il faut.
+ * Lecture seule : rien n'est créé ici, la cartouche ne l'est qu'à l'envoi de la commande. La saisie peut relancer
+ * l'aperçu autant de fois qu'il faut.
  */
 
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

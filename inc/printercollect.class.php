@@ -10,7 +10,7 @@
  */
 class PluginPrintgestionPrintercollect extends Printer implements Glpi\Search\DefaultSearchRequestInterface {
 
-    public static $rightname = 'plugin_printgestion_deploiement';
+    public static string $rightname = 'plugin_printgestion_deploiement';
 
     /** La table native des imprimantes (sinon GLPI déduirait « glpi_plugin_printgestion_printercollects »). */
     public static function getTable($classname = null) {

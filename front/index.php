@@ -5,7 +5,6 @@
  * cartes des catégories (chacune liste ses sous-onglets accessibles).
  */
 
-include('../../../inc/includes.php');
 
 global $DB; // fichier front chargé hors portée globale (LegacyFileLoadController)
 
@@ -150,10 +149,9 @@ if ($can_sort) {
     if (typeof glpi_toast_error === 'function') { glpi_toast_error({$msg_failed}); } else { alert({$msg_failed}); }
   };
   var post = function (body) {
-    var csrf = document.querySelector('meta[property=\"glpi:csrf_token\"]');
     return fetch({$order_url}, {
       method: 'POST', credentials: 'same-origin', body: body,
-      headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-Glpi-Csrf-Token': csrf ? csrf.content : '' }
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
     }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
   };
   sortable(list, {

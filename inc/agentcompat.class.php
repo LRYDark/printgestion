@@ -715,7 +715,7 @@ class PluginPrintgestionAgentcompat {
         if (self::$transport !== null) {
             return (self::$transport)($url);
         }
-        $client   = Toolbox::getGuzzleClient(['timeout' => 60, 'connect_timeout' => 10]);
+        $client   = PluginPrintgestionHttp::guzzle(['timeout' => 60, 'connect_timeout' => 10]);
         $response = $client->request('GET', $url, [
             'headers'     => ['User-Agent' => 'GLPI-printgestion', 'Accept' => 'application/vnd.github+json'],
             'http_errors' => false,

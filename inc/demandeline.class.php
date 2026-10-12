@@ -19,9 +19,9 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionDemandeline extends CommonDBChild {
 
-    static $itemtype  = 'PluginPrintgestionDemande';
-    static $items_id  = 'plugin_printgestion_demandes_id';
-    static $rightname = 'plugin_printgestion_validation';
+    static string $itemtype  = 'PluginPrintgestionDemande';
+    static string $items_id  = 'plugin_printgestion_demandes_id';
+    static string $rightname = 'plugin_printgestion_validation';
 
     static function getTypeName($nb = 0) {
         return _n('Ligne de demande', 'Lignes de demande', $nb, 'printgestion');

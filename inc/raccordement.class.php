@@ -21,7 +21,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionRaccordement extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_deploiement';
+    static string $rightname = 'plugin_printgestion_deploiement';
 
     const STATUS_OPEN       = 'open';
     const STATUS_CONFIGURED = 'configured';

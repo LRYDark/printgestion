@@ -21,7 +21,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionDashboard extends CommonGLPI {
 
-    static $rightname = 'plugin_printgestion_contrats';
+    static string $rightname = 'plugin_printgestion_contrats';
 
     // Search options natives de Contract utilisées comme colonnes par défaut.
     const SO_NAME     = 1;   // Contrat (itemlink → fiche native)
@@ -175,11 +175,11 @@ class PluginPrintgestionDashboard extends CommonGLPI {
 
         $row = $DB->request([
             'SELECT'     => [
-                new QueryExpression("COUNT(DISTINCT $id) AS `total`"),
-                new QueryExpression("COUNT(DISTINCT CASE WHEN ($days) < 0 THEN $id END) AS `expired`"),
-                new QueryExpression("COUNT(DISTINCT CASE WHEN ($not) = 1 THEN $id END) AS `notice`"),
-                new QueryExpression("COUNT(DISTINCT CASE WHEN ($days) >= 0 AND ($days) <= $soon THEN $id END) AS `soon`"),
-                new QueryExpression("COUNT(DISTINCT `glpi_printers`.`id`) AS `printers`"),
+                new \Glpi\DBAL\QueryExpression("COUNT(DISTINCT $id) AS `total`"),
+                new \Glpi\DBAL\QueryExpression("COUNT(DISTINCT CASE WHEN ($days) < 0 THEN $id END) AS `expired`"),
+                new \Glpi\DBAL\QueryExpression("COUNT(DISTINCT CASE WHEN ($not) = 1 THEN $id END) AS `notice`"),
+                new \Glpi\DBAL\QueryExpression("COUNT(DISTINCT CASE WHEN ($days) >= 0 AND ($days) <= $soon THEN $id END) AS `soon`"),
+                new \Glpi\DBAL\QueryExpression("COUNT(DISTINCT `glpi_printers`.`id`) AS `printers`"),
             ],
             'FROM'       => 'glpi_contracts',
             'INNER JOIN' => self::scopeJoin(),
@@ -210,11 +210,11 @@ class PluginPrintgestionDashboard extends CommonGLPI {
 
         $row = $DB->request([
             'SELECT'     => [
-                new QueryExpression("COUNT(DISTINCT CASE WHEN ($days) < 0 THEN $id END) AS `expired`"),
-                new QueryExpression("COUNT(DISTINCT CASE WHEN ($days) >= 0 AND ($not) = 1 THEN $id END) AS `notice`"),
-                new QueryExpression("COUNT(DISTINCT CASE WHEN ($days) >= 0 AND ($not) = 0 AND ($days) <= $soon THEN $id END) AS `soon`"),
-                new QueryExpression("COUNT(DISTINCT CASE WHEN ($days) > $soon AND ($not) = 0 THEN $id END) AS `ok`"),
-                new QueryExpression("COUNT(DISTINCT CASE WHEN `glpi_contracts`.`begin_date` IS NULL OR `glpi_contracts`.`duration` <= 0 THEN $id END) AS `na`"),
+                new \Glpi\DBAL\QueryExpression("COUNT(DISTINCT CASE WHEN ($days) < 0 THEN $id END) AS `expired`"),
+                new \Glpi\DBAL\QueryExpression("COUNT(DISTINCT CASE WHEN ($days) >= 0 AND ($not) = 1 THEN $id END) AS `notice`"),
+                new \Glpi\DBAL\QueryExpression("COUNT(DISTINCT CASE WHEN ($days) >= 0 AND ($not) = 0 AND ($days) <= $soon THEN $id END) AS `soon`"),
+                new \Glpi\DBAL\QueryExpression("COUNT(DISTINCT CASE WHEN ($days) > $soon AND ($not) = 0 THEN $id END) AS `ok`"),
+                new \Glpi\DBAL\QueryExpression("COUNT(DISTINCT CASE WHEN `glpi_contracts`.`begin_date` IS NULL OR `glpi_contracts`.`duration` <= 0 THEN $id END) AS `na`"),
             ],
             'FROM'       => 'glpi_contracts',
             'INNER JOIN' => self::scopeJoin(),
@@ -253,8 +253,8 @@ class PluginPrintgestionDashboard extends CommonGLPI {
         $select = [];
         foreach ($years as $y) {
             $y = (int) $y;
-            $select[] = new QueryExpression("COUNT(DISTINCT CASE WHEN $begin = $y THEN $id END) AS `b$y`");
-            $select[] = new QueryExpression("COUNT(DISTINCT CASE WHEN $end = $y THEN $id END) AS `e$y`");
+            $select[] = new \Glpi\DBAL\QueryExpression("COUNT(DISTINCT CASE WHEN $begin = $y THEN $id END) AS `b$y`");
+            $select[] = new \Glpi\DBAL\QueryExpression("COUNT(DISTINCT CASE WHEN $end = $y THEN $id END) AS `e$y`");
         }
 
         $row = $DB->request([
@@ -405,7 +405,7 @@ class PluginPrintgestionDashboard extends CommonGLPI {
         global $DB;
 
         $not   = PluginPrintgestionContract::sqlInNotice('glpi_contracts');
-        $where = array_merge(self::scopeWhere(), [new QueryExpression("($not) = 1")]);
+        $where = array_merge(self::scopeWhere(), [new \Glpi\DBAL\QueryExpression("($not) = 1")]);
 
         $set = [];
         foreach ($DB->request([

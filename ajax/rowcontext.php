@@ -8,7 +8,6 @@
  * Retourne : { ok: true, rows: { id: { … } } }. Seules les lignes du périmètre de l'utilisateur sont renvoyées :
  * une ligne d'un autre client est simplement absente, comme si elle n'existait pas.
  */
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

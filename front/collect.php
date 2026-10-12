@@ -5,7 +5,6 @@
  * prérequis, analyses de réglage pour l'administrateur. Lecture : droit Déploiement ; recalcul (POST) :
  * Déploiement en modification.
  */
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

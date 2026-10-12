@@ -131,7 +131,7 @@ class PluginPrintgestionEntityscope {
                 $where,
                 ['INNER JOIN' => [$source => ['ON' => [$table => $column, $source => 'id']]]]
             );
-            $count = (int) $DB->affectedRows();
+            $count = (int) $DB->getAffectedRows();
             if ($count > 0) {
                 $fixed[$table] = $count;
             }

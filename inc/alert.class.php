@@ -15,7 +15,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionAlert extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_dashboard';
+    static string $rightname = 'plugin_printgestion_dashboard';
 
     const STATUS_OK       = 'ok';
     const STATUS_WATCH    = 'watch';

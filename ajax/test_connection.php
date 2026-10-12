@@ -2,9 +2,8 @@
 /**
  * Test de connexion d'une intégration (GLS, MBE), appelé en AJAX depuis la carte de configuration.
  *
- * Le résultat s'affiche dans une fenêtre, sans recharger la page : un test se relance, se compare, se relit. En
- * AJAX, GLPI vérifie le jeton CSRF de l'en-tête `X-Glpi-Csrf-Token` et le **conserve** (preserve_token), donc on
- * peut réessayer autant de fois qu'on veut sans recharger.
+ * Le résultat s'affiche dans une fenêtre, sans recharger la page : un test se relance, se compare, se relit,
+ * autant de fois qu'on veut.
  *
  * Ce point d'entrée ne fait qu'appeler le `testConnection()` du client concerné — le même que le bouton envoyé en
  * formulaire, qui reste le chemin de repli quand le JS n'est pas là. Rien n'est enregistré ici : le test lit et
@@ -14,7 +13,6 @@
  * masque ces valeurs avant de les rendre.
  */
 
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

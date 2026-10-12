@@ -7,7 +7,6 @@
  * Droit Déploiement en lecture ; sonde dans les entités de l'utilisateur. ZIP généré à la demande, supprimé
  * en fin de requête.
  */
-include('../../../inc/includes.php');
 
 use Glpi\Exception\Http\NotFoundHttpException;
 use Symfony\Component\HttpFoundation\StreamedResponse;

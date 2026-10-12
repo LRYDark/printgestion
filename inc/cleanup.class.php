@@ -73,7 +73,7 @@ class PluginPrintgestionCleanup
                     continue;
                 }
                 $DB->delete($table, ['printers_id' => $id]);
-                $efface += (int) $DB->affectedRows();
+                $efface += (int) $DB->getAffectedRows();
             } catch (Throwable $e) {
                 PluginPrintgestionLogger::error('cleanup', sprintf('Imprimante %1$d supprimée : la table %2$s n\'a pas été nettoyée.', $id, $table), $e);
             }

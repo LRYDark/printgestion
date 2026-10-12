@@ -20,7 +20,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionDashboardactions extends CommonGLPI {
 
-    static $rightname = 'plugin_printgestion_dashboard';
+    static string $rightname = 'plugin_printgestion_dashboard';
 
     static function getTypeName($nb = 0) {
         return __('Actions dashboard', 'printgestion');
@@ -353,7 +353,6 @@ document.addEventListener('DOMContentLoaded', function() {
             'blEnabled'  => (bool)$bl_enabled,
             'ajaxBase'   => $ajax_base,
             'rootDoc'    => $root_doc,
-            'csrf'       => Session::getNewCSRFToken(),
             'msg'       => [
                 'error'             => __("Erreur lors de l'action", 'printgestion'),
                 'no_bl_available'   => __('Aucun BL disponible pour ce client', 'printgestion'),
@@ -379,7 +378,6 @@ document.addEventListener('DOMContentLoaded', function() {
 (function() {
   const CAN_UPDATE = window.PC_CONFIG.canUpdate;
   const AJAX_BASE  = window.PC_CONFIG.ajaxBase;
-  const CSRF_TOKEN = window.PC_CONFIG.csrf;
   const MSG        = window.PC_CONFIG.msg;
 
   // ── Fix a11y Bootstrap Modal ──
@@ -393,11 +391,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }, true);
 
-  // ── Helper POST avec CSRF correct pour GLPI 11 ──
-  // GLPI 11 CheckCsrfListener pour AJAX (XmlHttpRequest) :
-  //   - lit le token dans le header "X-Glpi-Csrf-Token" (pas dans le body)
-  //   - preserve_token=true → le token reste valide pour les requêtes suivantes
-  // Donc un seul token (celui de PC_CONFIG) suffit pour toutes les AJAX.
+  // ── Helper POST ──
+  // GLPI 12 : CheckCsrfListener contrôle l'origine de la requête (en-têtes
+  // Sec-Fetch-Site / Origin) ; il n'y a plus de jeton à joindre.
   function pcPost(url, fd) {
     return fetch(url, {
       method: 'POST',
@@ -405,13 +401,12 @@ document.addEventListener('DOMContentLoaded', function() {
       credentials: 'same-origin',
       headers: {
         'X-Requested-With':  'XMLHttpRequest',
-        'X-Glpi-Csrf-Token': CSRF_TOKEN,
       }
     });
   }
 
   // ── Bouton "Rafraîchir" (invalide les caches dashboards) ──
-  // POST + jeton CSRF en en-tête (pcPost) : l'action recalcule toute la table des
+  // POST (pcPost) : l'action recalcule toute la table des
   // alertes, elle ne doit pas être déclenchable par un simple lien.
   const btnRefresh = document.getElementById('pc-refresh-cache');
   if (btnRefresh) {

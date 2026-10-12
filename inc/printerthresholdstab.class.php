@@ -12,7 +12,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionPrinterThresholdsTab extends CommonGLPI {
 
-    static $rightname = 'plugin_printgestion_dashboard';
+    static string $rightname = 'plugin_printgestion_dashboard';
 
     static function getTypeName($nb = 0) {
         return __('Seuils d\'alerte', 'printgestion');
@@ -124,8 +124,6 @@ class PluginPrintgestionPrinterThresholdsTab extends CommonGLPI {
             'uid'           => $uid,
             'printers_id'   => $printers_id,
             'thresholdsUrl' => PLUGIN_PRINTGESTION_WEBDIR . '/ajax/printer_thresholds.php',
-            // Jeton CSRF envoyé en en-tête X-Glpi-Csrf-Token (requête AJAX POST).
-            'csrf'          => Session::getNewCSRFToken(),
             'msgSaveError'  => __('Erreur lors de la sauvegarde', 'printgestion'),
             'msgNetError'   => __('Erreur réseau', 'printgestion'),
             'labelSave'     => __('Sauvegarder', 'printgestion'),
@@ -146,12 +144,12 @@ class PluginPrintgestionPrinterThresholdsTab extends CommonGLPI {
     const btn = document.getElementById(cfg.uid + '-submit');
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>'; }
 
-    // POST + jeton CSRF en en-tête : écriture protégée par le contrôle du cœur GLPI 11.
+    // POST : écriture protégée par le contrôle CSRF du cœur de GLPI.
     fetch(cfg.thresholdsUrl, {
       method: 'POST',
       body: fd,
       credentials: 'same-origin',
-      headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-Glpi-Csrf-Token': cfg.csrf },
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
     })
       .then(r => r.json())
       .then(d => {

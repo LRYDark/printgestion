@@ -13,7 +13,6 @@
  * au tri natifs (qui ne renvoient pas les pg_*).
  */
 
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 Session::checkRight('plugin_printgestion_billing', READ);

@@ -9,7 +9,6 @@
  * Une demande avec une ligne en défaut (code client, adresse, référence…) n'est pas
  * sélectionnable ; le serveur refuse de toute façon l'export entier.
  */
-include('../../../inc/includes.php');
 
 global $DB; // fichier front chargé hors portée globale (LegacyFileLoadController)
 

@@ -22,7 +22,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionMenu extends CommonGLPI {
 
-    static $rightname = 'plugin_printgestion_contrats';
+    static string $rightname = 'plugin_printgestion_contrats';
 
     static function getTypeName($nb = 0) {
         return __('Print Gestion', 'printgestion');

@@ -16,7 +16,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionCartridgehistory extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_dashboard';
+    static string $rightname = 'plugin_printgestion_dashboard';
 
     static function getTypeName($nb = 0) {
         return _n('Historique cartouche', 'Historiques cartouches', $nb, 'printgestion');

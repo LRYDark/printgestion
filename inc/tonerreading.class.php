@@ -14,7 +14,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionTonerreading extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_dashboard';
+    static string $rightname = 'plugin_printgestion_dashboard';
 
     /**
      * Niveau figé : un relevé au niveau inchangé est conservé, marqué suspect, quand
@@ -71,7 +71,7 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
             'SELECT' => [
                 'printers_id',
                 'property_name',
-                new \QueryExpression('MAX(reading_date) AS max_date'),
+                new \Glpi\DBAL\QueryExpression('MAX(reading_date) AS max_date'),
             ],
             'FROM'   => $table,
             'GROUPBY'=> ['printers_id', 'property_name'],
@@ -115,7 +115,7 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
         foreach ($DB->request([
             'SELECT' => [
                 'items_id',
-                new \QueryExpression('MAX(`date`) AS max_date'),
+                new \Glpi\DBAL\QueryExpression('MAX(`date`) AS max_date'),
             ],
             'FROM'   => 'glpi_printerlogs',
             'WHERE'  => ['itemtype' => 'Printer'],

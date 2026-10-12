@@ -1,5 +1,4 @@
 <?php
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 // Droit natif sur les contrats ET droit du plugin (« Contrats » : créer print / éditer tarifs).
@@ -51,7 +50,7 @@ if (isset($_POST['delete_rate'])) {
             'contracts_id' => $contracts_id,
         ]);
         // Tarif déjà supprimé ou d'un autre contrat : rien n'a été supprimé, ne pas l'annoncer.
-        if ($DB->affectedRows() > 0) {
+        if ($DB->getAffectedRows() > 0) {
             Session::addMessageAfterRedirect(__('Tarif supprimé', 'printgestion'), true, INFO);
         } else {
             Session::addMessageAfterRedirect(__('Tarif introuvable sur ce contrat : rien n\'a été supprimé.', 'printgestion'), true, WARNING);

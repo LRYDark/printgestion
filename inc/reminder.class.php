@@ -16,7 +16,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionReminder extends CommonGLPI {
 
-    static $rightname = 'plugin_printgestion_dashboard';
+    static string $rightname = 'plugin_printgestion_dashboard';
 
     static function getTypeName($nb = 0) {
         return _n('Tâche cron Print Gestion', 'Tâches cron Print Gestion', $nb, 'printgestion');

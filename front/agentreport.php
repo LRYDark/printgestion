@@ -17,7 +17,6 @@
  * compte rendu), ne répond qu'à une clé qui pouvait déjà supprimer, et compte avec la même sélection que la
  * suppression elle-même (Agentreport::probeScope()) : le nombre promis est celui qui partira.
  */
-include('../../../inc/includes.php');
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')

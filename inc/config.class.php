@@ -10,7 +10,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionConfig extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_config';
+    static string $rightname = 'plugin_printgestion_config';
 
     /**
      * Identifiant du formulaire de configuration. Le sien, pas « main-form » que GLPI donne déjà au sien : deux
@@ -26,7 +26,7 @@ class PluginPrintgestionConfig extends CommonDBTM {
      */
     const SECRET_FIELDS = ['gls_client_secret', 'mbe_username', 'mbe_passphrase'];
     /** Jamais rendues par l'API REST (même chiffrées) : GLPI les retire de la réponse via unsetUndisclosedFields(). */
-    public static $undisclosedFields = ['gls_client_id', 'gls_client_secret', 'mbe_username', 'mbe_passphrase'];
+    public static array $undisclosedFields = ['gls_client_id', 'gls_client_secret', 'mbe_username', 'mbe_passphrase'];
 
     static private $_instance = null;
 
@@ -174,28 +174,18 @@ class PluginPrintgestionConfig extends CommonDBTM {
 
         // Pattern plugin Gestion : showFormHeader() ouvre un <form> avec
         // action=$this->getFormURL() (→ plugins/printgestion/front/config.form.php)
-        // ET inclut automatiquement _glpi_csrf_token. On referme ensuite la ligne
-        // de table ouverte par showFormHeader pour rendre nos cards à la place.
+        // On referme ensuite la ligne de table ouverte par showFormHeader pour
+        // rendre nos cards à la place.
         // form_id explicite : showFormHeader() nomme sinon son formulaire « main-form », l'identifiant que GLPI
         // donne déjà au sien. Deux éléments du même id dans une page est une erreur, et le JS de GLPI cible
         // `#main-form` par endroits — il tomberait sur le premier trouvé, pas forcément le nôtre.
         // canedit passé explicitement aux DEUX appels : sans lui, le gabarit d'en-tête décide d'ouvrir le <form>
-        // avec item.canEdit(), pendant que celui des boutons émet le jeton CSRF et le </form> avec sa propre valeur
-        // par défaut (vrai). Si les deux réponses divergeaient, la page porterait un bouton et un jeton sans
-        // formulaire autour — et le clic ne partirait nulle part. Les deux lisent désormais la même chose.
+        // avec item.canEdit(), pendant que celui des boutons émet le </form> avec sa propre valeur par défaut
+        // (vrai). Si les deux réponses divergeaient, la page porterait un bouton sans formulaire autour — et le
+        // clic ne partirait nulle part. Les deux lisent désormais la même chose.
         $config->showFormHeader(['colspan' => 4, 'form_id' => self::FORM_ID, 'canedit' => $canedit]);
         echo '</td></tr></table>';
-        // Jeton CSRF posé ici, tout en haut du formulaire.
-        //
-        // GLPI émet le sien tout en bas, juste avant </form> (components/form/buttons.html.twig), après une longue
-        // suite de gabarits et de tables — et sur cette page il n'arrive pas dans le formulaire. Constaté dans le
-        // navigateur : `pg-config-form` ne contenait aucun `_glpi_csrf_token`, donc tout envoi partait sans jeton et
-        // GLPI le refusait (AccessDeniedHttpException sur checkCSRF), quand il partait.
-        //
-        // Ici, le jeton est le premier enfant du formulaire, en dehors de toute table : aucun gabarit, aucune
-        // relocalisation de l'analyseur HTML ne peut l'en sortir. Un second jeton plus bas ne gêne pas — chacun est
-        // valide, et c'est le dernier envoyé que PHP retient.
-        echo Html::hidden('_glpi_csrf_token', ['value' => Session::getNewCSRFToken()]);
+        // GLPI 12 : plus de jeton CSRF à poser dans le formulaire, le noyau contrôle l'origine de la requête.
         // Tout le formulaire passe par un tampon : en lecture seule, chaque contrôle de saisie ressort désactivé.
         ob_start();
 

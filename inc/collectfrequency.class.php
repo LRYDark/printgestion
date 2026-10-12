@@ -26,7 +26,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionCollectfrequency extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_deploiement';
+    static string $rightname = 'plugin_printgestion_deploiement';
 
     /** Unités et bornes des modificateurs (mêmes bornes que TASK_HOURLY_MODIFIER et TASK_DAILY_MODIFIER du MSI). */
     const UNITS = ['hourly' => [1, 23], 'daily' => [1, 365]];
@@ -389,7 +389,7 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
                 continue;
             }
             $last = $DB->request([
-                'SELECT'     => [new QueryExpression('MAX(' . $DB->quoteName('l.date') . ') AS ' . $DB->quoteName('last_end'))],
+                'SELECT'     => [new \Glpi\DBAL\QueryExpression('MAX(' . $DB->quoteName('l.date') . ') AS ' . $DB->quoteName('last_end'))],
                 'FROM'       => PluginGlpiinventoryTaskjoblog::getTable() . ' AS l',
                 'INNER JOIN' => [PluginGlpiinventoryTaskjobstate::getTable() . ' AS s' => ['ON' => ['l' => 'plugin_glpiinventory_taskjobstates_id', 's' => 'id']]],
                 'WHERE'      => [
@@ -513,7 +513,7 @@ class PluginPrintgestionCollectfrequency extends CommonDBTM {
             $last = null;
             if (!empty($task['jobs'])) {
                 $row  = $DB->request([
-                    'SELECT'     => [new QueryExpression('MAX(' . $DB->quoteName('l.date') . ') AS ' . $DB->quoteName('last_prepared'))],
+                    'SELECT'     => [new \Glpi\DBAL\QueryExpression('MAX(' . $DB->quoteName('l.date') . ') AS ' . $DB->quoteName('last_prepared'))],
                     'FROM'       => PluginGlpiinventoryTaskjoblog::getTable() . ' AS l',
                     'INNER JOIN' => [PluginGlpiinventoryTaskjobstate::getTable() . ' AS s' => ['ON' => ['l' => 'plugin_glpiinventory_taskjobstates_id', 's' => 'id']]],
                     'WHERE'      => [

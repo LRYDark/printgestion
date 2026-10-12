@@ -114,7 +114,7 @@ simulée ; pas encore essayé sur un vrai site client. Le point 6 (contrôle du 
 
 | Demande | Fait | Comment |
 |---|---|---|
-| Aucun jeton, API, mot de passe ni secret | Oui | Les paquets ne contiennent que l'URL du serveur et le TAG |
+| Aucun jeton, API, mot de passe ni secret | Oui, sauf authentification exigée par GLPI | Les paquets ne contiennent que l'URL du serveur et le TAG. Si « Authentification des agents » (Administration → Inventaire) est réglée sur basique ou OAuth, ils portent aussi cet identifiant et ce secret : sans eux GLPI refuserait la sonde |
 | Pas d'interface maison, pas de PowerShell | Oui | Windows : MSI officiel lancé seul par un `.bat` d'une action ; Linux : installeur officiel ; macOS : pkg officiel + `local.cfg` |
 | Jeton d'enrôlement « au cas où » | Non fait (voulu) | |
 

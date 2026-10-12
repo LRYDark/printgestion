@@ -3,7 +3,6 @@
  * État du recalcul des alertes toner (lecture seule, JSON), interrogé par l'écran des alertes pendant qu'un recalcul
  * demandé tourne dans la tâche PrintgestionRebuildAlerts : l'écran se recharge quand `pending` repasse à null.
  */
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

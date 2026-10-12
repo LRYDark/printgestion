@@ -5,7 +5,6 @@
  * (POST) : Déploiement en modification. Les actions massives sur les agents se font dans Administration > Agents,
  * qui porte les mêmes colonnes. Les imprimantes collectées ont leur propre onglet (collect.php).
  */
-include('../../../inc/includes.php');
 
 use Glpi\Exception\Http\NotFoundHttpException;
 

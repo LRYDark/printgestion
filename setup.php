@@ -5,18 +5,20 @@
  * Licence GPL v3+ : texte intégral dans le fichier LICENSE à la racine du plugin.
  */
 /**
- * Print Gestion — Plugin GLPI 11 de gestion de flotte d'impression
+ * Print Gestion — Plugin GLPI 12 de gestion de flotte d'impression
  * JCD Groupe — Joris Reinert
  */
 
 // À incrémenter à chaque nouvelle étape de schéma (inc/schema.class.php) ou nouvelle
 // tâche automatique : GLPI ne rejoue l'installation (schéma, enregistrement des
 // tâches) que si cette version change. La 1.0.0 s'installe sur une base vierge du plugin.
-define('PLUGIN_PRINTGESTION_VERSION', '1.0.0');
+// La 1.1.0 est le portage pour GLPI 12 (la série 1.0.x reste celle de GLPI 11) : même schéma,
+// PluginPrintgestionSchema::VERSION reste donc 1.0.0 et « Mettre à jour » ne touche à aucune table.
+define('PLUGIN_PRINTGESTION_VERSION', '1.1.0');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
-define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');
-define('PLUGIN_PRINTGESTION_MAX_GLPI', '11.0.99'); // testé sur GLPI 11.0.8 ; la série 11.1 ne l'est pas
+define('PLUGIN_PRINTGESTION_MIN_GLPI', '12.0.0');
+define('PLUGIN_PRINTGESTION_MAX_GLPI', '12.0.99'); // porté sur GLPI 12.0.0 ; les séries suivantes ne sont pas testées
 
 // Chemins web : en GLPI 11, les ressources d'un plugin sont toutes servies sous /plugins/
 // (Plugin::getWebDir() est déprécié). Fichier inclus depuis une méthode de GLPI :
@@ -30,7 +32,6 @@ define('PLUGIN_PRINTGESTION_NOTFULL_WEBDIR', 'plugins/printgestion');
 function plugin_init_printgestion() {
     global $PLUGIN_HOOKS, $CFG_GLPI, $DB;
 
-    $PLUGIN_HOOKS['csrf_compliant']['printgestion'] = true;
 
     // Colonnes chiffrées avec GLPIKey (PluginPrintgestionConfig::SECRET_FIELDS) : déclarées pour que la commande
     // glpi:security:change_key les rechiffre avec la nouvelle clé. Jusqu'ici la liste nommait trois colonnes qui
@@ -149,7 +150,7 @@ function plugin_init_printgestion() {
             $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::POST_SHOW_TAB]['printgestion'] = 'plugin_printgestion_post_show_tab';
 
             // Jeton anti-cache (beta) : à incrémenter à chaque modif de public/css|js.
-            $cb = '?b=12';
+            $cb = '?b=13';
             $PLUGIN_HOOKS['add_css']['printgestion']        = ['public/css/printgestion.css' . $cb];
             $PLUGIN_HOOKS['add_javascript']['printgestion'] = ['public/js/printgestion.js' . $cb];
         }

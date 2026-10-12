@@ -39,7 +39,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionCollect extends CommonGLPI {
 
-    static $rightname = 'plugin_printgestion_dashboard';
+    static string $rightname = 'plugin_printgestion_dashboard';
 
     const STATE_NO_INVENTORY = 'no_inventory';
     const STATE_STALE        = 'stale';
@@ -564,7 +564,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
         foreach (array_chunk($ids, 1000) as $chunk) {
             $last_dates = [];
             foreach ($DB->request([
-                'SELECT'  => ['items_id', new QueryExpression('MAX(`date`) AS `last_date`')],
+                'SELECT'  => ['items_id', new \Glpi\DBAL\QueryExpression('MAX(`date`) AS `last_date`')],
                 'FROM'    => 'glpi_printerlogs',
                 'WHERE'   => ['itemtype' => Printer::class, 'items_id' => $chunk],
                 'GROUPBY' => ['items_id'],
@@ -685,7 +685,7 @@ class PluginPrintgestionCollect extends CommonGLPI {
 
         $serials = [];
         foreach ($DB->request([
-            'SELECT'  => ['p.serial', new QueryExpression('COUNT(*) AS `cpt`')],
+            'SELECT'  => ['p.serial', new \Glpi\DBAL\QueryExpression('COUNT(*) AS `cpt`')],
             'FROM'    => 'glpi_printers AS p',
             'WHERE'   => $where,
             'GROUPBY' => ['p.serial'],

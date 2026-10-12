@@ -5,7 +5,6 @@
  * Actions de masse : Commander (droit de validation), Ne plus alerter / Réactiver
  * (modification des alertes). Recalcul complet : tâche horaire ou « Recalculer maintenant ».
  */
-include('../../../inc/includes.php');
 
 global $DB; // fichier front chargé hors portée globale (LegacyFileLoadController)
 
@@ -55,12 +54,12 @@ PluginPrintgestionMenu::showTabBar('tn_alerts');
 // ── Compteurs (entités de l'utilisateur) ──
 $counts = $DB->request([
     'SELECT' => [
-        new QueryExpression("COALESCE(SUM(`status` = 'critical'), 0) AS `critical`"),
-        new QueryExpression("COALESCE(SUM(`status` = 'watch'), 0) AS `watch`"),
-        new QueryExpression("COALESCE(SUM(`status` <> 'ok' AND `lock_reason` IS NOT NULL AND `lock_reason` <> 'bypassed'), 0) AS `locked`"),
-        new QueryExpression("COALESCE(SUM(`status` <> 'ok' AND `ref_error` IS NOT NULL), 0) AS `unresolved`"),
-        new QueryExpression("COALESCE(SUM(`level_suspect` = 1), 0) AS `suspect`"),
-        new QueryExpression("MAX(`date_compute`) AS `computed`"),
+        new \Glpi\DBAL\QueryExpression("COALESCE(SUM(`status` = 'critical'), 0) AS `critical`"),
+        new \Glpi\DBAL\QueryExpression("COALESCE(SUM(`status` = 'watch'), 0) AS `watch`"),
+        new \Glpi\DBAL\QueryExpression("COALESCE(SUM(`status` <> 'ok' AND `lock_reason` IS NOT NULL AND `lock_reason` <> 'bypassed'), 0) AS `locked`"),
+        new \Glpi\DBAL\QueryExpression("COALESCE(SUM(`status` <> 'ok' AND `ref_error` IS NOT NULL), 0) AS `unresolved`"),
+        new \Glpi\DBAL\QueryExpression("COALESCE(SUM(`level_suspect` = 1), 0) AS `suspect`"),
+        new \Glpi\DBAL\QueryExpression("MAX(`date_compute`) AS `computed`"),
     ],
     'FROM'   => $table,
     'WHERE'  => getEntitiesRestrictCriteria($table, '', '', false),
@@ -181,10 +180,9 @@ if ($pending !== null) {
   var url = " . json_encode(PLUGIN_PRINTGESTION_WEBDIR . '/ajax/alerts_status.php', JSON_UNESCAPED_SLASHES) . ";
   // Relais : sans cron système, la tâche minute ne passe pas. Le calcul est lancé dans une requête à part, sans
   // attendre sa réponse (verrou côté serveur : jamais deux calculs, tâche ou relais).
-  var csrf = document.querySelector('meta[property=\"glpi:csrf_token\"]');
   fetch(" . json_encode(PLUGIN_PRINTGESTION_WEBDIR . '/ajax/alerts_rebuild.php', JSON_UNESCAPED_SLASHES) . ", {
     method: 'POST', credentials: 'same-origin',
-    headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-Glpi-Csrf-Token': csrf ? csrf.content : '' }
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
   }).catch(function () { /* la tâche minute reste le chemin normal */ });
   var reloadWhenFree = function () {
     if (document.querySelector('.modal.show')) {

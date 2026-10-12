@@ -5,7 +5,6 @@
  * Accès conditionné au bit READ du droit plugin_printgestion_contrats.
  */
 
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 Session::checkRight('plugin_printgestion_contrats', READ);

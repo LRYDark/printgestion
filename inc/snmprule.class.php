@@ -17,7 +17,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionSnmprule extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_config';
+    static string $rightname = 'plugin_printgestion_config';
 
     const ACTION_IGNORE = 'ignore';
     const ACTION_INVERT = 'invert';

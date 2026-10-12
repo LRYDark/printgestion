@@ -11,7 +11,6 @@
  * le bl_surveys_id "principal" stocké sur expeditions (rétro-compat).
  */
 
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

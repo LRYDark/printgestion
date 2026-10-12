@@ -10,7 +10,7 @@
  */
 class PluginPrintgestionSonde extends Agent implements Glpi\Search\DefaultSearchRequestInterface {
 
-    public static $rightname = 'plugin_printgestion_deploiement';
+    public static string $rightname = 'plugin_printgestion_deploiement';
 
     /** La table native des agents (sinon GLPI déduirait « glpi_plugin_printgestion_sondes » du nom de classe). */
     public static function getTable($classname = null) {

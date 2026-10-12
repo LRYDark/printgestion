@@ -145,7 +145,7 @@ class PluginPrintgestionGuard {
 
             // Poses détectées (hausse de niveau) — pas les lignes d'amorçage.
             foreach ($DB->request([
-                'SELECT'  => ['printers_id', 'toner_property', new \QueryExpression('MAX(`date_install`) AS `last_date`')],
+                'SELECT'  => ['printers_id', 'toner_property', new \Glpi\DBAL\QueryExpression('MAX(`date_install`) AS `last_date`')],
                 'FROM'    => 'glpi_plugin_printgestion_cartridge_history',
                 'WHERE'   => [
                     'printers_id'  => $all_ids,
@@ -159,7 +159,7 @@ class PluginPrintgestionGuard {
 
             // Poses confirmées manuellement ou constatées à la réattribution.
             foreach ($DB->request([
-                'SELECT'  => ['printers_id', 'toner_property', new \QueryExpression('MAX(`date_installed`) AS `last_date`')],
+                'SELECT'  => ['printers_id', 'toner_property', new \Glpi\DBAL\QueryExpression('MAX(`date_installed`) AS `last_date`')],
                 'FROM'    => 'glpi_plugin_printgestion_expeditions',
                 'WHERE'   => [
                     'printers_id'    => $all_ids,

@@ -22,7 +22,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionBillingview extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_billing';
+    static string $rightname = 'plugin_printgestion_billing';
 
     /**
      * Icône de l'itemtype, reprise par GLPI dans les listes, les en-têtes et les onglets. Écran de facturation : ce que le parc a coûté sur la période.
@@ -253,12 +253,12 @@ class PluginPrintgestionBillingview extends CommonDBTM {
 
         $row = $DB->request([
             'SELECT' => [
-                new \QueryExpression('COUNT(*) AS nb_rows'),
-                new \QueryExpression('COALESCE(SUM(`pages_nb`),0) AS total_nb'),
-                new \QueryExpression('COALESCE(SUM(`pages_color`),0) AS total_color'),
-                new \QueryExpression('COALESCE(SUM(`total_cost`),0) AS total_cost'),
-                new \QueryExpression('COALESCE(SUM(`printers_count`),0) AS sum_printers'),
-                new \QueryExpression('COUNT(DISTINCT `entities_id`) AS nb_entities'),
+                new \Glpi\DBAL\QueryExpression('COUNT(*) AS nb_rows'),
+                new \Glpi\DBAL\QueryExpression('COALESCE(SUM(`pages_nb`),0) AS total_nb'),
+                new \Glpi\DBAL\QueryExpression('COALESCE(SUM(`pages_color`),0) AS total_color'),
+                new \Glpi\DBAL\QueryExpression('COALESCE(SUM(`total_cost`),0) AS total_cost'),
+                new \Glpi\DBAL\QueryExpression('COALESCE(SUM(`printers_count`),0) AS sum_printers'),
+                new \Glpi\DBAL\QueryExpression('COUNT(DISTINCT `entities_id`) AS nb_entities'),
             ],
             'FROM'  => $table,
             // Défense en profondeur : les lignes sont déjà calculées sur le périmètre

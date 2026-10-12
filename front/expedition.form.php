@@ -1,5 +1,4 @@
 <?php
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 Session::checkRight('plugin_printgestion_expedition', UPDATE);
@@ -90,7 +89,6 @@ if ((string)$exp['statut'] !== PluginPrintgestionExpedition::STATUS_PENDING) {
 }
 
 echo "<form method='post' action='" . PLUGIN_PRINTGESTION_WEBDIR . "/ajax/update_expedition.php'>";
-// CSRF géré par Html::closeForm() qui injecte _glpi_csrf_token auto.
 echo Html::hidden('id',     ['value' => $id]);
 echo Html::hidden('action', ['value' => 'ship']);
 echo Html::hidden('_return', ['value' => $return_url]);

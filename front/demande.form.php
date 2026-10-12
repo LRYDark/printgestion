@@ -9,7 +9,6 @@
  *   - sync_statuses : reporte l'avancement des expéditions (expédiée, livrée, posée) sur la demande.
  * GET : affichage seul, aucune écriture.
  */
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

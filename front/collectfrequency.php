@@ -3,7 +3,6 @@
  * Fréquence des relevés d'imprimantes d'une entité (onglet « Déploiement Agent »). POST seulement : droit Déploiement
  * en modification et accès à l'entité ; retour sur l'onglet de l'entité.
  */
-include('../../../inc/includes.php');
 
 use Glpi\Exception\Http\NotFoundHttpException;
 

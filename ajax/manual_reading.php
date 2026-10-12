@@ -7,7 +7,6 @@
  * vide), comment. Le relevé est daté de maintenant. Droit : Alertes toner en modification, imprimante du périmètre.
  * Retourne : { ok: true, warnings: [] } ou { ok: false, errors: [] }.
  */
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

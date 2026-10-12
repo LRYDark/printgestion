@@ -12,7 +12,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
 
-    static $rightname = 'plugin_printgestion_billing';
+    static string $rightname = 'plugin_printgestion_billing';
 
     static function getTypeName($nb = 0) {
         return __('Coût à la page', 'printgestion');

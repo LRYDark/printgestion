@@ -20,7 +20,7 @@
  */
 class PluginPrintgestionManualreading extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_dashboard';
+    static string $rightname = 'plugin_printgestion_dashboard';
 
     /** Emplacements proposés à toute imprimante, même jamais inventoriée. */
     const STANDARD_SLOTS = ['tonerblack', 'tonercyan', 'tonermagenta', 'toneryellow'];
@@ -152,7 +152,7 @@ class PluginPrintgestionManualreading extends CommonDBTM {
         self::ensureTable();
         $out = [];
         foreach ($DB->request([
-            'SELECT'  => ['printers_id', new QueryExpression('MAX(`reading_date`) AS `last`'), 'COUNT' => 'id AS n'],
+            'SELECT'  => ['printers_id', new \Glpi\DBAL\QueryExpression('MAX(`reading_date`) AS `last`'), 'COUNT' => 'id AS n'],
             'FROM'    => self::getTable(),
             'WHERE'   => ['printers_id' => $ids, 'superseded' => 0],
             'GROUPBY' => ['printers_id'],
@@ -680,8 +680,6 @@ class PluginPrintgestionManualreading extends CommonDBTM {
             'uid'         => $uid,
             'printers_id' => $printers_id,
             'url'         => PLUGIN_PRINTGESTION_WEBDIR . '/ajax/manual_reading.php',
-            // Jeton CSRF envoyé en en-tête X-Glpi-Csrf-Token (requête AJAX POST).
-            'csrf'        => Session::getNewCSRFToken(),
             'msgError'    => __('Relevé non enregistré.', 'printgestion'),
             'msgNet'      => __('Erreur réseau : relevé non enregistré.', 'printgestion'),
             'msgNoModal'  => __('Fenêtre indisponible : rechargez la page.', 'printgestion'),
@@ -710,7 +708,7 @@ class PluginPrintgestionManualreading extends CommonDBTM {
             . "    var levels = byId('-modal').querySelectorAll('[data-pg-manual-level]');\n"
             . "    for (var k = 0; k < levels.length; k++) { fd.append('levels[' + levels[k].getAttribute('data-pg-manual-level') + ']', levels[k].value); }\n"
             . "    save.disabled = true;\n"
-            . "    fetch(cfg.url, { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-Glpi-Csrf-Token': cfg.csrf } })\n"
+            . "    fetch(cfg.url, { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })\n"
             . "      .then(function (r) { return r.json(); })\n"
             . "      .then(function (d) {\n"
             . "        if (d && d.ok) { window.location.reload(); return; }\n"

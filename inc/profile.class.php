@@ -9,7 +9,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionProfile extends Profile {
 
-    static $rightname = 'profile';
+    static string $rightname = 'profile';
 
     static function getTypeName($nb = 0) {
         return __('Print Gestion', 'printgestion');

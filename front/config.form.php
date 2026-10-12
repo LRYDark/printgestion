@@ -1,5 +1,4 @@
 <?php
-include('../../../inc/includes.php');
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')) {
@@ -278,7 +277,7 @@ if (isset($_POST['activate_contract_alerts'])) {
         }
         foreach ($delete_ids as $id) {
             $DB->delete('glpi_plugin_printgestion_snmp_mapping', ['id' => $id]);
-            $deleted += max(0, (int) $DB->affectedRows()); // ligne déjà supprimée : non comptée
+            $deleted += max(0, (int) $DB->getAffectedRows()); // ligne déjà supprimée : non comptée
         }
 
         // 2. Mises à jour lignes existantes (non supprimées)

@@ -1,5 +1,55 @@
 # Journal des changements
 
+## 1.1.0 — 2026-10-12
+
+Première version pour GLPI 12 (12.0.x). La série 1.0.x reste celle de GLPI 11.
+
+- **Compatible GLPI 12 uniquement.** GLPI 12 déclare le type des propriétés de ses classes (`$rightname`,
+  `$dohistory`…) ; une classe du plugin qui les redéfinit doit porter le même type, ce que GLPI 11 refuse. Les deux
+  séries ne sont donc pas interchangeables.
+- API retirées par GLPI 12 remplacées : `QueryExpression` global, `$DB->truncate()`, `$DB->affectedRows()`,
+  `Toolbox::getGuzzleClient()` (repris à l'identique dans `PluginPrintgestionHttp`, proxy de GLPI compris).
+- **Boutons de la carte « Santé de la configuration » et test de connexion GLS / MBE** : ils attendaient la balise
+  `<meta property="glpi:csrf_token">`, que GLPI 12 n'émet plus, et ne faisaient plus rien.
+- **GLPI Inventory 1.7.0** (série GLPI 12) : mêmes tables, mêmes classes et mêmes constantes que la 1.6.12 — seuls
+  les types de propriétés changent. L'avertissement « plus récent que la version validée » reste affiché tant qu'un
+  premier raccordement n'a pas été vérifié de bout en bout.
+- Schéma inchangé : la version de schéma reste 1.0.0, « Mettre à jour » ne touche à aucune table.
+- **Plus de jeton CSRF.** GLPI 12 contrôle l'origine de la requête (en-têtes `Sec-Fetch-Site` / `Origin`) : les
+  champs `_glpi_csrf_token`, les en-têtes `X-Glpi-Csrf-Token` et les appels à `Session::checkCSRF()` /
+  `getNewCSRFToken()` sont retirés.
+- Inclusion de `inc/includes.php` retirée (obsolète).
+- Aucune migration de base.
+- **L'installeur suit l'authentification des agents de GLPI.** Administration → Inventaire, « Authentification des
+  agents » : le réglage est lu à chaque téléchargement depuis la fiche de l'entité, jamais recopié dans le plugin.
+  Avant, l'installeur ne posait aucune authentification : avec un autre choix que « Aucun », GLPI refusait la sonde
+  (401) à chaque contact.
+  - **Aucun** : rien ne change, les installeurs sont les mêmes à l'octet près.
+  - **Authentification basique** : l'identifiant et le mot de passe partent dans l'installeur — propriétés `USER` et
+    `PASSWORD` du MSI sous Windows, options `user` et `password` de `conf.d/90-printgestion.cfg` (Linux) et de
+    `local.cfg` (macOS).
+  - **OAuth, identifiants du client** : identifiant et secret d'un client OAuth actif (autorisation « Client
+    credentials », portée « inventory ») — `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET`, `oauth-client-id` /
+    `oauth-client-secret`. S'il y en a plusieurs, il se choisit page « Installeur GLPI Agent » (le plus ancien par
+    défaut). GLPI Agent 1.13 au moins.
+
+  Le téléchargement est bloqué, motif affiché, quand l'installeur ne saurait pas poser ce que GLPI exige : identifiant
+  ou mot de passe vide, caractère intransmissible (espace, guillemet, apostrophe, %, barre oblique inverse, accent),
+  aucun client OAuth utilisable. Un secret ne s'affiche jamais, ni à l'écran ni dans le journal de l'installation ; le
+  journal MSI détaillé est réduit quand la commande en porte un, et le fichier de configuration est lisible de root
+  seul sous Linux et macOS. Les notes des paquets disent alors qu'ils portent l'authentification : ils ne se
+  conservent pas. Une sonde déjà installée garde ses réglages : après un changement, relancer l'installeur dessus.
+  Vérifié contre GLPI : sans identifiant la requête d'un agent est refusée (401), avec ceux de l'installeur elle
+  passe, en basique comme en OAuth (jeton obtenu sur `api.php/token`).
+- **Authentification des agents jamais choisie** : GLPI 12 refuse alors tout agent (erreur 503). Le téléchargement
+  des installeurs est bloqué tant qu'un mode n'est pas enregistré, et la page « Installeur GLPI Agent » le dit.
+- **Configuration de l'inventaire : carte « Print Gestion : notifications des sondes ».** GLPI 12 range cet écran en
+  cartes et ne laissait au plugin qu'une demi-colonne de « Nettoyage de l'agent », où tout le texte s'empilait. Les
+  deux réglages ont leur propre carte, à la suite ; l'avertissement sur l'action « Nettoyer les agents » passe en
+  pleine largeur sous le délai et l'action. Mêmes champs, enregistrés comme avant par le formulaire de GLPI.
+- **Corrigé : pages « Sondes » et « Imprimantes collectées » en erreur.** La reconstruction de leurs listes vidait
+  la table avec le critère `[1]`, que GLPI 12 refuse (`analyseCrit(): Argument #1 must be of type array`).
+
 ## Non publié
 
 - **Changer la version de GLPI Agent : le plugin vérifie d'abord qu'elle ne casse pas les installeurs.** Dans la page

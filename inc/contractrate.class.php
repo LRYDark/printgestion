@@ -10,7 +10,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionContractrate extends CommonDBTM {
 
-    static $rightname = 'contract';
+    static string $rightname = 'contract';
 
     static function getTypeName($nb = 0) {
         return _n('Tarif Print Gestion', 'Tarifs Print Gestion', $nb, 'printgestion');
@@ -80,7 +80,6 @@ class PluginPrintgestionContractrate extends CommonDBTM {
 
         if ($canedit) {
             echo "<form method='post' action='" . PLUGIN_PRINTGESTION_WEBDIR . "/front/contractrate.form.php'>";
-            // CSRF auto-injecté par Html::closeForm() en fin de form.
             echo Html::hidden('contracts_id', ['value' => $contracts_id]);
         }
 

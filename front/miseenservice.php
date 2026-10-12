@@ -7,7 +7,6 @@
  * PluginPrintgestionPrint::processForm(). L'ancienne adresse front/print.form.php charge cette page.
  */
 
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

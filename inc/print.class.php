@@ -19,7 +19,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionPrint extends CommonGLPI {
 
-    static $rightname = 'plugin_printgestion_miseenservice';
+    static string $rightname = 'plugin_printgestion_miseenservice';
 
     static function getTypeName($nb = 0) {
         return __('Mise en service', 'printgestion');
@@ -199,7 +199,7 @@ class PluginPrintgestionPrint extends CommonGLPI {
         ]);
         echo "</div>";
 
-        Html::closeForm(); // ajoute le jeton CSRF + </form>
+        Html::closeForm();
     }
 
     /**

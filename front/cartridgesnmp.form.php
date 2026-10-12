@@ -1,5 +1,4 @@
 <?php
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 // Droit natif sur les cartouches ET droit de configuration du plugin (liaisons SNMP).

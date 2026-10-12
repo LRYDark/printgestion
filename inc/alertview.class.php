@@ -23,7 +23,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\DefaultSearchRequestInterface {
 
-    static $rightname = 'plugin_printgestion_dashboard';
+    static string $rightname = 'plugin_printgestion_dashboard';
 
     /** Cache GLPI : date de la dernière action qui a rendu la vue périmée. */
     const STALE_KEY = 'plugin_printgestion_alertview_stale';

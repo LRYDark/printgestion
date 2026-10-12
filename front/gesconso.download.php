@@ -6,7 +6,6 @@
  *
  * GET id : la commande (glpi_plugin_printgestion_purchaseorders). Droits : Purchaseorder::canDownload().
  */
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

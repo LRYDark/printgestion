@@ -20,7 +20,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionCartridgesnmp extends CommonDBTM {
 
-    static $rightname = 'cartridge';
+    static string $rightname = 'cartridge';
 
     public static function getTable($classname = null) {
         if ($classname === null || $classname === static::class) {

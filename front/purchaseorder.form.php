@@ -3,7 +3,6 @@
  * Renvoi aux Achats d'une commande enregistrée mais non transmise (POST resend) : même fichier archivé, mêmes
  * lignes. Droit de validation des demandes en modification, commande dans le périmètre de l'utilisateur.
  */
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

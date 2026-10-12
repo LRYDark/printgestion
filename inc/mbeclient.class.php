@@ -474,7 +474,7 @@ class PluginPrintgestionMbeclient {
 
     /** Transport de production : Guzzle avec le proxy réglé dans GLPI, TLS vérifié, sans suivre les redirections. */
     private function sendWithGuzzle(string $method, string $url, array $headers, ?string $body): array {
-        $client   = Toolbox::getGuzzleClient(['connect_timeout' => self::CONNECT_TIMEOUT, 'timeout' => self::TIMEOUT, 'http_errors' => false, 'allow_redirects' => false]);
+        $client   = PluginPrintgestionHttp::guzzle(['connect_timeout' => self::CONNECT_TIMEOUT, 'timeout' => self::TIMEOUT, 'http_errors' => false, 'allow_redirects' => false]);
         $response = $client->request($method, $url, ['headers' => $headers, 'body' => $body]);
         return ['status' => $response->getStatusCode(), 'body' => (string) $response->getBody()];
     }

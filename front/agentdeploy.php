@@ -3,7 +3,6 @@
  * Installeur GLPI Agent servi par le plugin (module Collecte SNMP / Déploiement Agent).
  * Lecture : droit Déploiement ; récupération, vérification et réglages : droit de configuration.
  */
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

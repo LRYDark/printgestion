@@ -5,17 +5,18 @@
     'use strict';
 
     // Les actions ponctuelles de la carte de santé ne doivent pas soumettre tout le grand formulaire de
-    // configuration. Construit un POST minimal hors de ce formulaire avec le jeton standalone de GLPI.
+    // configuration. Construit un POST minimal hors de ce formulaire. Aucun jeton à joindre : depuis GLPI 12, le
+    // noyau contrôle l'origine de la requête (en-têtes Sec-Fetch-Site / Origin) et la balise
+    // <meta property="glpi:csrf_token"> n'existe plus.
     document.addEventListener('click', function (event) {
         var button = event.target.closest('[data-pg-post-action]');
         if (!(button instanceof HTMLButtonElement) || event.defaultPrevented) {
             return;
         }
 
-        var csrf = document.querySelector('meta[property="glpi:csrf_token"]');
         var action = button.getAttribute('data-pg-post-action');
         var url = button.getAttribute('data-pg-post-url');
-        if (!(csrf instanceof HTMLMetaElement) || !action || !url) {
+        if (!action || !url) {
             return;
         }
 
@@ -30,12 +31,6 @@
         actionInput.value = '1';
         form.appendChild(actionInput);
 
-        var csrfInput = document.createElement('input');
-        csrfInput.type = 'hidden';
-        csrfInput.name = '_glpi_csrf_token';
-        csrfInput.value = csrf.content;
-        form.appendChild(csrfInput);
-
         button.classList.add('disabled');
         button.setAttribute('aria-busy', 'true');
         document.body.appendChild(form);
@@ -43,8 +38,8 @@
     });
 
     // Test de connexion (GLS, MBE) : la réponse s'affiche dans une fenêtre, la page n'est pas rechargée et la
-    // saisie en cours n'est pas perdue. L'appel part en AJAX, où GLPI vérifie le jeton CSRF de l'en-tête et le
-    // **conserve** : on peut réessayer autant de fois qu'on veut sans recharger.
+    // saisie en cours n'est pas perdue. L'appel part en AJAX : on peut réessayer autant de fois qu'on veut sans
+    // recharger.
     //
     // Sans fenêtre dans la page ou sans Bootstrap, on ne fait rien : le bouton reste un bouton d'envoi et le
     // formulaire part comme avant, avec le résultat en message. Le confort est une amélioration, jamais un passage
@@ -59,10 +54,9 @@
         }
         var modalElement = document.getElementById('pg-test-modal');
         var corps = document.getElementById('pg-test-modal-body');
-        var csrf = document.querySelector('meta[property="glpi:csrf_token"]');
         // Tout doit être là AVANT de retenir le clic : sinon on laisse le bouton faire son envoi de formulaire,
         // qui rend le même résultat en message. Retenir le clic puis échouer laisserait l'écran muet.
-        if (!modalElement || !corps || !csrf || typeof bootstrap === 'undefined' || !bootstrap.Modal) {
+        if (!modalElement || !corps || typeof bootstrap === 'undefined' || !bootstrap.Modal) {
             return;
         }
         event.preventDefault();
@@ -101,8 +95,7 @@
             credentials: 'same-origin',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'X-Requested-With': 'XMLHttpRequest',
-                'X-Glpi-Csrf-Token': csrf.content
+                'X-Requested-With': 'XMLHttpRequest'
             },
             body: 'action=' + encodeURIComponent(button.getAttribute('data-pg-test'))
         }).then(function (reponse) {
@@ -133,8 +126,7 @@
     });
 
     // Envoi unique : un bouton [data-pg-submit-once] (action lente : téléchargement GitHub, import, renvoi aux
-    // Achats) ne part qu'une fois. Un second clic réutiliserait le jeton CSRF déjà consommé et afficherait « Accès
-    // refusé » alors que le premier envoi a abouti.
+    // Achats) ne part qu'une fois : un second clic relancerait l'action alors que le premier envoi a abouti.
     //
     // Le garde-fou suit le BOUTON CLIQUÉ, jamais le formulaire qui le contient. La distinction n'est pas théorique :
     // le formulaire de configuration porte à la fois des actions lentes (« J'ai vérifié », création de la règle TAG)
@@ -555,7 +547,6 @@ window.pgOrderPreview = function (config) {
     var box    = document.getElementById(config.box);
     var button = document.getElementById(config.button);
     var form   = box ? box.closest('form') : null;
-    var csrf   = document.querySelector('meta[property="glpi:csrf_token"]');
     if (!box || !button || !form) {
         return;
     }
@@ -583,8 +574,7 @@ window.pgOrderPreview = function (config) {
             credentials: 'same-origin',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'X-Requested-With': 'XMLHttpRequest',
-                'X-Glpi-Csrf-Token': csrf ? csrf.content : ''
+                'X-Requested-With': 'XMLHttpRequest'
             },
             body: body.toString()
         }).then(function (reponse) {

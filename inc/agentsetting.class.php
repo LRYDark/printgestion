@@ -25,7 +25,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionAgentsetting extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_deploiement';
+    static string $rightname = 'plugin_printgestion_deploiement';
 
     /** Identifiant winget de GLPI Agent (manifeste officiel de winget-pkgs). */
     const WINGET_ID = 'GLPI-Project.GLPI-Agent';
@@ -165,7 +165,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
         }
 
         try {
-            $client   = Toolbox::getGuzzleClient(['timeout' => 30, 'connect_timeout' => 10]);
+            $client   = PluginPrintgestionHttp::guzzle(['timeout' => 30, 'connect_timeout' => 10]);
             $response = $client->request('GET', sprintf('https://api.github.com/repos/%s/releases?per_page=30', PluginPrintgestionAgentdeploy::REPOSITORY), [
                 'headers' => ['User-Agent' => 'GLPI-printgestion', 'Accept' => 'application/vnd.github+json'],
             ]);
@@ -236,7 +236,7 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
      */
     public static function checkLatestFromGitHub(): array {
         try {
-            $client   = Toolbox::getGuzzleClient(['timeout' => 30, 'connect_timeout' => 10]);
+            $client   = PluginPrintgestionHttp::guzzle(['timeout' => 30, 'connect_timeout' => 10]);
             $response = $client->request('GET', sprintf('https://api.github.com/repos/%s/releases/latest', PluginPrintgestionAgentdeploy::REPOSITORY), [
                 'headers' => ['User-Agent' => 'GLPI-printgestion', 'Accept' => 'application/vnd.github+json'],
             ]);

@@ -308,7 +308,7 @@ class PluginPrintgestionAgenttoken {
             ['value' => $raw],
             ['context' => self::CONTEXT, 'name' => $key, 'value' => $state['raw']]
         );
-        return $DB->affectedRows() === 1;
+        return $DB->getAffectedRows() === 1;
     }
 
     /** Retire les jetons expirés : appelé à chaque lecture utile, personne n'a à balayer. */

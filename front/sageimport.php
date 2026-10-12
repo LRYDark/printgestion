@@ -7,7 +7,6 @@
  *   3. POST apply   : validation, écriture en transaction ; POST abandon : oubli de l'analyse.
  * Aucune liaison directe avec Sage.
  */
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

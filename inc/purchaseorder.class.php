@@ -17,7 +17,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionPurchaseorder extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_validation';
+    static string $rightname = 'plugin_printgestion_validation';
 
     const STATUS_PENDING = 'pending';
     const STATUS_SENDING = 'sending';
@@ -85,7 +85,7 @@ class PluginPrintgestionPurchaseorder extends CommonDBTM {
         $timeout = date('Y-m-d H:i:s', time() - self::SENDING_TIMEOUT_MINUTES * MINUTE_TIMESTAMP);
         $DB->update(self::getTable(), [
             'status'            => self::STATUS_SENDING,
-            'attempts'          => new QueryExpression('`attempts` + 1'),
+            'attempts'          => new \Glpi\DBAL\QueryExpression('`attempts` + 1'),
             'date_last_attempt' => $now,
         ], [
             'id' => $id,
@@ -94,7 +94,7 @@ class PluginPrintgestionPurchaseorder extends CommonDBTM {
                 ['status' => self::STATUS_SENDING, 'date_last_attempt' => ['<', $timeout]],
             ],
         ]);
-        if ($DB->affectedRows() !== 1) {
+        if ($DB->getAffectedRows() !== 1) {
             return ['ok' => false, 'already' => true, 'error' => __('Commande déjà transmise aux Achats ou envoi en cours : rien n\'a été renvoyé.', 'printgestion')];
         }
 

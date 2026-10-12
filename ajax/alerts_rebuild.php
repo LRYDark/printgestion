@@ -7,7 +7,6 @@
  * est libérée tout de suite (sinon chaque page de l'utilisateur attendrait la fin du calcul), le calcul continue si
  * l'onglet se ferme. Verrou de Alertview::rebuild() : jamais deux calculs en même temps, tâche ou relais.
  */
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 
@@ -21,7 +20,7 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
 
 header('Content-Type: application/json; charset=utf-8');
 
-// POST (jeton CSRF en en-tête, vérifié par GLPI) et droit de lecture des alertes : la demande a déjà été posée par
+// POST (contrôle CSRF fait par GLPI) et droit de lecture des alertes : la demande a déjà été posée par
 // quelqu'un qui pouvait recalculer ; ce relais ne fait que la traiter.
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     http_response_code(405);

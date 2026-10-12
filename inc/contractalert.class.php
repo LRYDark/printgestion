@@ -16,7 +16,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionContractalert extends CommonGLPI {
 
-    static $rightname = 'config';
+    static string $rightname = 'config';
 
     /** Délai d'alerte appliqué à l'entité racine si aucun n'est réglé (jours). */
     const DEFAULT_BEFORE_DAYS = 30;

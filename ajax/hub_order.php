@@ -3,9 +3,8 @@
  * Ordre des cartes de l'accueil, propre à l'utilisateur connecté : enregistré après un glisser-déposer (action
  * « save », clés des cartes dans leur nouvel ordre) ou remis à l'ordre par défaut (action « reset »).
  *
- * POST seulement, jeton CSRF en en-tête (vérifié par GLPI). N'écrit que la ligne de l'utilisateur connecté.
+ * POST seulement (contrôle CSRF fait par GLPI). N'écrit que la ligne de l'utilisateur connecté.
  */
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

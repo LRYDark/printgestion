@@ -4,7 +4,6 @@
  * Lecture : droit Déploiement ; actions (POST) : droit Déploiement en modification. L'entité du
  * raccordement, ou de la sonde choisie, est revérifiée à chaque requête.
  */
-include('../../../inc/includes.php');
 
 use Glpi\Exception\Http\NotFoundHttpException;
 

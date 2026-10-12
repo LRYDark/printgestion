@@ -11,7 +11,6 @@
  * Les paquets ne contiennent que l'URL du serveur GLPI et le TAG de l'entité. Le fichier unique, lui, porte en plus
  * une clé de téléchargement à usage unique : l'historique le dit, avec sa date de péremption.
  */
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

@@ -11,7 +11,6 @@
  * Toute demande refusée répond la même chose, un 404 sans explication : un jeton inconnu, expiré ou déjà servi ne se
  * distingue pas de l'extérieur, et chaque passage — servi ou refusé — laisse une ligne dans le journal du plugin.
  */
-include('../../../inc/includes.php');
 
 $plugin = new Plugin();
 if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion')

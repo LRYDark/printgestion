@@ -21,7 +21,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionSageimport extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_config';
+    static string $rightname = 'plugin_printgestion_config';
 
     const TYPE_DELIVERIES = 'deliveries';
     const TYPE_ARTICLES   = 'articles';
@@ -395,7 +395,7 @@ class PluginPrintgestionSageimport extends CommonDBTM {
 
         $out = [];
         foreach ($DB->request([
-            'SELECT'     => ['e.id', 'e.completename', new QueryExpression('COUNT(`p`.`id`) AS `nb`')],
+            'SELECT'     => ['e.id', 'e.completename', new \Glpi\DBAL\QueryExpression('COUNT(`p`.`id`) AS `nb`')],
             'FROM'       => 'glpi_printers AS p',
             'INNER JOIN' => ['glpi_entities AS e' => ['ON' => ['p' => 'entities_id', 'e' => 'id']]],
             // Rapport limité aux entités de l'utilisateur : jamais le nom d'une entité hors de son périmètre.

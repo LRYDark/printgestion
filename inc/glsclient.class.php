@@ -218,7 +218,7 @@ class PluginPrintgestionGlsclient implements PluginPrintgestionCarrierclient {
 
     /** Transport de production : Guzzle avec le proxy réglé dans GLPI, sans exception sur les codes HTTP. */
     private function sendWithGuzzle(string $method, string $url, array $headers, ?string $body): array {
-        $client   = Toolbox::getGuzzleClient(['connect_timeout' => self::CONNECT_TIMEOUT, 'timeout' => self::TIMEOUT, 'http_errors' => false]);
+        $client   = PluginPrintgestionHttp::guzzle(['connect_timeout' => self::CONNECT_TIMEOUT, 'timeout' => self::TIMEOUT, 'http_errors' => false]);
         $response = $client->request($method, $url, ['headers' => $headers, 'body' => $body]);
         return ['status' => $response->getStatusCode(), 'body' => (string) $response->getBody()];
     }

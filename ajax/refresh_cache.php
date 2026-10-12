@@ -5,7 +5,6 @@
  * les tests manuels de données SNMP qui ne passent pas par le flux plugin.
  */
 
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 

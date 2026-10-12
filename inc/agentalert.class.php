@@ -29,7 +29,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionAgentalert extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_deploiement';
+    static string $rightname = 'plugin_printgestion_deploiement';
 
     const TYPE_AGENT   = 'agent_silent';
     const TYPE_PRINTER = 'printer_silent';
@@ -477,8 +477,11 @@ class PluginPrintgestionAgentalert extends CommonDBTM {
      * Champs ajoutés à l'écran natif ; valeurs enregistrées par le cœur dans la configuration « inventory ».
      * Avertissement sur l'action native « Nettoyer les agents » (STALE_AGENT_ACTION_CLEAN, action par défaut) : elle
      * supprime l'agent et son historique. En rouge quand le réglage enregistré, puis celui choisi à l'écran, l'applique
-     * avec un délai. Le bloc est placé en pleine largeur sous la ligne native du délai et de l'action ; sans
-     * JavaScript, il reste dans la cellule du plugin.
+     * avec un délai.
+     * GLPI 12 range l'écran en cartes et ne laisse au plugin qu'une demi-colonne de la carte « Nettoyage de l'agent » :
+     * les réglages partent donc dans une carte Print Gestion placée à sa suite (mêmes classes, même largeur), et
+     * l'avertissement en pleine largeur sous la ligne native du délai et de l'action. Les champs restent dans le
+     * formulaire natif, qui les enregistre. Sans JavaScript, le tout reste dans la cellule du plugin.
      */
     public static function renderStaleAgentSettings($config): string {
         $config  = is_array($config) ? $config : [];
@@ -489,7 +492,8 @@ class PluginPrintgestionAgentalert extends CommonDBTM {
         $clean   = is_array($actions) && in_array((string) \Glpi\Inventory\Conf::STALE_AGENT_ACTION_CLEAN, array_map('strval', $actions), true);
         $danger  = __('les agents sans contact depuis %d jours seront supprimés au prochain passage de la tâche automatique « Cleanoldagents ».', 'printgestion');
 
-        $warning = "<div id='pg-stale-agents-warning' class='alert alert-warning mt-2 mb-0'>"
+        // Les alertes de GLPI 12 sont des conteneurs « flex » : leur contenu tient dans un seul bloc.
+        $warning = "<div id='pg-stale-agents-warning' class='alert alert-warning mt-2 mb-0'><div class='w-100'>"
             . "<div class='fw-bold'><i class='ti ti-alert-triangle me-1'></i>" . $esc(sprintf(__('Action « %s » : elle supprime les agents', 'printgestion'), __('Clean agents'))) . "</div>"
             . "<ul class='mb-1 ps-3'>"
             . "<li>" . $esc(__('Supprimer un agent fait perdre son historique : l\'agent est effacé de GLPI, et son historique avec lui.', 'printgestion')) . "</li>"
@@ -498,22 +502,37 @@ class PluginPrintgestionAgentalert extends CommonDBTM {
             . "</ul>"
             . "<div class='small'>" . $esc(__('Pour être prévenu des sondes muettes, les notifications Print Gestion suffisent. Ne choisir cette action qu\'avec un délai plus long que la plus longue fermeture d\'un client.', 'printgestion')) . "</div>"
             . "<div id='pg-stale-agents-danger' class='alert alert-danger mt-2 mb-0'" . ($delay > 0 && $clean ? '' : ' hidden') . ">"
-            . "<strong>" . $esc(__('Réglage dangereux :', 'printgestion')) . "</strong> "
-            . "<span data-pg-template='" . $esc($danger) . "'>" . $esc(sprintf($danger, $delay)) . "</span>"
-            . "</div></div>";
+            . "<div><strong>" . $esc(__('Réglage dangereux :', 'printgestion')) . "</strong> "
+            . "<span data-pg-template='" . $esc($danger) . "'>" . $esc(sprintf($danger, $delay)) . "</span></div>"
+            . "</div></div></div>";
 
         $script = Html::scriptBlock(<<<'JS'
-            (function () {
-                var warning = document.getElementById('pg-stale-agents-warning');
-                var danger  = document.getElementById('pg-stale-agents-danger');
-                var action  = $('select[name="stale_agents_action[]"]');
-                var delay   = $('select[name="stale_agents_delay"]');
-                if (!warning || !danger || !action.length || !delay.length) {
+            $(function () {
+                var settings = document.getElementById('pg-stale-agents-settings');
+                var warning  = document.getElementById('pg-stale-agents-warning');
+                var danger   = document.getElementById('pg-stale-agents-danger');
+                var action   = $('select[name="stale_agents_action[]"]');
+                var delay    = $('select[name="stale_agents_delay"]');
+                if (!settings || !warning || !danger || !action.length || !delay.length) {
                     return;
                 }
-                // Pleine largeur, sous la ligne native du délai et de l'action.
-                var row = action.closest('tr');
-                $('<tr class="tab_bg_1"><td colspan="4"></td></tr>').insertAfter(row).children('td').append(warning);
+                // Carte Print Gestion à la suite de la carte native « Nettoyage de l'agent », dont elle reprend les classes.
+                var cell      = $(settings).closest('.form-field');
+                var nativeCol = $(settings).closest('.card').parent();
+                var nativeRow = action.closest('.form-field').parent();
+                if (cell.length && nativeCol.length && nativeRow.length) {
+                    var card = $('<div><div class="card"><div class="card-header d-flex align-items-center gap-2">'
+                        + '<i class="ti ti-bell-ringing" aria-hidden="true"></i>'
+                        + '<h3 class="card-title mb-0 fw-bold fs-1"></h3></div><div class="card-body"></div></div></div>');
+                    card.attr('class', nativeCol.attr('class'));
+                    card.find('h3').text(settings.getAttribute('data-pg-title'));
+                    card.find('.card-body').append(settings);
+                    card.insertAfter(nativeCol);
+                    // Avertissement en pleine largeur, sous la ligne native du délai et de l'action.
+                    $('<div class="row"><div class="col-12 mb-3"></div></div>').insertAfter(nativeRow).children().append(warning);
+                    $(warning).removeClass('mt-2');
+                    cell.addClass('d-none');
+                }
                 var text = danger.querySelector('[data-pg-template]');
                 var refresh = function () {
                     var days = parseInt(delay.val(), 10) || 0;
@@ -526,15 +545,27 @@ class PluginPrintgestionAgentalert extends CommonDBTM {
                 action.on('change', refresh);
                 delay.on('change', refresh);
                 refresh();
-            })();
+            });
             JS);
 
-        return "<div class='d-flex flex-column gap-1'>"
-            . "<span>" . $esc(sprintf(__('Sondes sans contact depuis %d jours', 'printgestion'), PluginPrintgestionCollect::getSilentDays())) . "</span>"
-            . Dropdown::showYesNo(self::CONF_NOTIFY_AGENTS, (int) ($config[self::CONF_NOTIFY_AGENTS] ?? 0), -1, ['display' => false])
-            . "<span class='mt-2'>" . $esc(__('Imprimantes qui ne remontent plus alors que leur sonde contacte GLPI', 'printgestion')) . "</span>"
-            . Dropdown::showYesNo(self::CONF_NOTIFY_PRINTERS, (int) ($config[self::CONF_NOTIFY_PRINTERS] ?? 0), -1, ['display' => false])
-            . "<span class='text-muted small mt-2'>" . $esc(__('Contrôle quotidien du plugin ; délai « Imprimante muette après (jours) » de Configuration > Print Gestion, indépendant du délai et des actions ci-dessus. Modèles et destinataires : Configuration > Notifications.', 'printgestion')) . "</span>"
+        // Un réglage Oui/Non présenté comme les champs natifs de l'écran (libellé à gauche, liste à droite).
+        $field = static function (string $name, string $label) use ($config, $esc): string {
+            $rand = mt_rand();
+            return "<div class='form-field row align-items-center col-12 col-sm-6 mb-2'>"
+                . "<label class='col-form-label col-xxl-6 d-flex justify-content-start text-xxl-start' for='" . $esc(Html::cleanId('dropdown_' . $name . $rand)) . "'>" . $esc($label) . "</label>"
+                . "<div class='col-xxl-6 d-flex justify-content-end field-container'>"
+                . Dropdown::showYesNo($name, (int) ($config[$name] ?? 0), -1, ['display' => false, 'rand' => $rand])
+                . "</div></div>";
+        };
+
+        return "<div class='w-100'>"
+            . "<div id='pg-stale-agents-settings' data-pg-title='" . $esc(__('Print Gestion : notifications des sondes', 'printgestion')) . "'>"
+            . "<div class='row'>"
+            . $field(self::CONF_NOTIFY_AGENTS, sprintf(__('Sondes sans contact depuis %d jours', 'printgestion'), PluginPrintgestionCollect::getSilentDays()))
+            . $field(self::CONF_NOTIFY_PRINTERS, __('Imprimantes qui ne remontent plus alors que leur sonde contacte GLPI', 'printgestion'))
+            . "</div>"
+            . "<div class='text-muted small'>" . $esc(__('Contrôle quotidien du plugin ; délai « Imprimante muette après (jours) » de Configuration > Print Gestion, indépendant du délai et des actions de la carte « Nettoyage de l\'agent ». Modèles et destinataires : Configuration > Notifications.', 'printgestion')) . "</div>"
+            . "</div>"
             . $warning
             . "</div>"
             . $script;

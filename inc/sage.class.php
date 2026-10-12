@@ -21,7 +21,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionSage extends CommonGLPI {
 
-    static $rightname = 'plugin_printgestion_sage';
+    static string $rightname = 'plugin_printgestion_sage';
 
     /** Forme d'un code client Sage (CT_Num) : majuscules et chiffres, « . _ - », 17 caractères au plus. */
     const CODE_PATTERN = '/^[A-Z0-9][A-Z0-9._-]{0,16}$/';

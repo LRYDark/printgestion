@@ -23,7 +23,7 @@ class PluginPrintgestionCollectview extends CommonDBTM {
     const OPTION_AGENT     = 74014;
     const OPTION_MANUAL    = 74015;
 
-    static $rightname = 'plugin_printgestion_deploiement';
+    static string $rightname = 'plugin_printgestion_deploiement';
 
     private static bool $table_checked = false;
 
@@ -57,7 +57,8 @@ class PluginPrintgestionCollectview extends CommonDBTM {
         // Calcul lourd, TOUTES entités : la table est lue ensuite avec la restriction d'entité native.
         $analysis = PluginPrintgestionCollect::analyze(false);
         $now      = date('Y-m-d H:i:s');
-        $DB->truncate(self::getTable());
+        // Toutes les lignes : depuis GLPI 12, un critère doit être un tableau ou une expression (plus « [1] »).
+        $DB->delete(self::getTable(), [new \Glpi\DBAL\QueryExpression('true')]);
         foreach ($analysis['printers'] as $printer) {
             $DB->insert(self::getTable(), [
                 'printers_id'    => (int) $printer['id'],
@@ -80,7 +81,7 @@ class PluginPrintgestionCollectview extends CommonDBTM {
         global $DB;
 
         self::ensureTable();
-        $row = $DB->request(['SELECT' => [new QueryExpression('MAX(`date_compute`) AS `last`')], 'FROM' => self::getTable()])->current();
+        $row = $DB->request(['SELECT' => [new \Glpi\DBAL\QueryExpression('MAX(`date_compute`) AS `last`')], 'FROM' => self::getTable()])->current();
         return isset($row['last']) && $row['last'] !== null ? (string) $row['last'] : null;
     }
 
@@ -136,10 +137,10 @@ class PluginPrintgestionCollectview extends CommonDBTM {
         $week   = date('Y-m-d H:i:s', time() - 7 * DAY_TIMESTAMP);
         $row    = $DB->request([
             'SELECT' => [
-                new QueryExpression('COUNT(*) AS `printers`'),
-                new QueryExpression('MAX(`last_inventory`) AS `last`'),
-                new QueryExpression('COALESCE(SUM(`last_inventory` >= ' . $DB::quoteValue($day) . '), 0) AS `d1`'),
-                new QueryExpression('COALESCE(SUM(`last_inventory` >= ' . $DB::quoteValue($week) . '), 0) AS `d7`'),
+                new \Glpi\DBAL\QueryExpression('COUNT(*) AS `printers`'),
+                new \Glpi\DBAL\QueryExpression('MAX(`last_inventory`) AS `last`'),
+                new \Glpi\DBAL\QueryExpression('COALESCE(SUM(`last_inventory` >= ' . $DB::quoteValue($day) . '), 0) AS `d1`'),
+                new \Glpi\DBAL\QueryExpression('COALESCE(SUM(`last_inventory` >= ' . $DB::quoteValue($week) . '), 0) AS `d7`'),
             ],
             'FROM'   => self::getTable(),
             'WHERE'  => self::getRestriction(),

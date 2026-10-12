@@ -818,8 +818,8 @@ class PluginPrintgestionConfighealth {
 
         $esc = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         // Ces actions ne soumettent pas le grand formulaire de configuration : son HTML historique est reconstruit
-        // autour de tableaux et certains navigateurs dissocient le jeton CSRF placé tout en bas du bouton.
-        // Le JS crée un petit POST autonome avec le jeton CSRF standalone de l'en-tête GLPI.
+        // autour de tableaux et certains navigateurs en dissocient ce qui est placé tout en bas.
+        // Le JS crée un petit POST autonome (printgestion.js).
         $action = $CFG_GLPI['root_doc'] . '/plugins/printgestion/front/config.form.php';
         $make   = static fn(string $name, string $icon, string $label, string $confirm, string $class): string =>
             // Pas de data-pg-submit-once : ce bouton ne soumet pas le formulaire (POST autonome construit en JS),

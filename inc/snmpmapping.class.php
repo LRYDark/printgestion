@@ -12,7 +12,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionSnmpmapping extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_config';
+    static string $rightname = 'plugin_printgestion_config';
 
     static function getTypeName($nb = 0) {
         return _n('Mapping SNMP', 'Mappings SNMP', $nb, 'printgestion');

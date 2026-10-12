@@ -1,5 +1,4 @@
 <?php
-include('../../../inc/includes.php');
 
 global $DB; // fichier front chargé hors portée globale (LegacyFileLoadController)
 
@@ -211,7 +210,7 @@ $exp_t         = 'glpi_plugin_printgestion_expeditions';
 $status_counts = ['pending' => 0, 'shipped' => 0, 'transit' => 0, 'delivered' => 0, 'installed' => 0, 'cancelled' => 0];
 $sel = [];
 foreach (array_keys($status_counts) as $st) {
-    $sel[] = new QueryExpression("SUM(`{$exp_t}`.`statut` = '{$st}') AS `{$st}`");
+    $sel[] = new \Glpi\DBAL\QueryExpression("SUM(`{$exp_t}`.`statut` = '{$st}') AS `{$st}`");
 }
 $crow = $DB->request([
     'SELECT'     => $sel,

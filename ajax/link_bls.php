@@ -19,7 +19,6 @@
  * Réponse : ok vrai seulement si toute la sélection est enregistrée ; sinon ok faux, `errors`, rien de modifié.
  */
 
-include('../../../inc/includes.php');
 
 Session::checkLoginUser();
 Session::checkRight('plugin_printgestion_expedition', UPDATE);
@@ -32,7 +31,7 @@ if (!$plugin->isInstalled('printgestion') || !$plugin->isActivated('printgestion
     exit;
 }
 
-// CSRF validé par CheckCsrfListener (header X-Glpi-Csrf-Token pour AJAX).
+// CSRF vérifié par CheckCsrfListener avant ce fichier.
 header('Content-Type: application/json; charset=utf-8');
 global $DB, $CFG_GLPI;
 

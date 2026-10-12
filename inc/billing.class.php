@@ -9,7 +9,7 @@ if (!defined('GLPI_ROOT')) {
 
 class PluginPrintgestionBilling extends CommonDBTM {
 
-    static $rightname = 'plugin_printgestion_billing';
+    static string $rightname = 'plugin_printgestion_billing';
 
     static function getTypeName($nb = 0) {
         return __('Facturation Print Gestion', 'printgestion');

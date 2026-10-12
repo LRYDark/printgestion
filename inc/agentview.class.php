@@ -20,7 +20,7 @@ class PluginPrintgestionAgentview extends CommonDBTM {
     const OPTION_UPDATE     = 74005;
     const OPTION_INVENTORY  = 74006;
 
-    static $rightname = 'plugin_printgestion_deploiement';
+    static string $rightname = 'plugin_printgestion_deploiement';
 
     private static bool $table_checked = false;
 
@@ -74,7 +74,8 @@ class PluginPrintgestionAgentview extends CommonDBTM {
         $now      = date('Y-m-d H:i:s');
         $count    = 0;
         $versions = [];
-        $DB->truncate(self::getTable());
+        // Toutes les lignes : depuis GLPI 12, un critère doit être un tableau ou une expression (plus « [1] »).
+        $DB->delete(self::getTable(), [new \Glpi\DBAL\QueryExpression('true')]);
         foreach ($DB->request([
             'SELECT' => ['id', 'entities_id', 'last_contact', 'version', 'itemtype', 'items_id'],
             'FROM'   => Agent::getTable(),
@@ -126,10 +127,10 @@ class PluginPrintgestionAgentview extends CommonDBTM {
         self::ensureTable();
         $row = $DB->request([
             'SELECT' => [
-                new QueryExpression('COUNT(*) AS `probes`'),
-                new QueryExpression('COALESCE(SUM(`is_silent` = 1), 0) AS `silent`'),
-                new QueryExpression("COALESCE(SUM(`compliance` = 'update'), 0) AS `update`"),
-                new QueryExpression("COALESCE(SUM(`compliance` = 'ahead'), 0) AS `ahead`"),
+                new \Glpi\DBAL\QueryExpression('COUNT(*) AS `probes`'),
+                new \Glpi\DBAL\QueryExpression('COALESCE(SUM(`is_silent` = 1), 0) AS `silent`'),
+                new \Glpi\DBAL\QueryExpression("COALESCE(SUM(`compliance` = 'update'), 0) AS `update`"),
+                new \Glpi\DBAL\QueryExpression("COALESCE(SUM(`compliance` = 'ahead'), 0) AS `ahead`"),
             ],
             'FROM'   => self::getTable(),
             'WHERE'  => array_merge(['is_probe' => 1], getEntitiesRestrictCriteria(self::getTable(), '', '', false)),
@@ -149,10 +150,10 @@ class PluginPrintgestionAgentview extends CommonDBTM {
         self::ensureTable();
         $row = $DB->request([
             'SELECT' => [
-                new QueryExpression('COUNT(*) AS `agents`'),
-                new QueryExpression('COALESCE(SUM(`is_silent` = 1), 0) AS `silent`'),
-                new QueryExpression("COALESCE(SUM(`version_status` = 'old'), 0) AS `old`"),
-                new QueryExpression("COALESCE(SUM(`version_status` = 'update'), 0) AS `update`"),
+                new \Glpi\DBAL\QueryExpression('COUNT(*) AS `agents`'),
+                new \Glpi\DBAL\QueryExpression('COALESCE(SUM(`is_silent` = 1), 0) AS `silent`'),
+                new \Glpi\DBAL\QueryExpression("COALESCE(SUM(`version_status` = 'old'), 0) AS `old`"),
+                new \Glpi\DBAL\QueryExpression("COALESCE(SUM(`version_status` = 'update'), 0) AS `update`"),
             ],
             'FROM'   => self::getTable(),
             'WHERE'  => array_merge(['printers_count' => ['>', 0]], getEntitiesRestrictCriteria(self::getTable(), '', '', false)),
