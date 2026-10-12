@@ -2,6 +2,28 @@
 
 ## Non publié
 
+- **L'installeur suit l'authentification des agents de GLPI.** Administration → Inventaire, « Authentification des
+  agents » : le réglage est lu à chaque téléchargement depuis la fiche de l'entité, jamais recopié dans le plugin.
+  Avant, l'installeur ne posait aucune authentification : avec un autre choix que « Aucun », GLPI refusait la sonde
+  (401) à chaque contact.
+  - **Aucun** : rien ne change, les installeurs sont les mêmes à l'octet près.
+  - **Authentification basique** : l'identifiant et le mot de passe partent dans l'installeur — propriétés `USER` et
+    `PASSWORD` du MSI sous Windows, options `user` et `password` de `conf.d/90-printgestion.cfg` (Linux) et de
+    `local.cfg` (macOS).
+  - **OAuth, identifiants du client** : identifiant et secret d'un client OAuth actif (autorisation « Client
+    credentials », portée « inventory ») — `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET`, `oauth-client-id` /
+    `oauth-client-secret`. S'il y en a plusieurs, il se choisit page « Installeur GLPI Agent » (le plus ancien par
+    défaut). GLPI Agent 1.13 au moins.
+
+  Le téléchargement est bloqué, motif affiché, quand l'installeur ne saurait pas poser ce que GLPI exige : identifiant
+  ou mot de passe vide, caractère intransmissible (espace, guillemet, apostrophe, %, barre oblique inverse, accent),
+  aucun client OAuth utilisable. Un secret ne s'affiche jamais, ni à l'écran ni dans le journal de l'installation ; le
+  journal MSI détaillé est réduit quand la commande en porte un, et le fichier de configuration est lisible de root
+  seul sous Linux et macOS. Les notes des paquets disent alors qu'ils portent l'authentification : ils ne se
+  conservent pas. Une sonde déjà installée garde ses réglages : après un changement, relancer l'installeur dessus.
+  Vérifié contre GLPI : sans identifiant la requête d'un agent est refusée (401), avec ceux de l'installeur elle
+  passe, en basique comme en OAuth (jeton obtenu sur `api.php/token`).
+
 - **Changer la version de GLPI Agent : le plugin vérifie d'abord qu'elle ne casse pas les installeurs.** Dans la page
   « Installeur », enregistrer une autre version que celle servie lance un contrôle sur GitHub, comparé à la dernière
   version validée (1.20 au départ) :

@@ -201,6 +201,145 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         return $extra !== '' ? self::LOCAL_TRUST . ',' . $extra : self::LOCAL_TRUST;
     }
 
+    // ── Authentification des agents ───────────────────────────────────────────
+
+    /** Premier GLPI Agent dont le MSI sait poser l'authentification OAuth (OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET). */
+    const OAUTH_MIN_AGENT = '1.13';
+
+    /** Réglage du plugin (glpi_configs) : client OAuth donné aux sondes quand plusieurs peuvent servir. */
+    const OAUTH_CLIENT_KEY = 'agent_oauth_client';
+
+    /** Ce qui remplace un secret partout où un paquet est décrit à l'écran ou dans un journal. */
+    const SECRET_MASK = '********';
+
+    /** Options de l'agent qui portent l'authentification => propriété du MSI officiel qui les pose. */
+    const AUTH_MSI_PROPERTIES = [
+        'user'                => 'USER',
+        'password'            => 'PASSWORD',
+        'oauth-client-id'     => 'OAUTH_CLIENT_ID',
+        'oauth-client-secret' => 'OAUTH_CLIENT_SECRET',
+    ];
+
+    /**
+     * Valeur qui passe telle quelle dans les trois écritures de l'installeur : commande msiexec d'un .bat (entre
+     * guillemets, où « % » et le guillemet changeraient de sens), chaîne PowerShell, fichier de configuration de
+     * l'agent (une valeur par ligne, guillemets et apostrophes d'encadrement retirés par l'agent). Caractères ASCII
+     * visibles, sans espace, guillemet, apostrophe, « % » ni barre oblique inverse (devant le guillemet fermant
+     * d'une propriété, elle l'échapperait).
+     */
+    public static function isValidAuthValue(string $value): bool {
+        return (bool) preg_match('/^[\x21\x23\x24\x26\x28-\x5B\x5D-\x7E]{1,255}$/', $value);
+    }
+
+    /**
+     * Clients OAuth qu'un agent peut utiliser : actifs, autorisation « Client credentials », portée « inventory »
+     * (ce que GLPI vérifie quand l'agent présente son jeton). Par identifiant interne, du plus ancien au plus récent.
+     *
+     * @return array [id => ligne de glpi_oauthclients]
+     */
+    public static function getAgentOAuthClients(): array {
+        global $DB;
+
+        $clients = [];
+        foreach ($DB->request(['FROM' => 'glpi_oauthclients', 'WHERE' => ['is_active' => 1], 'ORDER' => 'id']) as $row) {
+            $grants = json_decode((string) $row['grants'], true);
+            $scopes = json_decode((string) $row['scopes'], true);
+            if (is_array($grants) && in_array('client_credentials', $grants, true) && is_array($scopes) && in_array('inventory', $scopes, true)) {
+                $clients[(int) $row['id']] = $row;
+            }
+        }
+        return $clients;
+    }
+
+    /**
+     * Ce que GLPI exige d'un agent qui lui parle (Administration > Inventaire, « Authentification des agents ») et
+     * ce que l'installeur pose donc sur le poste pour que la sonde soit acceptée dès son premier contact. Lu à
+     * chaque paquet, jamais recopié dans le plugin : changer le réglage de GLPI suffit, le téléchargement suivant
+     * le suit. Les sondes déjà installées, elles, gardent leurs réglages : l'installeur est à relancer dessus.
+     *
+     *  - aucune : rien à poser ;
+     *  - basique : l'identifiant et le mot de passe du réglage de GLPI (options user et password de l'agent) ;
+     *  - OAuth « Client credentials » : l'identifiant et le secret d'un client OAuth (options oauth-client-id et
+     *    oauth-client-secret) ; l'agent demande ensuite lui-même ses jetons à api.php/token.
+     *
+     * @return array ['mode' => 'none'|'basic_auth'|'client_credentials'|'' (non choisi), 'label' => string,
+     *                'error' => string (motif qui bloque les paquets), 'options' => [option de l'agent => valeur],
+     *                'secrets' => string[] (options à ne jamais afficher), 'client' => string (client OAuth retenu)]
+     */
+    public static function getAgentAuth(): array {
+        $auth = ['mode' => 'none', 'label' => __('aucune', 'printgestion'), 'error' => '', 'options' => [], 'secrets' => [], 'client' => ''];
+        $conf = Config::getConfigurationValues('inventory', ['auth_required', 'basic_auth_login', 'basic_auth_password']);
+        $mode = (string) ($conf['auth_required'] ?? '');
+
+        if ($mode === 'basic_auth') {
+            $auth['mode']  = $mode;
+            $auth['label'] = __('authentification basique', 'printgestion');
+            $login         = (string) ($conf['basic_auth_login'] ?? '');
+            $password      = (string) (new GLPIKey())->decrypt((string) ($conf['basic_auth_password'] ?? ''));
+            if ($login === '' || $password === '') {
+                $auth['error'] = __('Authentification basique des agents sans identifiant ou sans mot de passe (Administration > Inventaire, « Authentification des agents ») : GLPI refuserait chaque sonde.', 'printgestion');
+            } elseif (!self::isValidAuthValue($login) || !self::isValidAuthValue($password)) {
+                $auth['error'] = __('Identifiant ou mot de passe de l\'authentification basique des agents que l\'installeur ne peut pas transmettre : lettres, chiffres et signes ASCII seulement, sans espace, guillemet, apostrophe, % ni barre oblique inverse (Administration > Inventaire, « Authentification des agents »).', 'printgestion');
+            } else {
+                $auth['options'] = ['user' => $login, 'password' => $password];
+                $auth['secrets'] = ['password'];
+            }
+            return $auth;
+        }
+
+        if ($mode === 'client_credentials') {
+            $auth['mode']  = $mode;
+            $auth['label'] = __('OAuth, identifiants du client', 'printgestion');
+            $clients       = self::getAgentOAuthClients();
+            if (empty($clients)) {
+                $auth['error'] = __('Authentification OAuth des agents sans client utilisable : créer un client OAuth actif avec l\'autorisation « Client credentials » et la portée « inventory » (Configuration > Clients OAuth).', 'printgestion');
+                return $auth;
+            }
+            if (version_compare(self::getServedVersion(), self::OAUTH_MIN_AGENT, '<')) {
+                $auth['error'] = sprintf(
+                    __('Authentification OAuth des agents : l\'installeur de GLPI Agent %1$s ne sait pas la poser, servir la version %2$s ou une plus récente (page « Installeur GLPI Agent »).', 'printgestion'),
+                    self::getServedVersion(),
+                    self::OAUTH_MIN_AGENT
+                );
+                return $auth;
+            }
+            // Plusieurs clients possibles : celui choisi sur la page « Installeur GLPI Agent », sinon le plus ancien.
+            $chosen = (int) Config::getConfigurationValue(PluginPrintgestionSchema::CONFIG_CONTEXT, self::OAUTH_CLIENT_KEY);
+            $client = $clients[$chosen] ?? reset($clients);
+            $id     = (string) $client['identifier'];
+            $secret = (string) (new GLPIKey())->decrypt((string) $client['secret']);
+            // Une virgule sépare plusieurs valeurs dans ces deux options depuis GLPI Agent 1.20.
+            if (!self::isValidAuthValue($id) || !self::isValidAuthValue($secret) || str_contains($id . $secret, ',')) {
+                $auth['error'] = sprintf(__('Client OAuth « %s » : identifiant ou secret illisible ou que l\'installeur ne peut pas transmettre (Configuration > Clients OAuth).', 'printgestion'), (string) $client['name']);
+                return $auth;
+            }
+            $auth['client']  = (string) $client['name'];
+            $auth['options'] = ['oauth-client-id' => $id, 'oauth-client-secret' => $secret];
+            $auth['secrets'] = ['oauth-client-secret'];
+            return $auth;
+        }
+
+        // GLPI 12 refuse tout agent (erreur 503) tant qu'aucun mode n'est enregistré ; GLPI 11 l'entend comme « aucune ».
+        if ($mode !== 'none' && (int) GLPI_VERSION >= 12) {
+            $auth['mode']  = '';
+            $auth['label'] = __('non choisie', 'printgestion');
+            $auth['error'] = __('Authentification des agents non choisie (Administration > Inventaire, « Authentification des agents ») : GLPI refuse tous les agents tant qu\'aucun mode n\'est enregistré.', 'printgestion');
+        }
+        return $auth;
+    }
+
+    /** Vrai si les paquets portent un secret de l'authentification des agents (mot de passe ou secret OAuth). */
+    public static function carriesAgentSecret(): bool {
+        return !empty(self::getAgentAuth()['secrets']);
+    }
+
+    /** Phrase des notes de paquet sur ce que le dossier porte. */
+    private static function getPackageSecretLine(): string {
+        return self::carriesAgentSecret()
+            ? sprintf(__('Ce dossier porte, en plus de l\'adresse du serveur GLPI et du TAG du client, l\'authentification des agents exigée par GLPI (%s) : il se donne au technicien pour l\'intervention, il ne reste pas sur le poste et ne s\'archive pas.', 'printgestion'), self::getAgentAuth()['label'])
+            : __('Ce dossier ne contient aucun identifiant, mot de passe ni jeton : seulement l\'adresse du serveur GLPI et le TAG du client.', 'printgestion');
+    }
+
     /** URL sûre dans une commande cmd : schéma, hôte, port, chemin simple ; ni espace, ni guillemet, ni % ^ & | < >. */
     public static function isValidServerUrl(string $url): bool {
         return (bool) preg_match('#^https?://[A-Za-z0-9.-]+(:\d{1,5})?(/[A-Za-z0-9._~/-]*)?$#', $url);
@@ -240,8 +379,16 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         if ($trust !== '' && !self::isValidTrustList($trust)) {
             $errors[] = __('Adresses autorisées invalides : adresses IPv4 ou plages CIDR séparées par des virgules.', 'printgestion');
         }
+        // Client OAuth des sondes : seulement s'il est proposé (plusieurs clients utilisables) ; 0 : le plus ancien.
+        $oauth_client = isset($input[self::OAUTH_CLIENT_KEY]) ? (int) $input[self::OAUTH_CLIENT_KEY] : null;
+        if ($oauth_client !== null && $oauth_client !== 0 && !isset(self::getAgentOAuthClients()[$oauth_client])) {
+            $errors[] = __('Client OAuth des sondes inconnu ou inutilisable par un agent.', 'printgestion');
+        }
         if (!empty($errors)) {
             return $errors;
+        }
+        if ($oauth_client !== null) {
+            Config::setConfigurationValues(PluginPrintgestionSchema::CONFIG_CONTEXT, [self::OAUTH_CLIENT_KEY => (string) $oauth_client]);
         }
 
         // Valeur vide : automatique.
@@ -561,6 +708,12 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         if (!self::isValidTrustList(self::getHttpdTrust())) {
             $blockers[] = __('Adresses autorisées sur l\'interface de l\'agent invalides (page « Installeur GLPI Agent »).', 'printgestion');
         }
+        // Authentification exigée par GLPI que l'installeur ne saurait pas poser : la sonde serait refusée à chaque
+        // contact, sans réparation à distance.
+        $auth = self::getAgentAuth();
+        if ($auth['error'] !== '') {
+            $blockers[] = $auth['error'];
+        }
         $assets = self::getAssets();
         foreach (self::PLATFORM_ASSETS[$platform] ?? [] as $asset) {
             if (self::getCachedInstaller(false, $asset) === null) {
@@ -574,9 +727,12 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         return $blockers;
     }
 
-    /** Propriétés MSI transmises, dans l'ordre de la commande (valeurs contrôlées en amont). */
-    public static function getWindowsProperties(string $tag): array {
-        return [
+    /**
+     * Propriétés MSI transmises, dans l'ordre de la commande (valeurs contrôlées en amont). Avec une authentification
+     * des agents, ses propriétés suivent ; $mask : secrets remplacés, pour tout ce qui s'affiche ou se journalise.
+     */
+    public static function getWindowsProperties(string $tag, bool $mask = false): array {
+        $properties = [
             'SERVER'       => self::getServerUrl()['url'],
             'TAG'          => $tag,
             'ADDLOCAL'     => self::ADDLOCAL,
@@ -586,6 +742,13 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'EXECMODE'     => '1',
             'QUICKINSTALL' => '1',
         ];
+        $auth = self::getAgentAuth();
+        foreach (self::AUTH_MSI_PROPERTIES as $option => $property) {
+            if (isset($auth['options'][$option])) {
+                $properties[$property] = $mask && in_array($option, $auth['secrets'], true) ? self::SECRET_MASK : $auth['options'][$option];
+            }
+        }
+        return $properties;
     }
 
     /**
@@ -593,17 +756,17 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
      * noms de propriétés sensibles à la casse, pas d'espace autour du « = », valeurs entre
      * guillemets.
      */
-    public static function buildWindowsCommand(string $msi, string $tag): string {
-        return 'msiexec ' . self::buildWindowsArguments($msi, $tag);
+    public static function buildWindowsCommand(string $msi, string $tag, bool $mask = false): string {
+        return 'msiexec ' . self::buildWindowsArguments($msi, $tag, $mask);
     }
 
     /**
      * Les mêmes arguments sans le nom du programme : le .bat les donne à msiexec, le fichier unique les donne à
      * Start-Process. Une seule écriture, donc les deux chemins installent exactement le même agent réglé pareil.
      */
-    public static function buildWindowsArguments(string $msi, string $tag): string {
+    public static function buildWindowsArguments(string $msi, string $tag, bool $mask = false): string {
         $parts = ['/i', '"' . $msi . '"'];
-        foreach (self::getWindowsProperties($tag) as $name => $value) {
+        foreach (self::getWindowsProperties($tag, $mask) as $name => $value) {
             $parts[] = $name . '="' . $value . '"';
         }
         // Muet : tout est déjà renseigné, l'assistant n'avait plus rien à demander — il ne donnait qu'une occasion
@@ -612,7 +775,11 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         // nous de le dire, pas à l'installeur de le faire.
         $parts[] = '/qn';
         $parts[] = '/norestart';
-        $parts[] = '/l*v "%TEMP%\\GLPI-Agent-install.log"';
+        // Journal détaillé tant qu'aucun secret ne passe par la commande. Avec une authentification des agents, le
+        // journal détaillé recopierait la ligne de commande, les propriétés et les valeurs écrites dans le registre,
+        // mot de passe compris, dans un fichier lisible : il se réduit alors à l'état, aux avertissements, aux
+        // erreurs et au début de chaque action (ni « v », ni « p », ni « r »).
+        $parts[] = (self::carriesAgentSecret() ? '/liweamo' : '/l*v') . ' "%TEMP%\\GLPI-Agent-install.log"';
         return implode(' ', $parts);
     }
 
@@ -1119,7 +1286,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '@echo off',
                 'rem GLPI Agent ' . $version . ' - installation pre-parametree pour le TAG ' . $tag,
                 'rem Seul fichier a lancer du dossier. Clic droit, puis Executer en tant qu administrateur.',
-                'rem Lance le MSI officiel signe avec ses proprietes. Aucun identifiant ni secret.',
+                'rem Lance le MSI officiel signe avec ses proprietes. ' . (self::carriesAgentSecret() ? 'Porte l authentification des agents exigee par GLPI : a ne pas conserver.' : 'Aucun identifiant ni secret.'),
                 'title Installation de GLPI Agent ' . $version,
             ],
             PluginPrintgestionAgentsetting::buildAdminCheckLines(),
@@ -1180,7 +1347,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             [
                 sprintf(__('Installation de GLPI Agent %1$s — %2$s (TAG : %3$s)', 'printgestion'), $version, (string) $entity->fields['completename'], $tag),
                 sprintf(__('Paquet généré par Print Gestion le %1$s par %2$s.', 'printgestion'), Html::convDateTime(date('Y-m-d H:i:s')), getUserName((int) Session::getLoginUserID())),
-                __('Ce dossier ne contient aucun identifiant, mot de passe ni jeton : seulement l\'adresse du serveur GLPI et le TAG du client.', 'printgestion'),
+                self::getPackageSecretLine(),
                 '',
                 sprintf(__('UN SEUL FICHIER À LANCER : %s', 'printgestion'), self::WINDOWS_INSTALL_BAT),
                 __('Tout le reste du dossier est soit une donnée dont il se sert, soit ce mode d\'emploi. Rien d\'autre n\'est à ouvrir ni à double-cliquer.', 'printgestion'),
@@ -2714,7 +2881,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             [
                 '# Installation de GLPI Agent ' . $version . ', posee par Print Gestion pour le TAG ' . $tag . '.',
                 '# Lu par PowerShell seulement : cmd s arrete avant (exit /b).',
-                '# Aucun mot de passe ici : une URL, un TAG, une empreinte SHA-256 et une cle a usage unique.',
+                '# ' . (self::carriesAgentSecret()
+                    ? 'Porte l authentification des agents exigee par GLPI, avec une URL, un TAG, une empreinte SHA-256 et une cle a usage unique : a ne pas conserver.'
+                    : 'Aucun mot de passe ici : une URL, un TAG, une empreinte SHA-256 et une cle a usage unique.'),
             ],
             self::psFormsHeader(),
             self::buildWindowsJournalLines('installation', [
@@ -2825,7 +2994,13 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 'Etape "installation" "encours" ""',
                 '$arguments = ' . self::psQuote(self::buildWindowsArguments('@MSI@', $tag)),
                 '$arguments = $arguments.Replace("@MSI@", $Msi).Replace("%TEMP%", $env:TEMP)',
-                'Journal ("        msiexec " + $arguments)',
+                // Au journal, la même commande sans le secret de l'authentification des agents quand elle en porte un.
+                ...(self::carriesAgentSecret()
+                    ? [
+                        '$argumentsJournal = ' . self::psQuote(self::buildWindowsArguments('@MSI@', $tag, true)),
+                        'Journal ("        msiexec " + $argumentsJournal.Replace("@MSI@", $Msi).Replace("%TEMP%", $env:TEMP))',
+                    ]
+                    : ['Journal ("        msiexec " + $arguments)']),
                 '# -1 : barre defilante. L installateur ne dit pas ou il en est, et une barre arretee a 40 % qui ne',
                 '# bouge plus inquiete davantage qu une barre qui defile.',
                 'Avancement ' . self::psQuote(sprintf(__('Installation de GLPI Agent %s...', 'printgestion'), $version)) . ' (-1) ' . self::psQuote(__('Environ une minute. Aucune question ne sera posée.', 'printgestion')),
@@ -4225,7 +4400,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 '# GLPI Agent ' . $version . ' - fichier unique d installation pour le TAG ' . $tag . ' (Print Gestion).',
                 '# A lancer en root : sudo sh ' . self::getSingleFileName($tag, $version, 'linux'),
                 '# Il telecharge l installeur Perl officiel depuis ce serveur GLPI, verifie son empreinte SHA-256,',
-                '# puis l installe. Aucun mot de passe ici : une URL, un TAG, une empreinte et une cle a usage unique.',
+                '# puis l installe. ' . (self::carriesAgentSecret()
+                    ? 'Porte l authentification des agents exigee par GLPI, avec une URL, un TAG, une empreinte et une cle a usage unique : a ne pas conserver.'
+                    : 'Aucun mot de passe ici : une URL, un TAG, une empreinte et une cle a usage unique.'),
                 '# Cle de telechargement : une seule utilisation, jusqu au ' . $expires . '. Journal : /var/tmp.',
                 'set -u',
                 'if [ "$(id -u)" -ne 0 ]; then',
@@ -4375,6 +4552,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 "  cat > /etc/glpi-agent/conf.d/90-printgestion.cfg <<'PRINTGESTION_EOF'",
                 rtrim(self::buildAgentConfig($tag, false), "\n"),
                 'PRINTGESTION_EOF',
+                ...(self::carriesAgentSecret() ? ['  chmod 600 /etc/glpi-agent/conf.d/90-printgestion.cfg'] : []),
                 '  # Un paquet retire dont dpkg garde la trace (etat « rc ») ne remet pas ses fichiers de configuration a',
                 '  # la reinstallation : agent.cfg manquerait, conf.d ne serait pas lu, l agent n aurait pas de serveur.',
                 '  # La trace est purgee d abord (un ancien retrait qui effacait /etc/glpi-agent a la main la laissait).',
@@ -4748,6 +4926,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 "  cat > /Applications/GLPI-Agent/etc/conf.d/local.cfg <<'PRINTGESTION_EOF'",
                 rtrim(self::buildAgentConfig($tag, true), "\n"),
                 'PRINTGESTION_EOF',
+                ...(self::carriesAgentSecret() ? ['  chmod 600 /Applications/GLPI-Agent/etc/conf.d/local.cfg'] : []),
                 '  # Relance du service pour qu il relise local.cfg.',
                 '  if ! pg_relancer_agent; then',
                 '    pg_echec ' . self::shQuote(__('Agent installé et configuré, mais le service n\'a pas redémarré : redémarrer le Mac, puis vérifier dans GLPI que la sonde apparaît.', 'printgestion')),
@@ -4831,8 +5010,10 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     /** Journal de l'agent sous Linux et macOS : un fichier que la configuration posée par le plugin lui donne. */
     const AGENT_LOG_UNIX = '/var/log/glpi-agent.log';
 
-    public static function buildAgentConfig(string $tag, bool $full): string {
-        $lines = ['# GLPI Agent : configuration posee par Print Gestion pour le TAG ' . $tag . '. Aucun identifiant ni secret.'];
+    public static function buildAgentConfig(string $tag, bool $full, bool $mask = false): string {
+        $auth  = self::getAgentAuth();
+        $lines = ['# GLPI Agent : configuration posee par Print Gestion pour le TAG ' . $tag . '. '
+            . (!empty($auth['options']) ? 'Porte l authentification des agents exigee par GLPI : fichier reserve a root.' : 'Aucun identifiant ni secret.')];
         if ($full) {
             $lines[] = 'server = ' . self::getServerUrl()['url'];
             $lines[] = 'tag = ' . $tag;
@@ -4845,6 +5026,14 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $lines[] = 'logger = file';
         $lines[] = 'logfile = ' . self::AGENT_LOG_UNIX;
         $lines[] = 'logfile-maxsize = 4';
+        // Authentification exigée par GLPI : absente des options de l'installeur Linux pour OAuth, et jamais passée
+        // en ligne de commande (visible de tout le poste). $mask : secrets remplacés, pour l'affichage.
+        if (!empty($auth['options'])) {
+            $lines[] = '# Authentification des agents exigee par GLPI (Administration > Inventaire).';
+            foreach ($auth['options'] as $option => $value) {
+                $lines[] = $option . ' = ' . ($mask && in_array($option, $auth['secrets'], true) ? self::SECRET_MASK : $value);
+            }
+        }
         return implode("\n", $lines) . "\n";
     }
 
@@ -4870,7 +5059,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             [
                 '#!/bin/sh',
                 '# GLPI Agent ' . $version . ' - installation pre-parametree pour le TAG ' . $tag . ' (Print Gestion).',
-                '# Aucun identifiant ni secret : adresse du serveur GLPI et TAG uniquement.',
+                '# ' . (self::carriesAgentSecret() ? 'Porte l authentification des agents exigee par GLPI, avec l adresse du serveur et le TAG : a ne pas conserver.' : 'Aucun identifiant ni secret : adresse du serveur GLPI et TAG uniquement.'),
                 '# A lancer en root depuis le dossier extrait : sudo sh installer-glpi-agent.sh',
                 'cd "$(dirname "$0")" || exit 1',
                 'if [ "$(id -u)" -ne 0 ]; then',
@@ -4881,6 +5070,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
                 "cat > /etc/glpi-agent/conf.d/90-printgestion.cfg <<'PRINTGESTION_EOF'",
                 rtrim(self::buildAgentConfig($tag, false), "\n"),
                 'PRINTGESTION_EOF',
+                ...(self::carriesAgentSecret() ? ['chmod 600 /etc/glpi-agent/conf.d/90-printgestion.cfg'] : []),
                 self::buildLinuxCommand($installer, $tag),
                 'RC=$?',
                 'if [ "$RC" -ne 0 ]; then',
@@ -4924,7 +5114,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         $readme  = implode("\n", [
             sprintf(__('Installation de GLPI Agent %1$s pour Linux — %2$s (TAG : %3$s)', 'printgestion'), $version, (string) $entity->fields['completename'], $tag),
             sprintf(__('Paquet généré par Print Gestion le %1$s par %2$s.', 'printgestion'), Html::convDateTime(date('Y-m-d H:i:s')), getUserName((int) Session::getLoginUserID())),
-            __('Ce dossier ne contient aucun identifiant, mot de passe ni jeton : seulement l\'adresse du serveur GLPI et le TAG du client.', 'printgestion'),
+            self::getPackageSecretLine(),
             __('Distributions prises en charge par l\'installeur officiel : Debian, Ubuntu, Red Hat, CentOS, Fedora, openSUSE, AlmaLinux, Rocky Linux, Oracle Linux.', 'printgestion'),
             '',
             __('Les 3 gestes', 'printgestion'),
@@ -4979,7 +5169,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     /** Commandes à coller dans le Terminal du Mac sonde (ZIP extrait dans Téléchargements), macOS 13 ou plus. */
     public static function getMacosCommands(string $version, string $tag): array {
         return [
-            'sudo cp ~/Downloads/' . self::getMacosFolder($version, $tag) . '/local.cfg /Applications/GLPI-Agent/etc/conf.d/local.cfg',
+            'sudo ' . (self::carriesAgentSecret() ? 'install -m 600' : 'cp') . ' ~/Downloads/' . self::getMacosFolder($version, $tag) . '/local.cfg /Applications/GLPI-Agent/etc/conf.d/local.cfg',
             'sudo launchctl bootout system /Library/LaunchDaemons/com.teclib.glpi-agent.plist',
             'sudo launchctl bootstrap system /Library/LaunchDaemons/com.teclib.glpi-agent.plist',
         ];
@@ -5027,7 +5217,7 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             [
                 sprintf(__('Installation de GLPI Agent %1$s pour macOS — %2$s (TAG : %3$s)', 'printgestion'), $version, (string) $entity->fields['completename'], $tag),
                 sprintf(__('Paquet généré par Print Gestion le %1$s par %2$s.', 'printgestion'), Html::convDateTime(date('Y-m-d H:i:s')), getUserName((int) Session::getLoginUserID())),
-                __('Ce dossier ne contient aucun identifiant, mot de passe ni jeton : seulement l\'adresse du serveur GLPI et le TAG du client.', 'printgestion'),
+                self::getPackageSecretLine(),
                 '',
             ],
             self::getMacosSteps($version, $tag),
@@ -5579,7 +5769,9 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
     private static function getPackageDetailsHtml(string $tag, string $version, int $entities_id = 0): string {
         $esc  = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
         $html = "<div class='fw-bold mb-1'>" . $esc(__('Ce que contient le fichier unique', 'printgestion')) . "</div>"
-            . "<p class='small'>" . $esc(sprintf(__('GLPI Agent %s. Le fichier porte l\'adresse du serveur GLPI, le TAG, l\'empreinte SHA-256 attendue et une clé de récupération à usage unique valable 24 h : aucun identifiant, aucun mot de passe. Il télécharge l\'installeur officiel de Teclib\' depuis ce serveur, refuse d\'installer quoi que ce soit si l\'empreinte diffère, puis l\'installe avec les propriétés ci-dessous. C\'est le seul livrable du plugin qui porte un secret : il se donne au technicien pour l\'intervention, il ne s\'archive pas.', 'printgestion'), $version)) . "</p>"
+            . "<p class='small'>" . $esc(sprintf(__('GLPI Agent %s. Le fichier porte l\'adresse du serveur GLPI, le TAG, l\'empreinte SHA-256 attendue et une clé de récupération à usage unique valable 24 h : %s. Il télécharge l\'installeur officiel de Teclib\' depuis ce serveur, refuse d\'installer quoi que ce soit si l\'empreinte diffère, puis l\'installe avec les propriétés ci-dessous. C\'est le seul livrable du plugin qui porte un secret : il se donne au technicien pour l\'intervention, il ne s\'archive pas.', 'printgestion'), $version, self::carriesAgentSecret()
+                ? sprintf(__('il porte aussi l\'authentification des agents exigée par GLPI (%s)', 'printgestion'), self::getAgentAuth()['label'])
+                : __('aucun identifiant, aucun mot de passe', 'printgestion'))) . "</p>"
             . "<p class='small'>" . $esc(__('Windows : un .bat dont la seconde moitié est du PowerShell (fenêtre WinForms) ; la mise à jour automatique est une case à cocher, décochée. Linux : un .sh (fenêtre zenity si le poste en a une, question en console sinon) qui pose aussi les réessais SNMP en conf.d et la tâche cron mensuelle si on l\'a voulu. macOS : un .sh qui lit la puce du Mac, ne télécharge que le paquet correspondant, l\'installe, dépose local.cfg, relance le service et pose la mise à jour automatique (service launchd mensuel) si on l\'a voulu.', 'printgestion')) . "</p>";
         if ($entities_id > 0) {
             // Recours quand l'antivirus d'un client refuse les scripts : les archives complètes, qui ne portent aucun
@@ -5613,14 +5805,18 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             'RUNNOW'       => __('Premier inventaire aussitôt l\'installation terminée.', 'printgestion'),
             'EXECMODE'     => __('Agent installé comme service Windows.', 'printgestion'),
             'QUICKINSTALL' => __('Installation directe, sans les écrans de configuration détaillée (l\'installation est muette de toute façon : /qn).', 'printgestion'),
+            'USER'                => __('Authentification basique exigée par GLPI (Administration > Inventaire) : identifiant.', 'printgestion'),
+            'PASSWORD'            => __('Authentification basique exigée par GLPI : mot de passe, jamais affiché ici.', 'printgestion'),
+            'OAUTH_CLIENT_ID'     => __('Authentification OAuth exigée par GLPI (Administration > Inventaire) : identifiant du client OAuth des sondes.', 'printgestion'),
+            'OAUTH_CLIENT_SECRET' => __('Authentification OAuth exigée par GLPI : secret du client, jamais affiché ici.', 'printgestion'),
         ];
         $html .= "<div class='fw-bold mt-3 mb-1'>" . $esc(sprintf(__('Windows : commande lancée par %s', 'printgestion'), self::WINDOWS_INSTALL_BAT)) . "</div>"
-            . "<pre class='mb-2' style='white-space:pre-wrap'>" . $esc(self::buildWindowsCommand(self::getMsiName($version), $tag)) . "</pre>";
+            . "<pre class='mb-2' style='white-space:pre-wrap'>" . $esc(self::buildWindowsCommand(self::getMsiName($version), $tag, true)) . "</pre>";
         // Propriétés du MSI : toujours les mêmes clés, jamais vide ; aucun lien, donc aucun clic de ligne. La petite
         // taille de l'ancienne cellule « Pourquoi » passe dans un bloc. Pas de marge basse, comme avant (table-responsive :
         // Tabler la ramène à zéro) : l'écart avec le titre Linux reste son mt-3.
         $entries = [];
-        foreach (self::getWindowsProperties($tag) as $name => $value) {
+        foreach (self::getWindowsProperties($tag, true) as $name => $value) {
             $entries[] = [
                 'name'  => "<code>" . $esc($name) . "</code>",
                 'value' => "<code>" . $esc($value !== '' ? $value : '—') . "</code>",
@@ -5634,13 +5830,14 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         ], $entries, ['name' => 'raw_html', 'value' => 'raw_html', 'why' => 'raw_html'])
             . "<div class='fw-bold mt-3 mb-1'>" . $esc(__('Linux : commande lancée par installer-glpi-agent.sh, en root', 'printgestion')) . "</div>"
             . "<pre class='mb-1' style='white-space:pre-wrap'>" . $esc(self::buildLinuxCommand(self::getAssets($version)['linux']['file'], $tag)) . "</pre>"
-            . "<p class='small'>" . $esc(__('Avant la commande, le script pose /etc/glpi-agent/conf.d/90-printgestion.cfg (snmp-retries = 2) ; après, la tâche cron mensuelle de mise à jour si elle est activée.', 'printgestion')) . "</p>"
+            . "<p class='small'>" . $esc(__('Avant la commande, le script pose /etc/glpi-agent/conf.d/90-printgestion.cfg (snmp-retries = 2) ; après, la tâche cron mensuelle de mise à jour si elle est activée.', 'printgestion'))
+                . (!empty(self::getAgentAuth()['options']) ? ' ' . $esc(__('Ce fichier porte aussi l\'authentification des agents exigée par GLPI, lisible de root seul.', 'printgestion')) : '') . "</p>"
             . "<div class='fw-bold mt-3 mb-1'>" . $esc(__('macOS : procédure sur le Mac sonde', 'printgestion')) . "</div><ol class='small ps-3'>";
         foreach (self::getMacosSteps($version, $tag) as $step) {
             $html .= "<li>" . $esc((string) preg_replace('/^\d+\.\s*/', '', $step)) . "</li>";
         }
         return $html . "</ol><pre class='mb-2' style='white-space:pre-wrap'>" . $esc(implode("\n", self::getMacosCommands($version, $tag))) . "</pre>"
-            . "<div class='small fw-bold'>local.cfg</div><pre class='mb-0' style='white-space:pre-wrap'>" . $esc(self::buildAgentConfig($tag, true)) . "</pre>";
+            . "<div class='small fw-bold'>local.cfg</div><pre class='mb-0' style='white-space:pre-wrap'>" . $esc(self::buildAgentConfig($tag, true, true)) . "</pre>";
     }
 
     /** Marque de session : le détail « Installeurs servis » est rouvert déplié à la page suivante. */
@@ -5738,6 +5935,13 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
         echo "<li>" . $esc(__('Adresse du serveur (SERVER) :', 'printgestion')) . " <code>" . $esc($server['url'] !== '' ? $server['url'] : '—') . "</code> <span class='text-muted small'>(" . $esc($sources[$server['source']]) . ")</span>"
             . ($server['error'] !== '' ? " <span class='text-danger'>" . $esc($server['error']) . "</span>" : '') . "</li>";
         echo "<li>" . $esc(__('Adresses autorisées sur l\'interface de l\'agent (HTTPD_TRUST) :', 'printgestion')) . " <code>" . $esc(self::getHttpdTrust()) . "</code></li>";
+        // Authentification des agents : réglage de GLPI, lu à chaque paquet, jamais recopié ni réglé ici.
+        $auth = self::getAgentAuth();
+        echo "<li>" . $esc(__('Authentification des agents (réglage de GLPI) :', 'printgestion')) . " <code>" . $esc($auth['label']) . "</code>"
+            . ($auth['client'] !== '' ? " <span class='text-muted small'>(" . $esc(sprintf(__('client OAuth « %s »', 'printgestion'), $auth['client'])) . ")</span>" : '')
+            . " <a href='" . $esc($CFG_GLPI['root_doc'] . '/front/inventory.conf.php') . "' class='small'>" . $esc(__('Administration → Inventaire, « Authentification des agents »', 'printgestion')) . "</a>"
+            . (!empty($auth['options']) ? " <span class='text-muted small'>" . $esc(__('Posée par l\'installeur sur chaque nouvelle sonde. Une sonde déjà installée garde ses réglages : après un changement, relancer l\'installeur dessus.', 'printgestion')) . "</span>" : '')
+            . ($auth['error'] !== '' ? " <span class='text-danger'>" . $esc($auth['error']) . "</span>" : '') . "</li>";
         echo "<li>" . $esc(__('Fonctions (ADDLOCAL), réessais SNMP, mode :', 'printgestion')) . " <code>" . $esc(self::ADDLOCAL) . "</code>, <code>SNMP_RETRIES=" . (int) self::SNMP_RETRIES . "</code>, <code>RUNNOW=1 EXECMODE=1 QUICKINSTALL=1</code></li>";
         echo "<li>" . $esc(__('Linux et macOS : mêmes réglages, en options de l\'installeur Linux (--type=network) et dans conf.d, ou dans local.cfg sur macOS (tasks = inventory,netdiscovery,netinventory ; snmp-retries = 2).', 'printgestion')) . "</li>";
         echo "</ul>";
@@ -5763,6 +5967,18 @@ class PluginPrintgestionAgentdeploy extends CommonGLPI {
             echo "<div class='col-md-6'><label class='form-label'>" . $esc(__('Adresses autorisées en plus du poste (IPv4, CIDR)', 'printgestion')) . "</label>"
                 . "<input type='text' class='form-control' name='agent_httpd_trust' value='" . $esc($config->fields['agent_httpd_trust'] ?? '') . "' placeholder='203.0.113.10'></div>";
             PluginPrintgestionAgentsetting::showManualVersionColumn('col-md-6');
+            // Plusieurs clients OAuth peuvent servir aux agents : celui que les installeurs posent se choisit ici.
+            $oauth_clients = $auth['mode'] === 'client_credentials' ? self::getAgentOAuthClients() : [];
+            if (count($oauth_clients) > 1) {
+                $oauth_chosen = (int) Config::getConfigurationValue(PluginPrintgestionSchema::CONFIG_CONTEXT, self::OAUTH_CLIENT_KEY);
+                echo "<div class='col-md-6'><label class='form-label'>" . $esc(__('Client OAuth posé sur les sondes', 'printgestion')) . "</label>"
+                    . "<select class='form-select' name='" . self::OAUTH_CLIENT_KEY . "'>"
+                    . "<option value='0'>" . $esc(__('Le plus ancien des clients utilisables', 'printgestion')) . "</option>";
+                foreach ($oauth_clients as $oauth_id => $oauth_client) {
+                    echo "<option value='" . (int) $oauth_id . "'" . ($oauth_id === $oauth_chosen ? ' selected' : '') . ">" . $esc((string) $oauth_client['name']) . "</option>";
+                }
+                echo "</select><div class='form-hint'>" . $esc(__('Clients OAuth actifs, autorisation « Client credentials », portée « inventory ». Son identifiant et son secret partent dans les installeurs.', 'printgestion')) . "</div></div>";
+            }
             echo "<div class='col-12'><button type='submit' data-pg-submit-once='1' name='save_settings' value='1' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>" . $esc(__('Enregistrer', 'printgestion')) . "</button></div>";
             Html::closeForm();
         } else {

@@ -927,8 +927,32 @@ d'affectation « Entity from TAG », fiche Agent (lien seulement).
   jour n'est proposée que si « Nouveaux paquets Windows : poser la mise à jour automatique » est coché ; sinon la
   fenêtre l'annonce sans le redemander. `Agentdeploy::buildWindowsDialogLines()` construit la fenêtre une
   seule fois pour l'archive et pour le fichier unique : une seule écriture, donc la même case au même état par défaut.
-  Chaque téléchargement est tracé dans l'historique de l'entité. Aucun identifiant, jeton ni secret dans les archives :
-  URL du serveur et TAG seulement.
+  Chaque téléchargement est tracé dans l'historique de l'entité. Aucun identifiant, jeton ni secret dans les archives
+  tant que GLPI ne demande aucune authentification à ses agents : URL du serveur et TAG seulement.
+- **Authentification des agents** (`Agentdeploy::getAgentAuth()`) : le réglage natif de GLPI (Administration →
+  Inventaire, « Authentification des agents », configuration `inventory` : `auth_required`, `basic_auth_login`,
+  `basic_auth_password`) est lu à chaque paquet et jamais recopié dans le plugin. Le changer suffit : le
+  téléchargement suivant le suit. Ce que GLPI vérifie est dans `Glpi\Agent\Communication\AbstractRequest::authenticateRequest()`.
+  - `none` : rien n'est posé, les installeurs sont ceux d'avant, à l'octet près.
+  - `basic_auth` : identifiant et mot de passe (déchiffré par `GLPIKey`) — propriétés `USER` et `PASSWORD` du MSI
+    (`getWindowsProperties()`), options `user` et `password` du fichier de configuration (`buildAgentConfig()` :
+    `conf.d/90-printgestion.cfg` sous Linux, `local.cfg` sous macOS).
+  - `client_credentials` : identifiant et secret d'un client OAuth actif, autorisation « Client credentials », portée
+    `inventory` (`getAgentOAuthClients()`) — `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET`, `oauth-client-id` /
+    `oauth-client-secret`. L'agent demande ensuite lui-même ses jetons à `api.php/token`. Plusieurs clients
+    utilisables : celui choisi page « Installeur GLPI Agent » (`glpi_configs`, contexte `plugin:printgestion`, clé
+    `agent_oauth_client`), sinon le plus ancien. GLPI Agent 1.13 au moins (propriétés OAuth du MSI).
+  - réglage jamais choisi : GLPI 12 refuse alors tout agent (503), GLPI 11 l'entend comme `none`.
+
+  Ce que l'installeur ne saurait pas poser bloque le téléchargement, motif à l'appui (`getPackageBlockers()`) :
+  identifiant ou mot de passe vide, caractère intransmissible (`isValidAuthValue()` : ASCII visible, sans espace,
+  guillemet, apostrophe, `%` ni barre oblique inverse), aucun client OAuth utilisable, agent servi trop ancien.
+  Un secret ne s'affiche jamais : masqué à l'écran (`SECRET_MASK`) et dans le journal du fichier unique ; le journal
+  MSI détaillé (`/l*v`) devient `/liweamo` quand la commande en porte un, car il recopierait la ligne de commande et
+  les valeurs écrites dans le registre ; sous Linux et macOS le fichier de configuration passe en `chmod 600`. Les
+  notes et commentaires des paquets disent alors qu'ils portent l'authentification et ne se conservent pas. Les
+  scripts de mise à jour automatique, eux, ne portent toujours rien. Une sonde déjà installée garde ses réglages :
+  après un changement, l'installeur est à relancer dessus.
 - **Clé de récupération** (`inc/agenttoken.class.php`, `front/agentpull.php`) : 24 octets tirés au hasard, **jamais
   stockés en clair** — seule l'empreinte SHA-256 est gardée, comme un mot de passe. Rangement : `glpi_configs`,
   contexte `plugin:printgestion`, clé `agent_pull_tokens` (JSON encodé en base64 — la valeur passe tantôt par
@@ -1498,7 +1522,7 @@ entité, tableau des sondes (PC hôte et marquage, version, conformité, dernier
 ### Déploiement Agent — phase 6 : Linux et macOS (`inc/agentdeploy.class.php`, `inc/agentsetting.class.php`)
 
 Même principe que Windows : fichiers officiels servis par le serveur GLPI et vérifiés, réglages déjà remplis, aucun
-identifiant ni secret, aucune interface maison. Téléchargement : `front/agentdeploy.download.php?os=linux|macos`
+identifiant ni secret hors l'authentification des agents quand GLPI en exige une (voir phase 1), aucune interface maison. Téléchargement : `front/agentdeploy.download.php?os=linux|macos`
 (droit `deploiement` READ, accès à l'entité, tracé dans l'historique de l'entité).
 
 **Linux** (`buildLinuxPackage()`, archive `GLPI-Agent-<version>-linux-<TAG>.tar.gz` produite par `PharData`, un
