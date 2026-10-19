@@ -149,11 +149,14 @@ class PluginPrintgestionReminder extends CommonGLPI {
     }
 
     /**
-     * Cron 3 : les deux suivis transporteur, GLS puis MBE, et le rattrapage des BL signés du plugin Gestion.
+     * Cron 3 : les suivis transporteur, GLS puis MBE puis les pages de suivi publiques, et le rattrapage des BL signés
+     * du plugin Gestion.
      *
      * L'ordre compte. GLS passe d'abord et range ce que le transporteur a publié sur l'expédition ; MBE passe ensuite
      * et **relit ce statut** pour recouper le sien, qui reste `WAITING_DELIVERY` des jours après une remise déjà
      * faite. Le double contrôle ne coûte donc aucun appel de plus : il lit ce que le passage précédent vient d'écrire.
+     * Les pages de suivi publiques d'UPS et de GLS passent en dernier, en plus : elles ne lisent que les expéditions
+     * encore parties et non livrées après les trois autres sources, et sont la seule lecture d'UPS lui-même.
      *
      * Le passage en « livrée » sur BL signé ne dépend pas de ce cron : le plugin Gestion appelle Print Gestion
      * directement à la signature. Le rattrapage reste pour ce qu'aucun clic ne déclenche — BL importé déjà signé,
@@ -179,15 +182,26 @@ class PluginPrintgestionReminder extends CommonGLPI {
         //    recoupe avec celui que GLS vient d'écrire.
         $mbe = PluginPrintgestionMbetracking::poll($task);
 
+        // 4. En plus, pour ne rien oublier : les pages de suivi publiques d'UPS et de GLS France, pour ce qui reste
+        //    parti et non livré après les trois passages ci-dessus. Une remise au destinataire y est constatée.
+        //    Jamais d'échec de la tâche à cause d'elle : les trois passages ci-dessus ont fait leur travail.
+        $public = ['checked' => 0, 'delivered' => 0];
+        try {
+            $public = PluginPrintgestionPublictracking::poll($task);
+        } catch (Throwable $e) {
+            PluginPrintgestionLogger::error('suivi_public', 'Vérification par les pages de suivi publiques interrompue : reprise au prochain passage de la tâche.', $e);
+        }
+
         if ($task !== null) {
             $task->log(sprintf(
-                'BL signés rattrapés : %d — livraisons constatées : %d par GLS, %d par MBE.',
+                'BL signés rattrapés : %d — livraisons constatées : %d par GLS, %d par MBE, %d par les pages de suivi publiques.',
                 $updates,
                 $gls['delivered'],
-                $mbe['delivered']
+                $mbe['delivered'],
+                $public['delivered']
             ));
         }
-        return ($updates + $gls['checked'] + $mbe['checked'] + $mbe['matched']) > 0 ? 1 : 0;
+        return ($updates + $gls['checked'] + $mbe['checked'] + $mbe['matched'] + $public['checked']) > 0 ? 1 : 0;
     }
 
     /**

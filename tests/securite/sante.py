@@ -102,8 +102,12 @@ def main():
         section("1. Position et contenu")
         page, etats = carte()
         constat("carte « Santé de la configuration » en tête, avant les modules", ok_ko(0 <= page.find("Santé de la configuration") < page.find("Activation des modules")))
-        constat("13 contrôles : 9 obligatoires, 4 recommandés (GLS, MBE, journal, clé), l'URL de l'application en tête, la préparation des inventaires réseau juste après les actions automatiques",
-                ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "dependances", "cron", "collect_prep", "xlsx", "notifications", "tag_rule", "glpicrypt", "gls", "mbe", "log"]), str(etats))
+        constat("14 contrôles : 9 obligatoires, 5 recommandés (GLS, MBE, pages de suivi publiques, journal, clé), l'URL de l'application en tête, la préparation des inventaires réseau juste après les actions automatiques",
+                ok_ko(list(etats) == ["app_url", "inventory", "glpiinventory", "dependances", "cron", "collect_prep", "xlsx", "notifications", "tag_rule", "glpicrypt", "gls", "mbe", "public_tracking", "log"]), str(etats))
+        # Rien à régler pour les pages de suivi publiques : sans refus d'accès ni échecs répétés, la ligne est verte et ne
+        # retire jamais « Configuration : complète », même si aucun appel n'a encore eu lieu.
+        constat("pages de suivi publiques sans incident : ligne verte, jamais « à confirmer »",
+                ok_ko(etats.get("public_tracking") == "ok"), str(etats.get("public_tracking")))
         # Déploiement et GLPI Inventory actifs sur l'instance de test, mais aucun raccordement piloté : rien à préparer.
         constat("préparation des inventaires réseau sans tâche de collecte : « Aucune tâche de collecte », pour information",
                 ok_ko(etats.get("collect_prep") == "info" and "Aucune tâche de collecte." in page), str(etats.get("collect_prep")))
