@@ -5,9 +5,9 @@
  * La 1.0.0 s'installe sur une base vierge du plugin ; elle n'a pas de chemin de mise à jour : une base qui porte
  * une autre version est refusée avec le message qui dit de désinstaller d'abord. Les CREATE TABLE et les lignes de
  * référence ci-dessous n'ont pas été écrits à la main ni reconstruits en relisant l'ancienne chaîne de migrations :
- * ils ont été relevés sur une base installée par cette chaîne (tests/securite/etat_installation.py) puis générés
- * (tests/securite/schema_depuis_etat.py). La preuve est rejouable : tests/securite/comparer_etats.py entre
- * tests/securite/reference/etat-ancien-chemin.json et le relevé d'une installation neuve doit rendre zéro écart.
+ * ils ont été relevés sur une base installée par cette chaîne puis générés, et le relevé d'une installation neuve
+ * rendait zéro écart avec celui de l'ancien chemin. Les scripts de relevé, de génération et de comparaison
+ * (tests/securite/, harnais retiré du dépôt) restent consultables dans l'historique git.
  *
  * Jeu de caractères, collation et signe des clés sont ceux que GLPI décide (DBConnection), remplis à l'installation.
  */
