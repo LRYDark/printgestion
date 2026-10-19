@@ -1,5 +1,24 @@
 # Journal des changements
 
+## Non publié
+
+- **Vérification en plus par les pages de suivi publiques d'UPS et de GLS France.** Pour chaque expédition UPS ou
+  GLS partie et pas encore livrée, la tâche de suivi lit ce qu'affichent les pages de suivi des deux transporteurs,
+  comme le ferait le destinataire. Une remise au destinataire fait passer l'expédition « livrée », source `ups` ou
+  `gls`, datée de l'événement. L'API GLS, MBE et le BL signé ne changent pas : cette lecture passe après eux et ne
+  regarde que ce qu'ils n'ont pas encore constaté. Pour UPS, c'est la première lecture du transporteur lui-même ;
+  jusqu'ici seuls MBE (souvent en retard de plusieurs jours) et le BL signé constataient une livraison UPS.
+  - Point relais GLS, dépôt en UPS Access Point pas encore retiré, retour à l'expéditeur : jamais « livrée », même
+    règle que `DELIVEREDPS`.
+  - Aucune clé à saisir : nouvelle carte « Vérification par les pages de suivi publiques (UPS, GLS) », avec un
+    interrupteur (activé par défaut) et « Tester la connexion » ; nouvelle ligne dans la carte Santé.
+  - Ces pages ne sont pas des API publiées : elles peuvent changer sans prévenir, et la page UPS a un filtre
+    anti-robots qui peut refuser l'accès. Dans ce cas rien n'est conclu : le transporteur est mis de côté six heures
+    et la carte Santé passe au rouge.
+  - Bornes : un passage par heure au plus, expéditions des 30 derniers jours, 150 par passage, un appel à la fois.
+  - Aucune colonne ajoutée : l'interrupteur et les mémos vivent dans la configuration du plugin. Harnais
+    `tests/securite/suivi_public.py`.
+
 ## 1.1.0 — 2026-10-12
 
 Première version pour GLPI 12 (12.0.x). La série 1.0.x reste celle de GLPI 11.

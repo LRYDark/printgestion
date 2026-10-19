@@ -1,6 +1,6 @@
 <?php
 /**
- * Test de connexion d'une intégration (GLS, MBE), appelé en AJAX depuis la carte de configuration.
+ * Test de connexion d'une intégration (GLS, MBE, pages de suivi publiques), appelé en AJAX depuis la carte de configuration.
  *
  * Le résultat s'affiche dans une fenêtre, sans recharger la page : un test se relance, se compare, se relit,
  * autant de fois qu'on veut.
@@ -31,9 +31,10 @@ if (!Session::haveRight('plugin_printgestion_config', UPDATE)) {
 }
 
 $result = match ((string) ($_POST['action'] ?? '')) {
-    'test_gls' => (new PluginPrintgestionGlsclient())->testConnection(),
-    'test_mbe' => (new PluginPrintgestionMbeclient())->testConnection(),
-    default    => null,
+    'test_gls'    => (new PluginPrintgestionGlsclient())->testConnection(),
+    'test_mbe'    => (new PluginPrintgestionMbeclient())->testConnection(),
+    'test_public' => (new PluginPrintgestionPublicclient())->testConnection(),
+    default       => null,
 };
 if ($result === null) {
     http_response_code(400);

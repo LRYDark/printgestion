@@ -7,7 +7,8 @@
  *
  *   1. la pose détectée par relevé → « posée », et elle seule clôt l'envoi (hors de cette classe : Collect) ;
  *   2. le BL signé dans le plugin Gestion → preuve écrite, signée par le client, immédiate ;
- *   3. l'événement de livraison du transporteur (GLS) → constat du terrain ;
+ *   3. l'événement de livraison du transporteur → constat du terrain : GLS (son API, ou sa page de suivi publique),
+ *      UPS (sa page de suivi publique, Publictracking) ;
  *   4. le statut MBE « DELIVERED » → résumé de l'intermédiaire, le plus en retard des trois.
  *
  * Deux règles tiennent tout :
@@ -20,7 +21,8 @@
  *     livraison. Un transporteur qui repasse « en transit » après avoir annoncé une remise ne défait rien.
  *
  * Chaque passage est écrit dans le journal du plugin avec sa source : six mois plus tard, on sait pourquoi cette
- * expédition est livrée. Rien d'autre n'écrit `statut = 'delivered'` : ni Glstracking, ni Mbetracking, ni Tracking.
+ * expédition est livrée. Rien d'autre n'écrit `statut = 'delivered'` : ni Glstracking, ni Mbetracking, ni
+ * Publictracking, ni Tracking.
  */
 
 if (!defined('GLPI_ROOT')) {
@@ -34,8 +36,9 @@ class PluginPrintgestionDelivery {
     /** Sources de constat, du plus fort au plus faible (l'ordre du tableau EST la hiérarchie). */
     const SOURCE_BL     = 'bl';
     const SOURCE_GLS    = 'gls';
+    const SOURCE_UPS    = 'ups';
     const SOURCE_MBE    = 'mbe';
-    const SOURCES       = [self::SOURCE_BL, self::SOURCE_GLS, self::SOURCE_MBE];
+    const SOURCES       = [self::SOURCE_BL, self::SOURCE_GLS, self::SOURCE_UPS, self::SOURCE_MBE];
 
     /**
      * Statuts depuis lesquels une livraison peut être constatée : un envoi parti. « pending » est volontairement
@@ -49,6 +52,7 @@ class PluginPrintgestionDelivery {
         return match ($source) {
             self::SOURCE_BL  => __('BL signé (plugin Gestion)', 'printgestion'),
             self::SOURCE_GLS => __('événement de livraison GLS', 'printgestion'),
+            self::SOURCE_UPS => __('événement de livraison UPS', 'printgestion'),
             self::SOURCE_MBE => __('statut MBE', 'printgestion'),
             default          => $source,
         };

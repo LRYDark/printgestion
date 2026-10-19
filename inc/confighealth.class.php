@@ -407,6 +407,50 @@ class PluginPrintgestionConfighealth {
             'detail' => implode('<br>', array_map($esc, $mbe_lines)),
         ];
 
+        // Pages de suivi publiques UPS et GLS (vérification en plus) : sans clé, actives tant que l'interrupteur l'est.
+        // Rouge quand un transporteur refuse l'accès ou ne répond plus : ces pages changent sans prévenir. Jamais « à
+        // confirmer » : il n'y a rien à régler, et sans expédition UPS ou GLS en route il n'y a aucun appel à attendre —
+        // une ligne en attente ôterait « Configuration : complète » à une installation qui n'a rien à corriger.
+        $public_on     = PluginPrintgestionPublictracking::isEnabled();
+        $public_lines  = [];
+        $public_issues = [];
+        $public_ever   = false;
+        foreach (['ups' => 'UPS', 'gls' => 'GLS'] as $carrier => $name) {
+            $memo        = PluginPrintgestionPublictracking::getMemo($carrier);
+            $public_ever = $public_ever || $memo['last_success'] !== '';
+            if (PluginPrintgestionPublictracking::isBlocked($carrier)) {
+                $public_issues[] = sprintf(__('%1$s refuse l\'accès à sa page de suivi, pas d\'appel avant le %2$s', 'printgestion'), $name, Html::convDateTime($memo['blocked_until']));
+            } elseif ($memo['failures'] >= PluginPrintgestionPublictracking::BREAKER_THRESHOLD) {
+                $public_issues[] = sprintf(__('%1$s : %2$d échecs consécutifs (%3$s)', 'printgestion'), $name, $memo['failures'], $memo['last_error'] !== '' ? $memo['last_error'] : __('sans détail', 'printgestion'));
+            }
+            $public_lines[] = sprintf(__('%1$s — dernier appel réussi : %2$s ; échecs consécutifs : %3$d%4$s.', 'printgestion'), $name,
+                $memo['last_success'] !== '' ? Html::convDateTime($memo['last_success']) : __('jamais', 'printgestion'),
+                $memo['failures'], $memo['last_error'] !== '' ? ' (' . $memo['last_error'] . ')' : '');
+        }
+        if (!$public_on) {
+            $public_state  = self::STATE_OK;
+            $public_status = __('Coupée dans la configuration : seuls l\'API GLS, MBE et le BL signé constatent les livraisons.', 'printgestion');
+        } elseif (!empty($public_issues)) {
+            $public_state  = self::STATE_ERROR;
+            $public_status = implode(' ; ', $public_issues) . '.';
+        } else {
+            $public_state  = self::STATE_OK;
+            $public_status = $public_ever
+                ? __('Activée.', 'printgestion')
+                : __('Activée, aucun appel encore : il n\'y en a que pour les expéditions UPS ou GLS en route. « Tester la connexion » le vérifie tout de suite.', 'printgestion');
+        }
+        $checks[] = [
+            'key'    => 'public_tracking',
+            'group'  => 'recommended',
+            'label'  => __('Vérification par les pages de suivi publiques (UPS, GLS)', 'printgestion'),
+            'state'  => $public_state,
+            'status' => $public_status,
+            'breaks' => __('Sans elle, une expédition UPS n\'est constatée livrée que par MBE ou le BL signé, et une expédition GLS attend l\'API GLS ou MBE.', 'printgestion'),
+            'fix'    => __('Carte « Vérification par les pages de suivi publiques » de cette page : « Tester la connexion »', 'printgestion'),
+            'url'    => '',
+            'detail' => implode('<br>', array_map($esc, $public_lines)),
+        ];
+
         // Versions de GLPI Agent : compatibilité avec les installeurs et sondes suivies après leur mise à jour
         // (rapports gardés seulement, jamais d'appel à GitHub ici). Une erreur n'efface pas les autres lignes.
         try {

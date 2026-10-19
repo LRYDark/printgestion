@@ -96,6 +96,10 @@ if (isset($_POST['activate_contract_alerts'])) {
     // « Tester la connexion » MBE : la liste des sept derniers jours, page 1, lue puis jetée ; jamais un identifiant dans le message.
     $result = (new PluginPrintgestionMbeclient())->testConnection();
     Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : ERROR);
+} elseif (isset($_POST['test_public'])) {
+    // « Tester la connexion » des pages de suivi publiques : un numéro UPS et un code GLS inventés, que chacun dit inconnus.
+    $result = (new PluginPrintgestionPublicclient())->testConnection();
+    Session::addMessageAfterRedirect(htmlspecialchars($result['message'], ENT_QUOTES, 'UTF-8'), false, $result['ok'] ? INFO : ERROR);
 } elseif (isset($_POST['clear_mbe'])) {
     // « Retirer les identifiants » MBE : identifiant, passphrase et date effacés, mémo de santé oublié.
     PluginPrintgestionConfig::getInstance()->update(['id' => 1, 'mbe_username' => '', 'mbe_passphrase' => '', 'mbe_secret_date' => null]);
@@ -228,6 +232,19 @@ if (isset($_POST['activate_contract_alerts'])) {
             Session::addMessageAfterRedirect($link_wanted
                 ? __('Liaison avec le plugin Gestion activée : un BL signé fera passer son expédition en « livrée », dès la signature.', 'printgestion')
                 : __('Liaison avec le plugin Gestion coupée : plus aucun BL signé ne fera passer une expédition en « livrée », et l\'association de BL à une expédition est refusée. Les expéditions déjà livrées le restent.', 'printgestion'),
+                true, INFO);
+        }
+    }
+
+    // Pages de suivi publiques UPS et GLS : même rangement que la liaison Gestion (contexte de configuration du
+    // plugin, pas de colonne), même témoin caché.
+    if (!empty($_POST['public_tracking_posted'])) {
+        $public_wanted = (int) ($_POST['enable_public_tracking'] ?? 0) === 1;
+        if ($public_wanted !== PluginPrintgestionPublictracking::isEnabled()) {
+            PluginPrintgestionPublictracking::setEnabled($public_wanted);
+            Session::addMessageAfterRedirect($public_wanted
+                ? __('Vérification par les pages de suivi publiques activée : à son prochain passage, la tâche de suivi lira UPS et GLS pour les expéditions parties et pas encore livrées.', 'printgestion')
+                : __('Vérification par les pages de suivi publiques coupée : plus aucun appel aux pages d\'UPS et de GLS. L\'API GLS, MBE et le BL signé continuent ; les expéditions déjà livrées le restent.', 'printgestion'),
                 true, INFO);
         }
     }

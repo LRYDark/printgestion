@@ -711,6 +711,28 @@ HTML;
         self::showConnectionTest('test_mbe', $manque);
         echo "</div></div>";
 
+        // ── Pages de suivi publiques d'UPS et de GLS France (aucune clé : un interrupteur et un test) ──
+        $public_on = PluginPrintgestionPublictracking::isEnabled();
+        echo "<div class='card mb-3'><div class='card-header'><h3 class='card-title mb-0'>"
+            . $esc(__('Vérification par les pages de suivi publiques (UPS, GLS)', 'printgestion')) . "</h3></div><div class='card-body'>";
+        echo "<p class='text-muted small mb-3'>"
+            . $esc(__('En plus de l\'API GLS, de MBE et du BL signé, sans rien remplacer : pour chaque expédition UPS ou GLS partie et pas encore livrée, Print Gestion lit ce qu\'affichent les pages de suivi d\'UPS et de GLS France, comme le ferait le destinataire. Une remise au destinataire fait passer l\'expédition « livrée » ; un dépôt en point relais ou en UPS Access Point, un retour à l\'expéditeur ou une anomalie ne la font pas passer. Aucune clé à saisir, et c\'est la seule lecture d\'UPS lui-même. Dans la tâche de suivi, une fois par heure au plus, pour les expéditions parties depuis 30 jours au plus.', 'printgestion'))
+            . "</p>";
+        echo "<p class='text-muted small mb-3'>"
+            . $esc(__('Ces pages ne sont pas des API publiées : UPS ou GLS peuvent les changer sans prévenir, et la page UPS est gardée par un filtre anti-robots qui peut refuser l\'accès. Rien n\'est alors conclu : le transporteur est laissé de côté quelques heures et la carte Santé le signale.', 'printgestion'))
+            . "</p>";
+        // Le témoin caché distingue « décochée » de « carte absente », comme pour la liaison avec le plugin Gestion.
+        echo "<div class='form-check form-switch mb-2'>";
+        echo "<input type='hidden' name='public_tracking_posted' value='1'>";
+        echo "<input type='hidden' name='enable_public_tracking' value='0'>";
+        echo "<input type='checkbox' class='form-check-input' id='enable_public_tracking' name='enable_public_tracking' value='1'"
+            . ($public_on ? ' checked' : '') . ">";
+        echo "<label class='form-check-label' for='enable_public_tracking'>" . $esc(__('Activée', 'printgestion')) . "</label>";
+        echo "</div>";
+        // Un numéro UPS et un code GLS inventés, que chacun dit inconnus : la page est jointe et sa réponse comprise.
+        self::showConnectionTest('test_public', []);
+        echo "</div></div>";
+
         echo "</div></div>";
 
 
