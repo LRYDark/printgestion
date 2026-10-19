@@ -3,6 +3,10 @@
 > Plugin GLPI 11 de gestion de flotte d'impression — JCD Groupe.
 > Ce document décrit **comment le plugin fonctionne** (architecture, flux de données, mails, crons).
 > Pour la mise à jour / le dépannage, voir [DOC_MAINTENANCE.md](DOC_MAINTENANCE.md).
+>
+> Le harnais de tests (dossier `tests/`) a été retiré du dépôt : il ne servait qu'au développement. Les scripts
+> `tests/securite/…` cités ici comme preuves restent consultables dans l'historique git, au commit qui précède
+> « Retrait du harnais de tests ».
 
 ---
 
@@ -1887,8 +1891,9 @@ des fichiers ajax (token `X-Glpi-Csrf-Token`). Ne PAS rajouter de `Session::chec
   passage.
 - **Écran** : carte « Vérification par les pages de suivi publiques (UPS, GLS) » (interrupteur, « Tester la
   connexion » : un numéro UPS inventé à la clé juste et un code GLS inventé, que chacun doit dire inconnus) et ligne
-  de la carte Santé (dernier appel réussi, échecs, refus d'accès par transporteur). Harnais
-  `tests/securite/suivi_public.py` (réponses inventées à la forme relevée, aucun appel réseau).
+  de la carte Santé (dernier appel réussi, échecs, refus d'accès par transporteur), verte tant que rien n'est à
+  corriger — jamais « à confirmer », pour ne pas retirer « Configuration : complète » à une installation qui n'a rien
+  à régler.
 
 ## 6. Circuits mail — notifications natives, règle d'or : REGROUPER
 

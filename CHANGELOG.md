@@ -2,6 +2,10 @@
 
 ## Non publié
 
+- **Harnais de tests retiré du dépôt.** Le dossier `tests/` (scripts Python, instance de test, faux plugin Gestion,
+  faux serveur SMTP) ne servait qu'au développement : rien ne change pour le plugin installé. Les scripts restent
+  consultables dans l'historique git ; les documentations le disent en tête.
+
 - **Vérification en plus par les pages de suivi publiques d'UPS et de GLS France.** Pour chaque expédition UPS ou
   GLS partie et pas encore livrée, la tâche de suivi lit ce qu'affichent les pages de suivi des deux transporteurs,
   comme le ferait le destinataire. Une remise au destinataire fait passer l'expédition « livrée », source `ups` ou
@@ -16,8 +20,7 @@
     anti-robots qui peut refuser l'accès. Dans ce cas rien n'est conclu : le transporteur est mis de côté six heures
     et la carte Santé passe au rouge.
   - Bornes : un passage par heure au plus, expéditions des 30 derniers jours, 150 par passage, un appel à la fois.
-  - Aucune colonne ajoutée : l'interrupteur et les mémos vivent dans la configuration du plugin. Harnais
-    `tests/securite/suivi_public.py`.
+  - Aucune colonne ajoutée : l'interrupteur et les mémos vivent dans la configuration du plugin.
 
 ## 1.1.0 — 2026-10-12
 

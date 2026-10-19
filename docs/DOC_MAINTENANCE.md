@@ -2,6 +2,10 @@
 
 > Comment maintenir, mettre à jour et dépanner le plugin sans casser l'existant.
 > Pour comprendre le fonctionnement interne, lire d'abord [DOC_TECHNIQUE.md](DOC_TECHNIQUE.md).
+>
+> Le harnais de tests (dossier `tests/` : scripts Python, instance de test, faux plugin Gestion, faux SMTP) a été
+> retiré du dépôt : il ne servait qu'au développement. Les scripts `tests/securite/…` cités ici restent consultables
+> dans l'historique git, au commit qui précède « Retrait du harnais de tests ».
 
 ---
 
@@ -502,7 +506,7 @@ saisis à la main), et le technicien ne voit rien d'une intégration. Les autres
 - **Après chaque mise à jour du plugin Gestion** : vérifier que les trois appels à Print Gestion sont toujours en
   place dans `gestion/front/traitement.php` (×2) et `gestion/front/traitement_combined_multi.php` (×1). Un paquet
   peut les emporter. Rien ne casse s'ils disparaissent — les écrans et la tâche horaire rattrapent — mais
-  l'immédiateté est perdue sans prévenir. `tests/securite/livraison.py` le contrôle.
+  l'immédiateté est perdue sans prévenir : ce contrôle se fait à la main.
 - **Quand** : tâche `PrintgestionTrackingUpdate` (horaire), une ligne par heure au plus, dix numéros par requête,
   arrêt à 400 requêtes par jour (quota GLS 500). Un 429 arrête la journée ; cinq échecs techniques consécutifs
   arrêtent le cycle (reprise au passage suivant). Le journal `printgestion.log` (contexte `gls`) garde les échecs,
@@ -599,7 +603,6 @@ reconduction tacite (un contrat terminé ne couvre plus rien).
 ## 8. Checklist avant mise en production
 
 - [ ] `php -l` sur tous les fichiers modifiés.
-- [ ] Harnais de sécurité rejoué sur une instance jetable (`tests/README.md`) : aucun KO nouveau.
 - [ ] « Mettre à jour » le plugin sur un environnement de test (install idempotente, pas d'erreur).
 - [ ] Jeton anti-cache incrémenté si JS/CSS modifié.
 - [ ] `php tools/generate_apercu.php` exécuté si gabarits modifiés ; aperçu relu.
@@ -608,6 +611,6 @@ reconduction tacite (un contrat terminé ne couvre plus rien).
 - [ ] Carte « Santé de la configuration » : « Configuration : complète » sur le serveur cible.
 - [ ] Pas de nouvelle table/colonne oubliée pour les instances existantes (§2).
 - [ ] Aucune donnée PHP écrite dans un `<script>` exécuté : `PluginPrintgestionUi::jsonData()` (§5).
-- [ ] Nouveau point d'entrée `front/` ou `ajax/` : garde « plugin actif ET module activé » en tête (même 404), et l'ajouter à `tests/securite/modules.py`.
-- [ ] Écran du module Déploiement : le technicien (droit Déploiement seul) voit l'état et l'action ; commandes, propriétés, chemins de menu, noms de règles et versions seulement pour l'administrateur (`PluginPrintgestionUi::statusLine()`, `adminDetails()`, `infoButton()`, `data-pg-admin`). Nouvel écran : l'ajouter à `tests/securite/interface.py`.
+- [ ] Nouveau point d'entrée `front/` ou `ajax/` : garde « plugin actif ET module activé » en tête (même 404).
+- [ ] Écran du module Déploiement : le technicien (droit Déploiement seul) voit l'état et l'action ; commandes, propriétés, chemins de menu, noms de règles et versions seulement pour l'administrateur (`PluginPrintgestionUi::statusLine()`, `adminDetails()`, `infoButton()`, `data-pg-admin`).
 - [ ] Toute nouvelle table de données client porte `entities_id` / `is_recursive`, posés à l'écriture par `PluginPrintgestionEntityscope`.
