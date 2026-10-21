@@ -133,12 +133,17 @@ class PluginPrintgestionPublictracking {
                     ];
                     break;
                 case PluginPrintgestionPublicclient::STATUS_RETURNED:
-                    // Un retour ne se constate pas en livraison, mais il demande quelqu'un : le seul verdict journalisé.
+                    // Un retour ne se constate pas en livraison, mais il demande quelqu'un : journalisé.
                     $stats['returned']++;
                     PluginPrintgestionLogger::warning('suivi_public', sprintf('Expédition #%d : retour à l\'expéditeur annoncé (%s)', $id, $verdict['detail']));
                     break;
-                case PluginPrintgestionPublicclient::STATUS_RELAY:
                 case PluginPrintgestionPublicclient::STATUS_EXCEPTION:
+                    // Anomalie (passage raté, adresse à préciser…) : rien n'est constaté, mais quelqu'un doit agir, et
+                    // la trace le dit le jour même, sans attendre le seuil de retard.
+                    $stats['exception']++;
+                    PluginPrintgestionLogger::warning('suivi_public', sprintf('Expédition #%d : anomalie signalée par le transporteur (%s)', $id, $verdict['detail']));
+                    break;
+                case PluginPrintgestionPublicclient::STATUS_RELAY:
                 case PluginPrintgestionPublicclient::STATUS_NOT_FOUND:
                     $stats[$verdict['status']]++;
                     break;
