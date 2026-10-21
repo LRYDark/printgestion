@@ -1873,14 +1873,19 @@ des fichiers ajax (token `X-Glpi-Csrf-Token`). Ne PAS rajouter de `Session::chec
   le plugin se présente sous son nom (`USER_AGENT`), et un refus met UPS de côté six heures.
 - **GLS France** : `GET consignee-ws/api/v1/command/public/codes/{Track ID}`, 8 caractères en majuscules ; le code à
   10 de l'étiquette rend 404, d'où les clés essayées dans l'ordre (`glsKeys()`) : celle que l'API GLS a déjà validée
-  (`tracking_key`), la saisie nettoyée, puis son Track ID à 8 (même repli que `Glsnumber`). Remise : événement `LIV`
-  (statut `LTV`) ; `LTL`, `LIL`, `LIT`, `LTT` repris du hub JCD, non observés. Dates en heure de Paris sans décalage ;
-  la date nulle `0001-01-01` est ignorée.
+  (`tracking_key`), la saisie nettoyée, puis son Track ID à 8 (même repli que `Glsnumber`). **Seul le STATUT fait
+  foi, jamais le type** : le type `LIV` n'est qu'un passage du livreur, qui peut échouer (type `LIV`, statut `PBA` :
+  non livré, adresse à préciser). Remise = statut `LTV` ou `LIV` (`LTL`, `LIL`, `LIT`, `LTT` repris du hub JCD, non
+  observés) du **colis** (`statutColis`) ou de son **dernier** événement (tri sur `datereference` puis
+  `chronoEvenement`) : l'état actuel, jamais un événement passé suivi d'autre chose. Lire le type a fait passer
+  « livrée » un colis non livré puis revenu en agence (constaté le 21/10/2026, corrigé le jour même). Dates en heure
+  de Paris sans décalage ; la date nulle `0001-01-01` est ignorée.
 - **Verdicts** (`Publicclient::STATUS_*`) : seul `delivered` (remis au destinataire) devient un constat remis à
   `Delivery`, source `ups` ou `gls`, daté de l'événement, détail « UPS (suivi public) : … » ou « GLS (suivi public) :
   … ». **Point relais** (`relaisGlsColis` / `relaisglsEvenement` renseignés, ou `isDeliveredToUAP` sans
   `isPickedUpByCustomer`) = pas livré, même règle que `DELIVEREDPS`. **Retour** à l'expéditeur = jamais livré,
-  journalisé. Anomalie, numéro inconnu, numéro mal formé : comptés dans le journal de la tâche, rien n'est écrit.
+  journalisé. **Anomalie** (passage raté, adresse à préciser…) : rien n'est constaté, journalisée le jour même.
+  Numéro inconnu, numéro mal formé : comptés dans le journal de la tâche, rien n'est écrit.
 - **Aucune colonne** (le schéma de la 1.0.0 n'en ajoute pas sur une base installée) : tout tient dans `glpi_configs`,
   contexte `plugin:printgestion` — `public_tracking_enabled` (interrupteur, absent = activé), `public_last_poll`,
   `public_{ups,gls}_{last_success,failures,last_error,blocked_until}`. Les colonnes `tracking_*` de l'API GLS ne sont

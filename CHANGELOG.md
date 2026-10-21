@@ -2,6 +2,16 @@
 
 ## Non publié
 
+- **Suivi public GLS : un passage raté n'est plus pris pour une livraison.** La lecture de la page de suivi GLS
+  France prenait le type d'événement `LIV` (passage du livreur) pour une remise : un colis non livré (statut `PBA`,
+  « adresse à préciser ») puis revenu en agence passait « livrée » — définitivement, puisque Delivery ne revient jamais
+  sur une livraison. Seul le statut fait foi désormais, et c'est l'état actuel qui compte (statut du colis ou de son
+  dernier événement), jamais un événement passé. Les anomalies vues sur les pages publiques sont écrites dans le
+  journal du plugin le jour même. **Après mise à jour** : chercher dans `files/_log/printgestion.log` les lignes
+  « constaté par événement de livraison GLS » dont le détail « GLS (suivi public) : … » porte un code autre que `LIV`
+  ou `LTV` (souvent sans « signé ») — expéditions passées « livrée » à tort depuis le 19/10/2026 — et les remettre
+  « partie » à la main.
+
 - **Harnais de tests retiré du dépôt.** Le dossier `tests/` (scripts Python, instance de test, faux plugin Gestion,
   faux serveur SMTP) ne servait qu'au développement : rien ne change pour le plugin installé. Les scripts restent
   consultables dans l'historique git ; les documentations le disent en tête.

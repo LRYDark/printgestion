@@ -27,7 +27,8 @@
  *             l'étiquette et la minuscule rendent 404, d'où le repli de Glsnumber). Réponse : colis.statutColis,
  *             colis.relaisGlsColis (« 0 » ou vide hors point relais), evenements[] avec typeEvenement,
  *             statutEvenement, datereference (heure de Paris sans décalage, « 2026-10-19 09:06:17.0 »),
- *             relaisglsEvenement, nomSignataire. Remise : événement LIV, statut LTV. Code inconnu : 404 en texte brut.
+ *             relaisglsEvenement, nomSignataire. Remise : STATUT LTV ou LIV ; le type LIV n'est qu'un passage du
+ *             livreur, qui peut échouer (type LIV, statut PBA : non livré). Code inconnu : 404 en texte brut.
  *
  * Règle du point relais, la même que pour l'API GLS (DELIVEREDPS) : un colis déposé en point relais ou en UPS Access
  * Point n'est pas livré, personne ne l'a encore. Un retour à l'expéditeur non plus.
@@ -69,9 +70,9 @@ class PluginPrintgestionPublicclient {
     const STATUS_NOT_FOUND = 'not_found';
 
     /**
-     * Codes GLS France qui valent remise. LIV (type d'événement) et LTV (statut) sont relevés sur des envois réels ; les
-     * quatre autres sont ceux que le hub JCD retient déjà, pas observés ici. Le point relais ne se déduit jamais d'un
-     * code : il se lit dans relaisGlsColis et relaisglsEvenement.
+     * STATUTS GLS France qui valent remise (statutColis ou statutEvenement, jamais typeEvenement). LTV et LIV sont
+     * relevés sur des envois réels ; les quatre autres sont ceux que le hub JCD retient déjà, pas observés ici. Le
+     * point relais ne se déduit jamais d'un code : il se lit dans relaisGlsColis et relaisglsEvenement.
      */
     const GLS_DELIVERED_CODES = ['LIV', 'LTV', 'LTL', 'LIL', 'LIT', 'LTT'];
     /** Codes GLS France d'anomalie, repris du hub JCD : comptés, jamais décisifs. */
@@ -272,54 +273,74 @@ class PluginPrintgestionPublicclient {
     }
 
     /**
-     * Verdict d'une réponse GLS France. La remise se lit dans l'historique avant le résumé (un événement de type LIV
-     * l'emporte sur un simple statut, le plus récent à type égal) ; un point relais sur le colis ou sur l'événement de
-     * remise en fait un dépôt, pas une livraison.
+     * Verdict d'une réponse GLS France.
+     *
+     * Le TYPE d'un événement dit ce qui s'est passé (LIV : passage du livreur, TRV : mise en tournée, REC : arrivée en
+     * agence…) ; seul son STATUT dit le résultat (LTV, LIV : livré ; PBA : non livré, adresse à préciser). Un passage
+     * peut échouer : type LIV, statut PBA. Et c'est l'état actuel qui compte — statut du colis, ou de son dernier
+     * événement — jamais un événement passé suivi d'autre chose. Lire le type, ou le premier événement venu, a fait
+     * passer « livré » un colis non livré puis revenu en agence (constaté le 21/10/2026) ; Delivery ne revenant jamais
+     * sur « livrée », cette lecture doit être juste du premier coup.
+     *
+     * Un point relais sur le colis ou sur l'événement de remise en fait un dépôt, pas une livraison.
      */
     public static function parseGls(array $data, string $code): array {
         $colis   = is_array($data['colis'] ?? null) ? $data['colis'] : [];
         $summary = strtoupper(trim((string) ($colis['statutColis'] ?? '')));
-        $remise  = null;
+        $events  = [];
         foreach ((array) ($data['evenements'] ?? []) as $event) {
             if (!is_array($event)) {
                 continue;
             }
-            $type    = strtoupper(trim((string) ($event['typeEvenement'] ?? '')));
-            $statut  = strtoupper(trim((string) ($event['statutEvenement'] ?? '')));
-            $by_type = in_array($type, self::GLS_DELIVERED_CODES, true);
-            if (!$by_type && !in_array($statut, self::GLS_DELIVERED_CODES, true)) {
-                continue;
-            }
-            $candidate = [
-                'priority' => $by_type ? 2 : 1,
-                'date'     => self::glsDate((string) ($event['datereference'] ?? '')) ?? self::glsDate((string) ($event['datecreation'] ?? '')),
-                'relay'    => self::isGlsRelay($event['relaisglsEvenement'] ?? ''),
-                'signed'   => self::text($event['nomSignataire'] ?? ''),
+            $events[] = [
+                'type'   => strtoupper(trim((string) ($event['typeEvenement'] ?? ''))),
+                'statut' => strtoupper(trim((string) ($event['statutEvenement'] ?? ''))),
+                'date'   => self::glsDate((string) ($event['datereference'] ?? '')) ?? self::glsDate((string) ($event['datecreation'] ?? '')),
+                'chrono' => (int) ($event['chronoEvenement'] ?? 0),
+                'relay'  => self::isGlsRelay($event['relaisglsEvenement'] ?? ''),
+                'signed' => self::text($event['nomSignataire'] ?? ''),
             ];
-            if ($remise === null || $candidate['priority'] > $remise['priority']
-                || ($candidate['priority'] === $remise['priority'] && (string) $candidate['date'] > (string) $remise['date'])) {
-                $remise = $candidate;
+        }
+        // Du plus récent au plus ancien : date de référence, puis ordre chronologique de GLS (l'ordre reçu ne fait pas foi).
+        usort($events, static fn(array $a, array $b): int => strcmp((string) $b['date'], (string) $a['date']) ?: $b['chrono'] <=> $a['chrono']);
+        $current   = (string) ($events[0]['statut'] ?? '');
+        $delivered = in_array($summary, self::GLS_DELIVERED_CODES, true) || in_array($current, self::GLS_DELIVERED_CODES, true);
+        $exception = !$delivered && (in_array($summary, self::GLS_EXCEPTION_CODES, true) || in_array($current, self::GLS_EXCEPTION_CODES, true));
+        // Remise : l'événement au statut de livraison le plus récent, de préférence le passage du livreur (type LIV).
+        $remise = null;
+        if ($delivered) {
+            foreach ($events as $event) {
+                if (!in_array($event['statut'], self::GLS_DELIVERED_CODES, true)) {
+                    continue;
+                }
+                if ($remise === null || ($event['type'] === 'LIV' && $remise['type'] !== 'LIV')) {
+                    $remise = $event;
+                }
             }
         }
-        $delivered = $remise !== null || in_array($summary, self::GLS_DELIVERED_CODES, true);
-        $relay     = self::isGlsRelay($colis['relaisGlsColis'] ?? '') || ($remise['relay'] ?? false) === true;
-        $status    = match (true) {
-            $delivered                                         => $relay ? self::STATUS_RELAY : self::STATUS_DELIVERED,
-            in_array($summary, self::GLS_EXCEPTION_CODES, true) => self::STATUS_EXCEPTION,
-            default                                            => self::STATUS_TRANSIT,
+        $relay  = self::isGlsRelay($colis['relaisGlsColis'] ?? '') || ($remise['relay'] ?? false) === true;
+        $status = match (true) {
+            $delivered => $relay ? self::STATUS_RELAY : self::STATUS_DELIVERED,
+            $exception => self::STATUS_EXCEPTION,
+            default    => self::STATUS_TRANSIT,
         };
-        $text   = sprintf(__('GLS (suivi public) : %s', 'printgestion'), $summary !== '' ? $summary : __('sans statut', 'printgestion'));
+        // Code qui fonde le verdict : statut du colis d'abord, sinon celui du dernier événement.
+        $codes  = $delivered ? self::GLS_DELIVERED_CODES : ($exception ? self::GLS_EXCEPTION_CODES : []);
+        $shown  = $codes !== [] ? (in_array($summary, $codes, true) ? $summary : $current) : ($summary !== '' ? $summary : $current);
+        $text   = sprintf(__('GLS (suivi public) : %s', 'printgestion'), $shown !== '' ? $shown : __('sans statut', 'printgestion'));
         $signed = (string) ($remise['signed'] ?? '') !== '' ? (string) $remise['signed'] : self::text($colis['nomSignataireColis'] ?? '');
         if ($status === self::STATUS_DELIVERED && $signed !== '') {
             $text .= sprintf(__(', signé %s', 'printgestion'), $signed);
         } elseif ($status === self::STATUS_RELAY) {
             $text .= __(', déposé en point relais', 'printgestion');
+        } elseif ($status === self::STATUS_EXCEPTION && $shown === 'PBA') {
+            $text .= __(', non livré : adresse à préciser', 'printgestion');
         }
         return self::verdict(
             $status,
             $status === self::STATUS_DELIVERED ? ($remise['date'] ?? null) : null,
             $text . '.',
-            'GLS:' . ($summary !== '' ? $summary : '?')
+            'GLS:' . ($shown !== '' ? $shown : '?')
         );
     }
 
