@@ -318,6 +318,9 @@ class PluginPrintgestionDashboard extends CommonGLPI {
         // (liens des tuiles) → manageParams les lit et les applique tout seul.
         $params = Search::manageParams($itemtype, $_GET);
         $params['target'] = PLUGIN_PRINTGESTION_WEBDIR . '/front/list.php';
+        // Plus de vue carte (PluginPrintgestionContract::maybeLocated()) : un choix « carte » gardé en session ne doit
+        // pas laisser l'utilisateur sur une carte vide, sans bouton pour revenir au tableau.
+        $params['as_map'] = 0;
 
         if (!isset($_GET['sort'])) {
             $params['sort']  = self::SO_END_DATE;

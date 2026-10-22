@@ -87,6 +87,15 @@ class PluginPrintgestionContract extends Contract {
         return (new Contract())->isStateVisible($id);
     }
 
+    /**
+     * Pas de vue « carte » sur la liste des contrats d'impression. glpi_contracts a une colonne locations_id, alors
+     * GLPI proposait le bouton ; mais sa carte (ajax/map.php) lit des colonnes que cette recherche ne sélectionne pas
+     * (998, 999 et 3) : un avertissement par contrat dans php-errors.log et une carte vide.
+     */
+    public function maybeLocated() {
+        return false;
+    }
+
     // Identifiants des search options calculées propres au plugin (au-dessus de
     // la plage des options natives de Contract pour éviter toute collision).
     const SO_DAYS_LEFT = 9001; // Temps restant (jours)
