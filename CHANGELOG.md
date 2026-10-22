@@ -2,6 +2,11 @@
 
 ## Non publié
 
+- **Liste des contrats d'impression : plus de vue « carte ».** GLPI proposait le bouton carte (les contrats ont un
+  lieu), mais cette carte lit des colonnes que la liste ne sélectionne pas : elle restait vide et chaque affichage
+  écrivait des centaines d'avertissements `Undefined array key "ITEM_PluginPrintgestionContract_998"` dans
+  `php-errors.log`. Le bouton n'est plus proposé, et un choix « carte » resté en session revient au tableau.
+
 - **Suivi public GLS : un passage raté n'est plus pris pour une livraison.** La lecture de la page de suivi GLS
   France prenait le type d'événement `LIV` (passage du livreur) pour une remise : un colis non livré (statut `PBA`,
   « adresse à préciser ») puis revenu en agence passait « livrée » — définitivement, puisque Delivery ne revient jamais
