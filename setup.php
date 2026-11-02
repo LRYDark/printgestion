@@ -14,7 +14,7 @@
 // tâches) que si cette version change. La 1.0.0 s'installe sur une base vierge du plugin.
 // La 1.1.0 est le portage pour GLPI 12 (la série 1.0.x reste celle de GLPI 11) : même schéma,
 // PluginPrintgestionSchema::VERSION reste donc 1.0.0 et « Mettre à jour » ne touche à aucune table.
-define('PLUGIN_PRINTGESTION_VERSION', '1.1.0');
+define('PLUGIN_PRINTGESTION_VERSION', '1.1.1');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '12.0.0');
@@ -249,7 +249,10 @@ function plugin_version_printgestion() {
             'php'  => [
                 'min'  => '8.2',
                 'exts' => [
-                    'zip'      => ['required' => true],   // archives ZIP des paquets de sonde, fichiers xlsx
+                    // Facultative, comme pour GLPI : sans elle, seuls les paquets de sonde et la lecture des fichiers
+                    // xlsx/ods s'arrêtent, avec un message. Obligatoire, elle faisait DÉSACTIVER le plugin par GLPI à
+                    // chaque `bin/console` lancé avec un PHP en ligne de commande dépourvu de zip (prod, 02/11/2026).
+                    'zip'      => ['required' => false],  // archives ZIP des paquets de sonde, fichiers xlsx
                     'mbstring' => ['required' => true],   // chaînes multioctets (codes, désignations, imports)
                     'intl'     => ['required' => true],   // normalisation sans accent des en-têtes et libellés (Transliterator)
                 ],

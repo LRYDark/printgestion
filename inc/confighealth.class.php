@@ -175,6 +175,21 @@ class PluginPrintgestionConfighealth {
             )),
         ];
 
+        // Facultative pour GLPI comme pour le plugin (voir setup.php) : son absence ne désactive plus rien, elle
+        // doit donc se voir ici.
+        $zip_ok = class_exists('ZipArchive');
+        $checks[] = [
+            'key'    => 'zip',
+            'group'  => 'recommended',
+            'label'  => __('Extension PHP zip', 'printgestion'),
+            'state'  => $zip_ok ? self::STATE_OK : self::STATE_ERROR,
+            'status' => $zip_ok ? __('Présente.', 'printgestion') : __('Absente.', 'printgestion'),
+            'breaks' => __('Les paquets d\'installation des sondes et les consignes de mise à jour ne se génèrent plus ; l\'import Sage refuse les fichiers xlsx et ods (le csv passe).', 'printgestion'),
+            'fix'    => __('Installer l\'extension PHP zip sur le serveur (paquet php-zip), pour le serveur web ET pour le PHP en ligne de commande, puis redémarrer le serveur web', 'printgestion'),
+            'url'    => '',
+            'detail' => '',
+        ];
+
         $cron = self::getCronStatus();
         $checks[] = [
             'key'    => 'cron',

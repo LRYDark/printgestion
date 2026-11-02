@@ -1219,6 +1219,10 @@ class PluginPrintgestionAgentsetting extends CommonDBTM {
             '',
         ]);
 
+        if (!class_exists('ZipArchive')) {
+            PluginPrintgestionLogger::error('agentsetting', 'Paquet de consigne non créé : extension PHP zip absente.');
+            return ['ok' => false, 'errors' => [__('Paquet de consigne non généré : l\'extension PHP zip est absente du serveur.', 'printgestion')]];
+        }
         $path = GLPI_TMP_DIR . '/printgestion-consigne-' . bin2hex(random_bytes(8)) . '.zip';
         $zip  = new ZipArchive();
         if ($zip->open($path, ZipArchive::CREATE | ZipArchive::EXCL) !== true) {
