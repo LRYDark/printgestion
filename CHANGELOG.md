@@ -1,6 +1,16 @@
 # Journal des changements
 
-## Non publié
+## 1.0.1 — 2026-11-02
+
+**Après la mise à jour : cliquer « Mettre à jour » dans Configuration → Plugins.**
+
+- **L'extension PHP zip devient facultative**, comme pour GLPI. Obligatoire, elle faisait désactiver le plugin
+  par GLPI à chaque `bin/console` lancé avec un PHP en ligne de commande sans zip (production, 02/11/2026 :
+  Print Gestion désactivé après un `cache:clear`). Sans zip, seuls les paquets de sonde, les consignes de mise
+  à jour et la lecture des fichiers xlsx/ods s'arrêtent, avec un message ; le diagnostic de configuration le
+  signale.
+- CI GitHub : syntaxe sur PHP 8.2 à 8.5, installation réelle dans GLPI 11.0.12 (neuve et mise à jour depuis
+  la release précédente), chargement de chaque classe, parcours des pages et de leurs onglets.
 
 - **Liste des contrats d'impression : plus de vue « carte ».** GLPI proposait le bouton carte (les contrats ont un
   lieu), mais cette carte lit des colonnes que la liste ne sélectionne pas : elle restait vide et chaque affichage

@@ -1,0 +1,176 @@
+# Vérification automatique à chaque envoi sur GitHub — même principe que FER et
+# Trackline.
+#
+# Pourquoi : il n'y a pas de PHP sur le poste de développement, et une erreur ne
+# se voyait qu'une fois en production. Le 02/11/2026, les fiches ticket et
+# utilisateur plantaient (« unexpected token public » dans un template Twig
+# compilé) à cause d'un Twig embarqué dans le vendor/ d'un plugin. Ce contrôle :
+#
+#  1. Syntaxe     — `php -l` sur tout le plugin, pour chaque version de PHP
+#                   acceptée par GLPI 11 ;
+#  2. GLPI        — vraie installation de GLPI 11.0.12 sur une base MariaDB
+#                   jetable, le plugin installé puis activé :
+#                    - chaque classe du plugin est chargée contre le code de GLPI
+#                      (une signature ou une propriété incompatible y casse net) ;
+#                    - parcours des pages : accueil, ticket, utilisateur,
+#                      configuration, entité, profil, avec TOUS leurs onglets, et
+#                      les pages du plugin présentes dans le menu ;
+#                    - la moindre ligne dans php-errors.log fait échouer.
+#                   Deux cas : installation neuve, et mise à jour depuis la
+#                   dernière release de la branche quand elle existe ;
+#  3. Dépendances — `composer audit` si le plugin a un composer.lock. NON
+#                   BLOQUANT, comme pour FER : une faille découverte dans une
+#                   dépendance ne doit pas empêcher un correctif urgent.
+
+name: CI
+
+on:
+  push:
+    branches: [GLPI_11]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GLPI_VERSION: '11.0.12'
+  # Releases de cette branche (balises), pour le test de mise à jour.
+  RELEASE_TAG_PATTERN: '(?i)(glpi_?11|_glpi$)'
+
+jobs:
+  syntaxe:
+    name: Syntaxe (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4', '8.5']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+      - name: php -l
+        run: |
+          status=0
+          while IFS= read -r -d '' f; do
+            out=$(php -l "$f" 2>&1) || { echo "$out"; status=1; }
+          done < <(find . -name '*.php' -not -path './vendor/*' -not -path './.git/*' -print0)
+          exit $status
+
+  glpi:
+    name: GLPI 11.0.12 — ${{ matrix.scenario }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [installation, mise-a-jour]
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: glpi
+          MARIADB_DATABASE: glpi
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mysqli, gd, intl, mbstring, zip, bcmath, curl, exif, ldap, sodium, bz2
+          ini-values: memory_limit=512M, max_execution_time=300
+          coverage: none
+
+      - name: Installer GLPI ${{ env.GLPI_VERSION }}
+        run: |
+          curl -fsSL -o glpi.tgz "https://github.com/glpi-project/glpi/releases/download/${GLPI_VERSION}/glpi-${GLPI_VERSION}.tgz"
+          tar -xzf glpi.tgz
+          php glpi/bin/console database:install --db-host=127.0.0.1 --db-port=3306 --db-name=glpi \
+            --db-user=root --db-password=glpi --default-language=fr_FR --no-telemetry --no-interaction
+          echo "PLUGIN=$(grep -oP 'function plugin_version_\K\w+' plugin/setup.php)" >> "$GITHUB_ENV"
+
+      # Plugins dont celui-ci a besoin (ex. creditalert -> credit) : une ligne « clé URL-de-l'archive »
+      # dans .github/ci/plugins-requis.txt.
+      - name: Plugins requis
+        run: |
+          f=plugin/.github/ci/plugins-requis.txt
+          [ -f "$f" ] || { echo "Aucun."; exit 0; }
+          grep -vE '^\s*(#|$)' "$f" | while read -r key url; do
+            echo "Installation de $key ($url)"
+            curl -fsSL "$url" | tar -xj -C glpi/plugins
+            php glpi/bin/console plugin:install "$key" --username=glpi --no-interaction
+            php glpi/bin/console plugin:activate "$key" --no-interaction
+          done
+
+      - name: Version précédente du plugin (mise à jour)
+        if: matrix.scenario == 'mise-a-jour'
+        run: |
+          prev=$(git -C plugin tag --merged HEAD --sort=-creatordate | grep -P "$RELEASE_TAG_PATTERN" | head -1 || true)
+          if [ -z "$prev" ]; then
+            echo "Aucune release précédente sur cette branche : rien à mettre à jour, installation neuve testée seule."
+            echo "PREVIOUS=" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "Mise à jour depuis $prev"
+          echo "PREVIOUS=$prev" >> "$GITHUB_ENV"
+          mkdir -p "glpi/plugins/$PLUGIN"
+          git -C plugin archive "$prev" | tar -x -C "glpi/plugins/$PLUGIN"
+          php glpi/bin/console plugin:install "$PLUGIN" --username=glpi --no-interaction
+          php glpi/bin/console plugin:activate "$PLUGIN" --no-interaction
+          rm -rf "glpi/plugins/$PLUGIN"
+
+      - name: Installer et activer le plugin
+        run: |
+          mkdir -p "glpi/plugins/$PLUGIN"
+          git -C plugin archive HEAD | tar -x -C "glpi/plugins/$PLUGIN"
+          # vendor/ suivi par git : rien à installer. Sinon, dépendances de prod seules.
+          if [ -f plugin/composer.json ] && [ ! -d "glpi/plugins/$PLUGIN/vendor" ] && grep -q '"require"' plugin/composer.json \
+             && php -r 'exit(count(array_diff(array_keys(json_decode(file_get_contents("plugin/composer.json"), true)["require"] ?? []), ["php"])) ? 0 : 1);'; then
+            composer install --no-dev --no-interaction --working-dir="glpi/plugins/$PLUGIN"
+          fi
+          force=""
+          [ -n "$PREVIOUS" ] && force="--force"
+          php glpi/bin/console plugin:install "$PLUGIN" --username=glpi $force --no-interaction
+          php glpi/bin/console plugin:activate "$PLUGIN" --no-interaction
+          php glpi/bin/console plugin:list | grep -i "$PLUGIN"
+          php glpi/bin/console cache:clear --no-interaction
+
+      - name: Charger chaque classe du plugin
+        run: php plugin/.github/ci/load_classes.php "$PWD/glpi" "$PWD/glpi/plugins/$PLUGIN"
+
+      - name: Parcourir les pages, plugin activé
+        run: |
+          mysql -h127.0.0.1 -uroot -pglpi glpi -e "INSERT INTO glpi_tickets (name, content, entities_id, date, date_creation, date_mod, status, users_id_recipient) VALUES ('Ticket CI', '<p>Ticket de la CI</p>', 0, NOW(), NOW(), NOW(), 1, 2)"
+          php -S 127.0.0.1:8088 -t glpi/public glpi/public/index.php > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -fs -o /dev/null http://127.0.0.1:8088/index.php && break; sleep 1; done
+          python3 plugin/.github/ci/smoke.py http://127.0.0.1:8088 "$PLUGIN" glpi/files/_log
+
+      - name: Journaux (en cas d'échec)
+        if: failure()
+        run: |
+          for f in glpi/files/_log/*.log server.log; do [ -s "$f" ] && { echo "=== $f"; tail -n 200 "$f"; }; done; true
+
+  dependances:
+    name: Failles des dépendances
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer
+          coverage: none
+      - name: composer audit
+        run: |
+          if [ -f composer.lock ]; then
+            composer audit --locked --no-dev --abandoned=report --no-interaction
+          else
+            echo "Pas de composer.lock : aucune dépendance embarquée."
+          fi
