@@ -354,6 +354,7 @@ class PluginPrintgestionSchema {
             `mbe_passphrase` varchar(255) NULL DEFAULT NULL,
             `mbe_secret_date` timestamp NULL DEFAULT NULL,
             `enable_miseenservice` tinyint NOT NULL DEFAULT 1,
+            `install_reminder` tinyint NOT NULL DEFAULT 1,
             PRIMARY KEY (`id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
         'glpi_plugin_printgestion_contractrates' => 'CREATE TABLE `glpi_plugin_printgestion_contractrates` (
@@ -811,32 +812,9 @@ class PluginPrintgestionSchema {
         }
     }
 
-    /** Colonnes déjà assurées dans cette requête : « table.colonne » => présente (vrai) ou ajout en échec (faux). */
-    private static array $ensured = [];
-
     /** Définition d'une clé étrangère GLPI (`xxx_id`), signe des clés décidé par GLPI. */
     public static function foreignKeyDefinition(): string {
         return 'int ' . DBConnection::getDefaultPrimaryKeySignOption() . ' NOT NULL DEFAULT 0';
-    }
-
-    /**
-     * Colonne ajoutée après l'installation, assurée une seule fois par requête et sans exception : vrai si elle existe
-     * (déjà là ou ajoutée), faux si l'ajout a échoué (cause dans le journal du plugin) — l'appelant continue alors
-     * sans elle. Version du schéma inchangée : ni désinstallation ni « Mettre à jour ». À appeler AVANT toute
-     * transaction : un ALTER TABLE la validerait d'office.
-     */
-    public static function hasColumn(string $table, string $column, string $definition): bool {
-        $key = $table . '.' . $column;
-        if (!isset(self::$ensured[$key])) {
-            try {
-                self::ensureColumn($table, $column, $definition);
-                self::$ensured[$key] = true;
-            } catch (Throwable $e) {
-                self::$ensured[$key] = false;
-                PluginPrintgestionLogger::error('schema', sprintf('Colonne %s non créée.', $key), $e);
-            }
-        }
-        return self::$ensured[$key];
     }
 
     /** Toutes les tables (vivantes et anciennes) et le contexte de configuration du plugin. */

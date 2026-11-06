@@ -119,9 +119,6 @@ if (isset($_POST['activate_contract_alerts'])) {
 } elseif (isset($_POST['update'])) {
     // Validation CSRF faite par CheckCsrfListener (kernel Symfony) avant ce fichier.
 
-    // Colonne de l'interrupteur « toujours pas changée » assurée et relue avant l'enregistrement : update() ne garde
-    // que les champs connus de l'objet.
-    PluginPrintgestionConfig::isInstallReminderEnabled();
     $config = PluginPrintgestionConfig::getInstance();
 
     // Helper : normalise une liste d'IDs users GLPI (depuis User::dropdown multi)

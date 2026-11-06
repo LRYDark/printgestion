@@ -149,7 +149,7 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_billing_view` | **Matérialisée par utilisateur** : coût à la page pour le Search natif |
 | `glpi_plugin_printgestion_historical_yields` | Rendements historiques (pages/cartouche) |
 | `glpi_plugin_printgestion_printer_thresholds` | Seuils d'alerte personnalisés par imprimante |
-| `glpi_plugin_printgestion_printerrates` | Tarif à la page propre à une imprimante (N&B, couleur ; vide = tarif du contrat), créée au premier besoin |
+| `glpi_plugin_printgestion_printerrates` | Tarif à la page propre à une imprimante (N&B, couleur ; vide = tarif du contrat), créée par la mise à jour 1.0.2 |
 | `glpi_plugin_printgestion_raccordements` | Raccordements d'imprimantes : entité, sonde, statut, identifiants SNMP, plages et tâches GLPI Inventory utilisées, objets créés, dates des étapes |
 | `glpi_plugin_printgestion_raccordementips` | Adresses déclarées d'un raccordement et leur résultat (équipement trouvé, son entité) ; lieu, commentaire et contrat en attente, imprimante et date de leur application |
 | `glpi_plugin_printgestion_raccordementlogs` | Journal horodaté d'un raccordement : étape, niveau, auteur, message |
@@ -445,9 +445,7 @@ Le **lieu de livraison** d'une cartouche est le lieu de l'imprimante, ou l'un de
 choisi à la commande — deux imprimantes au même 193 rue, l'une à l'étage 1 et l'autre à l'étage 3, ont deux contacts
 différents. Un lieu demandé hors de l'arbre du lieu de l'imprimante est ignoré (`resolveForPrinter()`) : jamais une
 livraison ailleurs que sous le lieu de la machine. Il est gardé sur l'expédition (`expeditions.locations_id`, ajoutée
-au premier besoin par `Expedition::hasLocationColumn()` sur une base installée avant elle, **avant** toute
-transaction : un `ALTER TABLE` validerait la transaction en cours) et dans les lignes de la commande
-(`mail_rows[].locations_id`, `location_name`).
+par la mise à jour 1.0.2) et dans les lignes de la commande (`mail_rows[].locations_id`, `location_name`).
 
 `describe()` lit le lieu puis ses parents jusqu'à la racine ; pour chaque information, le premier lieu qui la porte
 l'emporte :
@@ -484,10 +482,10 @@ l'emporte :
   `ancestors()` le retire), descendants par `getSonsOf()` (qui l'inclut), chaîne lue en une requête et triée par
   `level`. `Demande::getSiteLocationId()` (regroupement des propositions par site) passe par les mêmes fonctions au
   lieu de sa boucle et de son cache maison.
-- **Colonnes ajoutées après l'installation** : `Schema::hasColumn()` (une fois par requête, sans exception, journal
-  en cas d'échec) pour `expeditions.locations_id`, `demandelines.locations_id` et `configs.install_reminder` ; appelée
-  **avant** toute transaction (proposition, enregistrement, commande, export), un `ALTER TABLE` validant d'office la
-  transaction en cours. Aussi dans `plugin_printgestion_install()`.
+- **Schéma de la 1.0.2** : `expeditions.locations_id`, `demandelines.locations_id`, `configs.install_reminder`
+  (dans les `CREATE TABLE` pour une installation neuve, `Schema::ensureColumn()` dans `plugin_printgestion_install()`
+  pour une base existante) et la table `printerrates` (`Schema::install()`), tous créés par « Mettre à jour ». Aucun
+  ajout de colonne en cours de route : GLPI désactive le plugin tant que la mise à jour n'est pas faite.
 
 ### Fichier Gesconso (`inc/gesconso.class.php`)
 
@@ -1875,7 +1873,7 @@ pastilles sur un même écran n'auraient rien apporté. `collect.php?state=` red
 - **Tarif propre à une imprimante** (`inc/printerrate.class.php`, table `printerrates`, `front/printerrate.form.php`,
   formulaire dans l'onglet « Coût à la page ») : `Printerrate::getRatesForPrinter()` est le seul calcul du tarif
   (facturation, export Excel, onglet, AJAX) — tarif de l'imprimante type par type, sinon celui du contrat. Droit :
-  modifier les tarifs (module Contrats, UPDATE) et l'imprimante. Table créée au premier besoin (`createIfMissing()`).
+  modifier les tarifs (module Contrats, UPDATE) et l'imprimante. Table créée par la mise à jour 1.0.2.
 - **Facturation** : « Exporter Excel » dans la barre d'onglets (`showTabBar(..., $actions)`), à droite.
 
 ### Points d'entrée (ajax/)

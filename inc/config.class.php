@@ -68,18 +68,10 @@ class PluginPrintgestionConfig extends CommonDBTM {
 
     /**
      * Alerte « cartouche envoyée mais toujours pas changée » (expédiée ou livrée, pose non détectée après le délai de
-     * rappel) : son alerte dans l'onglet Alertes et le mail de rappel. Allumée par défaut, comme avant l'interrupteur ;
-     * colonne ajoutée au premier besoin (PluginPrintgestionSchema::hasColumn()).
+     * rappel) : son alerte dans l'onglet Alertes et le mail de rappel. Allumée par défaut, comme avant l'interrupteur.
      */
     public static function isInstallReminderEnabled(): bool {
-        if (!PluginPrintgestionSchema::hasColumn(self::getTable(), 'install_reminder', 'tinyint NOT NULL DEFAULT 1')) {
-            return true;
-        }
-        $cfg = self::getInstance();
-        if (!array_key_exists('install_reminder', $cfg->fields) && !$cfg->isNewItem()) {
-            $cfg->getFromDB((int) $cfg->getID()); // instance lue avant l'ajout de la colonne
-        }
-        return (int) ($cfg->fields['install_reminder'] ?? 1) === 1;
+        return (int) (self::getInstance()->fields['install_reminder'] ?? 1) === 1;
     }
 
     static function getTypeName($nb = 0) {

@@ -605,10 +605,8 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         $quantities = (array) ($input['quantity'] ?? []);
         $prices     = (array) ($input['unit_price'] ?? []);
         $cancels    = (array) ($input['cancel_line'] ?? []);
-        // Lieu de livraison choisi par imprimante : retenu seulement sous le lieu de l'imprimante (colonne assurée
-        // avant la transaction d'enregistrement).
-        $locations     = array_map('intval', (array) ($input['delivery_location'] ?? []));
-        $with_location = PluginPrintgestionDemandeline::hasLocationColumn();
+        // Lieu de livraison choisi par imprimante : retenu seulement sous le lieu de l'imprimante.
+        $locations = array_map('intval', (array) ($input['delivery_location'] ?? []));
 
         $line_updates = [];
         $has_cancel   = false;
@@ -626,7 +624,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
 
             $update = [];
             $printers_id = (int) $line['printers_id'];
-            if ($with_location && array_key_exists($printers_id, $locations)) {
+            if (array_key_exists($printers_id, $locations)) {
                 $chosen = $locations[$printers_id];
                 if ($chosen > 0 && !PluginPrintgestionDeliverylocation::isWithin($chosen, (int) $line['printer_locations_id'])) {
                     $errors[] = sprintf(__('%s : lieu de livraison hors du lieu de l\'imprimante.', 'printgestion'), $label);
@@ -1173,9 +1171,6 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
      */
     public static function exportDemandes(array $demandes_ids, bool $send): array {
         $out = ['ok' => false, 'errors' => [], 'warnings' => [], 'documents_id' => 0, 'lines' => 0];
-        // Colonne du lieu de livraison des expéditions ajoutée AVANT la transaction d'export : un ALTER TABLE la
-        // validerait d'office.
-        PluginPrintgestionExpedition::hasLocationColumn();
 
         $demandes = [];
         $lines    = [];
@@ -1405,10 +1400,6 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
      */
     public static function proposeFromAlerts(): array {
         global $DB;
-
-        // Colonnes du lieu de livraison assurées AVANT les transactions des propositions : un ALTER TABLE les validerait.
-        PluginPrintgestionDemandeline::hasLocationColumn();
-        PluginPrintgestionExpedition::hasLocationColumn();
 
         $stats = [
             'demandes_created'   => 0,
@@ -1673,10 +1664,8 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 'estimated_days'    => $row['days_remaining'] !== null ? (int) $row['days_remaining'] : null,
                 'statut'            => self::STATUS_PROPOSED,
             ];
-            // Lieu de livraison proposé : dernier sous-lieu choisi pour l'imprimante (colonne assurée avant la transaction).
-            if (PluginPrintgestionDemandeline::hasLocationColumn()) {
-                $fields['locations_id'] = PluginPrintgestionExpedition::getLastDeliveryLocation($printers_id, (int) ($row['_printer']['locations_id'] ?? 0));
-            }
+            // Lieu de livraison proposé : dernier sous-lieu choisi pour l'imprimante.
+            $fields['locations_id'] = PluginPrintgestionExpedition::getLastDeliveryLocation($printers_id, (int) ($row['_printer']['locations_id'] ?? 0));
             $line    = new PluginPrintgestionDemandeline();
             $line_id = $line->add($fields);
             if (!$line_id) {
