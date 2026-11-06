@@ -23,10 +23,14 @@ function plugin_printgestion_install() {
     // Schéma : tables absentes créées, lignes de référence posées ; une erreur SQL lève une exception,
     // l'installation échoue visiblement.
     PluginPrintgestionSchema::install();
-    // Lieu de livraison des expéditions et des lignes de demande, sur une base installée avant lui (même version de schéma).
+    // Ajouts de la 1.1.2 sur une base installée avant elle (même version de schéma) : lieu de livraison des expéditions
+    // et des lignes de demande, interrupteur « toujours pas changée » ; la table des tarifs d'imprimante, nouvelle, est
+    // créée par Schema::install() ci-dessus. GLPI désactive le plugin tant que « Mettre à jour » n'a pas été cliqué :
+    // aucun code ne tourne sans ces colonnes.
     foreach (['glpi_plugin_printgestion_expeditions', 'glpi_plugin_printgestion_demandelines'] as $table) {
         PluginPrintgestionSchema::ensureColumn($table, 'locations_id', PluginPrintgestionSchema::foreignKeyDefinition());
     }
+    PluginPrintgestionSchema::ensureColumn('glpi_plugin_printgestion_configs', 'install_reminder', 'tinyint NOT NULL DEFAULT 1');
 
     // Hors schéma, idempotent : enregistrement des tâches automatiques.
     PluginPrintgestionReminder::install($migration);

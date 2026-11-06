@@ -357,21 +357,10 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             'group_id'       => $group_id,
         ];
         // Lieu de livraison de cette cartouche, gardé avec elle : il sert de « dernier lieu choisi » à la commande suivante.
-        if (self::hasLocationColumn()) {
-            $fields['locations_id'] = max(0, $locations_id);
-        }
+        $fields['locations_id'] = max(0, $locations_id);
         $DB->insert(self::getTable(), $fields);
 
         return (int)$DB->insertId();
-    }
-
-    /**
-     * Colonne `locations_id` des expéditions (lieu de livraison), ajoutée au premier besoin sur une base installée
-     * avant elle (PluginPrintgestionSchema::hasColumn()). Faux si l'ajout a échoué : la commande passe alors sans
-     * garder le lieu.
-     */
-    public static function hasLocationColumn(): bool {
-        return PluginPrintgestionSchema::hasColumn(self::getTable(), 'locations_id', PluginPrintgestionSchema::foreignKeyDefinition());
     }
 
     /**
@@ -383,7 +372,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     public static function getLastDeliveryLocation(int $printers_id, int $printer_locations_id): int {
         global $DB;
 
-        if ($printers_id <= 0 || $printer_locations_id <= 0 || !self::hasLocationColumn()) {
+        if ($printers_id <= 0 || $printer_locations_id <= 0) {
             return 0;
         }
         $row = $DB->request([
@@ -720,8 +709,6 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         try {
             // ── 4. Enregistrement (expéditions, fichier archivé, transmission en attente), puis mail aux Achats ──
             // Enregistrer d'abord : un mail parti sur une commande non enregistrée ferait recommander la cartouche.
-            // Colonne du lieu de livraison ajoutée AVANT la transaction : un ALTER TABLE la validerait d'office.
-            self::hasLocationColumn();
             $group_id = self::generateUuid();
             $DB->beginTransaction();
             // DBmysql n'expose pas l'état de la transaction : suivi local, pour ne jamais

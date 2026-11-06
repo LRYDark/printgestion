@@ -1,14 +1,11 @@
 # Journal des changements
 
-## 1.1.1 — 2026-11-02
+## 1.1.2 — 2026-11-07
 
-**Après la mise à jour : cliquer « Mettre à jour » dans Configuration → Plugins.**
-
-### Ajouts du 06/11/2026 (release republiée, même version)
-
-Aucun « Mettre à jour » de plus : les nouvelles colonnes (lieu de livraison des expéditions et des lignes de demande,
-interrupteur de rappel) et la table des tarifs d'imprimante se créent d'elles-mêmes au premier besoin, version du
-schéma inchangée.
+**Après la mise à jour : cliquer « Mettre à jour » dans Configuration → Plugins.** La mise à jour crée la table des
+tarifs d'imprimante (`printerrates`) et ajoute les colonnes du lieu de livraison (`expeditions.locations_id`,
+`demandelines.locations_id`) et de l'interrupteur de rappel (`configs.install_reminder`) ; GLPI laisse le plugin
+désactivé tant qu'elle n'est pas faite.
 
 - **Le lieu de l'imprimante devient le lieu de livraison, et décide de l'adresse Sage, du complément et de la
   courtoisie.** Un client Sage a plusieurs adresses de livraison, une par lieu ou sous-lieu : deux imprimantes au
@@ -63,8 +60,12 @@ schéma inchangée.
   l'imprimante passent par le même calcul, et l'onglet dit d'où vient chaque tarif.
 - **Natif GLPI** : remontée des lieux parents par `getAncestorsOf()` / `getSonsOf()` et leur cache (au lieu d'une
   boucle maison, aussi retirée du regroupement des demandes par site), listes de lieux par `Location::dropdown()`,
-  ajout de colonne par une seule fonction partagée (`Schema::hasColumn()`), ECharts de GLPI.
+  ECharts et widget du tableau de bord de GLPI pour le graphique.
 - **CI** : tests de la règle du lieu de livraison (arbre simulé, sans base) joués à chaque push.
+
+## 1.1.1 — 2026-11-02
+
+**Après la mise à jour : cliquer « Mettre à jour » dans Configuration → Plugins.**
 
 - **L'extension PHP zip devient facultative**, comme pour GLPI. Obligatoire, elle faisait désactiver le plugin
   par GLPI à chaque `bin/console` lancé avec un PHP en ligne de commande sans zip (production, 02/11/2026 :

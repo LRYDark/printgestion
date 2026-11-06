@@ -7,7 +7,7 @@
  * champ laissé vide garde celui du contrat. getRatesForPrinter() est le seul endroit qui décide du tarif d'une
  * imprimante : facturation, export Excel et onglet « Coût à la page » passent tous par lui.
  *
- * Table créée au premier besoin (PluginPrintgestionSchema::createIfMissing()), sans « Mettre à jour ».
+ * Table créée par « Mettre à jour » (1.1.2, PluginPrintgestionSchema::install()).
  */
 
 if (!defined('GLPI_ROOT')) {
@@ -32,34 +32,17 @@ class PluginPrintgestionPrinterrate extends CommonDBTM {
         return _n('Tarif d\'imprimante', 'Tarifs d\'imprimante', $nb, 'printgestion');
     }
 
-    /** Table assurée (créée si elle manque) ; faux si sa création a échoué (cause dans le journal du plugin). */
-    public static function hasTable(): bool {
-        static $ok = null;
-        if ($ok === null) {
-            try {
-                PluginPrintgestionSchema::createIfMissing(self::getTable());
-                $ok = true;
-            } catch (Throwable $e) {
-                $ok = false;
-                PluginPrintgestionLogger::error('cout', 'Table des tarifs d\'imprimante non créée.', $e);
-            }
-        }
-        return $ok;
-    }
-
     /** Tarifs propres de toutes les imprimantes, lus en une requête (printers_id => ['nb' => ?float, 'color' => ?float]). */
     private static function getOverrides(): array {
         global $DB;
 
         if (self::$overrides === null) {
             self::$overrides = [];
-            if (self::hasTable()) {
-                foreach ($DB->request(['SELECT' => ['printers_id', 'rate_nb', 'rate_color'], 'FROM' => self::getTable()]) as $row) {
-                    self::$overrides[(int) $row['printers_id']] = [
-                        'nb'    => $row['rate_nb'] === null ? null : (float) $row['rate_nb'],
-                        'color' => $row['rate_color'] === null ? null : (float) $row['rate_color'],
-                    ];
-                }
+            foreach ($DB->request(['SELECT' => ['printers_id', 'rate_nb', 'rate_color'], 'FROM' => self::getTable()]) as $row) {
+                self::$overrides[(int) $row['printers_id']] = [
+                    'nb'    => $row['rate_nb'] === null ? null : (float) $row['rate_nb'],
+                    'color' => $row['rate_color'] === null ? null : (float) $row['rate_color'],
+                ];
             }
         }
         return self::$overrides;
@@ -118,8 +101,8 @@ class PluginPrintgestionPrinterrate extends CommonDBTM {
                 $errors[] = sprintf(__('%s : nombre positif attendu (6 décimales au plus), ou vide pour le tarif du contrat.', 'printgestion'), $label);
             }
         }
-        if (!empty($errors) || !self::hasTable()) {
-            return !empty($errors) ? $errors : [__('Enregistrement impossible (détail dans le journal printgestion).', 'printgestion')];
+        if (!empty($errors)) {
+            return $errors;
         }
 
         $printers_id = (int) $printer->getID();
