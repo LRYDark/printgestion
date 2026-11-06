@@ -42,168 +42,10 @@ if ($filter_period !== 'all') {
     $period_start = date('Y-m-d', strtotime("-{$filter_period} days"));
 }
 
-$can_update = Session::haveRight('plugin_printgestion_expedition', UPDATE);
-
 echo "<div class='container-fluid mt-3'>";
 
 // Bouton « Rafraîchir » (recalcul complet des alertes) : droit de modification seulement.
 PluginPrintgestionMenu::showTabBar('tn_exp', Session::haveRight('plugin_printgestion_dashboard', UPDATE));
-// Commandes enregistrées mais non transmises aux Achats : en tête, jusqu'au renvoi.
-PluginPrintgestionPurchaseorder::showNotSentCard();
-
-// ── Alertes prioritaires (wrong_printer + late_shipment + late_delivery) — côté PHP (non paginé) ──
-$priority_alerts = PluginPrintgestionAlert::listPriorityAlerts($entities_id);
-
-if (!empty($priority_alerts)) {
-    echo "<div class='card mb-3 border-danger'>";
-    echo "<div class='card-header bg-danger text-white'>";
-    echo "<h3 class='card-title mb-0'>";
-    echo "<i class='fa-solid fa-circle-exclamation me-2'></i>"
-        . __('Alertes prioritaires', 'printgestion')
-        . " <span class='badge bg-light text-danger ms-2'>" . count($priority_alerts) . "</span>";
-    echo "</h3>";
-    echo "</div>";
-    echo "<div class='card-body'>";
-
-    foreach ($priority_alerts as $pa) {
-        echo "<div class='alert alert-warning mb-2 py-2'>";
-
-        if ($pa['kind'] === 'wrong_printer') {
-            $intended_url = Printer::getFormURLWithID($pa['intended_printers_id']);
-            $detected_url = Printer::getFormURLWithID($pa['detected_printers_id']);
-
-            echo "<div class='d-flex align-items-start'>";
-            echo "<i class='fa-solid fa-triangle-exclamation fa-lg me-3 mt-1 text-danger'></i>";
-            echo "<div class='flex-grow-1'>";
-            echo "<strong>" . __('Mauvaise imprimante', 'printgestion') . "</strong>";
-            if (!empty($pa['entity_name'])) {
-                echo " — " . htmlspecialchars($pa['entity_name'], ENT_QUOTES, 'UTF-8');
-            }
-            echo "<br>";
-            // Proposition à confirmer, jamais appliquée seule : l'envoi, les deux machines et
-            // les dates, pour vérifier sur place avant de réattribuer.
-            $sent_label = !empty($pa['date_delivered'])
-                ? sprintf(__('livré le %s', 'printgestion'), Html::convDateTime((string) $pa['date_delivered']))
-                : sprintf(__('expédié le %s', 'printgestion'), Html::convDateTime((string) $pa['date_shipped']));
-            echo "<span class='text-muted small'>"
-                . sprintf(
-                    __('Envoi #%1$d « %2$s » (%3$s) prévu pour %4$s ; pose de la même référence détectée sur %5$s le %6$s. À vérifier sur place avant de réattribuer.', 'printgestion'),
-                    (int) $pa['expeditions_id'],
-                    htmlspecialchars($pa['toner_property'], ENT_QUOTES, 'UTF-8'),
-                    htmlspecialchars($sent_label, ENT_QUOTES, 'UTF-8'),
-                    "<a href='" . htmlspecialchars($intended_url, ENT_QUOTES, 'UTF-8') . "'><strong>"
-                        . htmlspecialchars($pa['intended_name'], ENT_QUOTES, 'UTF-8') . "</strong></a>",
-                    "<a href='" . htmlspecialchars($detected_url, ENT_QUOTES, 'UTF-8') . "'><strong>"
-                        . htmlspecialchars($pa['detected_name'], ENT_QUOTES, 'UTF-8') . "</strong></a>",
-                    htmlspecialchars(Html::convDateTime((string) $pa['date_detected']), ENT_QUOTES, 'UTF-8')
-                )
-                . "</span>";
-            echo "</div>";
-
-            if ($can_update) {
-                echo "<div class='ms-3 d-flex gap-1'>";
-                // Confirmation portée par un attribut data-* entièrement échappé et
-                // lue par un gestionnaire délégué (script en fin de bloc) : aucun
-                // texte dynamique (nom d'imprimante issu du SNMP) dans un attribut on*.
-                $confirm_msg = sprintf(
-                    __('Réattribuer l\'envoi #%1$d de %2$s à %3$s ? Il sera marqué posé sur %3$s.', 'printgestion'),
-                    (int) $pa['expeditions_id'],
-                    $pa['intended_name'],
-                    $pa['detected_name']
-                );
-                echo "<form method='post' action='" . PLUGIN_PRINTGESTION_WEBDIR . "/ajax/reassign_expedition.php' class='d-inline'"
-                    . " data-pg-confirm=\"" . htmlspecialchars($confirm_msg, ENT_QUOTES, 'UTF-8') . "\">";
-                echo Html::hidden('expedition_id', ['value' => $pa['expeditions_id']]);
-                echo Html::hidden('new_printers_id', ['value' => $pa['detected_printers_id']]);
-                echo "<button type='submit' class='btn btn-sm btn-primary'>"
-                    . "<i class='fa-solid fa-exchange-alt me-1'></i>"
-                    . htmlspecialchars(sprintf(__('Réattribuer à %s', 'printgestion'), $pa['detected_name']), ENT_QUOTES, 'UTF-8')
-                    . "</button>";
-                Html::closeForm();
-
-                echo "<form method='post' action='" . PLUGIN_PRINTGESTION_WEBDIR . "/ajax/resolve_alert.php' class='d-inline'>";
-                echo Html::hidden('alert_id', ['value' => $pa['alert_id']]);
-                echo "<button type='submit' class='btn btn-sm btn-outline-secondary'>"
-                    . "<i class='fa-solid fa-xmark me-1'></i>" . __('Ignorer', 'printgestion') . "</button>";
-                Html::closeForm();
-                echo "</div>";
-            }
-            echo "</div>";
-        } elseif ($pa['kind'] === 'late_delivery') {
-            // Partie et toujours pas livrée au-delà du délai du transporteur. Aucun délai ne fait passer une
-            // expédition « livrée » : cette ligne signale, elle ne conclut pas.
-            $printer_url = Printer::getFormURLWithID($pa['printers_id']);
-            echo "<div class='d-flex align-items-start'>";
-            echo "<i class='fa-solid fa-truck-fast fa-lg me-3 mt-1 text-danger'></i>";
-            echo "<div class='flex-grow-1'>";
-            echo "<strong>" . __('Livraison en retard', 'printgestion') . "</strong>";
-            if (!empty($pa['entity_name'])) {
-                echo " — " . htmlspecialchars($pa['entity_name'], ENT_QUOTES, 'UTF-8');
-            }
-            echo "<br>";
-            echo "<span class='text-muted small'>"
-                . sprintf(
-                    __('Cartouche "%1$s" pour %2$s : partie depuis %3$d jour(s) ouvré(s), aucune livraison constatée (délai %4$s : %5$d jour(s) ouvré(s))', 'printgestion'),
-                    htmlspecialchars($pa['toner_property'], ENT_QUOTES, 'UTF-8'),
-                    "<a href='" . htmlspecialchars($printer_url, ENT_QUOTES, 'UTF-8') . "'><strong>"
-                        . htmlspecialchars($pa['printer_name'], ENT_QUOTES, 'UTF-8') . "</strong></a>",
-                    (int) $pa['days_since'],
-                    $pa['carrier'] !== '' ? strtoupper(htmlspecialchars($pa['carrier'], ENT_QUOTES, 'UTF-8')) : __('par défaut', 'printgestion'),
-                    (int) $pa['threshold']
-                );
-            if (!empty($pa['tracking'])) {
-                echo " — <code>" . htmlspecialchars($pa['tracking'], ENT_QUOTES, 'UTF-8') . "</code>";
-            }
-            echo "</span>";
-            echo PluginPrintgestionGlstracking::renderLineFor((int) ($pa['expedition_id'] ?? 0));
-            echo "</div>";
-            echo "</div>";
-        } else {
-            $printer_url = Printer::getFormURLWithID($pa['printers_id']);
-            echo "<div class='d-flex align-items-start'>";
-            echo "<i class='fa-solid fa-clock fa-lg me-3 mt-1 text-warning'></i>";
-            echo "<div class='flex-grow-1'>";
-            echo "<strong>" . __('Expédition en retard', 'printgestion') . "</strong>";
-            if (!empty($pa['entity_name'])) {
-                echo " — " . htmlspecialchars($pa['entity_name'], ENT_QUOTES, 'UTF-8');
-            }
-            echo "<br>";
-            echo "<span class='text-muted small'>"
-                . sprintf(
-                    __('Cartouche "%s" expédiée vers %s depuis %d jour(s) (pas encore installée)', 'printgestion'),
-                    htmlspecialchars($pa['toner_property'], ENT_QUOTES, 'UTF-8'),
-                    "<a href='" . htmlspecialchars($printer_url, ENT_QUOTES, 'UTF-8') . "'><strong>"
-                        . htmlspecialchars($pa['printer_name'], ENT_QUOTES, 'UTF-8') . "</strong></a>",
-                    $pa['days_since']
-                );
-            if (!empty($pa['tracking'])) {
-                echo " — " . strtoupper(htmlspecialchars($pa['carrier'], ENT_QUOTES, 'UTF-8'))
-                    . " <code>" . htmlspecialchars($pa['tracking'], ENT_QUOTES, 'UTF-8') . "</code>";
-            }
-            echo "</span>";
-            // Ligne de suivi GLS (rien sans clés, rien pour un autre transporteur).
-            echo PluginPrintgestionGlstracking::renderLineFor((int) ($pa['expedition_id'] ?? 0));
-            echo "</div>";
-            echo "</div>";
-        }
-
-        echo "</div>";
-    }
-
-    echo "</div></div>";
-
-    // Confirmation des formulaires portant data-pg-confirm : le message est lu via
-    // getAttribute(), jamais interprété comme du code ou du HTML.
-    echo "<script>
-document.addEventListener('submit', function (e) {
-    var form = e.target;
-    if (form instanceof HTMLFormElement && form.hasAttribute('data-pg-confirm')
-        && !window.confirm(form.getAttribute('data-pg-confirm'))) {
-        e.preventDefault();
-    }
-}, true);
-</script>";
-}
 
 // ── Compteurs par statut (calculés, restreints par l'entité de l'envoi, figée à sa création) ──
 $exp_t         = 'glpi_plugin_printgestion_expeditions';
@@ -222,18 +64,23 @@ foreach (array_keys($status_counts) as $st) {
     $status_counts[$st] = (int) ($crow[$st] ?? 0);
 }
 
+// Vignettes = filtres du tableau : statut exact (recherche native « contient » ancrée ^…$, colonne Statut).
+$status_url = static fn(string $status): string => PLUGIN_PRINTGESTION_WEBDIR . '/front/dashboard_expeditions.php?' . http_build_query([
+    'criteria' => [['field' => 5, 'searchtype' => 'contains', 'value' => '^' . $status . '$']],
+    'reset'    => 'reset',
+]);
 PluginPrintgestionUi::statsBar([
     ['count' => (int) $status_counts['pending'],   'label' => __('En attente', 'printgestion'),
-     'icon' => 'ti ti-hourglass', 'color' => 'orange'],
+     'icon' => 'ti ti-hourglass', 'color' => 'orange', 'url' => $status_url('pending')],
     ['count' => (int) $status_counts['shipped'],   'label' => __('Expédiées', 'printgestion'),
-     'icon' => 'ti ti-send', 'color' => 'primary'],
+     'icon' => 'ti ti-send', 'color' => 'primary', 'url' => $status_url('shipped')],
     ['count' => (int) $status_counts['transit'],   'label' => __('En transit', 'printgestion'),
-     'icon' => 'ti ti-truck', 'color' => 'azure'],
+     'icon' => 'ti ti-truck', 'color' => 'azure', 'url' => $status_url('transit')],
     ['count' => (int) $status_counts['delivered'], 'label' => __('Livrées non posées', 'printgestion'),
      'tooltip' => __('Livrées mais pose non encore détectée ni confirmée : toujours bloquantes', 'printgestion'),
-     'icon' => 'ti ti-package', 'color' => 'green'],
+     'icon' => 'ti ti-package', 'color' => 'green', 'url' => $status_url('delivered')],
     ['count' => (int) $status_counts['installed'], 'label' => __('Posées', 'printgestion'),
-     'icon' => 'ti ti-checks', 'color' => 'teal'],
+     'icon' => 'ti ti-checks', 'color' => 'teal', 'url' => $status_url('installed')],
 ], 'printgestionExpeditionStatsBar');
 
 // Rien à montrer : dire d'où vient une expédition, pas un tableau vide.

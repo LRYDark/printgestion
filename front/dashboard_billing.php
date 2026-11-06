@@ -102,7 +102,21 @@ PluginPrintgestionBillingview::rebuildForUser($uid, $start, $end, $entities_id, 
 
 echo "<div class='container-fluid mt-3'>";
 
-PluginPrintgestionMenu::showTabBar('co_bill', true);
+// Export Excel (période et filtres affichés) : dans la barre du haut, à droite, à côté de « Rafraîchir ».
+// Le moteur de recherche du tableau ajoute en plus ses propres exports (CSV, PDF).
+$export_button = '';
+if (Session::haveRight('plugin_printgestion_billing', CREATE)) {
+    $export_params = ['start' => $start, 'end' => $end, 'view' => $view,
+        'contract' => (int) !empty($filters['contract']), 'counter' => (int) !empty($filters['counter']), 'activity' => (int) !empty($filters['activity'])];
+    if ($entities_id !== null) {
+        $export_params['entities_id'] = $entities_id;
+    }
+    $export_url    = PLUGIN_PRINTGESTION_WEBDIR . '/ajax/export_excel.php?' . http_build_query($export_params);
+    $export_button = "<a href='" . htmlspecialchars($export_url, ENT_QUOTES, 'UTF-8')
+        . "' class='btn btn-sm btn-success flex-shrink-0 align-self-center'><i class='fa-solid fa-file-excel me-1'></i>"
+        . htmlspecialchars(__('Exporter Excel', 'printgestion'), ENT_QUOTES, 'UTF-8') . "</a>";
+}
+PluginPrintgestionMenu::showTabBar('co_bill', true, '', $export_button);
 
 // ── Formulaire de filtres (GET, params pg_*) ─────────────────────────────────
 echo "<form method='get' class='card mb-3' id='pc-filters-billing'>";
@@ -175,19 +189,6 @@ PluginPrintgestionUi::statsBar([
     ['count' => number_format($m['total_cost'], 2, ',', ' ') . ' €',
      'label' => __('Coût total', 'printgestion'), 'icon' => 'ti ti-cash', 'color' => 'green'],
 ], 'printgestionBillingStatsBar');
-
-// ── Export Excel (conservé) — le moteur Search ajoute en plus CSV / PDF ──────
-if (Session::haveRight('plugin_printgestion_billing', CREATE)) {
-    $export_params = ['start' => $start, 'end' => $end, 'view' => $view,
-        'contract' => (int) !empty($filters['contract']), 'counter' => (int) !empty($filters['counter']), 'activity' => (int) !empty($filters['activity'])];
-    if ($entities_id !== null) {
-        $export_params['entities_id'] = $entities_id;
-    }
-    $export_url = PLUGIN_PRINTGESTION_WEBDIR . '/ajax/export_excel.php?' . http_build_query($export_params);
-    echo "<div class='mb-3'><a href='" . htmlspecialchars($export_url, ENT_QUOTES, 'UTF-8')
-        . "' class='btn btn-success'><i class='fa-solid fa-file-excel me-2'></i>"
-        . __('Exporter Excel', 'printgestion') . "</a></div>";
-}
 
 // Rien à montrer : dire d'où vient le coût, pas un tableau vide.
 if ((int) $m['nb_printers'] === 0) {

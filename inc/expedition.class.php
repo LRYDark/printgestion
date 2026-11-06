@@ -332,7 +332,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         string $property,
         int $level,
         ?int $estimated_days,
-        ?string $group_id = null
+        ?string $group_id = null,
+        int $locations_id = 0
     ): int {
         global $DB;
 
@@ -344,7 +345,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         $mapping = PluginPrintgestionSnmpmapping::resolveForPrinter($printers_id, $property);
         $color   = is_array($mapping) ? (string)($mapping['toner_color'] ?? 'other') : 'other';
 
-        $DB->insert(self::getTable(), PluginPrintgestionEntityscope::forPrinter($printers_id) + [
+        $fields = PluginPrintgestionEntityscope::forPrinter($printers_id) + [
             'printers_id'    => $printers_id,
             'toner_property' => $property,
             'toner_color'    => $color,
@@ -354,9 +355,46 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             'date_alert'     => date('Y-m-d H:i:s'),
             'users_id_tech'  => (int)(Session::getLoginUserID() ?: 0),
             'group_id'       => $group_id,
-        ]);
+        ];
+        // Lieu de livraison de cette cartouche, gardé avec elle : il sert de « dernier lieu choisi » à la commande suivante.
+        if (self::hasLocationColumn()) {
+            $fields['locations_id'] = max(0, $locations_id);
+        }
+        $DB->insert(self::getTable(), $fields);
 
         return (int)$DB->insertId();
+    }
+
+    /**
+     * Colonne `locations_id` des expéditions (lieu de livraison), ajoutée au premier besoin sur une base installée
+     * avant elle (PluginPrintgestionSchema::hasColumn()). Faux si l'ajout a échoué : la commande passe alors sans
+     * garder le lieu.
+     */
+    public static function hasLocationColumn(): bool {
+        return PluginPrintgestionSchema::hasColumn(self::getTable(), 'locations_id', PluginPrintgestionSchema::foreignKeyDefinition());
+    }
+
+    /**
+     * Dernier sous-lieu de livraison choisi pour une imprimante (expédition la plus récente qui garde un lieu), s'il
+     * est toujours l'un des sous-lieux du lieu de l'imprimante ; 0 sinon. Une dernière livraison au lieu de
+     * l'imprimante lui-même n'est pas reprise d'office : elle a pu être enregistrée avant que ses sous-lieux
+     * existent, et proposer le lieu parent ferait oublier l'étage. Imprimante déplacée depuis : 0.
+     */
+    public static function getLastDeliveryLocation(int $printers_id, int $printer_locations_id): int {
+        global $DB;
+
+        if ($printers_id <= 0 || $printer_locations_id <= 0 || !self::hasLocationColumn()) {
+            return 0;
+        }
+        $row = $DB->request([
+            'SELECT' => ['locations_id'],
+            'FROM'   => self::getTable(),
+            'WHERE'  => ['printers_id' => $printers_id, 'locations_id' => ['>', 0]],
+            'ORDER'  => ['id DESC'],
+            'LIMIT'  => 1,
+        ])->current();
+        $last = is_array($row) ? (int) $row['locations_id'] : 0;
+        return ($last > 0 && $last !== $printer_locations_id && PluginPrintgestionDeliverylocation::isWithin($last, $printer_locations_id)) ? $last : 0;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -366,16 +404,17 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     /**
      * Données d'UNE cartouche pour les mails de commande (Achats, planification,
      * courtoisie) et pour sa ligne du fichier Gesconso : client (nom d'entité, pour les
-     * mails), imprimante, cartouche, commentaire du lieu (Complément livraison) et
-     * couverture contrat. Le contenu du fichier est construit par
-     * PluginPrintgestionGesconso::prepare().
+     * mails), imprimante, cartouche, lieu de livraison (le lieu demandé s'il est sous
+     * celui de l'imprimante, sinon le sien), son commentaire sans les adresses mail
+     * (Complément livraison) et couverture contrat. Le contenu du fichier est construit
+     * par PluginPrintgestionGesconso::prepare().
      */
     /**
      * Aperçu d'une commande directe, sans écriture ni verrou : ce qui empêcherait d'écrire le fichier Gesconso
      * (référence non résolue, ligne en erreur) et ce qui mérite d'être vu avant l'envoi (notices). Affiché dans le
      * sous-formulaire « Commander » avant le clic.
      *
-     * @param array $items      [['printers_id', 'property']]
+     * @param array $items      [['printers_id', 'property', 'locations_id' (facultatif : lieu de livraison choisi)]]
      * @param array $cartridges « printers_id|property » => ['ref', 'name'] : cartouche saisie dans la commande, pas
      *                          encore créée, contrôlée comme si elle existait (Cartridgesnmp::renderQuickLink())
      * @return array ['errors' => string[], 'line_errors' => clé => string[] (lignes bloquées),
@@ -405,11 +444,12 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 $line_errors[$key] = [$label . ' : ' . $ref['message']];
                 continue;
             }
-            $row  = self::buildPurchaseRowData($printers_id, $property, (int) $ref['cartridgeitems_id']);
+            $row  = self::buildPurchaseRowData($printers_id, $property, (int) $ref['cartridgeitems_id'], (int) ($item['locations_id'] ?? 0));
             $line = [
                 'key'               => $key,
                 'label'             => $label,
                 'printers_id'       => $printers_id,
+                'locations_id'      => $row['locations_id'],
                 'cartridgeitems_id' => (int) $ref['cartridgeitems_id'],
                 'quantity'          => 1,
                 'unit_price'        => null,
@@ -432,10 +472,11 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         ];
     }
 
-    public static function buildPurchaseRowData(int $printers_id, string $property, int $cartridgeitems_id): array {
+    public static function buildPurchaseRowData(int $printers_id, string $property, int $cartridgeitems_id, int $locations_id = 0): array {
         global $DB;
 
-        $entity_name = $loc_comment = $printer_name = '';
+        $entity_name = $loc_comment = $printer_name = $location_name = '';
+        $delivery_id = 0;
 
         $printer = new Printer();
         if ($printer->getFromDB($printers_id)) {
@@ -446,13 +487,12 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 $entity_name = (string)($entity->fields['name'] ?? '');
             }
 
-            $loc_id = (int)($printer->fields['locations_id'] ?? 0);
-            if ($loc_id > 0) {
-                $location = new Location();
-                if ($location->getFromDB($loc_id)) {
-                    $loc_comment = (string)($location->fields['comment'] ?? '');
-                }
-            }
+            // Lieu de livraison (choisi sous celui de l'imprimante, sinon le sien) : complément = son commentaire, ou
+            // celui du lieu parent le plus proche, sans les adresses mail (elles servent à la courtoisie, pas à Sage).
+            $delivery_id   = PluginPrintgestionDeliverylocation::resolveForPrinter((int)($printer->fields['locations_id'] ?? 0), $locations_id);
+            $delivery      = PluginPrintgestionDeliverylocation::describe($delivery_id, (int)$printer->fields['entities_id']);
+            $loc_comment   = $delivery['complement'];
+            $location_name = $delivery['completename'];
         }
 
         $cart_name = '';
@@ -480,6 +520,9 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             'printer_name'   => $printer_name,
             'cartridge_name' => $cart_name,
             'property'       => $property,
+            // Lieu de livraison retenu, gardé avec la commande : la courtoisie et un renvoi relisent celui-ci.
+            'locations_id'   => $delivery_id,
+            'location_name'  => $location_name,
         ];
     }
 
@@ -546,10 +589,12 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             }
             $days = (isset($item['days']) && $item['days'] !== null) ? (int)$item['days'] : null;
             $clean[$key] = [
-                'printers_id' => $printers_id,
-                'property'    => $property,
-                'level'       => (int)($item['level'] ?? 0),
-                'days'        => ($days !== null && $days > 0) ? $days : null,
+                'printers_id'  => $printers_id,
+                'property'     => $property,
+                'level'        => (int)($item['level'] ?? 0),
+                'days'         => ($days !== null && $days > 0) ? $days : null,
+                // Lieu de livraison demandé : vérifié par buildPurchaseRowData() (sous le lieu de l'imprimante, sinon le sien).
+                'locations_id' => max(0, (int)($item['locations_id'] ?? 0)),
             ];
         }
         if (empty($clean)) {
@@ -615,23 +660,26 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         $lines     = [];
         foreach ($clean as $key => $c) {
             $cartridgeitems_id = $c['cartridgeitems_id'];
-            $to_create[] = [
-                'printers_id' => $c['printers_id'],
-                'property'    => $c['property'],
-                'level'       => $c['level'],
-                'days'        => $c['days'],
-            ];
 
-            $row = self::buildPurchaseRowData($c['printers_id'], $c['property'], $cartridgeitems_id);
+            $row = self::buildPurchaseRowData($c['printers_id'], $c['property'], $cartridgeitems_id, $c['locations_id']);
             // Niveau / jours restants : utilisés par le mail planif (envoi simple)
             $row['level'] = $c['level'];
             $row['days']  = $c['days'];
             $rows[] = $row;
 
+            $to_create[] = [
+                'printers_id'  => $c['printers_id'],
+                'property'     => $c['property'],
+                'level'        => $c['level'],
+                'days'         => $c['days'],
+                'locations_id' => $row['locations_id'],
+            ];
+
             $lines[] = [
                 'key'               => $key,
                 'label'             => sprintf('%s — %s', $printer_names[$c['printers_id']] ?? ('#' . $c['printers_id']), $c['property']),
                 'printers_id'       => $c['printers_id'],
+                'locations_id'      => $row['locations_id'],
                 'cartridgeitems_id' => $cartridgeitems_id,
                 'quantity'          => 1,
                 'unit_price'        => null, // hors contrat : prix laissé aux Achats
@@ -672,6 +720,8 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         try {
             // ── 4. Enregistrement (expéditions, fichier archivé, transmission en attente), puis mail aux Achats ──
             // Enregistrer d'abord : un mail parti sur une commande non enregistrée ferait recommander la cartouche.
+            // Colonne du lieu de livraison ajoutée AVANT la transaction : un ALTER TABLE la validerait d'office.
+            self::hasLocationColumn();
             $group_id = self::generateUuid();
             $DB->beginTransaction();
             // DBmysql n'expose pas l'état de la transaction : suivi local, pour ne jamais
@@ -681,7 +731,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             try {
                 $expedition_ids = [];
                 foreach ($to_create as $c) {
-                    $expeditions_id = self::createFromAlert($c['printers_id'], $c['property'], $c['level'], $c['days'], $group_id);
+                    $expeditions_id = self::createFromAlert($c['printers_id'], $c['property'], $c['level'], $c['days'], $group_id, $c['locations_id']);
                     if ($expeditions_id > 0) {
                         $result['created']++;
                         $expedition_ids[] = $expeditions_id;
@@ -746,7 +796,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
                 }
                 if ($courtesy['no_contact'] > 0) {
                     $result['warnings'][] = sprintf(
-                        __('Mail de courtoisie non envoyé pour %d imprimante(s) sans usager renseigné.', 'printgestion'),
+                        __('Mail de courtoisie non envoyé pour %d imprimante(s) : aucune adresse trouvée (commentaire du lieu de livraison ou d\'un lieu parent, utilisateur de la fiche imprimante, adresse de messagerie de l\'entité).', 'printgestion'),
                         $courtesy['no_contact']
                     );
                 }
@@ -838,20 +888,57 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     }
 
     /**
-     * Usagers du CLIENT à prévenir pour une imprimante (mail de courtoisie) : uniquement l'usager renseigné sur la
-     * fiche imprimante (champ « Utilisateur »), avec son adresse par défaut. Sans usager identifié, ou sans
-     * adresse, AUCUN destinataire : plus de repli sur les utilisateurs ayant un profil sur l'entité.
+     * Destinataires du mail de courtoisie pour une imprimante livrée au lieu donné — la première source qui donne
+     * au moins une adresse, dans cet ordre :
+     *   1. les adresses mail du commentaire du lieu de livraison, sinon du lieu parent le plus proche qui en porte
+     *      (toutes : plusieurs contacts possibles ; noms et téléphones du commentaire ignorés) ;
+     *   2. l'utilisateur de la fiche imprimante (champ « Utilisateur »), à son adresse par défaut ;
+     *   3. l'adresse de messagerie de l'entité de l'imprimante, sinon d'un parent jusqu'à l'entité qui porte le
+     *      code client.
+     * Aucune : pas de destinataire, l'appelant le signale. Seuls les lieux et entités du client sont lus
+     * (PluginPrintgestionDeliverylocation).
+     *
+     * @param int $locations_id Lieu de livraison gardé avec la commande ; -1 : non gardé (lieu de l'imprimante)
+     * @return array ['recipients' => [['email', 'name', 'language', 'usertype'(, 'users_id')]],
+     *                'source' => 'location'|'user'|'entity'|'', 'from' => string (lieu ou entité d'où viennent les adresses)]
      */
-    public static function resolveClientUsersForPrinter(int $printers_id): array {
+    public static function resolveCourtesyRecipients(int $printers_id, int $locations_id = -1): array {
+        $none    = ['recipients' => [], 'source' => '', 'from' => ''];
         $printer = new Printer();
         if (!$printer->getFromDB($printers_id)) {
-            return [];
+            return $none;
         }
-        $uid = (int)($printer->fields['users_id'] ?? 0);
-        if ($uid <= 0) {
-            return [];
+        $entities_id = (int) $printer->fields['entities_id'];
+        $external    = static fn(array $emails) => array_map(static fn(string $email) => [
+            'email'    => $email,
+            'name'     => '',
+            'language' => '',
+            'usertype' => NotificationTarget::EXTERNAL_USER,
+        ], $emails);
+
+        $delivery = PluginPrintgestionDeliverylocation::describe(
+            $locations_id >= 0 ? $locations_id : (int) $printer->fields['locations_id'],
+            $entities_id
+        );
+        if (!empty($delivery['emails'])) {
+            return ['recipients' => $external($delivery['emails']), 'source' => 'location', 'from' => $delivery['emails_from']];
         }
-        return PluginPrintgestionAlert::resolveUsers([$uid]);
+        $uid = (int) ($printer->fields['users_id'] ?? 0);
+        if ($uid > 0) {
+            $users = PluginPrintgestionAlert::resolveUsers([$uid]);
+            if (!empty($users)) {
+                return ['recipients' => $users, 'source' => 'user', 'from' => getUserName($uid)];
+            }
+        }
+        $entity = PluginPrintgestionDeliverylocation::entityEmails($entities_id);
+        if (!empty($entity['emails'])) {
+            return [
+                'recipients' => $external($entity['emails']),
+                'source'     => 'entity',
+                'from'       => Dropdown::getDropdownName('glpi_entities', $entity['entities_id']),
+            ];
+        }
+        return $none;
     }
 
     /**
@@ -888,6 +975,7 @@ class PluginPrintgestionExpedition extends CommonDBTM {
     /**
      * Mail de courtoisie au client — regroupé par DESTINATAIRE : si le même contact couvre plusieurs imprimantes
      * (ex. 3 cartouches pour 3 imprimantes du même client), il reçoit UN seul mail listant toutes ses imprimantes.
+     * Destinataires : resolveCourtesyRecipients() (lieu de livraison, utilisateur de l'imprimante, entité).
      * Notification native « Courtoisie client » (balise ##printgestion.printers_list##), un envoi par contact.
      */
     protected static function sendOrderCourtesyMails(PluginPrintgestionPurchaseorder $order): array {
@@ -911,10 +999,11 @@ class PluginPrintgestionExpedition extends CommonDBTM {
             }
         }
 
-        // Regroupe les imprimantes partageant exactement les mêmes destinataires
+        // Regroupe les imprimantes partageant exactement les mêmes destinataires (lieu de livraison gardé avec la
+        // commande ; une commande enregistrée avant lui retombe sur le lieu actuel de l'imprimante).
         $groups = [];
         foreach ($byPrinter as $pid => $r) {
-            $users = self::resolveClientUsersForPrinter($pid);
+            $users = self::resolveCourtesyRecipients($pid, isset($r['locations_id']) ? (int) $r['locations_id'] : -1)['recipients'];
             if (empty($users)) {
                 $stats['no_contact']++;
                 continue;
@@ -1064,7 +1153,9 @@ class PluginPrintgestionExpedition extends CommonDBTM {
 
         $config = PluginPrintgestionConfig::getInstance();
         $reminder_days = max(1, (int)($config->fields['reminder_days'] ?? 7));
-        if (!PluginPrintgestionNotify::isActive(self::class, 'expedition_reminder')) {
+        // Interrupteur « toujours pas changée » éteint (configuration) : ni alerte ni mail de rappel.
+        if (!PluginPrintgestionConfig::isInstallReminderEnabled()
+            || !PluginPrintgestionNotify::isActive(self::class, 'expedition_reminder')) {
             return 0;
         }
 

@@ -56,6 +56,14 @@ jobs:
             out=$(php -l "$f" 2>&1) || { echo "$out"; status=1; }
           done < <(find . -name '*.php' -not -path './vendor/*' -not -path './.git/*' -print0)
           exit $status
+      # Règle du lieu de livraison (intitulé Sage, complément, destinataires de la courtoisie) : arbre des lieux et
+      # des entités simulé, sans base — un échec ici veut dire une cartouche ou un mail parti au mauvais endroit.
+      - name: Lieu de livraison (tests sans base)
+        run: php .github/ci/test_deliverylocation.php inc/deliverylocation.class.php
+      # Graphique des cartouches : un relevé n'est enregistré que quand un niveau change, chaque toner doit être
+      # prolongé à son dernier niveau (sinon des toners disparaissent du survol et les courbes s'arrêtent).
+      - name: Graphique des cartouches (tests sans base)
+        run: php .github/ci/test_tonerchart.php inc/tonerchart.class.php
 
   glpi:
     name: GLPI 12.0.1 — ${{ matrix.scenario }}

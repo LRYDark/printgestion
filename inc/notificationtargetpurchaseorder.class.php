@@ -8,8 +8,10 @@
  *                                  commande), rôle Achats et auteur en copie ;
  *   - purchaseorder_planif       : une cartouche à expédier, au rôle Planification et à l'auteur ;
  *   - purchaseorder_planif_group : plusieurs cartouches à expédier, même fichier joint ;
- *   - purchaseorder_courtesy     : courtoisie client, à l'usager de chaque imprimante (un mail par contact,
- *                                  ses imprimantes listées).
+ *   - purchaseorder_courtesy     : courtoisie client, au contact de chaque imprimante — mails du commentaire du
+ *                                  lieu de livraison, sinon utilisateur de la fiche imprimante, sinon messagerie
+ *                                  de l'entité (Expedition::resolveCourtesyRecipients()) ; un mail par contact,
+ *                                  ses imprimantes listées.
  * Et, par la tâche horaire et la file d'attente ordinaire :
  *   - purchaseorder_not_sent     : commande enregistrée mais non transmise depuis plus de STALE_HOURS heures,
  *                                  administrateur de GLPI et auteur. Créée ACTIVE à l'installation : une commande
@@ -46,7 +48,7 @@ class PluginPrintgestionNotificationTargetPurchaseorder extends NotificationTarg
     public function addAdditionalTargets($event = '') {
         $this->addTarget(self::AUTHOR, __('Auteur de la commande', 'printgestion'));
         PluginPrintgestionNotify::addRoleTargets($this);
-        $this->addTarget(PluginPrintgestionNotify::PRINTER_USER, __('Usager des imprimantes concernées (fiche imprimante)', 'printgestion'));
+        $this->addTarget(PluginPrintgestionNotify::PRINTER_USER, __('Contact des imprimantes concernées (mails du lieu de livraison, sinon utilisateur de la fiche imprimante, sinon messagerie de l\'entité)', 'printgestion'));
     }
 
     public function addSpecificTargets($data, $options) {

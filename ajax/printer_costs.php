@@ -43,7 +43,7 @@ if (!$printer->getFromDB($printers_id) || !$printer->canViewItem()) {
 }
 
 $contracts_id = PluginPrintgestionContractrate::getContractIdForPrinter($printers_id);
-$rates        = PluginPrintgestionContractrate::getRatesForContract($contracts_id);
+$rates        = PluginPrintgestionPrinterrate::getRatesForPrinter($printers_id, PluginPrintgestionContractrate::getRatesForContract($contracts_id));
 $counters     = PluginPrintgestionPrinterCostsTab::getCountersForPeriod($printers_id, $start, $end);
 
 $delta_nb    = max(0, $counters['end_nb']    - $counters['start_nb']);

@@ -280,12 +280,14 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
         return $inserted;
     }
 
+    /** Conservation des relevés : 400 jours, pour le graphique des cartouches sur l'année (calcul des alertes : 30 j). */
+    const RETENTION_DAYS = 400;
+
     /**
-     * Purge les relevés de plus de $days jours (par défaut 160).
-     * 160 jours couvre largement la fenêtre de calcul de 30 jours + marge
-     * pour l'historique d'audit et les rapports mensuels.
+     * Purge les relevés de plus de $days jours (par défaut RETENTION_DAYS) : de quoi tracer l'année en cours et la
+     * comparer à la précédente dans le graphique des cartouches (PluginPrintgestionTonerchart).
      */
-    public static function purgeOld(int $days = 160): int {
+    public static function purgeOld(int $days = self::RETENTION_DAYS): int {
         global $DB;
         $cutoff = date('Y-m-d H:i:s', strtotime("-{$days} days"));
         $result = $DB->delete(self::getTable(), [

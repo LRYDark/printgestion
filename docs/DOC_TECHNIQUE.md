@@ -128,7 +128,7 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | Table | Contenu |
 |---|---|
 | `glpi_plugin_printgestion_configs` | Configuration singleton (id=1) : features, seuils, rôles mail, IDs gabarits, installeur GLPI Agent ; dernière version connue de GLPI Agent, mise à jour automatique des nouveaux paquets, statut des PC sondes |
-| `glpi_plugin_printgestion_toner_readings` | Snapshots horodatés des niveaux toner (purge > 160 j) |
+| `glpi_plugin_printgestion_toner_readings` | Snapshots horodatés des niveaux toner (purge > 400 j, `Tonerreading::RETENTION_DAYS` : graphique des cartouches sur l'année) |
 | `glpi_plugin_printgestion_cartridge_history` | Changements de cartouche détectés |
 | `glpi_plugin_printgestion_alerts` | Alertes émises (traçabilité + anti-doublon mail 24 h) |
 | `glpi_plugin_printgestion_alert_snoozes` | Mises en sommeil d'alertes (par toner ou par imprimante) |
@@ -149,6 +149,7 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_billing_view` | **Matérialisée par utilisateur** : coût à la page pour le Search natif |
 | `glpi_plugin_printgestion_historical_yields` | Rendements historiques (pages/cartouche) |
 | `glpi_plugin_printgestion_printer_thresholds` | Seuils d'alerte personnalisés par imprimante |
+| `glpi_plugin_printgestion_printerrates` | Tarif à la page propre à une imprimante (N&B, couleur ; vide = tarif du contrat), créée au premier besoin |
 | `glpi_plugin_printgestion_raccordements` | Raccordements d'imprimantes : entité, sonde, statut, identifiants SNMP, plages et tâches GLPI Inventory utilisées, objets créés, dates des étapes |
 | `glpi_plugin_printgestion_raccordementips` | Adresses déclarées d'un raccordement et leur résultat (équipement trouvé, son entité) ; lieu, commentaire et contrat en attente, imprimante et date de leur application |
 | `glpi_plugin_printgestion_raccordementlogs` | Journal horodaté d'un raccordement : étape, niveau, auteur, message |
@@ -417,23 +418,76 @@ une autre entité, jamais la même machine : un envoi d'un client ne bloque pas 
 - **Règle Gesconso** (`Sage::describeRule()`), sans table de correspondance ni onglet : le **code client** est le
   nom de l'entité de l'imprimante s'il a la forme d'un code client Sage (`Sage::CODE_PATTERN` : majuscules,
   chiffres, « . _ - », 17 caractères au plus, sans espace), sinon celui de l'entité parente la plus proche dont
-  le nom a cette forme ; l'**intitulé de livraison** est la première ligne non vide du champ « Commentaires » de
-  **cette même entité**, celle qui porte le code : code et intitulé sont le code et le nom d'un seul client, une
-  imprimante en sous-entité prend les deux sur l'entité parente porteuse. Commentaires vides sur cette entité : la
-  ligne est bloquée. La règle appliquée est affichée sur la
+  le nom a cette forme ; l'**intitulé de livraison** est le champ natif **« Code » du lieu de livraison** (lieu de
+  l'imprimante ou sous-lieu choisi à la commande) ou, s'il est vide, du lieu parent le plus proche qui en porte un
+  — un client Sage a plusieurs adresses de livraison, une par lieu ou sous-lieu (`Deliverylocation`, ci-dessous).
+  Aucun lieu n'en porte (ou imprimante sans lieu) : première ligne non vide du champ « Commentaires » de **l'entité
+  qui porte le code**, une imprimante en sous-entité prenant code et intitulé sur l'entité parente porteuse. Ni
+  l'un ni l'autre : la ligne est bloquée. La règle appliquée est affichée sur la
   fiche de la demande (« Export Gesconso (Sage) » : d'où viennent le code et l'intitulé, ce qui bloque, lien vers
   l'entité). `registration_number` (SIRET) n'est pas utilisé.
 - **Déroulé** : analyse (contrôles : colonnes obligatoires, valeurs manquantes, doublons — bloquants ; codes
   clients en minuscules ou avec espaces — avertissement), prévisualisation (nouvelles, modifiées, inchangées,
   absentes) et **rapport d'écarts** (adresses : codes clients d'aucune entité à imprimantes ; entités à
   imprimantes sans code, sans intitulé, ou dont l'intitulé n'est pas une adresse de leur client dans le
-  fichier ; articles : cartouches sans référence ou de référence absente du fichier), puis validation en
+  fichier ; lieux dont le « Code » n'est pas une adresse du client de leur entité ; articles : cartouches sans
+  référence ou de référence absente du fichier), puis validation en
   transaction. L'analyse attend en session : rien n'est écrit avant validation. L'import ne modifie aucun
   objet GLPI.
 - **Aucune suppression** : une ligne absente d'un nouvel import passe `is_in_last_import = 0` et ne sert plus
   à la vérification.
 - **Périmètre** : rapport d'écarts limité aux entités de l'utilisateur ; le nom d'une entité hors de son
   périmètre n'y apparaît jamais.
+
+### Lieu de livraison (`inc/deliverylocation.class.php`)
+
+Le **lieu de livraison** d'une cartouche est le lieu de l'imprimante, ou l'un de ses sous-lieux (à tout niveau)
+choisi à la commande — deux imprimantes au même 193 rue, l'une à l'étage 1 et l'autre à l'étage 3, ont deux contacts
+différents. Un lieu demandé hors de l'arbre du lieu de l'imprimante est ignoré (`resolveForPrinter()`) : jamais une
+livraison ailleurs que sous le lieu de la machine. Il est gardé sur l'expédition (`expeditions.locations_id`, ajoutée
+au premier besoin par `Expedition::hasLocationColumn()` sur une base installée avant elle, **avant** toute
+transaction : un `ALTER TABLE` validerait la transaction en cours) et dans les lignes de la commande
+(`mail_rows[].locations_id`, `location_name`).
+
+`describe()` lit le lieu puis ses parents jusqu'à la racine ; pour chaque information, le premier lieu qui la porte
+l'emporte :
+
+| Information | Champ du lieu | Aucun lieu ne la porte |
+|---|---|---|
+| Intitulé de livraison Sage (colonne C) | « Code » (natif) | commentaires de l'entité porteuse du code |
+| Complément de livraison (colonne I, commande directe) | « Commentaires », adresses mail retirées (`stripEmails()`), lignes jointes par « / » | vide |
+| Destinataires du mail de courtoisie | adresses mail du « Commentaires » (`extractEmails()`), toutes | utilisateur de la fiche imprimante, puis messagerie de l'entité (`entityEmails()`) |
+
+- **Commentaire = carnet de contacts** : il peut porter noms, téléphones et plusieurs personnes ; seules les adresses
+  valides (`filter_var`) sont prises, une fois chacune, dans l'ordre. Le libellé qui annonce une adresse (« Mail : »,
+  « Courriel - », « mailto: ») part avec elle du complément ; une ligne sans adresse reste telle quelle.
+- **Seuls les lieux du client sont lus** (`clientEntities()`) : lieu rattaché à l'entité de l'imprimante ou à un parent
+  jusqu'à l'entité qui porte le code client. Un lieu créé plus haut (racine, regroupement partagé entre clients) est
+  sauté et signalé dans les avertissements du fichier : son code ou son adresse enverrait la cartouche ou la
+  courtoisie d'un client chez un autre. Même borne pour la messagerie de l'entité : jamais au-dessus de l'entité qui
+  porte le code.
+- **Dernier lieu choisi** (`Expedition::getLastDeliveryLocation()`) : l'expédition la plus récente de l'imprimante qui
+  garde un lieu, retenue seulement si c'est un **sous-lieu** toujours sous le lieu de l'imprimante. Une livraison au
+  lieu de l'imprimante lui-même n'est pas reprise d'office (elle a pu précéder la création de ses sous-lieux :
+  proposer le parent ferait oublier l'étage).
+- **Choix à la commande** : `Alertview::renderLocationChoice()` (sous-formulaire « Commander ») et la fiche d'une
+  demande (`showLinesCard()`, première ligne proposée de chaque imprimante, champ `delivery_location[printers_id]`)
+  posent une liste native `Location::dropdown()` réduite au lieu de l'imprimante et à **tous** ses sous-lieux
+  (`subLocations()` = `getSonsOf()` sans lui-même), seulement quand il en a. Valeur de départ : le dernier sous-lieu
+  choisi ; sinon vide et **obligatoire** — refus côté serveur (`getMissingLocations()` dans « Commander »,
+  `checkLines()` à la validation d'une demande) et blocage du bouton côté navigateur. Les listes select2 de GLPI
+  signalent leur changement par jQuery : l'aperçu s'y abonne par `jQuery(form).on('change', …)`, un écouteur natif
+  ne le verrait pas. L'aperçu (`renderDeliverySummary()`) dit pour chaque imprimante le lieu, l'intitulé Sage et sa
+  source, les adresses de courtoisie et leur source. Lignes de demande : `demandelines.locations_id`, proposé à la
+  création (dernier sous-lieu), repris à l'export.
+- **Natif GLPI** : ancêtres par `getAncestorsOf()` (qui renvoie l'élément lui-même pour les identifiants 0 ou 1 :
+  `ancestors()` le retire), descendants par `getSonsOf()` (qui l'inclut), chaîne lue en une requête et triée par
+  `level`. `Demande::getSiteLocationId()` (regroupement des propositions par site) passe par les mêmes fonctions au
+  lieu de sa boucle et de son cache maison.
+- **Colonnes ajoutées après l'installation** : `Schema::hasColumn()` (une fois par requête, sans exception, journal
+  en cas d'échec) pour `expeditions.locations_id`, `demandelines.locations_id` et `configs.install_reminder` ; appelée
+  **avant** toute transaction (proposition, enregistrement, commande, export), un `ALTER TABLE` validant d'office la
+  transaction en cours. Aussi dans `plugin_printgestion_install()`.
 
 ### Fichier Gesconso (`inc/gesconso.class.php`)
 
@@ -444,19 +498,21 @@ Référence : le fichier réel `Gesconso_02122024_1034.xlsx`, importé avec succ
 |---|---|---|
 | A | `Devis` | Date de la demande (commande directe : date du jour), **vraie date Excel** `jj/mm/aaaa` |
 | B | `Intitule Client` | Code client Sage = nom de l'entité de l'imprimante s'il a la forme d'un code, sinon celui du parent le plus proche (`Sage::getClientForEntity()`) |
-| C | `Intitule Livraison` | Première ligne des commentaires de l'entité qui porte le code, la même que la colonne B (`Sage::describeRule()`) |
+| C | `Intitule Livraison` | Champ « Code » du lieu de livraison ou du lieu parent le plus proche qui en porte un ; aucun : première ligne des commentaires de l'entité qui porte le code, la même que la colonne B (`Sage::describeRule()`) |
 | D | `Consommable` | `CartridgeItem.ref` (vérifiée dans le référentiel articles s'il a été importé) |
-| E | `Designation` | n° série, nom du lieu, nom de la cartouche, joints par le séparateur (`' # '`) en omettant les parties vides (jamais de séparateur orphelin) ; longueur max (69) configurable, troncature avec avertissement |
+| E | `Designation` | n° série, nom propre du lieu de livraison, nom de la cartouche, joints par le séparateur (`' # '`) en omettant les parties vides (jamais de séparateur orphelin) ; longueur max (69) configurable, troncature avec avertissement |
 | F | `Quantite` | Entier |
 | G | `Prix` | 0 sous contrat ; vide ou prix saisi hors contrat — **jamais 0 hors contrat** |
 | H | `Fournisseur` | Vide |
-| I | `Complement livraison` | Commande directe : commentaire du lieu ; demande : contact et commentaire de livraison |
+| I | `Complement livraison` | Commande directe : commentaire du lieu de livraison (ou du lieu parent le plus proche qui en a un), **adresses mail retirées**, sur une ligne ; demande : contact et commentaire de livraison |
 
 - **Contrôles bloquants** (`Gesconso::prepare()`) : code client absent (aucun nom d'entité en forme de code),
-  intitulé de livraison absent (commentaires vides sur l'entité qui porte le code), référence article absente (cartouche non
+  intitulé de livraison absent (ni « Code » sur le lieu de livraison ou un parent, ni commentaires sur l'entité qui
+  porte le code), référence article absente (cartouche non
   résolue, référence vide, ou inconnue du référentiel articles importé), prix 0 hors contrat. Une ligne en
   défaut n'est jamais écrite : l'appelant refuse l'export entier avec la liste des lignes en défaut.
-  Avertissements, non bloquants : référentiel (articles, adresses) jamais importé ; intitulé de livraison absent
+  Avertissements, non bloquants : référentiel (articles, adresses) jamais importé ; lieu sauté (rattaché au-dessus
+  du client) ; intitulé de livraison absent
   des adresses importées du client ; imprimante sans lieu. Ces deux derniers sont aussi rendus en **notices**
   typées par ligne (`prepare()['notices']`) : l'écran « Envoyer aux Achats » et le sous-formulaire « Commander »
   en affichent le décompte (« 3 lignes avec une adresse de livraison non reconnue », « 2 lignes sans lieu sur
@@ -1779,10 +1835,54 @@ pastilles sur un même écran n'auraient rien apporté. `collect.php?state=` red
   `Agentdeploy::showEntityAgents()` a disparu (fusionnée ici) ; la fréquence des relevés est le bloc « 4. »
   (`Collectfrequency::showForEntity()`, carte à part, administrateur).
 
+### Onglet « Alertes », graphique des cartouches, vignettes, tarif d'imprimante
+
+- **Onglet « Alertes »** (`front/alerts.php`, `inc/priorityalert.class.php`, clé `tn_prio`) : commandes non transmises
+  aux Achats (`Purchaseorder::showNotSentCard()`) puis alertes prioritaires (`Alert::listPriorityAlerts()` : mauvaise
+  imprimante, livraison en retard, cartouche toujours pas changée), chacune en carte encadrée de rouge. Pastille rouge
+  du nombre sur l'onglet (`'badge'` d'un onglet dans `Menu::categories()`, rendue par `showTabBar()`), calculée une
+  fois par requête. Ces cartes ne sont plus en tête de « Expéditions », « Demandes d'envoi » et « Export ».
+- **Interrupteur « toujours pas changée »** (`Config::isInstallReminderEnabled()`, colonne `install_reminder`, 1 par
+  défaut) : éteint, `listPriorityAlerts()` ne lit plus les expéditions en retard de pose et
+  `Expedition::sendInstallReminders()` n'envoie rien.
+- **Graphique des cartouches** (`inc/tonerchart.class.php`, `ajax/toner_chart.php`, `pgTonerChart` de
+  `public/js/printgestion.js`) : **le même graphique que celui des compteurs de pages** (`PrinterLog::showMetrics()`).
+  Bouton posé par le hook `PRE_SHOW_TAB` puis logé par le script dans l'en-tête du tableau natif « Cartouche -
+  Informations inventoriées » (`Printer_CartridgeInfo::getTypeName()`) ; fenêtre `modal-xl` élargie à `min(1360px, 94vw)`.
+  - **Natif** : menus « période » (`P1M`, `P3M`, `P1Y`, `P1000Y`) et « distribution » (dynamique, journalière,
+    hebdomadaire, mensuelle) au balisage de `components/printer_graph_buttons.html.twig`, libellés de GLPI ; graphique
+    rendu par le serveur avec `Glpi\Dashboard\Widget::multipleAreas()` (mêmes options que les compteurs : légende,
+    aires, points, barre d'outils « voir les données » / « enregistrer l'image ») dans `div.dashboard.printer_barchart`
+    (hauteur 500 px du CSS de GLPI) ; dates au format `IntlDateFormatter` « d MMM y », comme les compteurs. Le HTML et
+    le script du widget arrivent en JSON et sont insérés par `jQuery().html()`, comme le contenu d'un onglet.
+  - **Ce que le plugin ajoute** une fois le graphique créé par le script du widget (le widget ne connaît que sa
+    palette) : couleurs des toners (noir, cyan, magenta, jaune ; noir tracé en clair sur fond sombre), échelle 0-100 %,
+    légende à la couleur de texte du thème, point daté « ↻ » à chaque changement de cartouche, fond plein pour
+    « Enregistrer l'image » (une image transparente perd ses courbes noires sur un fond sombre).
+  - **Données** : la tâche quotidienne n'écrit un relevé que quand un niveau **change**. `timeline()` (échelle commune,
+    début de période seulement s'il y a un niveau d'avant à prolonger, fin au dernier inventaire `last_inventory_update`),
+    `levelsAt()` (dernier niveau connu à chaque date) et `bucketDates()` (fin de chaque jour, semaine, mois) sont des
+    fonctions pures testées par la CI (`.github/ci/test_tonerchart.php`) : à chaque date, tous les toners ont une valeur.
+  - **Changement de cartouche** : remontée d'au moins `detection_delta` points entre deux relevés réels (même seuil que
+    `Cartridgehistory::detectChanges()`), point sur la date (ou la période) qui le contient et tableau sous le graphique.
+  - Droit : imprimante visible (`Printer::can(READ)`), module toner allumé. Relevés gardés
+    `Tonerreading::RETENTION_DAYS` = 400 jours.
+- **Vignettes = filtres** (`Ui::statsBar()`) : chaque vignette porte l'URL de la recherche native filtrée (critères
+  `criteria[]`, groupes ET/OU compris). Verrouillés : statut ≠ ok ET (verrou = un des motifs bloquants) ; Sans
+  référence : statut ≠ ok ET référence non résolue « ne contient pas NULL » (IS NOT NULL natif) ; figés : option 15 =
+  1 ; expéditions : statut « contient » `^statut$` ; imprimantes sous contrat : liste native des imprimantes, option
+  139 (nombre de contrats) > 0. Une vignette avec `tooltip` affiche une icône ⓘ (bulle Bootstrap native).
+- **Tarif propre à une imprimante** (`inc/printerrate.class.php`, table `printerrates`, `front/printerrate.form.php`,
+  formulaire dans l'onglet « Coût à la page ») : `Printerrate::getRatesForPrinter()` est le seul calcul du tarif
+  (facturation, export Excel, onglet, AJAX) — tarif de l'imprimante type par type, sinon celui du contrat. Droit :
+  modifier les tarifs (module Contrats, UPDATE) et l'imprimante. Table créée au premier besoin (`createIfMissing()`).
+- **Facturation** : « Exporter Excel » dans la barre d'onglets (`showTabBar(..., $actions)`), à droite.
+
 ### Points d'entrée (ajax/)
 
 | Endpoint | Action |
 |---|---|
+| `toner_chart.php` | Données du graphique des cartouches (GET, JSON, lecture seule) : `Tonerchart::getData()`, imprimante visible |
 | `rowcontext.php` | Contexte des lignes d'un tableau natif pour le menu clic droit (GET, lecture seule, périmètre de l'utilisateur) — voir ci-dessus |
 | `manual_reading.php` | Relevé manuel d'une imprimante sans sonde (POST, JSON) : `Manualreading::record()`, droit Alertes toner en modification — voir ci-dessus |
 | *(action de masse « Commander »)* | **Seul parcours de commande directe** : `Alertview::processOrder()` → `createPurchaseOrder()` (expéditions + fichier + mail Achats en transaction), droit validation UPDATE |
@@ -1923,7 +2023,7 @@ nom, adresse par défaut, langue). Ajoutés par leur adresse au type « utilisat
 liens vers GLPI et pièces jointes comme pour un utilisateur, **sans le filtre d'entité** que GLPI applique aux
 destinataires donnés par identifiant — un rôle est une liste d'adresses réglée par l'administrateur, comme avant.
 L'**auteur** de la commande (`NotificationTargetPurchaseorder::AUTHOR`, 7301) est en copie des mails Achats et
-planification ; l'**usager des imprimantes** (`Notify::PRINTER_USER`, 7314) reçoit la courtoisie. L'administrateur
+planification ; le **contact des imprimantes** (`Notify::PRINTER_USER`, 7314 : lieu de livraison, utilisateur, entité) reçoit la courtoisie. L'administrateur
 peut ajouter n'importe quel destinataire GLPI (profil, groupe) sur chaque notification. Un destinataire = un mail
 (GLPI n'envoie pas de copie carbone) ; une adresse n'est servie qu'une fois par événement.
 
@@ -1934,7 +2034,7 @@ peut ajouter n'importe quel destinataire GLPI (profil, groupe) sur chaque notifi
 | Commande aux Achats (toujours active) | `Purchaseorder` / `purchaseorder_sent` | rôle Achats, auteur | fichier Gesconso archivé (document de la commande) |
 | Cartouche à expédier, 1 ligne | `Purchaseorder` / `purchaseorder_planif` | rôle Planification, auteur | — |
 | Cartouches à expédier, N lignes | `Purchaseorder` / `purchaseorder_planif_group` | rôle Planification, auteur | fichier Gesconso archivé |
-| Courtoisie client (par contact) | `Purchaseorder` / `purchaseorder_courtesy` | usager des imprimantes | — |
+| Courtoisie client (par contact) | `Purchaseorder` / `purchaseorder_courtesy` | contact des imprimantes (lieu de livraison, utilisateur, entité) | — |
 | Commande non transmise (> 4 h, file ordinaire) | `Purchaseorder` / `purchaseorder_not_sent` | administrateur, auteur | — |
 | Alerte toner (digest horaire) | `Alert` / `toner_alert` | rôle Commercial | — |
 | Suivi de colis (marquer expédié) | `Expedition` / `expedition_shipped` | rôle Commercial | — |
@@ -1956,10 +2056,14 @@ peut ajouter n'importe quel destinataire GLPI (profil, groupe) sur chaque notifi
 - **Planification** (`sendOrderPlanifMail($order)`) : une ligne → `purchaseorder_planif` ; plusieurs →
   `purchaseorder_planif_group` (fichier joint) ; chacune se rabat sur l'autre si elle est inactive (le gabarit
   groupé manquait : le gabarit simple servait). Les balises suivent le nombre de lignes, pas l'événement.
-- **Courtoisie** (`sendOrderCourtesyMails($order)`) : regroupée par **destinataire** (clé = adresses de l'usager,
+- **Courtoisie** (`sendOrderCourtesyMails($order)`) : regroupée par **destinataire** (clé = adresses du contact,
   triées) — un contact couvrant 3 imprimantes reçoit 1 seul mail (`##printgestion.printers_list##`) ; un événement
-  par contact, ses utilisateurs en option `recipients`. **Uniquement l'usager renseigné sur la fiche imprimante**
-  (`resolveClientUsersForPrinter()`) ; sans usager ou sans adresse, aucun mail pour cette imprimante.
+  par contact, ses adresses en option `recipients`. Destinataires (`resolveCourtesyRecipients()`, lieu de livraison
+  gardé dans `mail_rows`), la première source qui donne une adresse : **adresses mail du commentaire du lieu de
+  livraison** ou du lieu parent le plus proche qui en porte, puis **utilisateur de la fiche imprimante** (adresse
+  par défaut), puis **messagerie de l'entité** ou d'un parent jusqu'à l'entité qui porte le code. Les adresses
+  lues hors des utilisateurs GLPI partent au type « externe » (`NotificationTarget::EXTERNAL_USER`). Aucune : pas
+  de mail pour cette imprimante, compté et signalé à la fin de la commande.
 - **Digests** (`Alert::sendPendingAlerts()`, `Expedition::sendInstallReminders()`) : les items du passage sont
   collectés d'abord (anti-doublon 24 h par item dans `glpi_plugin_printgestion_alerts`), puis **un seul
   événement** est émis sur un objet vide (`getEmpty()`, `entities_id => 0`) avec la liste en option (`pending`,
@@ -2006,7 +2110,7 @@ tentatives, dernière erreur, URL).
 
 | Tâche | Fréquence par défaut | Contenu |
 |---|---|---|
-| `PrintgestionSnapshotReadings` | quotidienne | Snapshot toner + bootstrap cartouches natives + détection changements + purge relevés > 160 j |
+| `PrintgestionSnapshotReadings` | quotidienne | Snapshot toner + bootstrap cartouches natives + détection changements + purge relevés > 400 j |
 | `PrintgestionCheckAlerts` | horaire | Calcul alertes + **digest mail commercial** + **digest rappels installation** + rebuild `alertview` |
 | `PrintgestionTrackingUpdate` | **toutes les 12 heures** (valeur initiale, réglée ensuite dans GLPI ; deux passages par jour suffisent aux deux suivis) | Dans l'ordre : rattrapage des BL signés du plugin Gestion (le cas normal part de la signature elle-même), puis `Glstracking::poll()` qui range ce que GLS publie et constate les remises, puis `Mbetracking::poll()` qui apparie ce qui ne l'est pas et **recoupe son statut avec celui que GLS vient d'écrire**, enfin `Publictracking::poll()` qui lit les pages de suivi publiques d'UPS et de GLS France pour ce qui reste parti et non livré. Rien sans clés pour l'API GLS et MBE ; les pages publiques n'en demandent pas (interrupteur, activé par défaut) |
 | `PrintgestionProposeDemandes` | horaire, **enregistrée désactivée** | Demandes d'envoi proposées à partir des alertes, regroupées par client et site (`Demande::proposeFromAlerts()`) |

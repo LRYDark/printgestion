@@ -69,6 +69,9 @@ class PluginPrintgestionMenu extends CommonGLPI {
                     // File des demandes : droit de validation OU lecture des alertes (voir sans valider).
                     ['key' => 'tn_dem',    'label' => __('Demandes d\'envoi', 'printgestion'), 'icon' => 'ti ti-clipboard-check', 'path' => '/front/demande.php', 'right' => [['plugin_printgestion_validation', READ], ['plugin_printgestion_dashboard', READ]]],
                     ['key' => 'tn_exp',    'label' => __('Expéditions', 'printgestion'),   'icon' => 'ti ti-truck',                'path' => '/front/dashboard_expeditions.php', 'right' => ['plugin_printgestion_expedition', READ]],
+                    // Ce qui demande une action (non transmises, mauvaise imprimante, retards), pastille rouge du nombre.
+                    ['key' => 'tn_prio',   'label' => __('Alertes', 'printgestion'),       'icon' => 'ti ti-bell-ringing',         'path' => '/front/alerts.php', 'right' => [['plugin_printgestion_expedition', READ], ['plugin_printgestion_validation', READ]],
+                     'badge' => [PluginPrintgestionPriorityalert::class, 'count']],
                 ],
             ],
             'deploiement' => [
@@ -187,8 +190,10 @@ class PluginPrintgestionMenu extends CommonGLPI {
      * @param string $info   texte d'information de l'écran (brut, échappé ici) : une icône
      *                       tout à droite de la barre, le texte dans sa bulle au survol,
      *                       au lieu d'un bandeau au milieu de la page.
+     * @param string $actions HTML déjà échappé des boutons de l'écran (btn-sm), posés à droite de la barre avant
+     *                        « Rafraîchir » (ex. « Exporter Excel » de la facturation).
      */
-    static function showTabBar(string $active, bool $with_refresh = false, string $info = ''): void {
+    static function showTabBar(string $active, bool $with_refresh = false, string $info = '', string $actions = ''): void {
         // Accueil général : pas de barre de sous-onglets.
         if ($active === 'hub') {
             return;
@@ -219,14 +224,21 @@ class PluginPrintgestionMenu extends CommonGLPI {
                 if (!self::tabAllowed($cat['feature'], $t['right'])) {
                     continue;
                 }
-                $cls  = 'nav-link' . ($t['key'] === $active ? ' active' : '');
-                $href = htmlspecialchars($base . $t['path'], ENT_QUOTES, 'UTF-8');
+                $cls   = 'nav-link' . ($t['key'] === $active ? ' active' : '');
+                $href  = htmlspecialchars($base . $t['path'], ENT_QUOTES, 'UTF-8');
+                // Pastille rouge (onglet Alertes) : le nombre d'éléments qui attendent une action, rien à zéro.
+                $count = isset($t['badge']) && is_callable($t['badge']) ? (int) call_user_func($t['badge']) : 0;
                 echo "<li class='nav-item'><a class='{$cls}' href='{$href}'>"
                     . "<i class='{$t['icon']} me-1'></i>"
-                    . htmlspecialchars($t['label'], ENT_QUOTES, 'UTF-8') . "</a></li>";
+                    . htmlspecialchars($t['label'], ENT_QUOTES, 'UTF-8')
+                    . ($count > 0 ? " <span class='badge bg-danger text-danger-fg ms-1'>{$count}</span>" : '')
+                    . "</a></li>";
             }
         }
         echo "</ul>";
+
+        // Boutons de l'écran, à droite (avant « Rafraîchir »).
+        echo $actions;
 
         // Bouton « Rafraîchir » à droite (handler JS #pc-refresh-cache rendu par
         // Dashboardactions::renderSharedAssets()).

@@ -23,6 +23,10 @@ function plugin_printgestion_install() {
     // Schéma : tables absentes créées, lignes de référence posées ; une erreur SQL lève une exception,
     // l'installation échoue visiblement.
     PluginPrintgestionSchema::install();
+    // Lieu de livraison des expéditions et des lignes de demande, sur une base installée avant lui (même version de schéma).
+    foreach (['glpi_plugin_printgestion_expeditions', 'glpi_plugin_printgestion_demandelines'] as $table) {
+        PluginPrintgestionSchema::ensureColumn($table, 'locations_id', PluginPrintgestionSchema::foreignKeyDefinition());
+    }
 
     // Hors schéma, idempotent : enregistrement des tâches automatiques.
     PluginPrintgestionReminder::install($migration);
@@ -381,6 +385,18 @@ function plugin_printgestion_getAddSearchOptionsNew($itemtype) {
  * Hook POST_SHOW_TAB : sous le contenu natif des onglets « Cartouches » (Cartridge) et « Compteurs de pages »
  * (PrinterLog) d'une imprimante, le bouton « Saisir un relevé manuel » et l'historique des relevés.
  */
+/**
+ * Hook PRE_SHOW_TAB : bouton « Graphique des cartouches » en haut de l'onglet natif « Cartouches » d'une imprimante
+ * (droits et module revérifiés par PluginPrintgestionTonerchart).
+ */
+function plugin_printgestion_pre_show_tab($params): void {
+    $item    = is_array($params) ? ($params['item'] ?? null) : null;
+    $options = is_array($params) ? (array) ($params['options'] ?? []) : [];
+    if ($item instanceof Printer && (string) ($options['itemtype'] ?? '') === 'Cartridge') {
+        PluginPrintgestionTonerchart::renderButton($item);
+    }
+}
+
 function plugin_printgestion_post_show_tab($params): void {
     $item    = is_array($params) ? ($params['item'] ?? null) : null;
     $options = is_array($params) ? (array) ($params['options'] ?? []) : [];

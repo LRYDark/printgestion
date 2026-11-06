@@ -48,9 +48,6 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
     /** Quantité maximale d'une ligne (saisie de validation). */
     const MAX_QUANTITY = 99;
 
-    /** Parents des lieux déjà lus : id => locations_id du parent, null si lieu introuvable. */
-    private static array $location_parents = [];
-
     static function getTypeName($nb = 0) {
         return _n('Demande d\'envoi', 'Demandes d\'envoi', $nb, 'printgestion');
     }
@@ -417,32 +414,25 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
     // ── Données ───────────────────────────────────────────────────────────────
 
     /**
-     * Site de livraison d'un lieu : son ancêtre racine, lui-même s'il n'a pas de parent.
-     * 0 si le lieu est absent ou introuvable. Même règle que l'« Intitulé Livraison » du
-     * fichier de commande (racine du lieu hiérarchique).
+     * Site d'un lieu, pour regrouper les propositions d'envoi : son ancêtre racine, lui-même
+     * s'il n'a pas de parent. 0 si le lieu est absent ou introuvable. L'intitulé de livraison
+     * du fichier, lui, suit le lieu de livraison (PluginPrintgestionDeliverylocation).
      */
     public static function getSiteLocationId(int $locations_id): int {
-        global $DB;
-
-        $site    = 0;
-        $current = $locations_id;
-        $seen    = [];
-        while ($current > 0 && !isset($seen[$current])) {
-            $seen[$current] = true;
-            if (!array_key_exists($current, self::$location_parents)) {
-                $row = $DB->request([
-                    'SELECT' => ['locations_id'],
-                    'FROM'   => 'glpi_locations',
-                    'WHERE'  => ['id' => $current],
-                    'LIMIT'  => 1,
-                ])->current();
-                self::$location_parents[$current] = is_array($row) ? (int) $row['locations_id'] : null;
+        if (PluginPrintgestionDeliverylocation::getLocation($locations_id) === null) {
+            return 0;
+        }
+        // Ancêtres par getAncestorsOf() (cache natif de GLPI) : la racine est celui de plus petit niveau.
+        $site  = $locations_id;
+        $level = PHP_INT_MAX;
+        $ids   = array_merge([$locations_id], PluginPrintgestionDeliverylocation::ancestors(Location::getTable(), $locations_id));
+        PluginPrintgestionDeliverylocation::loadLocations($ids);
+        foreach ($ids as $id) {
+            $row = PluginPrintgestionDeliverylocation::getLocation($id);
+            if ($row !== null && (int) $row['level'] < $level) {
+                $level = (int) $row['level'];
+                $site  = $id;
             }
-            if (self::$location_parents[$current] === null) {
-                break;
-            }
-            $site    = $current;
-            $current = self::$location_parents[$current];
         }
         return $site;
     }
@@ -461,6 +451,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 'p.name AS printer_name',
                 'p.serial AS printer_serial',
                 'p.entities_id AS printer_entities_id',
+                'p.locations_id AS printer_locations_id',
                 'p.is_deleted AS printer_is_deleted',
                 'loc.completename AS printer_location',
                 'ci.name AS cartridge_name',
@@ -545,6 +536,13 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 $errors[] = __('Quantité invalide (minimum 1).', 'printgestion');
             }
 
+            // Imprimante dont le lieu a des sous-lieux : le lieu de livraison se choisit, jamais livré au hasard.
+            $printer_location = (int) ($line['printer_locations_id'] ?? 0);
+            if (!empty(PluginPrintgestionDeliverylocation::subLocations($printer_location))
+                && !PluginPrintgestionDeliverylocation::isWithin((int) ($line['locations_id'] ?? 0), $printer_location)) {
+                $errors[] = __('Lieu de livraison à choisir : le lieu de l\'imprimante a des sous-lieux.', 'printgestion');
+            }
+
             $lock = $locks[$printers_id . '|' . $property] ?? null;
             if ($lock !== null) {
                 if ($lock['blocking']) {
@@ -582,7 +580,8 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
      * enregistré et chaque erreur est renvoyée.
      *
      * @param array $input Saisie du formulaire (delivery_mode, contact, delivery_comment,
-     *                     quantity[id], unit_price[id], cancel_line[id]).
+     *                     quantity[id], unit_price[id], cancel_line[id],
+     *                     delivery_location[printers_id]).
      * @return array ['errors' => string[]]
      */
     public function saveProposal(array $input): array {
@@ -606,6 +605,10 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
         $quantities = (array) ($input['quantity'] ?? []);
         $prices     = (array) ($input['unit_price'] ?? []);
         $cancels    = (array) ($input['cancel_line'] ?? []);
+        // Lieu de livraison choisi par imprimante : retenu seulement sous le lieu de l'imprimante (colonne assurée
+        // avant la transaction d'enregistrement).
+        $locations     = array_map('intval', (array) ($input['delivery_location'] ?? []));
+        $with_location = PluginPrintgestionDemandeline::hasLocationColumn();
 
         $line_updates = [];
         $has_cancel   = false;
@@ -622,6 +625,15 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             }
 
             $update = [];
+            $printers_id = (int) $line['printers_id'];
+            if ($with_location && array_key_exists($printers_id, $locations)) {
+                $chosen = $locations[$printers_id];
+                if ($chosen > 0 && !PluginPrintgestionDeliverylocation::isWithin($chosen, (int) $line['printer_locations_id'])) {
+                    $errors[] = sprintf(__('%s : lieu de livraison hors du lieu de l\'imprimante.', 'printgestion'), $label);
+                } elseif ($chosen !== (int) ($line['locations_id'] ?? 0)) {
+                    $update['locations_id'] = max(0, $chosen);
+                }
+            }
             if (array_key_exists($line_id, $quantities)) {
                 $raw = trim((string) $quantities[$line_id]);
                 if (!ctype_digit($raw) || (int) $raw < 1 || (int) $raw > self::MAX_QUANTITY) {
@@ -860,7 +872,9 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
     /**
      * Lignes au format de PluginPrintgestionGesconso::prepare() pour les lignes de la
      * demande aux statuts donnés. Devis = date de validation (à défaut : de proposition) ;
-     * Complément livraison = contact et commentaire de livraison, sur une ligne.
+     * Complément livraison = contact et commentaire de livraison, sur une ligne ; lieu de
+     * livraison = celui choisi sur la ligne, sinon le dernier sous-lieu choisi pour
+     * l'imprimante, sinon son lieu.
      */
     public function buildExportLines(array $lines, array $statuses): array {
         $complement = implode(' — ', array_filter([
@@ -878,6 +892,10 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 'key'               => (string) $line_id,
                 'label'             => sprintf(__('Demande #%1$d — %2$s', 'printgestion'), $this->getID(), self::lineLabel($line)),
                 'printers_id'       => (int) $line['printers_id'],
+                // Lieu choisi sur la ligne ; ligne d'avant ce choix : dernier sous-lieu choisi pour l'imprimante.
+                'locations_id'      => (int) ($line['locations_id'] ?? 0) > 0
+                    ? (int) $line['locations_id']
+                    : PluginPrintgestionExpedition::getLastDeliveryLocation((int) $line['printers_id'], (int) ($line['printer_locations_id'] ?? 0)),
                 'cartridgeitems_id' => (int) $line['cartridgeitems_id'],
                 'quantity'          => (int) $line['quantity'],
                 'unit_price'        => $line['unit_price'],
@@ -1155,6 +1173,9 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
      */
     public static function exportDemandes(array $demandes_ids, bool $send): array {
         $out = ['ok' => false, 'errors' => [], 'warnings' => [], 'documents_id' => 0, 'lines' => 0];
+        // Colonne du lieu de livraison des expéditions ajoutée AVANT la transaction d'export : un ALTER TABLE la
+        // validerait d'office.
+        PluginPrintgestionExpedition::hasLocationColumn();
 
         $demandes = [];
         $lines    = [];
@@ -1199,7 +1220,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
 
             foreach ($export as $l) {
                 $lines[]           = $l;
-                $data[$l['key']]   = ['demande' => $demande, 'line' => $rows[(int) $l['key']]];
+                $data[$l['key']]   = ['demande' => $demande, 'line' => $rows[(int) $l['key']], 'locations_id' => (int) $l['locations_id']];
             }
             $demandes[$id] = $demande;
         }
@@ -1260,6 +1281,13 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
 
                     foreach ($data as $key => $item) {
                         $line = $item['line'];
+                        // Lieu de livraison retenu (le même que la ligne du fichier) : gardé sur l'expédition.
+                        $row  = PluginPrintgestionExpedition::buildPurchaseRowData(
+                            (int) $line['printers_id'],
+                            (string) $line['toner_property'],
+                            (int) $line['cartridgeitems_id'],
+                            (int) $item['locations_id']
+                        );
                         // La ligne cède son verrou avant la création de l'expédition qui le reprend.
                         if (!$line_object->update(['id' => (int) $key, 'statut' => self::STATUS_EXPORTED])) {
                             throw new RuntimeException(sprintf('Export de la ligne #%d refusé par GLPI.', $key));
@@ -1269,7 +1297,8 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                             (string) $line['toner_property'],
                             (int) ($line['level_at_proposal'] ?? 0),
                             $line['estimated_days'] !== null ? (int) $line['estimated_days'] : null,
-                            $group_id
+                            $group_id,
+                            (int) $row['locations_id']
                         );
                         if ($expeditions_id <= 0
                             || !$line_object->update(['id' => (int) $key, 'expeditions_id' => $expeditions_id])) {
@@ -1277,11 +1306,6 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                         }
                         $expeditions[] = $expeditions_id;
 
-                        $row          = PluginPrintgestionExpedition::buildPurchaseRowData(
-                            (int) $line['printers_id'],
-                            (string) $line['toner_property'],
-                            (int) $line['cartridgeitems_id']
-                        );
                         $row['level'] = (int) ($line['level_at_proposal'] ?? 0);
                         $row['days']  = $line['estimated_days'] !== null ? (int) $line['estimated_days'] : null;
                         $mail_rows[]  = $row;
@@ -1381,6 +1405,10 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
      */
     public static function proposeFromAlerts(): array {
         global $DB;
+
+        // Colonnes du lieu de livraison assurées AVANT les transactions des propositions : un ALTER TABLE les validerait.
+        PluginPrintgestionDemandeline::hasLocationColumn();
+        PluginPrintgestionExpedition::hasLocationColumn();
 
         $stats = [
             'demandes_created'   => 0,
@@ -1632,8 +1660,7 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             }
             $coverage    = PluginPrintgestionContractrate::getConsumablesCoverage($printers_id);
 
-            $line    = new PluginPrintgestionDemandeline();
-            $line_id = $line->add([
+            $fields = [
                 PluginPrintgestionDemandeline::$items_id => $demandes_id,
                 'printers_id'       => $printers_id,
                 'toner_property'    => $property,
@@ -1645,7 +1672,13 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 'level_at_proposal' => $row['level'] !== null ? (int) $row['level'] : null,
                 'estimated_days'    => $row['days_remaining'] !== null ? (int) $row['days_remaining'] : null,
                 'statut'            => self::STATUS_PROPOSED,
-            ]);
+            ];
+            // Lieu de livraison proposé : dernier sous-lieu choisi pour l'imprimante (colonne assurée avant la transaction).
+            if (PluginPrintgestionDemandeline::hasLocationColumn()) {
+                $fields['locations_id'] = PluginPrintgestionExpedition::getLastDeliveryLocation($printers_id, (int) ($row['_printer']['locations_id'] ?? 0));
+            }
+            $line    = new PluginPrintgestionDemandeline();
+            $line_id = $line->add($fields);
             if (!$line_id) {
                 throw new RuntimeException(sprintf(
                     'Ligne de demande refusée par GLPI : imprimante #%d, toner %s.',
@@ -1918,7 +1951,8 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
             return;
         }
 
-        $entries = [];
+        $entries        = [];
+        $location_shown = [];
         foreach ($lines as $line_id => $line) {
             $check = $checks[$line_id] ?? null;
 
@@ -1927,6 +1961,31 @@ class PluginPrintgestionDemande extends CommonDBTM implements \Glpi\Search\Defau
                 : "<span class='text-danger'>#" . (int) $line['printers_id'] . '</span>';
             $printer .= "<div class='small text-muted'>" . $esc(trim((string) $line['printer_serial']))
                 . (trim((string) $line['printer_location']) !== '' ? ' · ' . $esc($line['printer_location']) : '') . '</div>';
+
+            // Lieu de livraison, quand le lieu de l'imprimante a des sous-lieux : liste native des lieux (le lieu et
+            // tous ses sous-lieux) sur la première ligne proposée de l'imprimante, le choix vaut pour toutes ses lignes.
+            $printers_id      = (int) $line['printers_id'];
+            $printer_location = (int) ($line['printer_locations_id'] ?? 0);
+            $sub_locations    = PluginPrintgestionDeliverylocation::subLocations($printer_location);
+            if (!empty($sub_locations)) {
+                $chosen = (int) ($line['locations_id'] ?? 0);
+                if ($editable && (string) $line['statut'] === self::STATUS_PROPOSED && !isset($location_shown[$printers_id])) {
+                    $location_shown[$printers_id] = true;
+                    $printer .= "<div class='mt-1' style='min-width:14rem'>" . Location::dropdown([
+                        'name'                => 'delivery_location[' . $printers_id . ']',
+                        'value'               => $chosen,
+                        'condition'           => ['glpi_locations.id' => array_merge([$printer_location], $sub_locations)],
+                        'display_emptychoice' => true,
+                        'emptylabel'          => __('— Choisir le lieu de livraison —', 'printgestion'),
+                        'width'               => '100%',
+                        'display'             => false,
+                    ]) . '</div>';
+                } else {
+                    $printer .= "<div class='small'><i class='ti ti-map-pin me-1'></i>" . ($chosen > 0
+                        ? $esc(sprintf(__('Livraison : %s', 'printgestion'), Dropdown::getDropdownName(Location::getTable(), $chosen)))
+                        : "<span class='text-danger'>" . $esc(__('Lieu de livraison à choisir', 'printgestion')) . '</span>') . '</div>';
+                }
+            }
 
             $cartridge = (int) $line['cartridgeitems_id'] > 0
                 ? $esc(trim((string) $line['cartridge_ref']) . ' — ' . (string) $line['cartridge_name'])

@@ -4,10 +4,12 @@
  *   - code client Sage (colonne B) : le nom de l'entité s'il a la forme d'un code client (majuscules,
  *     chiffres, « . _ - », 17 caractères au plus, sans espace), sinon celui de l'entité parente la
  *     plus proche dont le nom a cette forme ;
- *   - intitulé de livraison (colonne C) : première ligne du champ « Commentaires » de l'entité QUI PORTE LE
- *     CODE — code et intitulé sont le code et le nom d'un seul et même client, lus sur la même entité ;
- *     une imprimante dans une sous-entité prend les deux sur l'entité parente porteuse. Commentaires vides
- *     sur cette entité : la ligne est bloquée à l'export.
+ *   - intitulé de livraison (colonne C) : champ natif « Code » du LIEU DE LIVRAISON ou, s'il est vide, du lieu
+ *     parent le plus proche qui en porte un (PluginPrintgestionDeliverylocation) — un client Sage a plusieurs
+ *     adresses de livraison, une par lieu ou sous-lieu. Aucun lieu n'en porte (ou imprimante sans lieu) :
+ *     première ligne du champ « Commentaires » de l'entité QUI PORTE LE CODE, lue sur la même entité que le
+ *     code ; une imprimante dans une sous-entité prend les deux sur l'entité parente porteuse. Ni l'un ni
+ *     l'autre : la ligne est bloquée à l'export.
  * Les référentiels importés par fichier (adresses de livraison, articles) ne décident de rien : ils
  * servent à vérifier (article inconnu : bloquant ; adresse inconnue : avertissement).
  *
@@ -109,21 +111,30 @@ class PluginPrintgestionSage extends CommonGLPI {
 
     /**
      * Règle appliquée à une entité, pour les contrôles et l'affichage : le code vient de l'entité porteuse (elle-même
-     * ou l'ancêtre le plus proche dont le nom est un code), l'intitulé vient de CETTE MÊME entité.
+     * ou l'ancêtre le plus proche dont le nom est un code) ; l'intitulé vient du lieu de livraison s'il en porte un
+     * (champ « Code » du lieu ou d'un lieu parent), sinon de CETTE MÊME entité porteuse.
      *
+     * @param ?array $location Lieu de livraison décrit par PluginPrintgestionDeliverylocation::describe() (null : aucun)
      * @return array ['entity_name' => string, 'client' => ?array (getClientForEntity), 'carrier_name' => string
      *                (entité porteuse du code, nom complet), 'label' => string,
+     *                'label_source' => 'location'|'entity'|'' (d'où vient l'intitulé),
+     *                'label_location' => string (lieu qui porte l'intitulé, nom complet),
      *                'known' => ?bool (isDeliveryKnown, null sans référentiel ou sans code/intitulé)]
      */
-    public static function describeRule(int $entities_id): array {
-        $client = self::getClientForEntity($entities_id);
-        $label  = $client !== null ? self::getDeliveryLabelForEntity($client['entities_id']) : '';
+    public static function describeRule(int $entities_id, ?array $location = null): array {
+        $client     = self::getClientForEntity($entities_id);
+        $from_place = $client !== null && $location !== null && trim((string) ($location['sage_label'] ?? '')) !== '';
+        $label      = $from_place
+            ? trim((string) $location['sage_label'])
+            : ($client !== null ? self::getDeliveryLabelForEntity($client['entities_id']) : '');
         return [
-            'entity_name'  => Dropdown::getDropdownName('glpi_entities', $entities_id),
-            'client'       => $client,
-            'carrier_name' => $client !== null ? Dropdown::getDropdownName('glpi_entities', $client['entities_id']) : '',
-            'label'        => $label,
-            'known'        => ($client !== null && $label !== '') ? self::isDeliveryKnown($client['code'], $label) : null,
+            'entity_name'    => Dropdown::getDropdownName('glpi_entities', $entities_id),
+            'client'         => $client,
+            'carrier_name'   => $client !== null ? Dropdown::getDropdownName('glpi_entities', $client['entities_id']) : '',
+            'label'          => $label,
+            'label_source'   => $label === '' ? '' : ($from_place ? 'location' : 'entity'),
+            'label_location' => $from_place ? (string) ($location['sage_label_from'] ?? '') : '',
+            'known'          => ($client !== null && $label !== '') ? self::isDeliveryKnown($client['code'], $label) : null,
         ];
     }
 
@@ -146,7 +157,7 @@ class PluginPrintgestionSage extends CommonGLPI {
             // Sans code, pas d'intitulé à chercher : le premier message suffit.
         } elseif ($rule['label'] === '') {
             $parts[] = "<span class='text-danger'><i class='ti ti-ban me-1'></i>"
-                . $esc(sprintf(__('Intitulé de livraison : aucun — champ « Commentaires » de l\'entité « %s », qui porte le code, vide : export bloqué.', 'printgestion'), $rule['carrier_name']))
+                . $esc(sprintf(__('Intitulé de livraison de l\'entité : aucun — champ « Commentaires » de l\'entité « %s », qui porte le code, vide : export bloqué pour les imprimantes dont le lieu de livraison (ni aucun lieu parent) ne porte de « Code ».', 'printgestion'), $rule['carrier_name']))
                 . '</span>';
         } else {
             $parts[] = $esc(__('Intitulé de livraison :', 'printgestion')) . ' <strong>' . $esc($rule['label']) . '</strong> '
@@ -157,6 +168,11 @@ class PluginPrintgestionSage extends CommonGLPI {
                     ? " <span class='text-warning'><i class='ti ti-alert-triangle me-1'></i>"
                         . $esc(__('absent du référentiel des adresses importé : Sage peut refuser la ligne', 'printgestion')) . '</span>'
                     : '');
+        }
+        if ($rule['client'] !== null) {
+            $parts[] = "<span class='text-muted small'>"
+                . $esc(__('Le champ « Code » du lieu de livraison (ou d\'un lieu parent) l\'emporte sur cet intitulé : une adresse de livraison Sage par lieu.', 'printgestion'))
+                . '</span>';
         }
         if (Entity::canView() && Session::haveAccessToEntity($entities_id)) {
             $parts[] = "<a class='small' href='" . $esc(Entity::getFormURLWithID($entities_id)) . "'>"

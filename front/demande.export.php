@@ -93,8 +93,6 @@ Html::header(
 
 echo "<div class='container-fluid mt-3'>";
 PluginPrintgestionMenu::showTabBar('tn_dem');
-// Commandes enregistrées mais non transmises aux Achats : en tête, jusqu'au renvoi.
-PluginPrintgestionPurchaseorder::showNotSentCard();
 
 $esc       = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 // Paramètre « demandes » et non « id » : GLPI lit id comme l'identifiant d'une fiche

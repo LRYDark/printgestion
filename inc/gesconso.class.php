@@ -8,16 +8,20 @@
  *   A Devis                 date de la demande, vraie date Excel (jj/mm/aaaa)
  *   B Intitule Client       code client Sage = nom de l'entité de l'imprimante s'il a la forme
  *                           d'un code, sinon celui du parent le plus proche (PluginPrintgestionSage)
- *   C Intitule Livraison    première ligne des commentaires de cette même entité, celle qui porte le
- *                           code : code et intitulé sont ceux d'un seul client
+ *   C Intitule Livraison    champ « Code » du lieu de livraison (lieu de l'imprimante ou sous-lieu choisi à
+ *                           la commande), sinon du lieu parent le plus proche qui en porte un ; aucun :
+ *                           première ligne des commentaires de l'entité qui porte le code
+ *                           (PluginPrintgestionSage::describeRule())
  *   D Consommable           référence article Sage (CartridgeItem.ref)
- *   E Designation           n° série <séparateur> lieu <séparateur> libellé cartouche, parties vides
+ *   E Designation           n° série <séparateur> lieu de livraison <séparateur> libellé cartouche, parties vides
  *                           omises (jamais de séparateur orphelin), tronquée à la longueur maximale
  *                           avec avertissement
  *   F Quantite              entier
  *   G Prix                  0 sous contrat ; vide ou prix saisi hors contrat, jamais 0
  *   H Fournisseur           vide
- *   I Complement livraison  texte libre
+ *   I Complement livraison  texte libre donné par l'appelant : commande directe = commentaire du lieu de
+ *                           livraison (ou d'un parent), adresses mail retirées ; demande = contact et
+ *                           commentaire de livraison de la demande
  *
  * Aucune ligne n'est écrite si son code client, son intitulé de livraison ou sa référence
  * article manque : prepare() la renvoie en erreur, à l'appelant de refuser l'export.
@@ -81,6 +85,8 @@ class PluginPrintgestionGesconso {
      *     'key'               => string (identifiant de la ligne pour l'appelant),
      *     'label'             => string (libellé des messages, ex. « Imprimante — Toner »),
      *     'printers_id'       => int,
+     *     'locations_id'      => int (facultatif : lieu de livraison choisi, retenu s'il est le lieu de
+     *                            l'imprimante ou l'un de ses sous-lieux ; sinon, ou absent, lieu de l'imprimante),
      *     'cartridgeitems_id' => int,
      *     'cartridge'         => ['ref', 'name'] (facultatif, aperçu seulement : cartouche pas encore créée,
      *                            saisie dans la commande ; remplace cartridgeitems_id),
@@ -174,8 +180,15 @@ class PluginPrintgestionGesconso {
                 continue;
             }
 
-            // Code client = nom d'entité en forme de code (hérité du parent), intitulé de livraison = commentaires de l'entité.
-            $rule = PluginPrintgestionSage::describeRule((int) $printer->fields['entities_id']);
+            // Lieu de livraison : le lieu choisi s'il est sous celui de l'imprimante, sinon celui de l'imprimante.
+            $entities_id = (int) $printer->fields['entities_id'];
+            $delivery    = PluginPrintgestionDeliverylocation::describe(
+                PluginPrintgestionDeliverylocation::resolveForPrinter((int) $printer->fields['locations_id'], (int) ($line['locations_id'] ?? 0)),
+                $entities_id
+            );
+            // Code client = nom d'entité en forme de code (hérité du parent) ; intitulé de livraison = « Code » du lieu
+            // de livraison ou d'un lieu parent, sinon commentaires de l'entité porteuse du code.
+            $rule = PluginPrintgestionSage::describeRule($entities_id, $delivery);
             if ($rule['client'] === null) {
                 $errors[] = sprintf(
                     __('code client Sage absent : ni le nom de l\'entité « %s » ni celui d\'une entité parente n\'a la forme d\'un code client (majuscules et chiffres, sans espace).', 'printgestion'),
@@ -183,11 +196,18 @@ class PluginPrintgestionGesconso {
                 );
             }
             if ($rule['client'] !== null && $rule['label'] === '') {
-                $errors[] = sprintf(
-                    __('intitulé de livraison absent : champ « Commentaires » de l\'entité « %1$s », qui porte le code client %2$s, vide.', 'printgestion'),
-                    $rule['carrier_name'],
-                    $rule['client']['code']
-                );
+                $errors[] = $delivery['locations_id'] > 0
+                    ? sprintf(
+                        __('intitulé de livraison absent : ni le champ « Code » du lieu « %1$s » ou d\'un lieu parent, ni le champ « Commentaires » de l\'entité « %2$s », qui porte le code client %3$s.', 'printgestion'),
+                        $delivery['completename'],
+                        $rule['carrier_name'],
+                        $rule['client']['code']
+                    )
+                    : sprintf(
+                        __('intitulé de livraison absent : champ « Commentaires » de l\'entité « %1$s », qui porte le code client %2$s, vide.', 'printgestion'),
+                        $rule['carrier_name'],
+                        $rule['client']['code']
+                    );
             }
 
             // Référence article.
@@ -237,27 +257,28 @@ class PluginPrintgestionGesconso {
 
             if ($rule['known'] === false) {
                 $out['warnings'][] = $label . ' : ' . sprintf(
-                    __('intitulé de livraison « %1$s » absent des adresses importées du client %2$s : Sage peut refuser la ligne.', 'printgestion'),
+                    $rule['label_source'] === 'location'
+                        ? __('intitulé de livraison « %1$s » (champ « Code » du lieu « %3$s ») absent des adresses importées du client %2$s : Sage peut refuser la ligne.', 'printgestion')
+                        : __('intitulé de livraison « %1$s » absent des adresses importées du client %2$s : Sage peut refuser la ligne.', 'printgestion'),
                     $rule['label'],
-                    $rule['client']['code']
+                    $rule['client']['code'],
+                    $rule['label_location']
                 );
                 $out['notices']['address'][$key] = $label;
+            }
+            foreach ($delivery['skipped'] as $skipped) {
+                $out['warnings'][] = $label . ' : ' . sprintf(
+                    __('lieu « %s » ignoré : rattaché à une entité au-dessus du client, partagée avec d\'autres clients, son code et son commentaire ne sont pas lus.', 'printgestion'),
+                    $skipped
+                );
             }
             // Désignation : n° série, lieu, libellé cartouche. Espaces intérieurs conservés.
             $serial = trim((string) $printer->fields['serial']);
             if ($serial === '') {
                 $out['warnings'][] = $label . ' : ' . __('n° de série absent de la fiche imprimante (début de désignation vide).', 'printgestion');
             }
-            // Lieu : son nom propre (dernier niveau), pas le nom complet « Site > … > Pièce ».
-            $location      = (int) $printer->fields['locations_id'] > 0
-                ? $DB->request([
-                    'SELECT' => ['name'],
-                    'FROM'   => 'glpi_locations',
-                    'WHERE'  => ['id' => (int) $printer->fields['locations_id']],
-                    'LIMIT'  => 1,
-                ])->current()
-                : null;
-            $location_name = is_array($location) ? trim((string) $location['name']) : '';
+            // Lieu de livraison : son nom propre (dernier niveau), pas le nom complet « Site > … > Pièce ».
+            $location_name = $delivery['name'];
             if ($location_name === '') {
                 // Le toner arrivera chez un client qui ne saura pas de quelle machine il s'agit : à voir avant l'envoi.
                 $out['warnings'][] = $label . ' : ' . __('lieu absent de la fiche imprimante : la désignation ne dira pas où est la machine.', 'printgestion');

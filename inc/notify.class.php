@@ -95,7 +95,7 @@ class PluginPrintgestionNotify {
             'purchaseorder_courtesy' => [
                 'itemtype' => PluginPrintgestionPurchaseorder::class,
                 'name'     => 'Print Gestion - Courtoisie client',
-                'label'    => __('Courtoisie client : cartouche(s) en cours d\'envoi, à l\'usager de chaque imprimante', 'printgestion'),
+                'label'    => __('Courtoisie client : cartouche(s) en cours d\'envoi, au contact de chaque imprimante (lieu de livraison, utilisateur, entité)', 'printgestion'),
                 'gabarits' => ['gabarit_courtoisie'],
                 'targets'  => [self::PRINTER_USER],
                 'attach'   => NotificationSetting::ATTACH_NO_DOCUMENT,
@@ -177,8 +177,8 @@ class PluginPrintgestionNotify {
     }
 
     /**
-     * Destinataires d'une cible spécifique du plugin : les utilisateurs d'un rôle, ou les usagers des imprimantes
-     * passés en option (courtoisie : $options['recipients']).
+     * Destinataires d'une cible spécifique du plugin : les utilisateurs d'un rôle, ou les contacts des imprimantes
+     * passés en option (courtoisie : $options['recipients'], Expedition::resolveCourtesyRecipients()).
      */
     public static function addSpecificRecipients(NotificationTarget $target, array $data, array $options): void {
         $items_id         = (int) ($data['items_id'] ?? 0);
@@ -197,9 +197,10 @@ class PluginPrintgestionNotify {
     }
 
     /**
-     * Ajoute un utilisateur GLPI par son adresse, au type « utilisateur GLPI » (liens vers GLPI, pièces jointes),
-     * sans le filtre d'entité que GLPI applique aux destinataires donnés par identifiant : les rôles du plugin sont
-     * une liste d'adresses réglée par l'administrateur, comme avant.
+     * Ajoute un destinataire par son adresse, sans le filtre d'entité que GLPI applique aux destinataires donnés par
+     * identifiant : les rôles du plugin sont une liste d'adresses réglée par l'administrateur, comme avant. Type
+     * « utilisateur GLPI » (liens vers GLPI, pièces jointes) par défaut ; une adresse lue hors des utilisateurs GLPI
+     * (commentaire d'un lieu, messagerie d'une entité) arrive avec le type « externe » dans $user['usertype'].
      */
     public static function addUser(NotificationTarget $target, array $user, int $notifications_id): void {
         $email = trim((string) ($user['email'] ?? ''));
@@ -210,7 +211,7 @@ class PluginPrintgestionNotify {
             'email'    => $email,
             'name'     => (string) ($user['name'] ?? ''),
             'language' => self::pickLanguage($notifications_id, (string) ($user['language'] ?? '')),
-            'usertype' => NotificationTarget::GLPI_USER,
+            'usertype' => (int) ($user['usertype'] ?? NotificationTarget::GLPI_USER),
         ]);
     }
 

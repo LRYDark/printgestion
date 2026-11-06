@@ -27,6 +27,14 @@ class PluginPrintgestionDemandeline extends CommonDBChild {
         return _n('Ligne de demande', 'Lignes de demande', $nb, 'printgestion');
     }
 
+    /**
+     * Colonne `locations_id` (lieu de livraison de la ligne), ajoutée au premier besoin sur une base installée avant
+     * elle (PluginPrintgestionSchema::hasColumn()), avant toute transaction.
+     */
+    public static function hasLocationColumn(): bool {
+        return PluginPrintgestionSchema::hasColumn(self::getTable(), 'locations_id', PluginPrintgestionSchema::foreignKeyDefinition());
+    }
+
     public function pre_deleteItem() {
         Session::addMessageAfterRedirect(
             __('Une ligne de demande d\'envoi ne se supprime pas : annulez-la.', 'printgestion'),

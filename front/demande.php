@@ -38,8 +38,6 @@ if ($propose_task->getFromDBbyName(PluginPrintgestionReminder::class, 'Printgest
 }
 
 PluginPrintgestionMenu::showTabBar('tn_dem', false, $propose_info);
-// Commandes enregistrées mais non transmises aux Achats : en tête, jusqu'au renvoi.
-PluginPrintgestionPurchaseorder::showNotSentCard();
 
 // ── Compteurs, restreints aux entités de l'utilisateur ──
 $table = PluginPrintgestionDemande::getTable();

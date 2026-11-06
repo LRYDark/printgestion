@@ -56,8 +56,8 @@ class PluginPrintgestionReminder extends CommonGLPI {
             $task->log("Snapshots: {$inserted} — Bootstrap natif: {$bootstrap} — Changements: {$detected}");
         }
 
-        // Purge > 160 jours (couvre largement la fenêtre 30j + audit historique)
-        PluginPrintgestionTonerreading::purgeOld(160);
+        // Purge au-delà de Tonerreading::RETENTION_DAYS (400 j : graphique des cartouches sur l'année)
+        PluginPrintgestionTonerreading::purgeOld();
 
         return ($inserted > 0 || $bootstrap > 0 || $detected > 0) ? 1 : 0;
     }
