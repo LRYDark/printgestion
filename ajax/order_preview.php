@@ -30,7 +30,7 @@ if (!Session::haveRight('plugin_printgestion_validation', UPDATE)) {
 // Lignes relues et recloisonnées côté serveur : les ids postés ne donnent accès qu'à ce que l'utilisateur voit.
 $ids     = array_map('intval', (array) ($_POST['ids'] ?? []));
 $preview = PluginPrintgestionAlertview::renderOrderPreview(
-    PluginPrintgestionAlertview::getOrderItems($ids),
+    PluginPrintgestionAlertview::getOrderItems($ids, array_map('intval', (array) ($_POST['pg_location'] ?? []))),
     $_POST['pg_newcart'] ?? []
 );
 

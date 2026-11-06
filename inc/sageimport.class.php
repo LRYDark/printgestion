@@ -328,7 +328,7 @@ class PluginPrintgestionSageimport extends CommonDBTM {
                     'items' => $no_code,
                 ];
                 $preview['gaps'][] = [
-                    'title' => __('Entités avec imprimantes sans intitulé de livraison (champ « Commentaires » vide) : export bloqué', 'printgestion'),
+                    'title' => __('Entités avec imprimantes sans intitulé de livraison (champ « Commentaires » vide) : export bloqué pour leurs imprimantes dont le lieu de livraison ne porte pas de « Code »', 'printgestion'),
                     'level' => 'warning',
                     'items' => $no_label,
                 ];
@@ -336,6 +336,24 @@ class PluginPrintgestionSageimport extends CommonDBTM {
                     'title' => __('Entités avec imprimantes dont l\'intitulé de livraison n\'est pas une adresse de leur client dans ce fichier', 'printgestion'),
                     'level' => 'warning',
                     'items' => $not_in_file,
+                ];
+                // Lieux qui portent un intitulé (champ « Code ») : il l'emporte sur les commentaires de l'entité.
+                $location_not_in_file = [];
+                foreach (self::locationsWithCode() as $location) {
+                    if ($location['client'] === null) {
+                        $location_not_in_file[] = sprintf(
+                            __('%1$s — « %2$s » (l\'entité du lieu n\'a pas de code client Sage)', 'printgestion'),
+                            $location['completename'],
+                            $location['label']
+                        );
+                    } elseif (!isset($in_file[mb_strtoupper($location['client']) . '|' . mb_strtoupper($location['label'])])) {
+                        $location_not_in_file[] = sprintf('%s — %s « %s »', $location['completename'], $location['client'], $location['label']);
+                    }
+                }
+                $preview['gaps'][] = [
+                    'title' => __('Lieux dont le « Code » (intitulé de livraison) n\'est pas une adresse de leur client dans ce fichier', 'printgestion'),
+                    'level' => 'warning',
+                    'items' => $location_not_in_file,
                 ];
                 break;
             default:
@@ -382,6 +400,36 @@ class PluginPrintgestionSageimport extends CommonDBTM {
         }
 
         return $preview;
+    }
+
+    /**
+     * Lieux qui portent un intitulé de livraison (champ natif « Code »), dans le périmètre de l'utilisateur, avec le
+     * code client Sage de leur entité (null si elle n'en a pas).
+     *
+     * @return array[] ['completename', 'label', 'client' => ?string]
+     */
+    private static function locationsWithCode(): array {
+        global $DB;
+
+        $out = [];
+        foreach ($DB->request([
+            'SELECT' => ['id', 'completename', 'entities_id', 'code'],
+            'FROM'   => 'glpi_locations',
+            'WHERE'  => array_merge(['code' => ['<>', '']], getEntitiesRestrictCriteria('glpi_locations', '', '', true)),
+            'ORDER'  => ['completename'],
+        ]) as $location) {
+            $label = trim((string) $location['code']);
+            if ($label === '') {
+                continue;
+            }
+            $client = PluginPrintgestionSage::getClientForEntity((int) $location['entities_id']);
+            $out[]  = [
+                'completename' => (string) $location['completename'],
+                'label'        => $label,
+                'client'       => $client['code'] ?? null,
+            ];
+        }
+        return $out;
     }
 
     /**
@@ -524,7 +572,7 @@ class PluginPrintgestionSageimport extends CommonDBTM {
         Html::closeForm();
 
         $matching = [
-            self::TYPE_DELIVERIES => __('Vérification seulement : l\'export prend le code client dans le nom de l\'entité (ou d\'un parent) et l\'intitulé de livraison dans ses commentaires ; un intitulé absent des adresses de son client donne un avertissement.', 'printgestion'),
+            self::TYPE_DELIVERIES => __('Vérification seulement : l\'export prend le code client dans le nom de l\'entité (ou d\'un parent) et l\'intitulé de livraison dans le champ « Code » du lieu de livraison (ou d\'un lieu parent), sinon dans les commentaires de l\'entité ; un intitulé absent des adresses de son client donne un avertissement.', 'printgestion'),
             self::TYPE_ARTICLES   => __('Cartouche GLPI dont la référence vaut la référence article ; une référence absente du référentiel bloque la ligne.', 'printgestion'),
         ];
         // Aide statique, toujours deux lignes : jamais vide, aucun lien, donc aucun clic de ligne.

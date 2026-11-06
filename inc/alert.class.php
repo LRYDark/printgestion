@@ -747,8 +747,9 @@ class PluginPrintgestionAlert extends CommonDBTM {
         }
 
         // ── 2. Expéditions en retard : expédiées, en transit ou livrées, mais non
-        //       posées plus de reminder_days après l'expédition ──
+        //       posées plus de reminder_days après l'expédition (interrupteur « toujours pas changée ») ──
         $reminder_days = max(1, (int)($config->fields['reminder_days'] ?? 7));
+        $late_shipments = PluginPrintgestionConfig::isInstallReminderEnabled();
         $cutoff = date('Y-m-d H:i:s', strtotime("-{$reminder_days} days"));
 
         $criteria = [
@@ -785,7 +786,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
         // Cloisonnement client (affichage) : entité de l'envoi, figée à sa création.
         $criteria['WHERE'][] = getEntitiesRestrictCriteria('e', '', '', true);
 
-        foreach ($DB->request($criteria) as $e) {
+        foreach ($late_shipments ? $DB->request($criteria) : [] as $e) {
             $days_since = !empty($e['date_shipped'])
                 ? max(0, (int)((time() - strtotime((string)$e['date_shipped'])) / 86400))
                 : 0;

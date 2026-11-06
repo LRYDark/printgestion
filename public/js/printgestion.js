@@ -572,7 +572,7 @@ window.pgOrderPreview = function (config) {
             body.append('ids[]', id);
         });
         new FormData(form).forEach(function (value, name) {
-            if (name.indexOf('pg_newcart[') === 0) {
+            if (name.indexOf('pg_newcart[') === 0 || name.indexOf('pg_location[') === 0) {
                 body.append(name, value);
             }
         });
@@ -608,7 +608,7 @@ window.pgOrderPreview = function (config) {
 
     function schedule(event) {
         var name = event.target && event.target.name ? event.target.name : '';
-        if (name.indexOf('pg_newcart[') !== 0) {
+        if (name.indexOf('pg_newcart[') !== 0 && name.indexOf('pg_location[') !== 0) {
             return;
         }
         confirmed = false;
@@ -619,9 +619,26 @@ window.pgOrderPreview = function (config) {
     }
     form.addEventListener('input', schedule);
     form.addEventListener('change', schedule);
+    // Listes natives de GLPI (select2) : leur changement passe par jQuery, que addEventListener ne voit pas.
+    if (window.jQuery) {
+        window.jQuery(form).on('change', 'select[name^="pg_location["]', schedule);
+    }
 
     button.addEventListener('click', function (event) {
         if (confirmed) {
+            return;
+        }
+        // Lieu de livraison à choisir (imprimante dont le lieu a des sous-lieux) : rien ne part sans lui.
+        var manque = [];
+        form.querySelectorAll('[data-pg-location-for]').forEach(function (ligne) {
+            var choix = ligne.querySelector('select');
+            if (!choix || !choix.value || choix.value === '0') {
+                manque.push(ligne.getAttribute('data-pg-location-for'));
+            }
+        });
+        if (manque.length > 0) {
+            event.preventDefault();
+            window.alert(config.messages.location.replace('%s', manque.join(', ')));
             return;
         }
         // Saisie pas encore contrôlée : on attend l'aperçu à jour, puis on rejoue le clic.
@@ -666,4 +683,266 @@ window.pgOrderPreview = function (config) {
         });
         confirmed = true;
     });
+};
+
+/**
+ * Graphique des cartouches d'une imprimante (PluginPrintgestionTonerchart), sur le modèle du graphique natif des
+ * compteurs de pages : mêmes menus (période, distribution) et même widget de tableau de bord, rendu par le serveur
+ * (Glpi\Dashboard\Widget::multipleAreas()) dans le cadre natif `div.dashboard.printer_barchart`.
+ *
+ * Le bouton est logé dans l'en-tête du tableau natif « Cartouche - Informations inventoriées », à droite. Le widget
+ * natif ne connaît que sa palette : une fois le graphique créé par son propre script, on y pose les couleurs des toners
+ * (noir clair sur fond sombre), l'échelle 0-100 %, les changements de cartouche (point daté) et un fond plein pour
+ * « Enregistrer l'image » (une image transparente perd ses courbes noires sur un fond sombre).
+ */
+window.pgTonerChart = function (config) {
+    'use strict';
+    var modal  = document.getElementById(config.modal);
+    var opener = document.getElementById(config.modal + '-open');
+    var slot   = document.getElementById(config.modal + '-slot');
+    if (!modal || !opener) {
+        return;
+    }
+
+    // Bouton dans l'en-tête du tableau natif « Cartouche - Informations inventoriées », s'il est là.
+    (function placeButton() {
+        var scope  = (slot && slot.parentElement) || document;
+        var wanted = String(config.header || '').trim().toLowerCase();
+        var header = null;
+        scope.querySelectorAll('thead th').forEach(function (th) {
+            if (!header && th.textContent.trim().toLowerCase() === wanted) {
+                header = th;
+            }
+        });
+        if (!header) {
+            return;
+        }
+        var line  = document.createElement('div');
+        line.className = 'd-flex align-items-center justify-content-between gap-2';
+        var label = document.createElement('span');
+        while (header.firstChild) {
+            label.appendChild(header.firstChild);
+        }
+        line.appendChild(label);
+        opener.style.textTransform = 'none';
+        opener.style.letterSpacing = 'normal';
+        line.appendChild(opener);
+        header.appendChild(line);
+        if (slot) {
+            slot.remove();
+        }
+    })();
+
+    // Fenêtre posée sous <body> : dans le contenu d'un onglet, un parent peut la rogner.
+    document.body.appendChild(modal);
+    var box    = modal.querySelector('[data-pg-chart]');
+    var status = modal.querySelector('[data-pg-chart-status]');
+    var list   = modal.querySelector('[data-pg-chart-changes]');
+    var state  = { period: config.period, format: config.format };
+    var seq    = 0;
+
+    function loadEcharts() {
+        if (window.echarts) {
+            return Promise.resolve();
+        }
+        if (!window.pgEchartsLoading) {
+            window.pgEchartsLoading = new Promise(function (resolve, reject) {
+                var script = document.createElement('script');
+                script.src = config.echarts;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        }
+        return window.pgEchartsLoading;
+    }
+
+    function element(tag, className, text) {
+        var node = document.createElement(tag);
+        if (className) {
+            node.className = className;
+        }
+        if (text !== undefined) {
+            node.textContent = text;
+        }
+        return node;
+    }
+
+    // Fond réel du widget (clair ou sombre selon le thème GLPI) : couleur de l'image enregistrée et du toner noir.
+    function background(node) {
+        var bg = node ? window.getComputedStyle(node).backgroundColor : '';
+        if (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
+            bg = window.getComputedStyle(modal.querySelector('.modal-content')).backgroundColor || '#ffffff';
+        }
+        var rgb = (bg.match(/\d+/g) || [255, 255, 255]).map(Number);
+        return { color: bg, dark: (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) < 110 };
+    }
+
+    // Le widget natif crée son graphique dans un script asynchrone : on attend l'instance.
+    function waitChart(chartId) {
+        return new Promise(function (resolve, reject) {
+            var tries = 0;
+            (function look() {
+                var node  = document.querySelector('#' + chartId + ' .chart');
+                var chart = node && window.echarts ? window.echarts.getInstanceByDom(node) : null;
+                if (chart) {
+                    resolve({ chart: chart, card: document.getElementById(chartId) });
+                } else if (++tries > 100) {
+                    reject(new Error('graphique'));
+                } else {
+                    window.setTimeout(look, 50);
+                }
+            })();
+        });
+    }
+
+    // Toner noir tracé en clair sur un fond sombre (courbe et pastilles).
+    function tonerColor(color, dark) {
+        return (dark && color === '#1f2328') ? '#e9ecef' : color;
+    }
+
+    function customize(chart, card, data) {
+        var bg = background(card);
+        chart.setOption({
+            // Légende à la couleur de texte du thème : le widget natif l'écrit en noir, illisible sur fond sombre.
+            legend: { textStyle: { color: window.getComputedStyle(card).color } },
+            yAxis: { min: 0, max: 100, axisLabel: { formatter: '{value} %' } },
+            tooltip: {
+                valueFormatter: function (value) {
+                    return value === null || value === undefined || value === '-' ? '—' : value + ' %';
+                }
+            },
+            toolbox: { feature: { saveAsImage: { backgroundColor: bg.color, name: config.filename + '-' + state.period } } },
+            series: data.series.map(function (serie) {
+                var color = tonerColor(serie.color, bg.dark);
+                return {
+                    color: color,
+                    smoothMonotone: 'x',
+                    markPoint: {
+                        symbol: 'circle',
+                        symbolSize: 12,
+                        itemStyle: { color: color, borderColor: bg.color, borderWidth: 2 },
+                        label: {
+                            show: true,
+                            position: 'top',
+                            distance: 8,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: color,
+                            formatter: function (point) {
+                                return '↻ ' + point.name;
+                            }
+                        },
+                        tooltip: {
+                            formatter: function (point) {
+                                var name = element('span', '', serie.name).outerHTML;
+                                return config.messages.changed + ' — ' + name + '<br>' + point.name;
+                            }
+                        },
+                        data: serie.marks.map(function (mark) {
+                            return { coord: [mark[0], mark[1]], value: mark[1], name: mark[2] };
+                        })
+                    }
+                };
+            })
+        });
+    }
+
+    function renderChanges(data, dark) {
+        list.textContent = '';
+        var card   = element('div', 'card');
+        var header = element('div', 'card-header');
+        header.appendChild(element('h4', 'card-title mb-0', config.messages.changes));
+        card.appendChild(header);
+        if (data.changes.length === 0) {
+            card.appendChild(element('div', 'card-body text-secondary', config.messages.none));
+            list.appendChild(card);
+            return;
+        }
+        var table = element('table', 'table card-table table-vcenter mb-0');
+        var head  = table.createTHead().insertRow();
+        [config.messages.date, config.messages.toner, config.messages.change].forEach(function (label) {
+            head.appendChild(element('th', '', label));
+        });
+        var body = table.createTBody();
+        data.changes.forEach(function (change) {
+            var line  = body.insertRow();
+            line.appendChild(element('td', '', change.date));
+            var toner = element('td', '');
+            var dot   = element('span', 'rounded-circle d-inline-block me-2');
+            dot.style.cssText = 'width:.6rem;height:.6rem;background:' + tonerColor(change.color, dark);
+            toner.appendChild(dot);
+            toner.appendChild(document.createTextNode(change.name + (change.cartridge ? ' — ' + change.cartridge : '')));
+            line.appendChild(toner);
+            line.appendChild(element('td', '', change.from + ' % → ' + change.to + ' %'));
+        });
+        card.appendChild(table);
+        list.appendChild(card);
+    }
+
+    function message(text, isError) {
+        box.textContent = '';
+        list.textContent = '';
+        status.textContent = '';
+        box.appendChild(element('div', 'alert ' + (isError ? 'alert-danger' : 'alert-info') + ' mt-2 mb-0', text));
+    }
+
+    function refresh() {
+        var mine = ++seq;
+        status.textContent = config.messages.loading;
+        var url  = config.url + '?printers_id=' + encodeURIComponent(config.printer)
+            + '&period=' + encodeURIComponent(state.period) + '&format=' + encodeURIComponent(state.format);
+        var data = fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (reponse) {
+                return reponse.json();
+            });
+        Promise.all([loadEcharts(), data])
+            .then(function (results) {
+                var donnees = results[1];
+                if (mine !== seq) {
+                    return null;
+                }
+                if (!donnees || donnees.ok !== true) {
+                    throw new Error('relevés');
+                }
+                if (!donnees.html) {
+                    message(config.messages.empty, false);
+                    return null;
+                }
+                // Widget natif et son script (jQuery exécute le script du widget, comme dans l'onglet des compteurs).
+                window.jQuery(box).html(donnees.html);
+                return waitChart(donnees.chart_id).then(function (found) {
+                    if (mine !== seq) {
+                        return;
+                    }
+                    customize(found.chart, found.card, donnees);
+                    status.textContent = config.messages.summary
+                        .replace('%1$d', String(donnees.count))
+                        .replace('%2$s', donnees.from)
+                        .replace('%3$s', donnees.to);
+                    renderChanges(donnees, background(found.card).dark);
+                });
+            })
+            .catch(function () {
+                if (mine === seq) {
+                    message(config.messages.error, true);
+                }
+            });
+    }
+
+    // Menus « période » et « distribution », au balisage du graphique natif des compteurs de pages.
+    modal.querySelectorAll('[data-pg-select]').forEach(function (select) {
+        select.querySelectorAll('.dropdown-item[data-key]').forEach(function (item) {
+            item.addEventListener('click', function () {
+                select.querySelectorAll('.dropdown-item').forEach(function (other) {
+                    other.classList.toggle('active', other === item);
+                });
+                select.querySelector('[data-pg-select-label]').textContent = item.textContent;
+                state[select.getAttribute('data-pg-select')] = item.getAttribute('data-key');
+                refresh();
+            });
+        });
+    });
+    // Tracé à l'ouverture : la zone doit être visible pour que le graphique prenne sa taille.
+    modal.addEventListener('shown.bs.modal', refresh);
 };

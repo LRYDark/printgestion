@@ -105,10 +105,14 @@ class PluginPrintgestionDashboard extends CommonGLPI {
             ['url' => self::cardUrl('soon'), 'count' => $s['soon'],
              'label' => sprintf(__('Bientôt expirés (%d mois)', 'printgestion'), self::SOON_MONTHS),
              'icon' => 'ti ti-clock', 'color' => 'azure'],
-            // Pas de lien : la liste porte sur les contrats, pas les imprimantes.
+            // Liste native des imprimantes, filtrée sur « Nombre de contrats » > 0 (option 139 de GLPI).
             ['count' => $s['printers'],
              'label' => _n('Imprimante sous contrat', 'Imprimantes sous contrat', $s['printers'], 'printgestion'),
-             'icon' => 'ti ti-printer', 'color' => 'secondary'],
+             'icon' => 'ti ti-printer', 'color' => 'secondary',
+             'url'  => Printer::getSearchURL() . '?' . http_build_query([
+                 'criteria' => [['field' => 139, 'searchtype' => 'contains', 'value' => '>0']],
+                 'reset'    => 'reset',
+             ])],
         ], 'printgestionContractStatsBar');
     }
 

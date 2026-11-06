@@ -364,13 +364,15 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
             case 'pg_order':
                 // Avant le clic : ce qui ne pourra pas être commandé, et ce qui mérite d'être vu (décompte, liste).
                 $ids     = array_map('intval', array_values($ma->getItems()[self::class] ?? []));
-                $items   = self::getOrderItems($ids);
+                // Lieu de livraison proposé : dernier sous-lieu choisi pour l'imprimante, sinon rien (choix obligatoire).
+                $items   = self::getOrderItems($ids, self::getDefaultLocations(self::getOrderItems($ids)));
                 $preview = self::renderOrderPreview($items, []);
                 $rand    = mt_rand();
                 $flags   = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE;
-                // Bloc recalculé en direct pendant la saisie d'une référence (ajax/order_preview.php).
+                // Bloc recalculé en direct pendant la saisie d'une référence ou le choix d'un lieu (ajax/order_preview.php).
                 // Fenêtre native centrée (classe « center ») : le contenu de la commande se lit aligné à gauche.
                 echo "<div class='text-start'>";
+                echo self::renderLocationChoice($items);
                 echo "<div id='pg-order-preview-{$rand}'>" . $preview['html'] . "</div>";
                 // Toner sans cartouche liée : sa référence se saisit ici, la cartouche est créée à l'envoi.
                 echo PluginPrintgestionCartridgesnmp::renderQuickLink(PluginPrintgestionCartridgesnmp::getMissingReferences($items));
@@ -379,7 +381,7 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
                 echo "<div class='border rounded px-3 py-2 mb-3'>";
                 foreach ([
                     'send_planif'       => ['pg-ma-planif', 'ti ti-truck', __('Prévenir la planification (logistique)', 'printgestion')],
-                    'send_courtesy'     => ['pg-ma-courtesy', 'ti ti-mail', __('Mail de courtoisie au client (usager renseigné sur la fiche imprimante uniquement)', 'printgestion')],
+                    'send_courtesy'     => ['pg-ma-courtesy', 'ti ti-mail', __('Mail de courtoisie au client (mails du lieu de livraison, sinon utilisateur de la fiche imprimante, sinon messagerie de l\'entité)', 'printgestion')],
                     'download_gesconso' => ['pg-ma-download', 'ti ti-file-spreadsheet', __('Télécharger le fichier Gesconso envoyé aux Achats', 'printgestion')],
                 ] as $name => [$id, $icon, $label]) {
                     echo "<div class='form-check my-1'><input type='checkbox' class='form-check-input' name='{$name}' value='1' id='{$id}'>"
@@ -395,6 +397,7 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
                     'blocked'  => (object) $preview['blocked'],
                     'total'    => $preview['total'],
                     'messages' => [
+                        'location' => __('Choisissez le lieu de livraison de : %s', 'printgestion'),
                         'none'    => __('Aucune cartouche ne peut être commandée : corrigez les lignes en rouge avant d\'envoyer.', 'printgestion'),
                         'head'    => __('Ces cartouches ne peuvent pas être écrites dans le fichier Gesconso et ne seront PAS commandées :', 'printgestion'),
                         'confirm' => __('Envoyer quand même la commande des %d autre(s) cartouche(s) ?', 'printgestion'),
@@ -415,16 +418,120 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
         return parent::showMassiveActionsSubForm($ma);
     }
 
-    /** Lignes cochées à commander, réduites au périmètre de l'utilisateur : [['printers_id', 'property']]. */
-    public static function getOrderItems(array $ids): array {
+    /**
+     * Lignes cochées à commander, réduites au périmètre de l'utilisateur : [['printers_id', 'property', 'locations_id']].
+     *
+     * @param array $locations printers_id => lieu de livraison choisi (0 ou absent : aucun choix)
+     */
+    public static function getOrderItems(array $ids, array $locations = []): array {
         $items = [];
         foreach ($ids as $id) {
             $row = new self();
             if ($row->getFromDB((int) $id) && PluginPrintgestionSecurity::canAccessPrinter((int) $row->fields['printers_id'])) {
-                $items[] = ['printers_id' => (int) $row->fields['printers_id'], 'property' => (string) $row->fields['toner_property']];
+                $printers_id = (int) $row->fields['printers_id'];
+                $items[] = [
+                    'printers_id'  => $printers_id,
+                    'property'     => (string) $row->fields['toner_property'],
+                    'locations_id' => max(0, (int) ($locations[$printers_id] ?? 0)),
+                ];
             }
         }
         return $items;
+    }
+
+    /**
+     * Imprimantes de la commande dont le lieu a des sous-lieux : c'est pour elles que le lieu de livraison se choisit.
+     *
+     * @return array printers_id => ['name' => string, 'locations_id' => lieu de l'imprimante, 'entities_id' => int]
+     */
+    public static function getPrintersToLocate(array $items): array {
+        $out = [];
+        foreach ($items as $item) {
+            $printers_id = (int) $item['printers_id'];
+            if (isset($out[$printers_id])) {
+                continue;
+            }
+            $printer = new Printer();
+            if (!$printer->getFromDB($printers_id)) {
+                continue;
+            }
+            $locations_id = (int) $printer->fields['locations_id'];
+            if (!empty(PluginPrintgestionDeliverylocation::subLocations($locations_id))) {
+                $out[$printers_id] = [
+                    'name'         => (string) $printer->fields['name'],
+                    'locations_id' => $locations_id,
+                    'entities_id'  => (int) $printer->fields['entities_id'],
+                ];
+            }
+        }
+        return $out;
+    }
+
+    /** Lieux proposés d'office : le dernier sous-lieu choisi pour chaque imprimante qui en a (printers_id => locations_id). */
+    public static function getDefaultLocations(array $items): array {
+        $out = [];
+        foreach (self::getPrintersToLocate($items) as $printers_id => $printer) {
+            $last = PluginPrintgestionExpedition::getLastDeliveryLocation($printers_id, $printer['locations_id']);
+            if ($last > 0) {
+                $out[$printers_id] = $last;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Choix du lieu de livraison, une ligne par imprimante dont le lieu a des sous-lieux : liste native des lieux
+     * (Location::dropdown), réduite au lieu de l'imprimante et à tous ses sous-lieux. Rien pour les autres
+     * imprimantes : elles sont livrées à leur lieu.
+     */
+    public static function renderLocationChoice(array $items): string {
+        $printers = self::getPrintersToLocate($items);
+        if (empty($printers)) {
+            return '';
+        }
+        $esc    = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $chosen = [];
+        foreach ($items as $item) {
+            $chosen[(int) $item['printers_id']] = (int) ($item['locations_id'] ?? 0);
+        }
+        $html = "<div class='border rounded px-3 py-2 mb-3'><div class='fw-bold mb-1'><i class='ti ti-map-pin me-1'></i>"
+            . $esc(__('Lieu de livraison', 'printgestion')) . "</div><div class='text-muted small mb-2'>"
+            . $esc(__('Ces imprimantes ont des sous-lieux (étages, services…) : choisissez où livrer. Le lieu choisi donne l\'adresse de livraison Sage et le contact du mail de courtoisie ; il est proposé à la commande suivante.', 'printgestion'))
+            . "</div>";
+        foreach ($printers as $printers_id => $printer) {
+            $html .= "<div class='row g-2 align-items-center mb-1' data-pg-location-for='" . $esc($printer['name']) . "'>"
+                . "<div class='col-sm-4 text-truncate'>" . $esc($printer['name']) . "</div><div class='col-sm-8'>"
+                . Location::dropdown([
+                    'name'                => 'pg_location[' . $printers_id . ']',
+                    'value'               => $chosen[$printers_id] ?? 0,
+                    'condition'           => ['glpi_locations.id' => array_merge([$printer['locations_id']], PluginPrintgestionDeliverylocation::subLocations($printer['locations_id']))],
+                    'display_emptychoice' => true,
+                    'emptylabel'          => __('— Choisir le lieu de livraison —', 'printgestion'),
+                    'width'               => '100%',
+                    'display'             => false,
+                ])
+                . "</div></div>";
+        }
+        return $html . "</div>";
+    }
+
+    /**
+     * Imprimantes dont le lieu de livraison reste à choisir : lieu à sous-lieux, et aucun lieu choisi sous le sien.
+     *
+     * @return string[] noms des imprimantes
+     */
+    public static function getMissingLocations(array $items): array {
+        $missing = [];
+        $chosen  = [];
+        foreach ($items as $item) {
+            $chosen[(int) $item['printers_id']] = (int) ($item['locations_id'] ?? 0);
+        }
+        foreach (self::getPrintersToLocate($items) as $printers_id => $printer) {
+            if (!PluginPrintgestionDeliverylocation::isWithin($chosen[$printers_id] ?? 0, $printer['locations_id'])) {
+                $missing[] = $printer['name'];
+            }
+        }
+        return $missing;
     }
 
     /**
@@ -475,10 +582,73 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
         }
 
         return [
-            'html'    => $html . PluginPrintgestionGesconso::renderNoticesSummary($preview['notices'], 'pg-order-notices'),
+            'html'    => $html . self::renderDeliverySummary($items)
+                . PluginPrintgestionGesconso::renderNoticesSummary($preview['notices'], 'pg-order-notices'),
             'blocked' => array_map(static fn(array $messages) => (string) reset($messages), $blocked),
             'total'   => $total,
         ];
+    }
+
+    /**
+     * Où part chaque imprimante, avant le clic : lieu de livraison, intitulé Sage (et d'où il vient), adresses du mail
+     * de courtoisie (et d'où elles viennent). Un lieu encore à choisir est en rouge.
+     */
+    public static function renderDeliverySummary(array $items): string {
+        $esc     = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $missing = array_flip(self::getMissingLocations($items));
+        $lines   = [];
+        $seen    = [];
+        foreach ($items as $item) {
+            $printers_id = (int) $item['printers_id'];
+            if (isset($seen[$printers_id])) {
+                continue;
+            }
+            $seen[$printers_id] = true;
+            $printer = new Printer();
+            if (!$printer->getFromDB($printers_id)) {
+                continue;
+            }
+            $name = (string) $printer->fields['name'];
+            if (isset($missing[$name])) {
+                $lines[] = "<li class='text-danger'><strong>" . $esc($name) . '</strong> : '
+                    . $esc(__('lieu de livraison à choisir ci-dessus.', 'printgestion')) . '</li>';
+                continue;
+            }
+            $entities_id = (int) $printer->fields['entities_id'];
+            $delivery_id = PluginPrintgestionDeliverylocation::resolveForPrinter((int) $printer->fields['locations_id'], (int) ($item['locations_id'] ?? 0));
+            $delivery    = PluginPrintgestionDeliverylocation::describe($delivery_id, $entities_id);
+            $rule        = PluginPrintgestionSage::describeRule($entities_id, $delivery);
+            $courtesy    = PluginPrintgestionExpedition::resolveCourtesyRecipients($printers_id, $delivery_id);
+
+            $parts   = [$delivery['completename'] !== ''
+                ? sprintf(__('livraison « %s »', 'printgestion'), $delivery['completename'])
+                : __('imprimante sans lieu', 'printgestion')];
+            $parts[] = $rule['label'] === ''
+                ? __('intitulé Sage absent', 'printgestion')
+                : sprintf(
+                    $rule['label_source'] === 'location' ? __('intitulé Sage « %1$s » (code du lieu « %2$s »)', 'printgestion') : __('intitulé Sage « %1$s » (commentaires de l\'entité)', 'printgestion'),
+                    $rule['label'],
+                    $rule['label_location']
+                );
+            $sources = [
+                'location' => __('commentaire du lieu « %s »', 'printgestion'),
+                'user'     => __('utilisateur %s', 'printgestion'),
+                'entity'   => __('messagerie de l\'entité « %s »', 'printgestion'),
+            ];
+            $parts[] = empty($courtesy['recipients'])
+                ? __('courtoisie : aucune adresse', 'printgestion')
+                : sprintf(
+                    __('courtoisie : %1$s (%2$s)', 'printgestion'),
+                    implode(', ', array_column($courtesy['recipients'], 'email')),
+                    sprintf($sources[$courtesy['source']], $courtesy['from'])
+                );
+            $lines[] = '<li><strong>' . $esc($name) . '</strong> : ' . $esc(implode(' · ', $parts)) . '</li>';
+        }
+        if (empty($lines)) {
+            return '';
+        }
+        return "<div class='alert alert-info py-2'><div class='w-100'><div class='fw-bold'><i class='ti ti-map-pin me-1'></i>"
+            . $esc(__('Livraison et courtoisie', 'printgestion')) . "</div><ul class='small mb-0'>" . implode('', $lines) . '</ul></div></div>';
     }
 
     static function processMassiveActionsForOneItemtype(MassiveAction $ma, CommonDBTM $item, array $ids) {
@@ -532,6 +702,8 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
         // Lignes que Gesconso ne pouvait pas recevoir, retirées sur confirmation au clic : ni commandées ni enregistrées.
         $exclude  = array_flip(array_map('strval', (array) ($input['pg_exclude'] ?? [])));
         $excluded = [];
+        // Lieu de livraison choisi par imprimante (liste du sous-formulaire), revérifié par Expedition::buildPurchaseRowData().
+        $locations = array_map('intval', (array) ($input['pg_location'] ?? []));
 
         foreach ($ids as $id) {
             if (!Session::haveRight('plugin_printgestion_validation', UPDATE)
@@ -546,10 +718,11 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
                 continue;
             }
             $items[] = [
-                'printers_id' => (int) $item->fields['printers_id'],
-                'property'    => (string) $item->fields['toner_property'],
-                'level'       => (int) $item->fields['level_percent'],
-                'days'        => $item->fields['days_remaining'] !== null ? (int) $item->fields['days_remaining'] : null,
+                'printers_id'  => (int) $item->fields['printers_id'],
+                'property'     => (string) $item->fields['toner_property'],
+                'level'        => (int) $item->fields['level_percent'],
+                'days'         => $item->fields['days_remaining'] !== null ? (int) $item->fields['days_remaining'] : null,
+                'locations_id' => max(0, $locations[(int) $item->fields['printers_id']] ?? 0),
             ];
             $ordered_ids[] = $id;
             $printer_ids[(int) $item->fields['printers_id']] = (int) $item->fields['printers_id'];
@@ -561,6 +734,18 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
             ), ENT_QUOTES, 'UTF-8'));
         }
         if (empty($items)) {
+            return;
+        }
+        // Lieu de livraison obligatoire pour une imprimante dont le lieu a des sous-lieux : jamais livrée au hasard.
+        $missing = self::getMissingLocations($items);
+        if (!empty($missing)) {
+            $ma->addMessage(htmlspecialchars(sprintf(
+                __('Commande non envoyée : lieu de livraison à choisir pour %s. Rien n\'a été enregistré.', 'printgestion'),
+                implode(', ', $missing)
+            ), ENT_QUOTES, 'UTF-8'));
+            foreach ($ordered_ids as $id) {
+                $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_KO);
+            }
             return;
         }
 

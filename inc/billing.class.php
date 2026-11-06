@@ -80,8 +80,11 @@ class PluginPrintgestionBilling extends CommonDBTM {
                 continue;
             }
 
-            $rates        = $rates_by_contract[$contracts_id]
-                ??= PluginPrintgestionContractrate::getRatesForContract($contracts_id);
+            // Tarif de l'imprimante s'il en a un (type par type), sinon celui du contrat, lu une fois par contrat.
+            $rates        = PluginPrintgestionPrinterrate::getRatesForPrinter(
+                $printers_id,
+                $rates_by_contract[$contracts_id] ??= PluginPrintgestionContractrate::getRatesForContract($contracts_id)
+            );
             $counters     = PluginPrintgestionPrinterCostsTab::getCountersForPeriod($printers_id, $start, $end);
 
             $delta_nb    = max(0, $counters['end_nb']    - $counters['start_nb']);

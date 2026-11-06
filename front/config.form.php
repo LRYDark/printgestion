@@ -119,6 +119,9 @@ if (isset($_POST['activate_contract_alerts'])) {
 } elseif (isset($_POST['update'])) {
     // Validation CSRF faite par CheckCsrfListener (kernel Symfony) avant ce fichier.
 
+    // Colonne de l'interrupteur « toujours pas changée » assurée et relue avant l'enregistrement : update() ne garde
+    // que les champs connus de l'objet.
+    PluginPrintgestionConfig::isInstallReminderEnabled();
     $config = PluginPrintgestionConfig::getInstance();
 
     // Helper : normalise une liste d'IDs users GLPI (depuis User::dropdown multi)
@@ -149,6 +152,7 @@ if (isset($_POST['activate_contract_alerts'])) {
         'threshold_days'         => max(0, (int)($_POST['threshold_days']  ?? 30)),
         'threshold_level'        => max(0, min(100, (int)($_POST['threshold_level'] ?? 15))),
         'reminder_days'          => max(1, (int)($_POST['reminder_days']   ?? 7)),
+        'install_reminder'       => ((int)($_POST['install_reminder'] ?? 1) === 1) ? 1 : 0,
         'detection_delta'        => max(1, min(100, (int)($_POST['detection_delta'] ?? 20))),
         'wrong_printer_lookback_days'      => max(1, (int)($_POST['wrong_printer_lookback_days'] ?? 30)),
         'group_planif'           => (int)($_POST['group_planif']     ?? 0) ?: null,

@@ -66,12 +66,23 @@ $counts = $DB->request([
     'WHERE'  => getEntitiesRestrictCriteria($table, '', '', false),
 ])->current();
 
-$status_url = static function (string $status) use ($page): string {
-    return $page . '?' . http_build_query([
-        'criteria' => [['field' => 6, 'searchtype' => 'equals', 'value' => $status]],
-        'reset'    => 'reset',
-    ]);
+// Vignettes = filtres du tableau, avec les critères natifs de la recherche GLPI (mêmes conditions que les décomptes).
+$filter_url = static function (array $criteria) use ($page): string {
+    return $page . '?' . http_build_query(['criteria' => $criteria, 'reset' => 'reset']);
 };
+$status_url = static fn(string $status): string => $filter_url([['field' => 6, 'searchtype' => 'equals', 'value' => $status]]);
+$in_alert   = ['field' => 6, 'searchtype' => 'notequals', 'value' => PluginPrintgestionAlert::STATUS_OK];
+// Verrouillés : en alerte, verrou bloquant (tout motif sauf le contournement, qui reste commandable).
+$lock_group = [];
+foreach (array_keys(PluginPrintgestionAlertview::getLockLabels()) as $reason) {
+    if ($reason !== 'bypassed') {
+        $lock_group[] = ['link' => empty($lock_group) ? 'AND' : 'OR', 'field' => 11, 'searchtype' => 'equals', 'value' => $reason];
+    }
+}
+$locked_url     = $filter_url([$in_alert, ['link' => 'AND', 'criteria' => $lock_group]]);
+$unresolved_url = $filter_url([$in_alert, ['link' => 'AND', 'field' => 13, 'searchtype' => 'notcontains', 'value' => 'NULL']]);
+$suspect_url    = $filter_url([['field' => 15, 'searchtype' => 'equals', 'value' => 1]]);
+$guard_days     = (int) (PluginPrintgestionConfig::getInstance()->fields['guard_days'] ?? 5);
 
 // Collecte : une imprimante muette ne déclenche aucune alerte — à signaler ici aussi. Décompte lu dans la vue
 // calculée par la tâche horaire (mêmes états, même périmètre) ; l'analyse complète, longue, seulement si la vue
@@ -114,14 +125,17 @@ PluginPrintgestionUi::statsBar([
     ['count' => (int) ($counts['watch'] ?? 0), 'label' => __('À surveiller', 'printgestion'),
      'icon' => 'ti ti-eye', 'color' => 'orange', 'url' => $status_url(PluginPrintgestionAlert::STATUS_WATCH)],
     ['count' => (int) ($counts['locked'] ?? 0), 'label' => __('En alerte mais verrouillés', 'printgestion'),
-     'tooltip' => __('Envoi ou demande en cours, garde après pose ou ticket récent : non commandables (colonne Verrou)', 'printgestion'),
-     'icon' => 'ti ti-lock', 'color' => 'secondary'],
+     'tooltip' => sprintf(
+         __('Toners en alerte qu\'on ne peut pas commander pour l\'instant, pour éviter un double envoi : un envoi ou une demande d\'envoi est déjà en cours, une cartouche vient d\'être posée (garde de %d jour(s) après la pose), ou un ticket récent existe sur l\'imprimante. Le motif est dans la colonne « Verrou ».', 'printgestion'),
+         $guard_days
+     ),
+     'icon' => 'ti ti-lock', 'color' => 'secondary', 'url' => $locked_url],
     ['count' => (int) ($counts['unresolved'] ?? 0), 'label' => __('Sans référence', 'printgestion'),
      'tooltip' => __('Toners en alerte dont la cartouche n\'est pas résolue : non commandables (colonne Référence non résolue)', 'printgestion'),
-     'icon' => 'ti ti-help-hexagon', 'color' => 'purple'],
+     'icon' => 'ti ti-help-hexagon', 'color' => 'purple', 'url' => $unresolved_url],
     ['count' => (int) ($counts['suspect'] ?? 0), 'label' => __('Niveaux figés suspects', 'printgestion'),
      'tooltip' => __('Niveau inchangé alors que l\'imprimante imprime : estimation approximative', 'printgestion'),
-     'icon' => 'ti ti-snowflake', 'color' => 'azure'],
+     'icon' => 'ti ti-snowflake', 'color' => 'azure', 'url' => $suspect_url],
     ['count' => $silent, 'label' => __('Imprimantes muettes ou illisibles', 'printgestion'),
      'tooltip' => __('Aucune alerte possible sans remontée : voir « Imprimantes collectées » (module Collecte SNMP / Déploiement Agent)', 'printgestion'),
      'icon' => 'ti ti-wifi-off', 'color' => 'dark',

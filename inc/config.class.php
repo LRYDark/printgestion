@@ -66,6 +66,22 @@ class PluginPrintgestionConfig extends CommonDBTM {
         return self::$_instance;
     }
 
+    /**
+     * Alerte « cartouche envoyée mais toujours pas changée » (expédiée ou livrée, pose non détectée après le délai de
+     * rappel) : son alerte dans l'onglet Alertes et le mail de rappel. Allumée par défaut, comme avant l'interrupteur ;
+     * colonne ajoutée au premier besoin (PluginPrintgestionSchema::hasColumn()).
+     */
+    public static function isInstallReminderEnabled(): bool {
+        if (!PluginPrintgestionSchema::hasColumn(self::getTable(), 'install_reminder', 'tinyint NOT NULL DEFAULT 1')) {
+            return true;
+        }
+        $cfg = self::getInstance();
+        if (!array_key_exists('install_reminder', $cfg->fields) && !$cfg->isNewItem()) {
+            $cfg->getFromDB((int) $cfg->getID()); // instance lue avant l'ajout de la colonne
+        }
+        return (int) ($cfg->fields['install_reminder'] ?? 1) === 1;
+    }
+
     static function getTypeName($nb = 0) {
         return __('Print Gestion', 'printgestion');
     }
@@ -293,6 +309,16 @@ class PluginPrintgestionConfig extends CommonDBTM {
             );
         echo "<input type='number' min='1' class='form-control' name='reminder_days' value='"
             . max(1, (int)($config->fields['reminder_days'] ?? 7)) . "'></div>";
+
+        echo "<div class='col-md-3'>"
+            . $label_with_tip(
+                __('Alerte « toujours pas changée »', 'printgestion'),
+                __("Cartouche expédiée ou livrée dont la pose n'est pas détectée après le délai de rappel : alerte dans l'onglet Alertes et mail de rappel. Éteint : ni alerte ni mail de rappel.", 'printgestion')
+            );
+        echo "<div class='form-check form-switch mt-2'><input type='hidden' name='install_reminder' value='0'>"
+            . "<input type='checkbox' class='form-check-input' role='switch' id='pg-install-reminder' name='install_reminder' value='1'"
+            . (PluginPrintgestionConfig::isInstallReminderEnabled() ? ' checked' : '') . ">"
+            . "<label class='form-check-label' for='pg-install-reminder'>" . __('Activée', 'printgestion') . "</label></div></div>";
 
         echo "<div class='col-md-3'>"
             . $label_with_tip(

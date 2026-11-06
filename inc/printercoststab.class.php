@@ -51,6 +51,37 @@ class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
             && $printer->canViewItem();
     }
 
+    /**
+     * Tarif propre à l'imprimante (PluginPrintgestionPrinterrate) : prioritaire sur celui du contrat, type par type ;
+     * un champ vide garde le tarif du contrat. Formulaire pour qui peut modifier les tarifs et l'imprimante.
+     */
+    private static function showRateForm(Printer $printer): void {
+        if (!PluginPrintgestionPrinterrate::canEditFor($printer)) {
+            return;
+        }
+        $esc      = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+        $own      = PluginPrintgestionPrinterrate::getOverride((int) $printer->getID());
+        $contract = PluginPrintgestionContractrate::getRatesForContract(PluginPrintgestionContractrate::getContractIdForPrinter((int) $printer->getID()));
+        $value    = static fn(?float $rate) => $rate === null ? '' : rtrim(rtrim(number_format($rate, 6, ',', ''), '0'), ',');
+
+        echo "<form method='post' action='" . $esc(PLUGIN_PRINTGESTION_WEBDIR . '/front/printerrate.form.php') . "' class='border-top pt-3 mt-3'>";
+        echo "<div class='fw-bold mb-1'><i class='ti ti-coin me-1'></i>" . $esc(__('Tarif propre à cette imprimante', 'printgestion')) . "</div>";
+        echo "<p class='text-muted small mb-2'>" . $esc(sprintf(
+            __('Prioritaire sur le tarif du contrat (N&B %1$s €/page, couleur %2$s €/page). Laisser un champ vide pour garder le tarif du contrat.', 'printgestion'),
+            number_format((float) $contract['nb'], 6, ',', ' '),
+            number_format((float) $contract['color'], 6, ',', ' ')
+        )) . "</p><div class='row g-2 align-items-end'>";
+        foreach (['rate_nb' => [__('Tarif N&B (€/page)', 'printgestion'), $own['nb']], 'rate_color' => [__('Tarif Couleur (€/page)', 'printgestion'), $own['color']]] as $name => [$label, $rate]) {
+            echo "<div class='col-md-3'><label class='form-label'>" . $esc($label) . "</label>"
+                . "<input type='text' inputmode='decimal' class='form-control' name='{$name}' value='" . $esc($value($rate)) . "'"
+                . " placeholder='" . $esc(__('tarif du contrat', 'printgestion')) . "'></div>";
+        }
+        echo "<div class='col-md-3'>" . Html::hidden('printers_id', ['value' => (int) $printer->getID()])
+            . "<button type='submit' name='save_rate' value='1' class='btn btn-primary'><i class='ti ti-device-floppy me-1'></i>"
+            . $esc(__('Enregistrer', 'printgestion')) . "</button></div></div>";
+        Html::closeForm();
+    }
+
     static function showCostTab(Printer $printer) {
         $printers_id = (int)$printer->getID();
 
@@ -81,7 +112,7 @@ class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
 
         // Contrat lié + tarifs
         $contracts_id = PluginPrintgestionContractrate::getContractIdForPrinter($printers_id);
-        $rates        = PluginPrintgestionContractrate::getRatesForContract($contracts_id);
+        $rates        = PluginPrintgestionPrinterrate::getRatesForPrinter($printers_id, PluginPrintgestionContractrate::getRatesForContract($contracts_id));
 
         $contract_name = '—';
         if ($contracts_id > 0) {
@@ -143,8 +174,11 @@ class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
         ];
         $entries = [
             $line(__('Contrat lié', 'printgestion'), 'contract_name', $esc($contract_name)),
-            $line(__('Tarif N&B', 'printgestion'), 'rate_nb', number_format($rates['nb'], 6, ',', ' ') . " €/page"),
-            $line(__('Tarif Couleur', 'printgestion'), 'rate_color', number_format($rates['color'], 6, ',', ' ') . " €/page"),
+            // D'où vient chaque tarif : celui de l'imprimante, sinon celui du contrat (PluginPrintgestionPrinterrate).
+            $line($rates['nb_own'] ? __('Tarif N&B (propre à l\'imprimante)', 'printgestion') : __('Tarif N&B (contrat)', 'printgestion'),
+                'rate_nb', number_format($rates['nb'], 6, ',', ' ') . " €/page"),
+            $line($rates['color_own'] ? __('Tarif Couleur (propre à l\'imprimante)', 'printgestion') : __('Tarif Couleur (contrat)', 'printgestion'),
+                'rate_color', number_format($rates['color'], 6, ',', ' ') . " €/page"),
             $line(__('Compteur N&B début → fin', 'printgestion'), 'counter_nb',
                 number_format($counters['start_nb'], 0, '', ' ') . " → "
                 . number_format($counters['end_nb'], 0, '', ' ')
@@ -165,6 +199,7 @@ class PluginPrintgestionPrinterCostsTab extends CommonGLPI {
             false,
             ['datatable_id' => "{$uid}-table", 'no_header' => true]
         );
+        self::showRateForm($printer);
         echo "</div></div>";
 
         // JS : toggle dates selon période + submit AJAX + restauration sessionStorage

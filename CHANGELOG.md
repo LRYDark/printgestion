@@ -4,6 +4,68 @@
 
 **Après la mise à jour : cliquer « Mettre à jour » dans Configuration → Plugins.**
 
+### Ajouts du 06/11/2026 (release republiée, même version)
+
+Aucun « Mettre à jour » de plus : les nouvelles colonnes (lieu de livraison des expéditions et des lignes de demande,
+interrupteur de rappel) et la table des tarifs d'imprimante se créent d'elles-mêmes au premier besoin, version du
+schéma inchangée.
+
+- **Le lieu de l'imprimante devient le lieu de livraison, et décide de l'adresse Sage, du complément et de la
+  courtoisie.** Un client Sage a plusieurs adresses de livraison, une par lieu ou sous-lieu : deux imprimantes au
+  même 193 rue, l'une à l'étage 1 et l'autre à l'étage 3, ont deux contacts différents. Le plugin lit le lieu de
+  livraison puis ses parents jusqu'à la racine, et le premier lieu qui porte l'information l'emporte :
+  - **intitulé de livraison** (colonne C du fichier Gesconso) : champ natif « Code » du lieu ; aucun lieu n'en porte
+    → commentaires de l'entité, comme avant ;
+  - **complément de livraison** (colonne I, commande directe) : commentaire du lieu, **adresses mail retirées**, sur
+    une ligne (les noms et téléphones restent) ;
+  - **mail de courtoisie** : toutes les adresses trouvées dans le commentaire du lieu (il peut porter des contacts
+    complets — noms, téléphones, plusieurs personnes : seules les adresses sont prises) ; aucune → utilisateur de la
+    fiche imprimante → adresse de messagerie de l'entité (ou d'un parent jusqu'à celle qui porte le code client).
+    Avant, seul l'utilisateur de la fiche imprimante recevait la courtoisie : une imprimante sans utilisateur n'en
+    avait aucune, elle part désormais à la messagerie de l'entité si elle en a une.
+
+  Seuls les lieux du client sont lus : un lieu rattaché à une entité au-dessus du client (racine, regroupement
+  partagé) est sauté et signalé, pour ne jamais envoyer la cartouche ou la courtoisie d'un client chez un autre. Le
+  rapport d'écarts de l'import des adresses Sage signale aussi les lieux dont le « Code » n'est pas une adresse de
+  leur client.
+- **Choix du sous-lieu à la commande.** Dans « Commander » (alertes toner) et sur les lignes d'une demande d'envoi,
+  une liste native des lieux apparaît pour chaque imprimante dont le lieu a des sous-lieux (tous les niveaux) ; sans
+  sous-lieu, pas de liste : livraison au lieu de l'imprimante. Le dernier sous-lieu choisi est proposé ; la première
+  fois, le choix est obligatoire (une livraison au lieu parent, enregistrée avant la création des étages, n'est pas
+  reprise d'office : elle ferait oublier l'étage). L'aperçu de la commande dit pour chaque imprimante où elle est
+  livrée, avec quel intitulé Sage, et à quelles adresses part la courtoisie (et d'où elles viennent). Le lieu choisi
+  est gardé sur chaque expédition, chaque ligne de demande et avec la commande.
+- **Interrupteur « Alerte toujours pas changée »** (Configuration → Print Gestion, à côté de « Délai rappel ») :
+  éteint, une cartouche expédiée ou livrée dont la pose n'est pas détectée ne donne plus ni alerte ni mail de rappel.
+  Allumé par défaut, comme avant.
+- **Onglet « Alertes »** dans le module toner, avec une pastille rouge du nombre d'alertes visible depuis tous ses
+  écrans : commandes non transmises aux Achats, mauvaise imprimante, livraison en retard, cartouche toujours pas
+  changée — chacune encadrée de rouge. Le bloc « Alertes prioritaires » quitte le haut de « Expéditions », et la carte
+  « Commandes non transmises » celui de « Expéditions », « Demandes d'envoi » et « Export » : les écrans de travail
+  ne sont plus surchargés.
+- **Graphique des cartouches** : bouton dans l'en-tête « Cartouche - Informations inventoriées » de l'onglet
+  « Cartouches » d'une imprimante. **Le même graphique que celui des compteurs de pages** de GLPI : mêmes menus
+  (période : 30 derniers jours, dernier trimestre, dernière année, depuis toujours ; distribution : dynamique,
+  journalière, hebdomadaire, mensuelle), même widget du tableau de bord (légende cliquable, aires, points, « voir les
+  données », « enregistrer l'image »), avec les couleurs des toners, l'échelle 0-100 % et chaque changement de
+  cartouche (remontée d'au moins « Delta détection cartouche » points) marqué de sa date et listé dessous. La tâche
+  n'enregistre un relevé que quand un niveau change : chaque toner est prolongé à son dernier niveau, tous les toners
+  ont une valeur à chaque date et aucune courbe ne s'arrête au dernier changement. Image enregistrée sur fond plein.
+  Les relevés de niveaux sont désormais gardés **400 jours** (160 avant).
+- **Vignettes cliquables** : « En alerte mais verrouillés », « Sans référence », « Niveaux figés suspects » (alertes
+  toner), les cinq statuts des expéditions et « Imprimantes sous contrat » (liste native des imprimantes ayant un
+  contrat) filtrent maintenant le tableau, avec les critères de la recherche native. Une vignette qui a une
+  explication porte une **icône ⓘ visible** ; celle de « En alerte mais verrouillés » dit ce que verrouillé veut dire
+  (envoi ou demande en cours, garde après pose, ticket récent : pas de double envoi).
+- **Facturation** : « Exporter Excel » passe dans la barre du haut, à droite, à côté de « Rafraîchir ».
+- **Tarif à la page propre à une imprimante** (onglet « Coût à la page » de la fiche imprimante), prioritaire sur
+  celui du contrat type par type : un champ vide garde le tarif du contrat. Facturation, export Excel et onglet de
+  l'imprimante passent par le même calcul, et l'onglet dit d'où vient chaque tarif.
+- **Natif GLPI** : remontée des lieux parents par `getAncestorsOf()` / `getSonsOf()` et leur cache (au lieu d'une
+  boucle maison, aussi retirée du regroupement des demandes par site), listes de lieux par `Location::dropdown()`,
+  ajout de colonne par une seule fonction partagée (`Schema::hasColumn()`), ECharts de GLPI.
+- **CI** : tests de la règle du lieu de livraison (arbre simulé, sans base) joués à chaque push.
+
 - **L'extension PHP zip devient facultative**, comme pour GLPI. Obligatoire, elle faisait désactiver le plugin
   par GLPI à chaque `bin/console` lancé avec un PHP en ligne de commande sans zip (production, 02/11/2026 :
   Print Gestion désactivé après un `cache:clear`). Sans zip, seuls les paquets de sonde, les consignes de mise

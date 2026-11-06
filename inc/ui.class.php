@@ -209,8 +209,8 @@ class PluginPrintgestionUi {
      *   - label       string      libellé sous la valeur
      *   - icon        string      classe d'icône Tabler (ex. 'ti ti-file-text')
      *   - color       string      couleur Tabler de la pastille (primary, red…)
-     *   - url         string      cible du lien ; vignette inerte si absente
-     *   - tooltip     string      phrase complète quand le libellé est abrégé
+     *   - url         string      cible du lien (filtre du tableau) ; vignette inerte si absente
+     *   - tooltip     string      explication : icône ⓘ visible à côté du libellé, bulle native au survol
      *   - count_attrs array       attributs du compteur (valeur peuplée en JS)
      * @param string $id      Id du conteneur (facultatif, pour le ciblage JS).
      * @param string $actions HTML déjà échappé des boutons de l'écran (petits, btn-sm), posés à droite de la barre et
@@ -238,9 +238,16 @@ class PluginPrintgestionUi {
              * qui donne la phrase complète, et le libellé en repli quand il est
              * déjà explicite.
              */
-            $tooltip = trim((string) ($c['tooltip'] ?? '')) !== '' ? $c['tooltip'] : ($c['label'] ?? '');
+            $explain = trim((string) ($c['tooltip'] ?? ''));
+            $tooltip = $explain !== '' ? $explain : ($c['label'] ?? '');
             $color   = $c['color'] ?? 'secondary';
             $icon    = $c['icon'] ?? 'ti ti-point';
+            // Une explication se voit : icône ⓘ à côté du libellé (bulle Bootstrap native de GLPI), pas seulement un
+            // survol de la vignette que rien ne signale.
+            $info    = $explain !== ''
+                ? " <i class='ti ti-info-circle text-info' data-bs-toggle='tooltip' title='" . htmlspecialchars($explain, ENT_QUOTES, 'UTF-8')
+                    . "' aria-label='" . htmlspecialchars($explain, ENT_QUOTES, 'UTF-8') . "'></i>"
+                : '';
 
             // Compteurs peuplés en JS (dashboards AJAX) : on pose leurs attributs.
             $count_attrs = '';
@@ -253,7 +260,8 @@ class PluginPrintgestionUi {
             $href = $url !== '' ? " href='" . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . "'" : '';
 
             echo "<{$tag}{$href} class='d-flex align-items-center gap-2 text-decoration-none text-reset py-1'"
-                . " title='" . htmlspecialchars((string) $tooltip, ENT_QUOTES, 'UTF-8') . "'>"
+                // Bulle de la vignette : le libellé seul quand l'explication a son icône (jamais deux bulles superposées).
+                . " title='" . htmlspecialchars((string) ($explain !== '' ? ($c['label'] ?? '') : $tooltip), ENT_QUOTES, 'UTF-8') . "'>"
                 . "<span class='avatar avatar-sm bg-{$color}-lt'><i class='{$icon}'></i></span>"
                 . "<span class='d-flex flex-column lh-sm'>"
                 . "<span class='h2 fw-bold mb-0'{$count_attrs}>"
@@ -261,6 +269,7 @@ class PluginPrintgestionUi {
                 . "</span>"
                 . "<span class='text-muted small'>"
                 . htmlspecialchars((string) ($c['label'] ?? ''), ENT_QUOTES, 'UTF-8')
+                . $info
                 . "</span>"
                 . "</span></{$tag}>";
         }

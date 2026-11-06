@@ -83,6 +83,16 @@ class PluginPrintgestionDependencies {
                 'colonnes' => ['profiles_id', 'name', 'rights'],
                 'sert'     => __('Poser et lire les droits du plugin, dont « Retirer une sonde ».', 'printgestion'),
             ],
+            [
+                'table'    => 'glpi_locations',
+                'colonnes' => ['locations_id', 'entities_id', 'name', 'completename', 'code', 'comment'],
+                'sert'     => __('Lieu de livraison des cartouches : intitulé de livraison Sage (champ « Code »), complément de livraison et adresses du mail de courtoisie (commentaire), du lieu vers ses parents.', 'printgestion'),
+            ],
+            [
+                'table'    => 'glpi_entities',
+                'colonnes' => ['entities_id', 'level', 'name', 'comment', 'email'],
+                'sert'     => __('Code client et intitulé de livraison Sage (nom et commentaires de l\'entité), et adresse de messagerie de l\'entité en dernier recours du mail de courtoisie.', 'printgestion'),
+            ],
         ];
     }
 

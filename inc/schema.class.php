@@ -389,6 +389,7 @@ class PluginPrintgestionSchema {
             `active_lock` tinyint GENERATED ALWAYS AS (if(`statut` in (\'proposed\',\'validated\'),1,NULL)) STORED,
             `entities_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
             `is_recursive` tinyint NOT NULL DEFAULT 0,
+            `locations_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
             PRIMARY KEY (`id`),
             KEY `cartridgeitems_id` (`cartridgeitems_id`),
             KEY `contracts_id` (`contracts_id`),
@@ -478,6 +479,7 @@ class PluginPrintgestionSchema {
             `tracking_state` varchar(16) NOT NULL DEFAULT \'\',
             `tracking_parcels` text NULL DEFAULT NULL,
             `mbe_master_tracking` varchar(32) NULL DEFAULT NULL,
+            `locations_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
             PRIMARY KEY (`id`),
             KEY `bl_surveys_id` (`bl_surveys_id`),
             KEY `entities_id` (`entities_id`),
@@ -510,6 +512,21 @@ class PluginPrintgestionSchema {
             `threshold_days` int NULL DEFAULT NULL,
             `pages_per_cartridge` int NULL DEFAULT NULL,
             `date_mod` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+            `entities_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `is_recursive` tinyint NOT NULL DEFAULT 0,
+            PRIMARY KEY (`id`),
+            KEY `entities_id` (`entities_id`),
+            KEY `is_recursive` (`is_recursive`),
+            UNIQUE KEY `printers_id` (`printers_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
+        'glpi_plugin_printgestion_printerrates' => 'CREATE TABLE `glpi_plugin_printgestion_printerrates` (
+            `id` int __KEY_SIGN__ NOT NULL AUTO_INCREMENT,
+            `printers_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `rate_nb` decimal(10,6) NULL DEFAULT NULL,
+            `rate_color` decimal(10,6) NULL DEFAULT NULL,
+            `users_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `date_creation` timestamp NULL DEFAULT NULL,
+            `date_mod` timestamp NULL DEFAULT NULL,
             `entities_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
             `is_recursive` tinyint NOT NULL DEFAULT 0,
             PRIMARY KEY (`id`),
@@ -792,6 +809,34 @@ class PluginPrintgestionSchema {
         if ($DB->doQuery('ALTER TABLE ' . $DB::quoteName($table) . ' ADD COLUMN ' . $DB::quoteName($column) . ' ' . $definition) === false) {
             throw new RuntimeException(sprintf('Print Gestion : ajout de la colonne %s.%s en échec : %s', $table, $column, $DB->error()));
         }
+    }
+
+    /** Colonnes déjà assurées dans cette requête : « table.colonne » => présente (vrai) ou ajout en échec (faux). */
+    private static array $ensured = [];
+
+    /** Définition d'une clé étrangère GLPI (`xxx_id`), signe des clés décidé par GLPI. */
+    public static function foreignKeyDefinition(): string {
+        return 'int ' . DBConnection::getDefaultPrimaryKeySignOption() . ' NOT NULL DEFAULT 0';
+    }
+
+    /**
+     * Colonne ajoutée après l'installation, assurée une seule fois par requête et sans exception : vrai si elle existe
+     * (déjà là ou ajoutée), faux si l'ajout a échoué (cause dans le journal du plugin) — l'appelant continue alors
+     * sans elle. Version du schéma inchangée : ni désinstallation ni « Mettre à jour ». À appeler AVANT toute
+     * transaction : un ALTER TABLE la validerait d'office.
+     */
+    public static function hasColumn(string $table, string $column, string $definition): bool {
+        $key = $table . '.' . $column;
+        if (!isset(self::$ensured[$key])) {
+            try {
+                self::ensureColumn($table, $column, $definition);
+                self::$ensured[$key] = true;
+            } catch (Throwable $e) {
+                self::$ensured[$key] = false;
+                PluginPrintgestionLogger::error('schema', sprintf('Colonne %s non créée.', $key), $e);
+            }
+        }
+        return self::$ensured[$key];
     }
 
     /** Toutes les tables (vivantes et anciennes) et le contexte de configuration du plugin. */

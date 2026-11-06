@@ -147,9 +147,11 @@ function plugin_init_printgestion() {
             // Relevé manuel : bouton dans les onglets natifs « Cartouches » et « Compteurs de pages » d'une
             // imprimante, par le hook officiel autour du contenu d'un onglet (droits revérifiés à l'affichage).
             $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::POST_SHOW_TAB]['printgestion'] = 'plugin_printgestion_post_show_tab';
+            // Graphique des cartouches : bouton en haut de l'onglet natif « Cartouches » d'une imprimante.
+            $PLUGIN_HOOKS[\Glpi\Plugin\Hooks::PRE_SHOW_TAB]['printgestion'] = 'plugin_printgestion_pre_show_tab';
 
             // Jeton anti-cache (beta) : à incrémenter à chaque modif de public/css|js.
-            $cb = '?b=12';
+            $cb = '?b=16';
             $PLUGIN_HOOKS['add_css']['printgestion']        = ['public/css/printgestion.css' . $cb];
             $PLUGIN_HOOKS['add_javascript']['printgestion'] = ['public/js/printgestion.js' . $cb];
         }
