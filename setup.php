@@ -12,7 +12,7 @@
 // À incrémenter à chaque nouvelle étape de schéma (inc/schema.class.php) ou nouvelle
 // tâche automatique : GLPI ne rejoue l'installation (schéma, enregistrement des
 // tâches) que si cette version change. La 1.0.0 s'installe sur une base vierge du plugin.
-define('PLUGIN_PRINTGESTION_VERSION', '1.0.2');
+define('PLUGIN_PRINTGESTION_VERSION', '1.0.0_beta1');
 $_SESSION['PLUGIN_PRINTGESTION_VERSION'] = PLUGIN_PRINTGESTION_VERSION;
 
 define('PLUGIN_PRINTGESTION_MIN_GLPI', '11.0.0');

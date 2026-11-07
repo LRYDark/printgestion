@@ -100,6 +100,9 @@ class PluginPrintgestionCartridgehistory extends CommonDBTM {
                 continue;
             }
 
+            // Nouvelle cartouche : un « niveau figé suspect » forcé à la main ne vaut plus pour elle.
+            PluginPrintgestionToneroverride::clearForToner($printers_id, $property);
+
             // ══════════════════════════════════════════════════════════════
             //  Check "mauvaise imprimante" :
             //  uniquement si CETTE imprimante n'attendait aucun envoi pour ce toner

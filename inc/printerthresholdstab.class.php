@@ -51,6 +51,45 @@ class PluginPrintgestionPrinterThresholdsTab extends CommonGLPI {
             && $printer->canViewItem();
     }
 
+    /** Champs des seuils par imprimante et leurs bornes (vide = valeur globale de la configuration). */
+    const FIELDS = [
+        'threshold_level'         => [0, 100],
+        'threshold_days_critical' => [0, 3650],
+        'threshold_days'          => [0, 3650],
+        'pages_per_cartridge'     => [100, 10000000],
+    ];
+
+    /**
+     * Enregistre les seuils d'une imprimante (onglet « Seuils d'alerte » et action « Seuils d'alerte… » du tableau des
+     * alertes). $values : champ => valeur saisie ('' = valeur globale) ; un champ absent n'est pas touché. Tous les champs
+     * revenus à la valeur globale : la ligne est retirée.
+     */
+    public static function saveFor(int $printers_id, array $values): bool {
+        global $DB;
+
+        $table    = 'glpi_plugin_printgestion_printer_thresholds';
+        $existing = $DB->request(['FROM' => $table, 'WHERE' => ['printers_id' => $printers_id], 'LIMIT' => 1])->current();
+        $row      = [];
+        foreach (self::FIELDS as $field => [$min, $max]) {
+            if (array_key_exists($field, $values)) {
+                $raw         = trim((string) $values[$field]);
+                $row[$field] = $raw === '' ? null : max($min, min($max, (int) $raw));
+            } else {
+                $row[$field] = is_array($existing) ? $existing[$field] : null;
+            }
+        }
+        $all_global = count(array_filter($row, static fn($value) => $value !== null)) === 0;
+        if (is_array($existing)) {
+            $ok = $all_global
+                ? $DB->delete($table, ['id' => (int) $existing['id']])
+                : $DB->update($table, $row, ['id' => (int) $existing['id']]);
+        } else {
+            $ok = $all_global || $DB->insert($table, PluginPrintgestionEntityscope::forPrinter($printers_id) + ['printers_id' => $printers_id] + $row);
+        }
+        PluginPrintgestionAlert::invalidateCache();
+        return (bool) $ok;
+    }
+
     static function showForPrinter(Printer $printer): void {
         global $DB;
 
@@ -67,6 +106,8 @@ class PluginPrintgestionPrinterThresholdsTab extends CommonGLPI {
         $config_plugin = PluginPrintgestionConfig::getInstance();
         $def_level     = (int)($config_plugin->fields['threshold_level'] ?? 15);
         $def_days      = (int)($config_plugin->fields['threshold_days']  ?? 30);
+        $def_critical  = (int)($config_plugin->fields['threshold_days_critical'] ?? PluginPrintgestionAlert::DEFAULT_DAYS_CRITICAL);
+        $cur_critical  = is_array($th_row) ? $th_row['threshold_days_critical'] : null;
         $def_yield     = (int)($config_plugin->fields['default_pages_per_cartridge'] ?? 5000);
         $cur_level     = is_array($th_row) ? $th_row['threshold_level']     : null;
         $cur_days      = is_array($th_row) ? $th_row['threshold_days']      : null;
@@ -83,15 +124,23 @@ class PluginPrintgestionPrinterThresholdsTab extends CommonGLPI {
             . "</p>";
         echo "<form class='row g-3 align-items-start' id='{$uid}-form' onsubmit='return false;'>";
 
+        // Deux façons d'alerter, ensemble : niveau sous X %, ou jours restants estimés sous X jours.
         echo "<div class='col-md-3'><label class='form-label mb-1'>"
-            . __('Seuil niveau (%)', 'printgestion') . "</label>";
+            . __('Critique sous (%)', 'printgestion') . "</label>";
         echo "<input type='number' min='0' max='100' class='form-control' name='threshold_level' "
             . "value='" . htmlspecialchars((string)($cur_level ?? ''), ENT_QUOTES, 'UTF-8') . "' "
             . "placeholder='" . $def_level . "'{$disabled}>";
         echo "<small class='text-muted'>" . sprintf(__('Défaut global : %d', 'printgestion'), $def_level) . "</small></div>";
 
         echo "<div class='col-md-3'><label class='form-label mb-1'>"
-            . __('Seuil jours estimés', 'printgestion') . "</label>";
+            . __('Critique sous (jours restants)', 'printgestion') . "</label>";
+        echo "<input type='number' min='0' class='form-control' name='threshold_days_critical' "
+            . "value='" . htmlspecialchars((string)($cur_critical ?? ''), ENT_QUOTES, 'UTF-8') . "' "
+            . "placeholder='" . $def_critical . "'{$disabled}>";
+        echo "<small class='text-muted'>" . sprintf(__('Défaut global : %d', 'printgestion'), $def_critical) . "</small></div>";
+
+        echo "<div class='col-md-3'><label class='form-label mb-1'>"
+            . __('À surveiller sous (jours restants)', 'printgestion') . "</label>";
         echo "<input type='number' min='0' class='form-control' name='threshold_days' "
             . "value='" . htmlspecialchars((string)($cur_days ?? ''), ENT_QUOTES, 'UTF-8') . "' "
             . "placeholder='" . $def_days . "'{$disabled}>";

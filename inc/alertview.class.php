@@ -352,8 +352,13 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
             $actions[$self . $sep . 'pg_order'] = "<i class='ti ti-shopping-cart me-1'></i>" . __('Commander', 'printgestion');
         }
         if (Session::haveRight('plugin_printgestion_dashboard', UPDATE)) {
-            $actions[$self . $sep . 'pg_snooze']   = "<i class='ti ti-bell-off me-1'></i>" . __('Ne plus alerter pendant…', 'printgestion');
-            $actions[$self . $sep . 'pg_unsnooze'] = "<i class='ti ti-bell me-1'></i>" . __('Réactiver les alertes', 'printgestion');
+            $actions[$self . $sep . 'pg_snooze']     = "<i class='ti ti-bell-off me-1'></i>" . __('Ne plus alerter pendant…', 'printgestion');
+            $actions[$self . $sep . 'pg_unsnooze']   = "<i class='ti ti-bell me-1'></i>" . __('Réactiver les alertes', 'printgestion');
+            $actions[$self . $sep . 'pg_thresholds'] = "<i class='ti ti-adjustments me-1'></i>" . __('Seuils d\'alerte de l\'imprimante…', 'printgestion');
+            $actions[$self . $sep . 'pg_suspect']    = "<i class='ti ti-snowflake me-1'></i>" . __('Niveau figé suspect…', 'printgestion');
+        }
+        if (Session::haveRight('plugin_printgestion_expedition', UPDATE)) {
+            $actions[$self . $sep . 'pg_cancel_shipment'] = "<i class='ti ti-truck-off me-1'></i>" . __('Annuler l\'envoi en cours…', 'printgestion');
         }
         return $actions;
     }
@@ -413,6 +418,42 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
 
             case 'pg_unsnooze':
                 echo Html::submit(__('Réactiver', 'printgestion'), ['name' => 'massiveaction', 'class' => 'btn btn-primary']);
+                return true;
+
+            case 'pg_suspect':
+                // Forçage jusqu'au prochain changement de cartouche du toner ; « Automatique » rend la main au calcul.
+                echo "<div class='text-start'><p class='text-muted small'>" . $esc(__('Le calcul juge un niveau figé suspect quand l\'imprimante a imprimé l\'équivalent d\'au moins 3 % de sa cartouche sans que le niveau bouge. Un forçage passe avant ce calcul et tient jusqu\'au prochain changement de cartouche de ce toner.', 'printgestion')) . "</p>";
+                Dropdown::showFromArray('pg_suspect', [
+                    '1'    => __('Oui : niveau figé suspect', 'printgestion'),
+                    '0'    => __('Non : le niveau est fiable', 'printgestion'),
+                    'auto' => __('Automatique (calcul du plugin)', 'printgestion'),
+                ], ['value' => 'auto']);
+                echo "</div><div class='mt-2'>" . Html::submit(__('Appliquer', 'printgestion'), ['name' => 'massiveaction', 'class' => 'btn btn-primary']) . "</div>";
+                return true;
+
+            case 'pg_cancel_shipment':
+                echo "<div class='text-start'><p class='text-muted small'>" . $esc(__('L\'envoi en cours de chaque toner coché passe « Annulée » : la cartouche redevient commandable, le motif est gardé dans les notes de l\'envoi.', 'printgestion')) . "</p>"
+                    . "<textarea class='form-control mb-2' name='pg_cancel_reason' rows='2' required maxlength='1000' placeholder='"
+                    . $esc(__('Motif de l\'annulation (obligatoire)', 'printgestion')) . "'></textarea></div>";
+                echo Html::submit(__('Annuler l\'envoi', 'printgestion'), ['name' => 'massiveaction', 'class' => 'btn btn-danger']);
+                return true;
+
+            case 'pg_thresholds':
+                // Par imprimante, pour toutes ses cartouches ; un champ vide ne change rien.
+                $global = PluginPrintgestionConfig::getInstance()->fields;
+                echo "<div class='text-start'><p class='text-muted small'>" . $esc(__('Seuils propres aux imprimantes des lignes cochées (toutes leurs cartouches). Un champ laissé vide ne change rien ; « Revenir aux valeurs globales » efface les seuils propres.', 'printgestion')) . "</p><div class='row g-2'>";
+                foreach ([
+                    'threshold_level'         => [__('Critique sous (%)', 'printgestion'), (int) ($global['threshold_level'] ?? 15)],
+                    'threshold_days_critical' => [__('Critique sous (jours restants)', 'printgestion'), (int) ($global['threshold_days_critical'] ?? PluginPrintgestionAlert::DEFAULT_DAYS_CRITICAL)],
+                    'threshold_days'          => [__('À surveiller sous (jours restants)', 'printgestion'), (int) ($global['threshold_days'] ?? 30)],
+                    'pages_per_cartridge'     => [__('Rendement (pages par cartouche)', 'printgestion'), (int) ($global['default_pages_per_cartridge'] ?? 5000)],
+                ] as $name => [$label, $default]) {
+                    echo "<div class='col-sm-6'><label class='form-label mb-1'>" . $esc($label) . "</label>"
+                        . "<input type='number' min='0' class='form-control' name='pg_th[" . $name . "]' placeholder='" . $esc(sprintf(__('global : %d', 'printgestion'), $default)) . "'></div>";
+                }
+                echo "</div><div class='form-check mt-2'><input type='checkbox' class='form-check-input' name='pg_th_reset' value='1' id='pg-th-reset'>"
+                    . "<label class='form-check-label' for='pg-th-reset'>" . $esc(__('Revenir aux valeurs globales', 'printgestion')) . "</label></div></div>";
+                echo "<div class='mt-2'>" . Html::submit(__('Enregistrer', 'printgestion'), ['name' => 'massiveaction', 'class' => 'btn btn-primary']) . "</div>";
                 return true;
         }
         return parent::showMassiveActionsSubForm($ma);
@@ -657,9 +698,32 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
             return;
         }
 
-        global $DB;
         $input       = $ma->getInput();
+        $action      = $ma->getAction();
         $printer_ids = [];
+        // Droit de chaque action : l'annulation d'un envoi relève des expéditions, le reste des alertes toner.
+        $right       = $action === 'pg_cancel_shipment' ? 'plugin_printgestion_expedition' : 'plugin_printgestion_dashboard';
+        $reason      = trim((string) ($input['pg_cancel_reason'] ?? ''));
+        if ($action === 'pg_cancel_shipment' && $reason === '') {
+            $ma->addMessage(htmlspecialchars(__('Motif de l\'annulation obligatoire : aucun envoi annulé.', 'printgestion'), ENT_QUOTES, 'UTF-8'));
+            foreach ($ids as $id) {
+                $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_KO);
+            }
+            return;
+        }
+        // Seuils : saisis une fois pour toutes les lignes, appliqués une fois par imprimante.
+        $thresholds = [];
+        if ($action === 'pg_thresholds') {
+            foreach (array_keys(PluginPrintgestionPrinterThresholdsTab::FIELDS) as $field) {
+                $raw = trim((string) ($input['pg_th'][$field] ?? ''));
+                if (!empty($input['pg_th_reset'])) {
+                    $thresholds[$field] = '';
+                } elseif ($raw !== '') {
+                    $thresholds[$field] = $raw;
+                }
+            }
+        }
+        $done_printers = [];
 
         foreach ($ids as $id) {
             if (!$item->getFromDB($id)) {
@@ -667,7 +731,7 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
                 continue;
             }
             // Droit d'agir et cloisonnement client, vérifiés à chaque ligne.
-            if (!Session::haveRight('plugin_printgestion_dashboard', UPDATE)
+            if (!Session::haveRight($right, UPDATE)
                 || !PluginPrintgestionSecurity::canAccessPrinter((int) $item->fields['printers_id'])) {
                 $ma->itemDone($item->getType(), $id, MassiveAction::ACTION_NORIGHT);
                 continue;
@@ -676,10 +740,29 @@ class PluginPrintgestionAlertview extends CommonDBTM implements \Glpi\Search\Def
             $property    = (string) $item->fields['toner_property'];
 
             $ok = false;
-            if ($ma->getAction() === 'pg_snooze') {
+            if ($action === 'pg_snooze') {
                 $ok = PluginPrintgestionAlert::snooze($printers_id, $property, max(1, min(365, (int) ($input['days'] ?? 7))));
-            } elseif ($ma->getAction() === 'pg_unsnooze') {
+            } elseif ($action === 'pg_unsnooze') {
                 $ok = PluginPrintgestionAlert::clearSnooze($printers_id, $property);
+            } elseif ($action === 'pg_suspect') {
+                $choice = (string) ($input['pg_suspect'] ?? 'auto');
+                $ok     = PluginPrintgestionToneroverride::set($printers_id, $property, $choice === 'auto' ? null : $choice === '1')
+                    || $choice === 'auto';
+            } elseif ($action === 'pg_cancel_shipment') {
+                $expedition = PluginPrintgestionExpedition::getActiveForPrinterProperty($printers_id, $property);
+                $ok         = $expedition !== null && PluginPrintgestionExpedition::cancel((int) $expedition['id'], $reason);
+                if ($expedition === null) {
+                    $ma->addMessage(htmlspecialchars(sprintf(
+                        __('%1$s — %2$s : aucun envoi en cours à annuler.', 'printgestion'),
+                        Dropdown::getDropdownName('glpi_printers', $printers_id),
+                        $property
+                    ), ENT_QUOTES, 'UTF-8'));
+                }
+            } elseif ($action === 'pg_thresholds') {
+                $ok = empty($thresholds)
+                    || isset($done_printers[$printers_id])
+                    || PluginPrintgestionPrinterThresholdsTab::saveFor($printers_id, $thresholds);
+                $done_printers[$printers_id] = true;
             }
             $ma->itemDone($item->getType(), $id, $ok ? MassiveAction::ACTION_OK : MassiveAction::ACTION_KO);
             if ($ok) {

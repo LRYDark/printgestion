@@ -7,7 +7,7 @@
  * champ laissé vide garde celui du contrat. getRatesForPrinter() est le seul endroit qui décide du tarif d'une
  * imprimante : facturation, export Excel et onglet « Coût à la page » passent tous par lui.
  *
- * Table créée par « Mettre à jour » (1.0.2, PluginPrintgestionSchema::install()).
+ * Table créée à l'installation et par « Mettre à jour » (PluginPrintgestionSchema::install()).
  */
 
 if (!defined('GLPI_ROOT')) {

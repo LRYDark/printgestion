@@ -23,7 +23,7 @@ function plugin_printgestion_install() {
     // Schéma : tables absentes créées, lignes de référence posées ; une erreur SQL lève une exception,
     // l'installation échoue visiblement.
     PluginPrintgestionSchema::install();
-    // Ajouts de la 1.0.2 sur une base installée avant elle (même version de schéma) : lieu de livraison des expéditions
+    // Ajouts de la bêta sur une base installée avant eux (même version de schéma) : lieu de livraison des expéditions
     // et des lignes de demande, interrupteur « toujours pas changée » ; la table des tarifs d'imprimante, nouvelle, est
     // créée par Schema::install() ci-dessus. GLPI désactive le plugin tant que « Mettre à jour » n'a pas été cliqué :
     // aucun code ne tourne sans ces colonnes.
@@ -31,6 +31,11 @@ function plugin_printgestion_install() {
         PluginPrintgestionSchema::ensureColumn($table, 'locations_id', PluginPrintgestionSchema::foreignKeyDefinition());
     }
     PluginPrintgestionSchema::ensureColumn('glpi_plugin_printgestion_configs', 'install_reminder', 'tinyint NOT NULL DEFAULT 1');
+    // Seuil « Critique sous X jours restants » : global et par imprimante.
+    PluginPrintgestionSchema::ensureColumn('glpi_plugin_printgestion_configs', 'threshold_days_critical', 'int NOT NULL DEFAULT 7');
+    PluginPrintgestionSchema::ensureColumn('glpi_plugin_printgestion_printer_thresholds', 'threshold_days_critical', 'int NULL DEFAULT NULL');
+    // Colonnes par défaut des tableaux du plugin (préférences d'affichage natives, vue globale).
+    PluginPrintgestionSchema::installDisplayPreferences();
 
     // Hors schéma, idempotent : enregistrement des tâches automatiques.
     PluginPrintgestionReminder::install($migration);

@@ -378,7 +378,9 @@ class PluginPrintgestionCollectview extends CommonDBTM {
             $forced = array_merge($forced, [8, PluginPrintgestionAgentview::OPTION_COMPLIANCE, PluginPrintgestionAgentview::OPTION_UPDATE]);
         }
         echo "<div class='search_page row'><div class='col search-container' data-glpi-search-container>";
-        Search::showList($itemtype, $params, $forced);
+        // forcetoview (et non forcedisplay) : GLPI le garde quand le tableau se recharge (tri, filtre, page).
+        $params['forcetoview'] = $forced;
+        Search::showList($itemtype, $params);
         echo "</div></div>";
         PluginPrintgestionContextmenu::render($itemtype);
     }
@@ -395,7 +397,9 @@ class PluginPrintgestionCollectview extends CommonDBTM {
             $forced = array_merge($forced, [self::OPTION_DISCOVERY, self::OPTION_AGENT]);
         }
         echo "<div class='search_page row'><div class='col search-container' data-glpi-search-container>";
-        Search::showList($itemtype, $params, $forced);
+        // forcetoview (et non forcedisplay) : GLPI le garde quand le tableau se recharge (tri, filtre, page).
+        $params['forcetoview'] = $forced;
+        Search::showList($itemtype, $params);
         echo "</div></div>";
         PluginPrintgestionContextmenu::render($itemtype);
     }

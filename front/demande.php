@@ -79,11 +79,11 @@ PluginPrintgestionUi::statsBar([
 $itemtype = PluginPrintgestionDemande::class;
 $params   = Search::manageParams($itemtype, $_GET);
 $params['target'] = PluginPrintgestionDemande::getSearchURL();
-$forced   = [1, 80, 7, 3, 4, 13, 121]; // Nom, Client, Site, Statut, Mode, Lignes, Proposée le
+// Colonnes : préférences d'affichage natives (vue globale posée à l'installation, Schema::DISPLAY_PREFERENCES), gardées au tri et au filtre.
 
 echo "<div class='search_page row'>";
 echo "<div class='col search-container' data-glpi-search-container>";
-Search::showList($itemtype, $params, $forced);
+Search::showList($itemtype, $params);
 echo "</div></div>";
 
 echo "</div>"; // container-fluid

@@ -104,11 +104,11 @@ if (!isset($_GET['sort'])) {
     $params['sort']  = 10;      // Date alerte
     $params['order'] = 'DESC';
 }
-$forced = [1, 2, 80, 3, 5, 6, 7, 10, 11, 12]; // ID, Imprimante, Client, Toner, Statut, Transporteur, N°, dates
+// Colonnes : préférences d'affichage natives (vue globale posée à l'installation, Schema::DISPLAY_PREFERENCES), gardées au tri et au filtre.
 
 echo "<div class='search_page row'>";
 echo "<div class='col search-container' data-glpi-search-container>";
-Search::showList($itemtype, $params, $forced);
+Search::showList($itemtype, $params);
 echo "</div></div>";
 
 echo "</div>"; // container-fluid

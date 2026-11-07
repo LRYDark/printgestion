@@ -150,6 +150,7 @@ configuration GLPI (`glpi_configs`, contexte `plugin:printgestion`, clé `schema
 | `glpi_plugin_printgestion_historical_yields` | Rendements historiques (pages/cartouche) |
 | `glpi_plugin_printgestion_printer_thresholds` | Seuils d'alerte personnalisés par imprimante |
 | `glpi_plugin_printgestion_printerrates` | Tarif à la page propre à une imprimante (N&B, couleur ; vide = tarif du contrat), créée par la mise à jour 1.0.2 |
+| `glpi_plugin_printgestion_toner_overrides` | « Niveau figé suspect » forcé à la main par imprimante et toner (1 / 0), effacé au changement de cartouche |
 | `glpi_plugin_printgestion_raccordements` | Raccordements d'imprimantes : entité, sonde, statut, identifiants SNMP, plages et tâches GLPI Inventory utilisées, objets créés, dates des étapes |
 | `glpi_plugin_printgestion_raccordementips` | Adresses déclarées d'un raccordement et leur résultat (équipement trouvé, son entité) ; lieu, commentaire et contrat en attente, imprimante et date de leur application |
 | `glpi_plugin_printgestion_raccordementlogs` | Journal horodaté d'un raccordement : étape, niveau, auteur, message |
@@ -1875,6 +1876,35 @@ pastilles sur un même écran n'auraient rien apporté. `collect.php?state=` red
   (facturation, export Excel, onglet, AJAX) — tarif de l'imprimante type par type, sinon celui du contrat. Droit :
   modifier les tarifs (module Contrats, UPDATE) et l'imprimante. Table créée par la mise à jour 1.0.2.
 - **Facturation** : « Exporter Excel » dans la barre d'onglets (`showTabBar(..., $actions)`), à droite.
+
+### Alertes toner : seuils par imprimante, niveau figé suspect, actions du tableau
+
+- **Seuils** (`Alert::classify()`) : les deux façons d'alerter jouent ensemble. Critique si niveau <= « Critique
+  sous (%) » OU jours restants estimés <= « Critique sous (jours restants) » (`threshold_days_critical`, 7 par défaut,
+  remplace les 7 jours figés dans le code) ; À surveiller si jours restants <= « À surveiller sous (jours restants) ».
+  Valeurs globales dans la configuration ; valeurs propres à une imprimante dans `printer_thresholds` (onglet « Seuils
+  d'alerte », action de masse « Seuils d'alerte de l'imprimante… »), enregistrées par une seule fonction
+  (`PrinterThresholdsTab::saveFor()`, bornes dans `FIELDS`, vide = valeur globale, ligne retirée quand tout est global).
+- **Niveau figé suspect** (`Alert::computeRemainingPagesBased()`) : jugé au calcul, avec le rendement de la cartouche
+  (mesuré sur le cycle, sinon historique, sinon configuré) : pages imprimées depuis le premier relevé du niveau actuel
+  (`pages_last - pages_since`) >= `Tonerreading::FROZEN_PERCENT_STEPS` (3) points de cartouche. Compteur de départ
+  inconnu (0) ou revenu en arrière : jamais suspect. Le relevé quotidien (`Tonerreading::snapshotAllPrinters()`) a la
+  même garde sur le compteur de départ. Testé par la CI (`.github/ci/test_alerts.php`).
+- **Forçage** (`inc/toneroverride.class.php`, table `toner_overrides`) : Oui / Non / Automatique par imprimante et
+  toner, appliqué par `Alert::listAll()` avant le classement (et `is_estimate` recalculé) ; effacé par
+  `Cartridgehistory::detectChanges()` au changement de cartouche du toner.
+- **Actions du tableau** (`Alertview`, clic droit via `Contextmenu`) : « Seuils d'alerte de l'imprimante… » (par lot, un
+  champ vide ne change rien, case « Revenir aux valeurs globales »), « Niveau figé suspect… », « Annuler l'envoi en
+  cours… » (`Expedition::cancel()` : motif obligatoire ajouté aux notes, statut annulé, verrou libéré, alerte
+  « mauvaise imprimante » close, demande synchronisée ; droit Expéditions en modification), et le lien vers l'onglet
+  « Seuils d'alerte » de la fiche imprimante.
+- **Colonnes des tableaux** : `Search::showList()` avec des colonnes imposées (`forcedisplay`) ignore les préférences
+  d'affichage et les perd au rechargement AJAX (tri, filtre, page) : il ne restait que le nom et l'entité. Les tableaux
+  fixes (alertes, expéditions, demandes, contrats, raccordements) prennent leurs colonnes dans les préférences d'affichage
+  natives, vue globale posée à l'installation et à la mise à jour quand elle est vide
+  (`Schema::DISPLAY_PREFERENCES`, `Schema::installDisplayPreferences()`). Les tableaux à colonnes variables
+  (facturation par vue, sondes et imprimantes collectées selon le droit administrateur) passent `forcetoview`, que
+  GLPI garde au rechargement (`allowed_forced_params` de `display_data.html.twig`).
 
 ### Points d'entrée (ajax/)
 

@@ -86,7 +86,6 @@ class PluginPrintgestionAlert extends CommonDBTM {
             $reliable = $cycle;
         }
         $latest_any    = end($readings);
-        $level_suspect = !empty($latest_any['is_suspect']);
 
         $latest = end($reliable);
         $level_now = (int)$latest['level_percent'];
@@ -179,6 +178,19 @@ class PluginPrintgestionAlert extends CommonDBTM {
         // Pages imprimées depuis le dernier niveau fiable (niveau figé) : déduites du restant.
         $pages_remaining = max(0.0, $pages_remaining - max(0, $pages_last - $pages_now_cnt));
 
+        // Niveau figé suspect, jugé ici avec le rendement de CETTE cartouche (mesuré, sinon historique, sinon
+        // configuré) : pages imprimées depuis que le niveau n'a plus bougé, face à FROZEN_PERCENT_STEPS points de
+        // cartouche. 1000 pages sans bouger : suspect ; 3 pages en un mois : non. Compteur de départ inconnu (0) ou
+        // revenu en arrière (compteur remplacé) : jamais suspect, faute de savoir ce qui a été imprimé.
+        $run_start = count($readings) - 1;
+        while ($run_start > 0 && (int) $readings[$run_start - 1]['level_percent'] === (int) $latest_any['level_percent']) {
+            $run_start--;
+        }
+        $pages_since   = $counter_of($readings[$run_start]);
+        $frozen_pages  = ($pages_since > 0 && $pages_last > $pages_since) ? $pages_last - $pages_since : 0;
+        $level_suspect = $frozen_pages > 0
+            && $frozen_pages >= PluginPrintgestionTonerreading::FROZEN_PERCENT_STEPS * $yield_per_percent;
+
         // ── 6. Jours restants ────────────────────────────────────────────
         // Guards : div 0 impossible ici (yield_per_percent >= 1 via max, pages_per_day > 0)
         // mais on vérifie explicitement par sécurité (configs invalides, edge cases).
@@ -189,6 +201,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 'days_remaining' => null,
                 'is_estimate'    => $level_suspect,
                 'level_suspect'  => $level_suspect,
+                'yield_source'   => $yield_source,
             ];
         }
 
@@ -206,18 +219,23 @@ class PluginPrintgestionAlert extends CommonDBTM {
         ];
     }
 
+    /** Seuil « Critique sous X jours restants » par défaut (configuration). */
+    const DEFAULT_DAYS_CRITICAL = 7;
+
     /**
-     * Classe un calcul en ok / watch / critical.
+     * Classe un calcul en ok / watch / critical. Les deux façons d'alerter sont possibles ensemble : en pourcentage
+     * (niveau sous X %) ou en jours restants estimés (sous X jours).
+     *   - Critique : niveau <= $threshold_level %, OU jours restants <= $days_critical ;
+     *   - À surveiller : jours restants <= $threshold_days.
      */
-    public static function classify(array $computed, int $threshold_level, int $threshold_days): string {
+    public static function classify(array $computed, int $threshold_level, int $threshold_days, int $days_critical = self::DEFAULT_DAYS_CRITICAL): string {
         $level = (int)($computed['level'] ?? 0);
         $days  = $computed['days_remaining'];
 
-        // Critique : niveau < seuil brut OU jours < 7
         if ($level <= $threshold_level) {
             return self::STATUS_CRITICAL;
         }
-        if ($days !== null && $days <= 7) {
+        if ($days !== null && $days <= $days_critical) {
             return self::STATUS_CRITICAL;
         }
 
@@ -247,10 +265,13 @@ class PluginPrintgestionAlert extends CommonDBTM {
         $config               = PluginPrintgestionConfig::getInstance();
         $threshold_level_def  = (int)($config->fields['threshold_level'] ?? 15);
         $threshold_days_def   = (int)($config->fields['threshold_days']  ?? 30);
+        $days_critical_def    = (int)($config->fields['threshold_days_critical'] ?? self::DEFAULT_DAYS_CRITICAL);
         $default_yield_config = (int)($config->fields['default_pages_per_cartridge'] ?? 5000);
 
         // Récupère les couples snoozés pour filtrage
         $snoozed = self::getSnoozedPairs();
+        // « Niveau figé suspect » forcés à la main : « printers_id|propriété » => bool.
+        $suspect_overrides = PluginPrintgestionToneroverride::getAll($printer_ids);
 
         $rows = [];
 
@@ -289,7 +310,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
         $printer_thresholds = [];
         if ($DB->tableExists('glpi_plugin_printgestion_printer_thresholds')) {
             foreach ($DB->request([
-                'SELECT' => ['printers_id', 'threshold_level', 'threshold_days', 'pages_per_cartridge'],
+                'SELECT' => ['printers_id', 'threshold_level', 'threshold_days', 'threshold_days_critical', 'pages_per_cartridge'],
                 'FROM'   => 'glpi_plugin_printgestion_printer_thresholds',
             ]) as $r) {
                 $printer_thresholds[(int)$r['printers_id']] = $r;
@@ -399,6 +420,7 @@ class PluginPrintgestionAlert extends CommonDBTM {
             $pt = $printer_thresholds[$printers_id] ?? null;
             $eff_threshold_level = ($pt && !empty($pt['threshold_level'])) ? (int)$pt['threshold_level'] : $threshold_level_def;
             $eff_threshold_days  = ($pt && !empty($pt['threshold_days']))  ? (int)$pt['threshold_days']  : $threshold_days_def;
+            $eff_days_critical   = ($pt && $pt['threshold_days_critical'] !== null) ? (int)$pt['threshold_days_critical'] : $days_critical_def;
             $eff_yield           = ($pt && !empty($pt['pages_per_cartridge'])) ? (int)$pt['pages_per_cartridge'] : $default_yield_config;
 
             // Mapping SNMP : batch preload (fix N+1)
@@ -416,7 +438,12 @@ class PluginPrintgestionAlert extends CommonDBTM {
                 $eff_yield,
                 $historical_yields[$k] ?? null
             );
-            $status = self::classify($computed, $eff_threshold_level, $eff_threshold_days);
+            // « Niveau figé suspect » forcé à la main (jusqu'au prochain changement de cartouche) : passe avant le calcul.
+            if (array_key_exists($k, $suspect_overrides)) {
+                $computed['level_suspect'] = $suspect_overrides[$k];
+                $computed['is_estimate']   = (($computed['yield_source'] ?? 'default') !== 'measured') || $suspect_overrides[$k];
+            }
+            $status = self::classify($computed, $eff_threshold_level, $eff_threshold_days, $eff_days_critical);
 
             // Snooze actif : la cartouche n'est plus considérée comme en alerte.
             if ($is_snoozed) {

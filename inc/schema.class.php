@@ -355,6 +355,7 @@ class PluginPrintgestionSchema {
             `mbe_secret_date` timestamp NULL DEFAULT NULL,
             `enable_miseenservice` tinyint NOT NULL DEFAULT 1,
             `install_reminder` tinyint NOT NULL DEFAULT 1,
+            `threshold_days_critical` int NOT NULL DEFAULT 7,
             PRIMARY KEY (`id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
         'glpi_plugin_printgestion_contractrates' => 'CREATE TABLE `glpi_plugin_printgestion_contractrates` (
@@ -512,6 +513,7 @@ class PluginPrintgestionSchema {
             `threshold_level` int NULL DEFAULT NULL,
             `threshold_days` int NULL DEFAULT NULL,
             `pages_per_cartridge` int NULL DEFAULT NULL,
+            `threshold_days_critical` int NULL DEFAULT NULL,
             `date_mod` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
             `entities_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
             `is_recursive` tinyint NOT NULL DEFAULT 0,
@@ -682,6 +684,20 @@ class PluginPrintgestionSchema {
             PRIMARY KEY (`id`),
             KEY `manufacturers_id` (`manufacturers_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
+        'glpi_plugin_printgestion_toner_overrides' => 'CREATE TABLE `glpi_plugin_printgestion_toner_overrides` (
+            `id` int __KEY_SIGN__ NOT NULL AUTO_INCREMENT,
+            `printers_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `toner_property` varchar(255) NOT NULL DEFAULT \'\',
+            `level_suspect` tinyint NOT NULL DEFAULT 0,
+            `users_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `date_mod` timestamp NULL DEFAULT NULL,
+            `entities_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
+            `is_recursive` tinyint NOT NULL DEFAULT 0,
+            PRIMARY KEY (`id`),
+            KEY `entities_id` (`entities_id`),
+            KEY `is_recursive` (`is_recursive`),
+            UNIQUE KEY `printer_toner` (`printers_id`, `toner_property`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=__CHARSET__ COLLATE=__COLLATION__ ROW_FORMAT=DYNAMIC',
         'glpi_plugin_printgestion_toner_readings' => 'CREATE TABLE `glpi_plugin_printgestion_toner_readings` (
             `id` int __KEY_SIGN__ NOT NULL AUTO_INCREMENT,
             `printers_id` int __KEY_SIGN__ NOT NULL DEFAULT 0,
@@ -809,6 +825,43 @@ class PluginPrintgestionSchema {
         }
         if ($DB->doQuery('ALTER TABLE ' . $DB::quoteName($table) . ' ADD COLUMN ' . $DB::quoteName($column) . ' ' . $definition) === false) {
             throw new RuntimeException(sprintf('Print Gestion : ajout de la colonne %s.%s en échec : %s', $table, $column, $DB->error()));
+        }
+    }
+
+    /**
+     * Colonnes affichées par défaut dans les tableaux natifs du plugin (vue globale des préférences d'affichage de
+     * GLPI, utilisateur 0), dans l'ordre. Sans elles, un tri ou un filtre (rechargement AJAX du tableau) ne gardait que
+     * le nom et l'entité : les colonnes passées à Search::showList() ne valent que pour le premier affichage. Chacun
+     * peut ensuite les changer (« Sélectionner les colonnes à afficher », vue globale ou personnelle).
+     */
+    const DISPLAY_PREFERENCES = [
+        'PluginPrintgestionAlertview'  => [2, 3, 4, 5, 6, 11, 16, 13, 15],
+        'PluginPrintgestionExpedition' => [2, 3, 5, 6, 7, 10, 11, 12],
+        'PluginPrintgestionDemande'    => [7, 3, 4, 13, 121],
+        'PluginPrintgestionContract'   => [20, 7, 9001],
+        'PluginPrintgestionRaccordement' => [2, 3, 4, 9, 10, 6, 5],
+    ];
+
+    /**
+     * Pose les colonnes par défaut d'un tableau quand sa vue globale n'en a encore aucune : jamais par-dessus un choix
+     * déjà fait (vue globale réglée à la main).
+     */
+    public static function installDisplayPreferences(): void {
+        global $DB;
+
+        foreach (self::DISPLAY_PREFERENCES as $itemtype => $columns) {
+            if (countElementsInTable(DisplayPreference::getTable(), ['itemtype' => $itemtype, 'users_id' => 0]) > 0) {
+                continue;
+            }
+            foreach (array_values($columns) as $rank => $num) {
+                $DB->insert(DisplayPreference::getTable(), [
+                    'itemtype'  => $itemtype,
+                    'num'       => $num,
+                    'rank'      => $rank + 1,
+                    'users_id'  => 0,
+                    'interface' => 'central',
+                ]);
+            }
         }
     }
 

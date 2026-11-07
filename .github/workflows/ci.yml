@@ -64,6 +64,9 @@ jobs:
       # prolongé à son dernier niveau (sinon des toners disparaissent du survol et les courbes s'arrêtent).
       - name: Graphique des cartouches (tests sans base)
         run: php .github/ci/test_tonerchart.php inc/tonerchart.class.php
+      # Classement des alertes (% ou jours restants) et niveau figé suspect jugé sur le rendement de la cartouche.
+      - name: Alertes toner (tests sans base)
+        run: php .github/ci/test_alerts.php inc
 
   glpi:
     name: GLPI 11.0.12 — ${{ matrix.scenario }}
