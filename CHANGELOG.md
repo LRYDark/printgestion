@@ -1,11 +1,40 @@
 # Journal des changements
 
-## 1.1.2 — 2026-11-07
+## 1.1.0_beta1 — 2026-11-07
 
-**Après la mise à jour : cliquer « Mettre à jour » dans Configuration → Plugins.** La mise à jour crée la table des
-tarifs d'imprimante (`printerrates`) et ajoute les colonnes du lieu de livraison (`expeditions.locations_id`,
-`demandelines.locations_id`) et de l'interrupteur de rappel (`configs.install_reminder`) ; GLPI laisse le plugin
-désactivé tant qu'elle n'est pas faite.
+**Version de test** : le plugin n'est pas encore en production. Tout ce qui suit est regroupé dans cette seule version,
+avec un seul schéma de base, sans étape de mise à jour intermédiaire. Cela vaut aussi pour les versions 1.1.0 à 1.1.2
+publiées pendant le développement, dont les releases sont retirées. Sur une base de développement déjà installée :
+cliquer « Mettre à jour » dans Configuration → Plugins.
+
+### Ajouts du 07/11/2026
+
+- **Alertes réglées imprimante par imprimante, en % ou en jours.** Les deux façons d'alerter jouent ensemble :
+  « Critique sous X % », « Critique sous X jours restants » (réglable, au lieu des 7 jours figés dans le code) et
+  « À surveiller sous X jours restants ». Valeurs globales dans la configuration, valeurs propres à une imprimante
+  dans l'onglet « Seuils d'alerte » de sa fiche, ou depuis le tableau des alertes (action « Seuils d'alerte de
+  l'imprimante… », par lot). Un client qui imprime peu tient 6 mois avec 3 %, un gros volume 3 jours avec 10 % : chaque
+  imprimante a ses seuils.
+- **« Niveau figé suspect » juste.** Il ne se fonde plus sur un rendement fixe de 5000 pages : il compare les pages
+  imprimées depuis que le niveau n'a plus bougé à 3 % du rendement **mesuré** de la cartouche. 1000 pages sans bouger :
+  suspect ; 3 pages en un mois : non. Un compteur de départ inconnu (0) ou revenu en arrière ne rend plus jamais un
+  niveau suspect. Il se force aussi à la main (Oui, Non ou Automatique, clic droit ou « Actions »), jusqu'au prochain
+  changement de cartouche du toner.
+- **Annuler l'envoi en cours** depuis le tableau des alertes (clic droit ou « Actions ») : motif obligatoire, gardé
+  dans les notes de l'envoi ; la cartouche redevient commandable.
+- **Clic droit** : seuils d'alerte de l'imprimante, niveau figé suspect, annulation de l'envoi en cours, et lien vers
+  l'onglet « Seuils d'alerte » de la fiche imprimante.
+- **Colonnes des tableaux** : elles restent affichées quand on trie, filtre ou change de page. Les tableaux du plugin
+  imposaient leurs colonnes au premier affichage seulement : au rechargement, il ne restait que le nom et l'entité, et
+  le sélecteur de colonnes était vide. Les colonnes par défaut sont désormais posées dans les préférences d'affichage
+  natives de GLPI (vue globale, à l'installation ou à la mise à jour) et se règlent dans « Sélectionner les colonnes à
+  afficher ». La facturation (vue imprimante ou client), les sondes et les imprimantes collectées (colonnes réservées
+  aux administrateurs) gardent leurs colonnes par `forcetoview`, que GLPI conserve au rechargement.
+- **Alertes toner** : « Recalculer maintenant » et la date du calcul passent dans la barre du haut ; la vignette
+  « Imprimantes muettes ou illisibles » devient « Sans relevé » (explication dans son ⓘ).
+- **CI** : tests du classement des alertes et du niveau figé suspect (sans base).
+
+### Ajouts du 06/11/2026
 
 - **Le lieu de l'imprimante devient le lieu de livraison, et décide de l'adresse Sage, du complément et de la
   courtoisie.** Un client Sage a plusieurs adresses de livraison, une par lieu ou sous-lieu : deux imprimantes au
@@ -63,7 +92,7 @@ désactivé tant qu'elle n'est pas faite.
   ECharts et widget du tableau de bord de GLPI pour le graphique.
 - **CI** : tests de la règle du lieu de livraison (arbre simulé, sans base) joués à chaque push.
 
-## 1.1.1 — 2026-11-02
+### Développement : 1.1.1 — 2026-11-02
 
 **Après la mise à jour : cliquer « Mettre à jour » dans Configuration → Plugins.**
 
@@ -110,7 +139,7 @@ désactivé tant qu'elle n'est pas faite.
   - Bornes : un passage par heure au plus, expéditions des 30 derniers jours, 150 par passage, un appel à la fois.
   - Aucune colonne ajoutée : l'interrupteur et les mémos vivent dans la configuration du plugin.
 
-## 1.1.0 — 2026-10-12
+### Développement : 1.1.0 — 2026-10-12
 
 Première version pour GLPI 12 (12.0.x). La série 1.0.x reste celle de GLPI 11.
 
@@ -160,7 +189,7 @@ Première version pour GLPI 12 (12.0.x). La série 1.0.x reste celle de GLPI 11.
 - **Corrigé : pages « Sondes » et « Imprimantes collectées » en erreur.** La reconstruction de leurs listes vidait
   la table avec le critère `[1]`, que GLPI 12 refuse (`analyseCrit(): Argument #1 must be of type array`).
 
-## Non publié
+### Développement : non publié
 
 - **Changer la version de GLPI Agent : le plugin vérifie d'abord qu'elle ne casse pas les installeurs.** Dans la page
   « Installeur », enregistrer une autre version que celle servie lance un contrôle sur GitHub, comparé à la dernière
@@ -1034,7 +1063,7 @@ Première version pour GLPI 12 (12.0.x). La série 1.0.x reste celle de GLPI 11.
 - Une tâche du plugin coincée « en cours d'exécution » rend maintenant la ligne rouge au lieu d'être corrigée en
   silence.
 
-## 1.0.0 — 2026-09-18
+### Développement : 1.0.0 — 2026-09-18
 
 Première version publiée. Elle s'installe sur une base vierge du plugin (aucun chemin de mise à jour depuis les
 versions de développement : désinstaller d'abord). Testée avec GLPI 11.0.8 et GLPI Inventory 1.6.10.

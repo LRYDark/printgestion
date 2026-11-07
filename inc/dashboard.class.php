@@ -331,13 +331,8 @@ class PluginPrintgestionDashboard extends CommonGLPI {
             $params['order'] = 'ASC';
         }
 
-        $forced_display = [
-            self::SO_NAME,
-            self::SO_ENTITY,
-            self::SO_END_DATE,
-            self::SO_NOTICE,
-            PluginPrintgestionContract::SO_DAYS_LEFT, // colonne calculée « Temps restant »
-        ];
+        // Colonnes (contrat, client, date de fin, préavis, temps restant) : préférences d'affichage natives
+        // (Schema::DISPLAY_PREFERENCES), gardées au tri et au filtre.
 
         echo "<div class='search_page row'>";
         \Glpi\Application\View\TemplateRenderer::getInstance()->display(
@@ -354,7 +349,7 @@ class PluginPrintgestionDashboard extends CommonGLPI {
                 $action
             );
         }
-        Search::showList($itemtype, $params, $forced_display);
+        Search::showList($itemtype, $params);
         echo "</div>";
         echo "</div>";
     }

@@ -1941,7 +1941,8 @@ class PluginPrintgestionRaccordement extends CommonDBTM {
             $params['order'] = 'DESC';
         }
         echo "<div class='search_page row'><div class='col search-container' data-glpi-search-container>";
-        Search::showList(self::class, $params, [2, 80, 3, 4, 9, 10, 6, 5]);
+        // Colonnes : préférences d'affichage natives (Schema::DISPLAY_PREFERENCES), gardées au tri et au filtre.
+        Search::showList(self::class, $params);
         echo "</div></div>";
         PluginPrintgestionContextmenu::render(self::class);
     }

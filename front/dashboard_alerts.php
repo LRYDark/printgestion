@@ -49,7 +49,6 @@ $esc   = static fn($value) => htmlspecialchars((string) $value, ENT_QUOTES, 'UTF
 $table = PluginPrintgestionAlertview::getTable();
 
 echo "<div class='container-fluid mt-3'>";
-PluginPrintgestionMenu::showTabBar('tn_alerts');
 
 // ── Compteurs (entités de l'utilisateur) ──
 $counts = $DB->request([
@@ -100,7 +99,8 @@ $computed         = (string) ($counts['computed'] ?? '');
 $pending          = PluginPrintgestionAlertview::getPendingRequest();
 $waiting          = PluginPrintgestionAlertview::getRequestedAt(); // pas encore pris (ni tâche ni relais)
 $late             = $waiting !== null && strtotime($waiting) < time() - PluginPrintgestionAlertview::REQUEST_LATE_SECONDS;
-$recompute_button = "<div class='d-flex flex-column align-items-end gap-1'>"
+// Date du calcul et « Recalculer maintenant » : dans la barre d'onglets, à droite (les vignettes restent seules).
+$recompute_button = "<div class='d-flex align-items-center gap-2 flex-wrap justify-content-end flex-shrink-0 align-self-center'>"
     . (Session::haveRight('plugin_printgestion_dashboard', UPDATE)
         ? "<form method='post' action='" . $esc($page) . "' class='m-0'>"
             . "<button type='submit' name='recompute_alerts' value='1' class='btn btn-sm btn-outline-secondary'"
@@ -117,6 +117,8 @@ $recompute_button = "<div class='d-flex flex-column align-items-end gap-1'>"
                 : sprintf(__('Recalcul en cours (demandé le %s)… Alertes du %s affichées.', 'printgestion'), Html::convDateTime($pending), Html::convDateTime($computed)))
             . "</span>")
     . "</div>";
+
+PluginPrintgestionMenu::showTabBar('tn_alerts', false, '', $recompute_button);
 
 PluginPrintgestionUi::statsBar([
     ['count' => (int) ($counts['critical'] ?? 0), 'label' => __('Critiques', 'printgestion'),
@@ -135,13 +137,13 @@ PluginPrintgestionUi::statsBar([
     ['count' => (int) ($counts['suspect'] ?? 0), 'label' => __('Niveaux figés suspects', 'printgestion'),
      'tooltip' => __('Niveau inchangé alors que l\'imprimante imprime : estimation approximative', 'printgestion'),
      'icon' => 'ti ti-snowflake', 'color' => 'azure', 'url' => $suspect_url],
-    ['count' => $silent, 'label' => __('Imprimantes muettes ou illisibles', 'printgestion'),
-     'tooltip' => __('Aucune alerte possible sans remontée : voir « Imprimantes collectées » (module Collecte SNMP / Déploiement Agent)', 'printgestion'),
+    ['count' => $silent, 'label' => __('Sans relevé', 'printgestion'),
+     'tooltip' => __('Imprimantes muettes (plus de remontée récente) ou illisibles (niveaux non lus) : aucune alerte possible sans relevé. Voir « Imprimantes collectées » (module Collecte SNMP / Déploiement Agent).', 'printgestion'),
      'icon' => 'ti ti-wifi-off', 'color' => 'dark',
      // Page d'un autre module, à droit distinct : lien seulement pour qui y a accès.
      'url' => PluginPrintgestionMenu::tabAllowed('deploiement', ['plugin_printgestion_deploiement', READ])
         ? PLUGIN_PRINTGESTION_WEBDIR . '/front/collect.php' : ''],
-], 'printgestionAlertsStatsBar', $recompute_button);
+], 'printgestionAlertsStatsBar');
 
 // ── Fraîcheur du calcul : la date est dans la barre, l'avertissement seulement s'il y a lieu ──
 $stale = PluginPrintgestionAlertview::getStaleSince();
@@ -171,16 +173,15 @@ if (countElementsInTable('glpi_plugin_printgestion_alertview') === 0 && $pending
 $itemtype = PluginPrintgestionAlertview::class;
 $params   = Search::manageParams($itemtype, $_GET);
 $params['target'] = $page;
-// Imprimante, Client, Toner, Cartouche, Niveau, Jours, Statut, Verrou, Envoi en cours, Référence
-$forced = [1, 80, 2, 3, 4, 5, 6, 11, 16, 13];
+// Colonnes : préférences d'affichage natives (vue globale posée à l'installation, Schema::DISPLAY_PREFERENCES), gardées au tri et au filtre.
 
 echo "<div class='search_page row'>";
 echo "<div class='col search-container' data-glpi-search-container>";
-Search::showList($itemtype, $params, $forced);
+Search::showList($itemtype, $params);
 echo "</div></div>";
 
 echo "<p class='text-muted small mt-2'><i class='ti ti-info-circle me-1'></i>"
-    . $esc(__('Clic droit sur une ligne, ou cases cochées puis « Actions » : Commander (droit de validation), Ne plus alerter pendant…, Réactiver les alertes, fiche imprimante, cartouche, expédition en cours. Les motifs de verrou et de référence non résolue figurent dans les colonnes du même nom.', 'printgestion'))
+    . $esc(__('Clic droit sur une ligne, ou cases cochées puis « Actions » : Commander (droit de validation), Ne plus alerter pendant…, Réactiver les alertes, Seuils d\'alerte de l\'imprimante…, Niveau figé suspect…, Annuler l\'envoi en cours…, fiche imprimante, cartouche, expédition en cours. Les alertes se règlent imprimante par imprimante (en % et en jours restants), les motifs de verrou et de référence non résolue figurent dans les colonnes du même nom.', 'printgestion'))
     . "</p>";
 echo "</div>"; // container-fluid
 // Menu clic droit par-dessus le tableau natif, et les fenêtres qu'il peut appeler (expédition en cours).

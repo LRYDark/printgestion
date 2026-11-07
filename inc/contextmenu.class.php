@@ -119,6 +119,18 @@ class PluginPrintgestionContextmenu {
                                 'kind' => 'native', 'action' => $itemtype . $sep . 'pg_snooze', 'require' => 'can_snooze'];
                     $items[] = ['key' => 'unsnooze', 'icon' => 'ti ti-bell', 'label' => __('Réactiver les alertes', 'printgestion'),
                                 'kind' => 'native', 'action' => $itemtype . $sep . 'pg_unsnooze', 'require' => 'can_unsnooze'];
+                    $items[] = ['key' => 'thresholds', 'icon' => 'ti ti-adjustments', 'label' => __('Seuils d\'alerte de l\'imprimante…', 'printgestion'),
+                                'kind' => 'native', 'action' => $itemtype . $sep . 'pg_thresholds', 'require' => ''];
+                    $items[] = ['key' => 'suspect', 'icon' => 'ti ti-snowflake', 'label' => __('Niveau figé suspect…', 'printgestion'),
+                                'kind' => 'native', 'action' => $itemtype . $sep . 'pg_suspect', 'require' => ''];
+                }
+                if (Session::haveRight('plugin_printgestion_expedition', UPDATE)) {
+                    $items[] = ['key' => 'cancel-shipment', 'icon' => 'ti ti-truck-off', 'label' => __('Annuler l\'envoi en cours…', 'printgestion'),
+                                'kind' => 'native', 'action' => $itemtype . $sep . 'pg_cancel_shipment', 'require' => 'has_expedition'];
+                }
+                if (PluginPrintgestionConfig::isFeatureEnabled('toner') && Session::haveRight('plugin_printgestion_dashboard', READ) && Printer::canView()) {
+                    $items[] = ['key' => 'open-thresholds', 'icon' => 'ti ti-sliders', 'label' => __('Ouvrir les seuils d\'alerte de l\'imprimante', 'printgestion'),
+                                'kind' => 'link', 'field' => 'thresholds_url', 'require' => ''];
                 }
                 if (Printer::canView()) {
                     $items[] = ['key' => 'open-printer', 'icon' => 'ti ti-printer', 'label' => __('Ouvrir la fiche imprimante', 'printgestion'),
@@ -654,6 +666,8 @@ JS;
                 'cartridge'      => (string) ($row['cartridge'] ?? ''),
                 'printer_url'    => Printer::getFormURLWithID($printers_id),
                 'manual_url'     => Printer::getFormURLWithID($printers_id) . '&forcetab=' . urlencode('Cartridge$1'),
+                // Onglet « Seuils d'alerte » de la fiche imprimante (seuils propres à cette imprimante).
+                'thresholds_url' => Printer::getFormURLWithID($printers_id) . '&forcetab=' . urlencode('PluginPrintgestionPrinterThresholdsTab$1'),
                 'cartridge_url'  => $cartridge_id > 0 ? CartridgeItem::getFormURLWithID($cartridge_id) : '',
                 'expedition_id'  => $exp !== null ? (int) $exp['id'] : 0,
                 'expedition_url' => $exp !== null ? PluginPrintgestionExpedition::getFormURLWithID((int) $exp['id']) : '',

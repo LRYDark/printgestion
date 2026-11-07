@@ -215,7 +215,9 @@ $forced = ($view === 'client')
 
 echo "<div class='search_page row'>";
 echo "<div class='col search-container' data-glpi-search-container>";
-Search::showList($itemtype, $params, $forced);
+// forcetoview (et non forcedisplay) : GLPI le garde quand le tableau se recharge (tri, filtre, page).
+$params['forcetoview'] = $forced;
+Search::showList($itemtype, $params);
 echo "</div></div>";
 
 echo "</div>"; // container-fluid

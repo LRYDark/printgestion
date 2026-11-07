@@ -147,6 +147,7 @@ if (isset($_POST['activate_contract_alerts'])) {
         'id'                     => 1,
         'threshold_days'         => max(0, (int)($_POST['threshold_days']  ?? 30)),
         'threshold_level'        => max(0, min(100, (int)($_POST['threshold_level'] ?? 15))),
+        'threshold_days_critical' => max(0, min(3650, (int)($_POST['threshold_days_critical'] ?? PluginPrintgestionAlert::DEFAULT_DAYS_CRITICAL))),
         'reminder_days'          => max(1, (int)($_POST['reminder_days']   ?? 7)),
         'install_reminder'       => ((int)($_POST['install_reminder'] ?? 1) === 1) ? 1 : 0,
         'detection_delta'        => max(1, min(100, (int)($_POST['detection_delta'] ?? 20))),

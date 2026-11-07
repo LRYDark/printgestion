@@ -1278,6 +1278,34 @@ class PluginPrintgestionExpedition extends CommonDBTM {
         return '';
     }
 
+    /**
+     * Annule un envoi en cours (action « Annuler l'envoi en cours… » du tableau des alertes) : statut « Annulée », motif
+     * ajouté aux notes de l'envoi avec la date et l'auteur, verrou anti-double-envoi libéré (la cartouche redevient
+     * commandable), alerte « mauvaise imprimante » close, demande rattachée mise à jour. Un envoi déjà posé ou annulé
+     * n'est pas touché.
+     */
+    public static function cancel(int $expedition_id, string $reason): bool {
+        global $DB;
+
+        $row = $DB->request(['SELECT' => ['statut', 'notes'], 'FROM' => self::getTable(), 'WHERE' => ['id' => $expedition_id], 'LIMIT' => 1])->current();
+        if (!is_array($row) || in_array((string) $row['statut'], [self::STATUS_INSTALLED, self::STATUS_CANCELLED], true)) {
+            return false;
+        }
+        $line  = sprintf(__('Annulée le %1$s par %2$s : %3$s', 'printgestion'), Html::convDateTime(date('Y-m-d H:i:s')), getUserName((int) Session::getLoginUserID()), trim($reason));
+        $notes = trim((string) ($row['notes'] ?? ''));
+        $ok    = $DB->update(self::getTable(), [
+            'statut' => self::STATUS_CANCELLED,
+            'notes'  => $notes === '' ? $line : $notes . "\n" . $line,
+        ], ['id' => $expedition_id]);
+        if (!$ok) {
+            return false;
+        }
+        self::resolveWrongPrinterAlerts($expedition_id);
+        PluginPrintgestionDemande::syncForExpedition($expedition_id);
+        PluginPrintgestionAlert::invalidateCache();
+        return true;
+    }
+
     /** Résout les alertes « mauvaise imprimante » ouvertes d'un envoi (réattribué, annulé ou posé). */
     public static function resolveWrongPrinterAlerts(int $expedition_id): void {
         global $DB;

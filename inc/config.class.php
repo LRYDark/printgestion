@@ -270,7 +270,7 @@ class PluginPrintgestionConfig extends CommonDBTM {
 
         echo "<div class='col-md-3'>"
             . $label_with_tip(
-                __('Seuil jours estimés', 'printgestion'),
+                __('À surveiller sous (jours restants)', 'printgestion'),
                 __("Nombre de jours restants estimés en-dessous duquel un toner passe en statut « À surveiller ». Utilisé par le dashboard Alertes pour classer les cartouches qui vont bientôt devoir être remplacées.", 'printgestion')
             );
         echo "<input type='number' min='0' class='form-control' name='threshold_days' value='"
@@ -278,11 +278,19 @@ class PluginPrintgestionConfig extends CommonDBTM {
 
         echo "<div class='col-md-3'>"
             . $label_with_tip(
-                __('Seuil niveau min (%)', 'printgestion'),
+                __('Critique sous (%)', 'printgestion'),
                 __("Pourcentage de toner en-dessous duquel une cartouche passe en statut « Critique » (alerte immédiate, envoi mail aux commerciaux pour information client). Indépendant du nombre de jours restants.", 'printgestion')
             );
         echo "<input type='number' min='0' max='100' class='form-control' name='threshold_level' value='"
             . (int)($config->fields['threshold_level'] ?? 15) . "'></div>";
+
+        echo "<div class='col-md-3'>"
+            . $label_with_tip(
+                __('Critique sous (jours restants)', 'printgestion'),
+                __("Nombre de jours restants estimés en-dessous duquel un toner passe en statut « Critique », quel que soit son pourcentage : les deux façons d'alerter (en % et en jours) jouent ensemble. Réglable aussi imprimante par imprimante (onglet « Seuils d'alerte » de la fiche, ou action « Seuils d'alerte… » du tableau des alertes).", 'printgestion')
+            );
+        echo "<input type='number' min='0' class='form-control' name='threshold_days_critical' value='"
+            . (int)($config->fields['threshold_days_critical'] ?? PluginPrintgestionAlert::DEFAULT_DAYS_CRITICAL) . "'></div>";
 
         echo "<div class='col-md-3'>"
             . $label_with_tip(

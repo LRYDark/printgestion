@@ -205,7 +205,9 @@ class PluginPrintgestionTonerreading extends CommonDBTM {
             // des valeurs courantes de GLPI, relues ou non). Voir DOC_TECHNIQUE, phase 5 du Déploiement Agent.
             if (isset($latest_levels[$key]) && $latest_levels[$key] === $level) {
                 $counter   = in_array(PluginPrintgestionSnmpmapping::detectColor($prop), ['cyan', 'magenta', 'yellow'], true) ? 'color' : 'total';
-                $printed   = $pc[$counter] - ($latest_pages[$key][$counter] ?? $pc[$counter]);
+                // Compteur de départ inconnu (0) ou revenu en arrière : pages imprimées inconnues, rien à conclure.
+                $baseline  = (int) ($latest_pages[$key][$counter] ?? 0);
+                $printed   = ($baseline > 0 && $pc[$counter] >= $baseline) ? $pc[$counter] - $baseline : 0;
                 $threshold = self::FROZEN_PERCENT_STEPS * max(1, (int)round(($printer_yields[$pid] ?? $default_yield) / 100));
                 if ($printed < $threshold) {
                     continue;
